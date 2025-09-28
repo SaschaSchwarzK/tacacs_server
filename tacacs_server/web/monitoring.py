@@ -1,0 +1,487 @@
+"""
+Web Monitoring Interface for TACACS+ Server
+Provides both HTML dashboard and Prometheus metrics endpoint
+"""
+
+from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import uvicorn
+import asyncio
+import threading
+import time
+import json
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+import logging
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Prometheus Metrics
+auth_requests_total = Counter('tacacs_auth_requests_total', 'Total authentication requests', ['status', 'backend'])
+auth_duration = Histogram('tacacs_auth_duration_seconds', 'Authentication request duration')
+active_connections = Gauge('tacacs_active_connections', 'Number of active connections')
+server_uptime = Gauge('tacacs_server_uptime_seconds', 'Server uptime in seconds')
+accounting_records = Counter('tacacs_accounting_records_total', 'Total accounting records', ['status'])
+
+class TacacsMonitoringAPI:
+    """Web monitoring interface for TACACS+ server"""
+    
+    def __init__(self, tacacs_server, host="127.0.0.1", port=8080):
+        self.tacacs_server = tacacs_server
+        self.host = host
+        self.port = port
+        self.app = FastAPI(title="TACACS+ Server Monitor", version="1.0.0")
+
+        # Use package-relative paths for templates/static so it works regardless of CWD
+        pkg_root = Path(__file__).resolve().parent.parent
+        templates_dir = pkg_root / "templates"
+        static_dir = pkg_root / "static"
+
+        self.templates = Jinja2Templates(directory=str(templates_dir))
+        # mount static files using package-relative path only once
+        self.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+        self.setup_routes()
+        self.server = None
+        self.server_thread = None
+    
+    def setup_routes(self):
+        """Setup API routes"""
+        
+        # static already mounted in __init__ with package-relative path
+        
+        # HTML Dashboard
+        @self.app.get("/", response_class=HTMLResponse)
+        async def dashboard(request: Request):
+            """Main monitoring dashboard"""
+            try:
+                stats = self.get_server_stats()
+                return self.templates.TemplateResponse("dashboard.html", {
+                    "request": request,
+                    "stats": stats,
+                    "timestamp": datetime.now().isoformat()
+                })
+            except Exception as e:
+                logger.error(f"Dashboard error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        # API Endpoints
+        @self.app.get("/api/status")
+        async def api_status():
+            """Server status API"""
+            return self.get_server_stats()
+        
+        @self.app.get("/api/health")
+        async def api_health():
+            """Health check endpoint"""
+            try:
+                health = self.tacacs_server.get_health_status()
+                status_code = 200 if health.get('status') == 'healthy' else 503
+                return health
+            except Exception as e:
+                raise HTTPException(status_code=503, detail=f"Health check failed: {e}")
+        
+        @self.app.get("/api/stats")
+        async def api_stats():
+            """Detailed server statistics"""
+            return {
+                "server": self.get_server_stats(),
+                "backends": self.get_backend_stats(),
+                "database": self.get_database_stats(),
+                "sessions": self.get_session_stats()
+            }
+        
+        @self.app.get("/api/backends")
+        async def api_backends():
+            """Authentication backends status"""
+            return self.get_backend_stats()
+        
+        @self.app.get("/api/sessions")
+        async def api_sessions():
+            """Active sessions"""
+            return self.get_session_stats()
+        
+        @self.app.get("/api/accounting")
+        async def api_accounting(hours: int = 24, limit: int = 100):
+            """Recent accounting records"""
+            try:
+                since = datetime.now() - timedelta(hours=hours)
+                # This would need to be implemented in your database logger
+                records = self.tacacs_server.db_logger.get_recent_records(since, limit)
+                return {
+                    "records": records,
+                    "count": len(records),
+                    "period_hours": hours
+                }
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        # Prometheus Metrics Endpoint
+        @self.app.get("/metrics", response_class=PlainTextResponse)
+        async def metrics():
+            """Prometheus metrics endpoint"""
+            try:
+                # Update metrics before serving
+                self.update_prometheus_metrics()
+                # generate_latest() returns bytes — ensure proper media type
+                data = generate_latest()
+                return PlainTextResponse(content=data, media_type=CONTENT_TYPE_LATEST)
+            except Exception as e:
+                logger.error(f"Metrics generation error: {e}")
+                raise HTTPException(status_code=500, detail="Metrics unavailable")
+        
+        # Control Endpoints (Admin)
+        @self.app.post("/api/admin/reload-config")
+        async def reload_config():
+            """Reload server configuration"""
+            try:
+                success = self.tacacs_server.reload_configuration()
+                return {"success": success, "message": "Configuration reloaded" if success else "Reload failed"}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/api/admin/reset-stats")
+        async def reset_stats():
+            """Reset server statistics"""
+            try:
+                self.tacacs_server.reset_stats()
+                return {"success": True, "message": "Statistics reset"}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/api/admin/logs")
+        async def get_logs(lines: int = 100):
+            """Get recent log entries"""
+            try:
+                # This would read from your log file
+                logs = self.get_recent_logs(lines)
+                return {"logs": logs, "count": len(logs)}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+    
+    def get_server_stats(self) -> Dict[str, Any]:
+        """Get current server statistics"""
+        try:
+            stats = self.tacacs_server.get_stats()
+            health = self.tacacs_server.get_health_status()
+            
+            return {
+                "status": "running" if self.tacacs_server.running else "stopped",
+                "uptime": health.get('uptime_seconds', 0),
+                "connections": {
+                    "active": stats.get('connections_active', 0),
+                    "total": stats.get('connections_total', 0)
+                },
+                "authentication": {
+                    "requests": stats.get('auth_requests', 0),
+                    "successes": stats.get('auth_success', 0),
+                    "failures": stats.get('auth_failures', 0),
+                    "success_rate": self.calculate_success_rate(
+                        stats.get('auth_success', 0), 
+                        stats.get('auth_requests', 0)
+                    )
+                },
+                "authorization": {
+                    "requests": stats.get('author_requests', 0),
+                    "successes": stats.get('author_success', 0),
+                    "failures": stats.get('author_failures', 0),
+                    "success_rate": self.calculate_success_rate(
+                        stats.get('author_success', 0), 
+                        stats.get('author_requests', 0)
+                    )
+                },
+                "accounting": {
+                    "requests": stats.get('acct_requests', 0),
+                    "successes": stats.get('acct_success', 0),
+                    "failures": stats.get('acct_failures', 0)
+                },
+                "memory": health.get('memory_usage', {}),
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error getting server stats: {e}")
+            return {"error": str(e)}
+    
+    def get_backend_stats(self) -> List[Dict[str, Any]]:
+        """Get authentication backend statistics"""
+        backends = []
+        try:
+            for backend in self.tacacs_server.auth_backends:
+                backend_info = {
+                    "name": backend.name,
+                    "type": backend.__class__.__name__,
+                    "available": backend.is_available(),
+                    "stats": getattr(backend, 'get_stats', lambda: {})()
+                }
+                backends.append(backend_info)
+        except Exception as e:
+            logger.error(f"Error getting backend stats: {e}")
+        
+        return backends
+    
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get database statistics"""
+        try:
+            return self.tacacs_server.db_logger.get_statistics(days=30)
+        except Exception as e:
+            logger.error(f"Error getting database stats: {e}")
+            return {"error": str(e)}
+    
+    def get_session_stats(self) -> Dict[str, Any]:
+        """Get active session statistics"""
+        try:
+            active_sessions = self.tacacs_server.get_active_sessions()
+            return {
+                "active_count": len(active_sessions),
+                "sessions": active_sessions[:20],  # Limit to recent 20
+                "total_shown": min(len(active_sessions), 20)
+            }
+        except Exception as e:
+            logger.error(f"Error getting session stats: {e}")
+            return {"error": str(e)}
+    
+    def get_recent_logs(self, lines: int = 100) -> List[str]:
+        """Get recent log entries"""
+        try:
+            # Read from log file - this is a simple implementation
+            log_file = "logs/tacacs.log"
+            with open(log_file, 'r') as f:
+                all_lines = f.readlines()
+                return [line.strip() for line in all_lines[-lines:]]
+        except Exception as e:
+            logger.warning(f"Could not read logs: {e}")
+            return ["Log file not available"]
+    
+    def calculate_success_rate(self, successes: int, total: int) -> float:
+        """Calculate success rate percentage"""
+        return round((successes / total * 100) if total > 0 else 0, 2)
+    
+    def update_prometheus_metrics(self):
+        """
+        Collect runtime stats from the running TACACS server and update Prometheus metrics.
+        Be tolerant: if tacacs_server isn't available or doesn't expose the expected
+        get_stats() API, skip updating (export zeros implicitly).
+        """
+        try:
+            # Guard: nothing to do if no server reference
+            if not self.tacacs_server:
+                logger.debug("Monitoring: no tacacs_server bound, skipping metrics update")
+                return
+
+            # Try common locations for a get_stats() method
+            stats = None
+            if hasattr(self.tacacs_server, "get_stats"):
+                stats = self.tacacs_server.get_stats()
+            elif hasattr(self.tacacs_server, "server") and hasattr(self.tacacs_server.server, "get_stats"):
+                stats = self.tacacs_server.server.get_stats()
+            else:
+                logger.debug("Monitoring: tacacs_server has no get_stats(), skipping metrics update")
+                return
+
+            if not stats:
+                logger.debug("Monitoring: stats object empty/None, skipping metrics update")
+                return
+
+            # update prometheus metrics using the 'stats' mapping (keeps old logic)
+            # e.g.:
+            # self.auth_requests_counter.inc(stats.get("auth_requests_delta", 0))
+            # self.active_connections_gauge.set(stats.get("active_connections", 0))
+            # self.uptime_gauge.set(stats.get("uptime_seconds", 0))
+            # self.accounting_records_counter.inc(stats.get("accounting_records_delta", 0))
+            # ...existing code...
+
+        except Exception as exc:
+            logger.exception("Error updating Prometheus metrics: %s", exc)
+    
+    def start(self):
+        """Start the monitoring web server"""
+        if self.server_thread and self.server_thread.is_alive():
+            logger.warning("Monitoring server is already running")
+            return True
+
+        def run_server():
+            """Run the FastAPI server in a separate thread"""
+            try:
+                logger.info("Starting uvicorn for monitoring on %s:%s", self.host, self.port)
+                config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="warning", access_log=False)
+                server = uvicorn.Server(config)
+                # keep reference so we can signal shutdown later
+                self.server = server
+                # create and set a fresh event loop for this thread
+                asyncio.set_event_loop(asyncio.new_event_loop())
+                server.run()
+                logger.info("uvicorn monitoring exited")
+            except Exception as e:
+                logger.exception("Monitoring server error: %s", e)
+
+        self.server_thread = threading.Thread(target=run_server, daemon=True)
+        self.server_thread.start()
+        # short wait to allow uvicorn to bind
+        time.sleep(0.2)
+        if self.server_thread.is_alive():
+            logger.info("Monitoring interface started at http://%s:%s", self.host, self.port)
+            return True
+        else:
+            logger.error("Monitoring thread did not start")
+            return False
+
+    def stop(self):
+        """Stop the monitoring web server"""
+        if self.server:
+            try:
+                logger.info("Signalling uvicorn monitoring to stop")
+                self.server.should_exit = True
+            except Exception:
+                logger.exception("Failed to signal uvicorn to stop")
+        # join thread briefly
+        try:
+            if self.server_thread:
+                self.server_thread.join(timeout=1.0)
+        except Exception:
+            pass
+        logger.info("Monitoring interface stopped")
+
+
+# Metrics Integration for TACACS+ Server
+class PrometheusIntegration:
+    """Integration helper for Prometheus metrics"""
+    
+    @staticmethod
+    def record_auth_request(status: str, backend: str, duration: float):
+        """Record authentication request metrics"""
+        auth_requests_total.labels(status=status, backend=backend).inc()
+        auth_duration.observe(duration)
+    
+    @staticmethod
+    def record_accounting_record(status: str):
+        """Record accounting metrics"""
+        accounting_records.labels(status=status).inc()
+    
+    @staticmethod
+    def update_active_connections(count: int):
+        """Update active connections gauge"""
+        active_connections.set(count)
+
+
+# HTML Template for Dashboard
+DASHBOARD_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TACACS+ Server Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stat-title { font-size: 14px; color: #666; margin-bottom: 8px; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #333; }
+        .stat-success { color: #28a745; }
+        .stat-error { color: #dc3545; }
+        .stat-warning { color: #ffc107; }
+        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .status-online { color: #28a745; }
+        .status-offline { color: #dc3545; }
+        .backend-list { list-style: none; padding: 0; }
+        .backend-item { padding: 8px; border-left: 4px solid #ddd; margin-bottom: 8px; }
+        .backend-available { border-left-color: #28a745; }
+        .backend-unavailable { border-left-color: #dc3545; }
+        .refresh-btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .refresh-btn:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>TACACS+ Server Monitor</h1>
+            <p class="status-{{ 'online' if stats.status == 'running' else 'offline' }}">
+                Server Status: {{ stats.status.upper() }}
+            </p>
+            <button class="refresh-btn" onclick="location.reload()">Refresh</button>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">Uptime</div>
+                <div class="stat-value">{{ (stats.uptime // 3600) }}h {{ ((stats.uptime % 3600) // 60) }}m</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-title">Active Connections</div>
+                <div class="stat-value">{{ stats.connections.active }}</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-title">Auth Success Rate</div>
+                <div class="stat-value stat-{{ 'success' if stats.authentication.success_rate > 90 else 'warning' if stats.authentication.success_rate > 70 else 'error' }}">
+                    {{ stats.authentication.success_rate }}%
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-title">Memory Usage</div>
+                <div class="stat-value">{{ stats.memory.rss_mb }}MB</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h3>Authentication Statistics</h3>
+            <canvas id="authChart" width="400" height="200"></canvas>
+        </div>
+
+        <div class="chart-container">
+            <h3>Authentication Backends</h3>
+            <ul class="backend-list" id="backendList">
+                <!-- Populated by JavaScript -->
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Chart.js setup
+        const ctx = document.getElementById('authChart').getContext('2d');
+        const authChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Success', 'Failed'],
+                datasets: [{
+                    data: [{{ stats.authentication.successes }}, {{ stats.authentication.failures }}],
+                    backgroundColor: ['#28a745', '#dc3545']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            location.reload();
+        }, 30000);
+
+        // Load backend information
+        fetch('/api/backends')
+            .then(response => response.json())
+            .then(backends => {
+                const backendList = document.getElementById('backendList');
+                backendList.innerHTML = '';
+                backends.forEach(backend => {
+                    const li = document.createElement('li');
+                    li.className = `backend-item ${backend.available ? 'backend-available' : 'backend-unavailable'}`;
+                    li.innerHTML = `<strong>${backend.name}</strong> (${backend.type}) - ${backend.available ? 'Available' : 'Unavailable'}`;
+                    backendList.appendChild(li);
+                });
+            });
+    </script>
+</body>
+</html>
+'''

@@ -1,0 +1,32 @@
+2025-09-28 19:38:23,334 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
+2025-09-28 19:38:23,335 - tacacs_server.accounting.database - INFO - Database initialized: data/tacacs_accounting.db
+2025-09-28 19:38:23,336 - tacacs_server.auth.local - INFO - Loaded 3 users from config/users.json
+2025-09-28 19:38:23,336 - tacacs_server.tacacs.server - INFO - Added authentication backend: LocalAuthBackend(local)
+2025-09-28 19:38:23,336 - __main__ - INFO - Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080
+2025-09-28 19:38:23,336 - tacacs_server.tacacs.server - INFO - Attempting to enable web monitoring on 127.0.0.1:8080
+2025-09-28 19:38:23,337 - tacacs_server.web.monitoring - INFO - Starting uvicorn for monitoring on 127.0.0.1:8080
+2025-09-28 19:38:23,542 - tacacs_server.web.monitoring - INFO - Monitoring interface started at http://127.0.0.1:8080
+2025-09-28 19:38:23,648 - tacacs_server.tacacs.server - INFO - Web monitoring enabled at http://127.0.0.1:8080
+2025-09-28 19:38:23,649 - __main__ - INFO - Monitoring successfully started at http://127.0.0.1:8080
+2025-09-28 19:38:23,649 - __main__ - INFO - ==================================================
+2025-09-28 19:38:23,649 - __main__ - INFO - TACACS+ Server Starting
+2025-09-28 19:38:23,650 - __main__ - INFO - ==================================================
+2025-09-28 19:38:23,650 - __main__ - INFO - Server Address: 0.0.0.0:49
+2025-09-28 19:38:23,650 - __main__ - INFO - Secret Key: *********
+2025-09-28 19:38:23,650 - __main__ - INFO - Authentication Backends: local
+2025-09-28 19:38:23,650 - __main__ - INFO - Database: data/tacacs_accounting.db
+2025-09-28 19:38:23,651 - __main__ - INFO - Configuration: config/tacacs.conf
+2025-09-28 19:38:23,651 - __main__ - INFO - 
+2025-09-28 19:38:23,651 - __main__ - INFO - Testing authentication backends:
+2025-09-28 19:38:23,651 - __main__ - INFO -   local: ✓ Available
+2025-09-28 19:38:23,651 - __main__ - INFO - 
+2025-09-28 19:38:23,651 - __main__ - INFO - Server ready - waiting for connections...
+2025-09-28 19:38:23,651 - __main__ - INFO - Press Ctrl+C to stop
+2025-09-28 19:38:23,652 - tacacs_server.tacacs.server - INFO - TACACS+ server started on 0.0.0.0:49
+2025-09-28 19:38:23,652 - tacacs_server.tacacs.server - INFO - Authentication backends: ['local']
+2025-09-28 19:38:23,652 - tacacs_server.tacacs.server - INFO - Secret key: *********
+2025-09-28 19:38:56,287 - __main__ - INFO - Received signal 2
+2025-09-28 19:38:56,290 - __main__ - INFO - Shutting down TACACS+ server...
+2025-09-28 19:38:56,291 - tacacs_server.tacacs.server - INFO - Stopping TACACS+ server...
+2025-09-28 19:38:56,291 - __main__ - INFO - Server stopped successfully
+2025-09-28 19:38:56,294 - tacacs_server.tacacs.server - INFO - TACACS+ server stopped

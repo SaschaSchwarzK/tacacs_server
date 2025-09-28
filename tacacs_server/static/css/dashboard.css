@@ -1,0 +1,23 @@
+/* Additional styles for the dashboard */
+.metric-trend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.trend-up { color: #28a745; }
+.trend-down { color: #dc3545; }
+.trend-stable { color: #6c757d; }
+
+.alert-banner {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.metric-sparkline {
+    width: 60px;
+    height: 20px;
+}
