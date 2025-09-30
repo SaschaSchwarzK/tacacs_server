@@ -1,0 +1,229 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Groups</h2>
+    <div style="margin-bottom: 1rem;">
+        <button class="btn" onclick="openGroupModal()">Add Group</button>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Radius Secret</th>
+            <th>TACACS Secret</th>
+            <th>Allowed User Groups</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for group in groups %}
+            <tr data-id="{{ group.id }}">
+                <td>{{ group.name }}</td>
+                <td>{{ group.description or "" }}</td>
+                <td>{{ 'yes' if group.radius_secret else 'no' }}</td>
+                <td>{{ 'yes' if group.tacacs_secret else 'no' }}</td>
+                <td>{{ ', '.join(group.allowed_user_groups or []) if group.allowed_user_groups else '-' }}</td>
+                <td>
+                    <button class="btn" onclick="editGroup({{ group.id }})">Edit</button>
+                    <button class="btn btn-secondary" onclick="deleteGroup({{ group.id }})">Delete</button>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6">No groups defined.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="groupModal" class="modal-backdrop">
+    <div class="modal-card">
+        <h3 id="groupModalTitle" class="modal-title">Add Group</h3>
+        <div id="groupError" class="alert" style="display:none;"></div>
+        <form id="groupForm" onsubmit="submitGroup(event)" class="modal-form">
+            <input type="hidden" name="id" id="groupId">
+            <div class="modal-field">
+                <label for="groupName">Name</label>
+                <input type="text" name="name" id="groupName" required>
+            </div>
+            <div class="modal-field">
+                <label for="groupDescription">Description</label>
+                <input type="text" name="description" id="groupDescription" placeholder="optional">
+            </div>
+            <div class="modal-field">
+                <label for="groupRadiusSecret">Radius Secret</label>
+                <input type="text" name="radius_secret" id="groupRadiusSecret" placeholder="shared secret">
+            </div>
+            <div class="modal-field">
+                <label for="groupTacacsSecret">TACACS Secret</label>
+                <input type="text" name="tacacs_secret" id="groupTacacsSecret" placeholder="shared secret">
+            </div>
+            <div class="modal-field">
+                <label for="groupDeviceConfig">Device Config (JSON)</label>
+                <textarea name="device_config" id="groupDeviceConfig" rows="3" placeholder='{ "radius_attributes": {...} }'></textarea>
+            </div>
+            <div class="modal-field">
+                <label for="groupMetadata">Metadata (JSON)</label>
+                <textarea name="metadata" id="groupMetadata" rows="3" placeholder="optional JSON"></textarea>
+            </div>
+            <div class="modal-field">
+                <label for="groupAllowedUserGroups">Allowed User Groups</label>
+                {% if user_group_options %}
+                <select name="allowed_user_groups" id="groupAllowedUserGroups" multiple size="{{ 5 if user_group_options|length < 5 else (8 if user_group_options|length > 8 else user_group_options|length) }}">
+                    {% for group_name in user_group_options %}
+                    <option value="{{ group_name }}">{{ group_name }}</option>
+                    {% endfor %}
+                </select>
+                <small class="field-hint">Leave empty to allow any group.</small>
+                {% else %}
+                <select name="allowed_user_groups" id="groupAllowedUserGroups" multiple size="4" disabled>
+                    <option value="">No user groups defined</option>
+                </select>
+                <small class="field-hint">User groups can be managed on the User Groups page.</small>
+                {% endif %}
+            </div>
+            <div class="modal-actions">
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closeGroupModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function getSelectedValues(selectEl) {
+    if (!selectEl || selectEl.disabled) {
+        return [];
+    }
+    return Array.from(selectEl.selectedOptions || []).map(opt => opt.value).filter(Boolean);
+}
+
+function setMultiSelectValues(selectEl, values) {
+    if (!selectEl) {
+        return;
+    }
+    const desired = new Set(values || []);
+    Array.from(selectEl.options).forEach(option => {
+        option.selected = desired.has(option.value);
+        if (option.selected) {
+            desired.delete(option.value);
+        }
+    });
+    // Append any missing entries to keep visibility of legacy values
+    desired.forEach(value => {
+        if (!value) return;
+        const opt = new Option(value, value, true, true);
+        selectEl.add(opt);
+    });
+    if (!selectEl.disabled && (!values || values.length === 0)) {
+        selectEl.selectedIndex = -1;
+    }
+}
+
+function openGroupModal() {
+    document.getElementById('groupForm').reset();
+    document.getElementById('groupId').value = '';
+    document.getElementById('groupRadiusSecret').value = '';
+    document.getElementById('groupTacacsSecret').value = '';
+    document.getElementById('groupDeviceConfig').value = '';
+    document.getElementById('groupMetadata').value = '';
+    setMultiSelectValues(document.getElementById('groupAllowedUserGroups'), []);
+    document.getElementById('groupModalTitle').innerText = 'Add Group';
+    document.getElementById('groupModal').style.display = 'flex';
+    document.getElementById('groupError').style.display = 'none';
+}
+
+async function editGroup(id) {
+    try {
+        const resp = await fetch(`/admin/groups/${id}?format=json`, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) throw new Error('Failed to load group');
+        const group = await resp.json();
+        openGroupModal();
+        document.getElementById('groupModalTitle').innerText = 'Edit Group';
+        document.getElementById('groupId').value = group.id;
+        document.getElementById('groupName').value = group.name || '';
+        document.getElementById('groupDescription').value = group.description || '';
+        document.getElementById('groupRadiusSecret').value = group.radius_secret || '';
+        document.getElementById('groupTacacsSecret').value = group.tacacs_secret || '';
+        const cfg = group.device_config && Object.keys(group.device_config || {}).length ? JSON.stringify(group.device_config, null, 2) : '';
+        document.getElementById('groupDeviceConfig').value = cfg;
+        const meta = group.metadata && Object.keys(group.metadata).length ? JSON.stringify(group.metadata, null, 2) : '';
+        document.getElementById('groupMetadata').value = meta;
+        setMultiSelectValues(document.getElementById('groupAllowedUserGroups'), group.allowed_user_groups || []);
+    } catch (err) {
+        alert(err.message || 'Failed to load group');
+    }
+}
+
+function closeGroupModal() {
+    document.getElementById('groupModal').style.display = 'none';
+}
+
+async function submitGroup(event) {
+    event.preventDefault();
+    const errorBox = document.getElementById('groupError');
+    errorBox.style.display = 'none';
+
+    const form = event.target;
+    const payload = {
+        name: form.name.value,
+        description: form.description.value || null,
+        radius_secret: form.radius_secret.value || null,
+        tacacs_secret: form.tacacs_secret.value || null,
+    };
+    const metadata = form.metadata.value.trim();
+    if (metadata) {
+        try {
+            payload.metadata = JSON.parse(metadata);
+        } catch (e) {
+            errorBox.innerText = 'Metadata must be valid JSON';
+            errorBox.style.display = 'block';
+            return;
+        }
+    }
+    const deviceConfig = form.device_config.value.trim();
+    if (deviceConfig) {
+        try {
+            payload.device_config = JSON.parse(deviceConfig);
+        } catch (e) {
+            errorBox.innerText = 'Device config must be valid JSON';
+            errorBox.style.display = 'block';
+            return;
+        }
+    }
+    const allowedSelect = document.getElementById('groupAllowedUserGroups');
+    const allowedValues = getSelectedValues(allowedSelect);
+    payload.allowed_user_groups = allowedValues;
+
+    const groupId = document.getElementById('groupId').value;
+    const method = groupId ? 'PUT' : 'POST';
+    const url = groupId ? `/admin/groups/${groupId}` : '/admin/groups';
+
+    try {
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.detail || 'Request failed');
+        }
+        window.location.reload();
+    } catch (err) {
+        errorBox.innerText = err.message;
+        errorBox.style.display = 'block';
+    }
+}
+
+async function deleteGroup(id) {
+    if (!confirm('Delete this group? You may need to cascade delete devices manually.')) return;
+    const resp = await fetch(`/admin/groups/${id}?cascade=false`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) {
+        const detail = await resp.json().catch(() => ({}));
+        alert(detail.detail || 'Failed to delete group');
+    }
+    window.location.reload();
+}
+</script>
+{% endblock %}

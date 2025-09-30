@@ -1,15 +1,18 @@
 # TACACS+ Server
 
-A simple TACACS+ (Terminal Access Controller Access-Control System Plus) server implementation in Python providing Authentication, Authorization and Accounting (AAA) backends and test tooling.
+A modern TACACS+/RADIUS appliance implemented in Python. The project focuses on clear configuration management, secure credential handling, and an approachable web console for daily operations.
 
-Features
-- Authentication backends: local, LDAP, Okta
-- Authorization via group membership (Okta/LDAP) or local rules
-- Accounting support and example TACACS+ server for testing
-- Web Dashboard Real-time statistics
-- Prometheus Integration Standard metrics, Grafana ready 
-- REST API Health checks, Detailed stats, Admin controls and recent logs
-- Test suite with pytest and helper scripts
+![Dashboard](docs/images/Dashbaord_page.png)
+
+## Key Features
+- **AAA backends**: Local SQLite, LDAP, and Okta integrations with group-aware authorisation rules.
+- **Secure device management**: Shared secrets defined on device groups only (no per-device secrets), with masking in logs and UI.
+- **Rich admin console**: Manage devices, device groups, user groups, local users, and review masked configuration directly in the browser.
+- **Insightful dashboard**: Dedicated tiles for system health, TACACS+, and RADIUS showing real-time success/failure rates, CPU/memory usage, and connection counts.
+- **Event visibility**: Consistent TACACS+/RADIUS logging with detailed failure reasons and backend identifiers.
+- **Prometheus ready**: `/metrics` endpoint plus helper Grafana queries.
+- **Config flexibility**: Load configuration from the default file or via the `TACACS_CONFIG` environment variable (filesystem path or URL).
+- **Comprehensive test suite**: Pytest-based tests and helper scripts for TACACS+/RADIUS clients.
 
 Quickstart (Poetry)
 1. Install dependencies:
@@ -37,21 +40,33 @@ Access the Web Interface:
 - Health Check: http://127.0.0.1:8080/api/health
 - Prometheus Metrics: http://127.0.0.1:8080/metrics
 
+## Admin Web Console
 
+- **Dashboard** – Three dedicated tiles for system health, TACACS+, and RADIUS along with recent devices, groups, and users.
+- **Devices** – Create or edit devices with a group dropdown (no inline secrets).
+  ![Devices](docs/images/Devices_page.png)
+- **Device Groups** – Maintain shared secrets, device metadata, and allowed user groups via multi-select controls.
+  ![Device groups](docs/images/Device_Groups_page.png)
+- **User Groups** – Manage privilege levels and directory mappings.
+  ![User groups](docs/images/User_Groups_page.png)
+- **Local Users** – Edit users, privilege, and group memberships with selection lists.
+  ![Users](docs/images/Users_page.png)
+- **Configuration Viewer** – Read-only view of the active configuration with secrets masked, reflecting whatever source `TACACS_CONFIG` resolved to.
+  ![Configuration](docs/images/Configuration_page.png)
 
-| Endpoint                     | Description                  |
-|-------------------------------|------------------------------|
-| GET /HTML                     | Dashboard                   |
-| GET /api/statusServer         | status JSON                 |
-| GET /api/healthHealth         | check                       |
-| GET /api/statsDetailed        | statistics                  |
-| GET /api/backendsAuth         | backend status              |
-| GET /api/sessions             | Active sessions             |
-| GET /api/accounting           | Recent accounting records   |
-| GET /metrics                  | Prometheus metrics          |
-| POST /api/admin/reload-config | Reload configuration        |
-| POST /api/admin/reset-stats   | Reset statistics            |
+Unauthenticated admin requests are redirected to the login page; sessions are held in-memory with configurable timeouts.
 
+## Configuration
+
+- Default configuration file: `config/tacacs.conf`
+- Override via environment variable: `TACACS_CONFIG=/path/to/tacacs.conf` or `TACACS_CONFIG=https://example/config.ini`
+- URL sources are fetched read-only; local files remain editable through the web console or manual edits.
+
+## APIs & Monitoring
+
+- `/api/status`, `/api/stats`, `/api/backends`, `/api/sessions`, `/api/accounting` – JSON endpoints backing the UI.
+- `/api/admin/reload-config`, `/api/admin/reset-stats` – management helpers.
+- `/metrics` – Prometheus scrape endpoint.
 
 Prometheus Configuration
 Add this to your prometheus.yml:
@@ -94,7 +109,7 @@ Project layout
   - cli.py              -> package CLI entrypoint
   - main.py             -> package main() entrypoint
 - tests/                -> pytest test-suite and conftest
-- scripts/              -> helper scripts (test_client.py, setup_project.py)
+- scripts/              -> helper scripts (tacacs_client.py, setup_project.py)
 - config/, data/, logs/ -> runtime directories created by setup_project.py
 
 Important files
@@ -103,11 +118,12 @@ Important files
 - LICENSE               -> license text (MIT)
 - MANIFEST.in           -> optional package include patterns
 - scripts/setup_project.py -> create runtime dirs and move test client
-- scripts/test_client.py -> test client script (moved from tests/)
+- scripts/tacacs_client.py -> TACACS+ client script (moved from tests/)
 
 Configuration
 - Default config file: config/tacacs.conf
 - Use --config to point to a custom file when starting the server
+- Set `TACACS_CONFIG` to a file path or URL to load config automatically
 
 Testing notes
 - Tests expect either the package installed editable (poetry run pip install -e .) or running with PYTHONPATH set to the project root:
@@ -123,4 +139,7 @@ Contributing
 - Run tests locally: poetry run pytest
 
 License
-- See LICENSE file for details.
+- MIT (Attribution Required). All forks, copies, or deployments must retain the
+  upstream attribution notice and link back to
+  https://github.com/SaschaSchwarzK/tacacs_server. See the LICENSE file for full
+  terms.

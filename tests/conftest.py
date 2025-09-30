@@ -6,6 +6,8 @@ import socket
 from pathlib import Path
 import pytest
 
+from tacacs_server.auth.local_user_service import LocalUserService
+
 def _venv_python(root: Path) -> str:
     candidate = root / ".venv" / "bin" / "python"
     return str(candidate) if candidate.exists() else sys.executable
@@ -23,12 +25,15 @@ def server_config_file(tmp_path_factory, project_root: Path) -> Path:
     cfg_dir = tmp_path_factory.mktemp("tacacs_test_cfg")
     cfg = cfg_dir / "tacacs_test.conf"
 
-    # Create a users file with a known test user (admin / admin123)
-    users_file = cfg_dir / "users.json"
-    users_file.write_text('{"admin": {"password": "admin123", "enabled": true}}')
+    # Seed a local auth database with a known test user (admin / admin123)
+    auth_db = cfg_dir / "local_auth.db"
+    service = LocalUserService(auth_db)
+    service.create_user("admin", password="admin123", enabled=True)
 
     # Use a shared secret that the test client will use
     shared_secret = "testsecret"
+
+    device_db = cfg_dir / "devices.db"
 
     cfg.write_text(f"""[server]
 host = 127.0.0.1
@@ -45,7 +50,11 @@ backup_count = 1
 
 [auth]
 backends = local
-users_file = {users_file.as_posix()}
+local_auth_db = {auth_db.as_posix()}
+
+[devices]
+database = {device_db.as_posix()}
+default_group = default
 """)
     return cfg
 
@@ -96,15 +105,15 @@ def server_process(project_root: Path, venv_python: str, server_config_file: Pat
 @pytest.fixture
 def run_test_client(venv_python: str, project_root: Path):
     """
-    Helper to run tests/tests_client.py (or scripts/test_client.py) with the venv python.
+    Helper to run tests/tests_client.py (or scripts/tacacs_client.py) with the venv python.
     Returns a callable: result = run_test_client(host, port, secret, username, password)
     """
     def _run(host: str, port: int, secret: str, username: str = "admin", password: str = "admin123", timeout: int = 15):
-        # try tests/test_client.py first, fallback to scripts/test_client.py
-        candidates = [project_root / "tests" / "test_client.py", project_root / "scripts" / "test_client.py"]
+        # try tests/test_client.py first, fallback to scripts/tacacs_client.py
+        candidates = [project_root / "tests" / "test_client.py", project_root / "scripts" / "tacacs_client.py"]
         script = next((str(p) for p in candidates if p.exists()), None)
         if script is None:
-            raise FileNotFoundError("No test_client script found in tests/ or scripts/")
+            raise FileNotFoundError("No TACACS+ client script found in tests/ or scripts/")
         cmd = [venv_python, script, host, str(port), secret, username, password]
         return subprocess.run(cmd, cwd=str(project_root), capture_output=True, text=True, timeout=timeout)
     return _run

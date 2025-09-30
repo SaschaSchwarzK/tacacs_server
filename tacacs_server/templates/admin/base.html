@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title or "Admin" }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f3f4f6; color: #111827; }
+        header { background: #1f2937; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        header a { color: #d1d5db; text-decoration: none; margin-left: 1rem; }
+        main { padding: 2rem; }
+        .card { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 6px rgba(15,23,42,0.12); }
+        .stat-card { background:#1f2937; color:white; border-radius:8px; padding:1rem 1.5rem; min-width:140px; flex:1 1 140px; box-shadow:0 6px 16px rgba(17,24,39,0.2); }
+        .stat-value { font-size:2rem; font-weight:600; }
+        .stat-label { text-transform:uppercase; font-size:0.75rem; letter-spacing:0.08em; color:#d1d5db; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f9fafb; font-weight: 600; }
+        .btn { display: inline-block; padding: 0.5rem 1rem; border-radius: 4px; background: #2563eb; color: white; text-decoration: none; border: none; cursor: pointer; }
+        .btn-secondary { background: #6b7280; }
+        form.inline { display: inline; }
+        .alert { background: #fee2e2; color: #b91c1c; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
+        .modal-backdrop { display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); align-items:center; justify-content:center; z-index:1000; }
+        .modal-card { background:white; border-radius:8px; padding:1.5rem; width:min(460px, 90vw); box-shadow:0 20px 35px rgba(15,23,42,0.25); }
+        .modal-title { margin-top:0; margin-bottom:1rem; color:#111827; }
+        .modal-form { display:flex; flex-direction:column; gap:0.75rem; }
+        .modal-field { display:flex; flex-direction:column; gap:0.35rem; color:#374151; }
+        .modal-field input,
+        .modal-field textarea,
+        .modal-field select { padding:0.55rem 0.75rem; border-radius:6px; border:1px solid #d1d5db; font-size:0.95rem; }
+        .modal-field textarea { resize:vertical; min-height:90px; }
+        .modal-hint { font-size:0.8rem; color:#6b7280; }
+        .modal-actions { display:flex; gap:0.75rem; justify-content:flex-end; margin-top:0.5rem; }
+    </style>
+</head>
+<body>
+<header>
+    <div><strong>TACACS+ Admin</strong></div>
+    <nav>
+        <a href="/admin/">Dashboard</a>
+        <a href="/admin/devices">Devices</a>
+        <a href="/admin/groups">Device Groups</a>
+        <a href="/admin/user-groups">User Groups</a>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/config">Configuration</a>
+        <a href="#" onclick="logout(event)">Logout</a>
+    </nav>
+</header>
+<main>
+    {% if message %}
+    <div class="alert">{{ message }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+</main>
+<script>
+async function logout(event) {
+    event.preventDefault();
+    await fetch('/admin/logout', {method: 'POST', headers: {'Accept': 'application/json'}});
+    window.location.href = '/admin/login';
+}
+</script>
+</body>
+</html>

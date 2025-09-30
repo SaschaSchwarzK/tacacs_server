@@ -1,206 +1,184 @@
-"""
-Local File-Based Authentication Backend
-"""
+"""Local SQLite-Based Authentication Backend."""
 
-import os
-import json
-import hashlib
 import logging
-from typing import Dict, Any
+import threading
+from dataclasses import replace
+from typing import Any, Callable, Dict, Optional
+
 from .base import AuthenticationBackend
+from .local_user_service import (
+    LocalUserExists,
+    LocalUserNotFound,
+    LocalUserService,
+    LocalUserServiceError,
+    LocalUserValidationError,
+)
+from .local_models import LocalUserRecord
 
 logger = logging.getLogger(__name__)
 
+
 class LocalAuthBackend(AuthenticationBackend):
-    """Local file-based authentication backend"""
-    
-    def __init__(self, users_file: str = "config/users.json"):
+    """Local authentication backend backed by :class:`LocalUserService`."""
+
+    def __init__(self, db_path: str = "data/local_auth.db", *, service: Optional[LocalUserService] = None):
         super().__init__("local")
-        self.users_file = users_file
-        self.users = self._load_users()
-    
-    def _load_users(self) -> Dict[str, Dict[str, Any]]:
-        """Load users from JSON file"""
+        self.db_path = db_path
+        self.user_service = service or LocalUserService(db_path)
+        self._user_cache: Dict[str, LocalUserRecord] = {}
+        self._cache_lock = threading.RLock()
+        self._listener_remove: Optional[Callable[[], None]] = None
+        self._attach_user_service(self.user_service)
+
+    def _attach_user_service(self, service: LocalUserService) -> None:
+        if self._listener_remove:
+            try:
+                self._listener_remove()
+            except Exception:
+                logger.exception("Failed detaching previous user service listener")
+            finally:
+                self._listener_remove = None
+        self.user_service = service
         try:
-            with open(self.users_file, 'r') as f:
-                users_data = json.load(f)
-                logger.info(f"Loaded {len(users_data)} users from {self.users_file}")
-                return users_data
-        except FileNotFoundError:
-            logger.warning(f"Users file {self.users_file} not found, creating default")
-            return self._create_default_users()
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in {self.users_file}: {e}")
-            return self._create_default_users()
-    
-    def _create_default_users(self) -> Dict[str, Dict[str, Any]]:
-        """Create default users file"""
-        default_users = {
-            "admin": {
-                "password": "admin123",
-                "password_hash": None,  # Plain text for demo
-                "privilege_level": 15,
-                "service": "exec",
-                "shell_command": ["show", "configure", "debug", "enable"],
-                "groups": ["administrators"],
-                "enabled": True,
-                "description": "Default administrator account"
-            },
-            "operator": {
-                "password": "operator123",
-                "password_hash": None,
-                "privilege_level": 7,
-                "service": "exec", 
-                "shell_command": ["show", "configure"],
-                "groups": ["operators"],
-                "enabled": True,
-                "description": "Network operator account"
-            },
-            "user": {
-                "password": "user123",
-                "password_hash": None,
-                "privilege_level": 1,
-                "service": "exec",
-                "shell_command": ["show"],
-                "groups": ["users"],
-                "enabled": True,
-                "description": "Default user account"
-            }
-        }
-        
-        try:
-            # Create directory if it doesn't exist
-            import os
-            os.makedirs(os.path.dirname(self.users_file), exist_ok=True)
-            
-            with open(self.users_file, 'w') as f:
-                json.dump(default_users, f, indent=2)
-            logger.info(f"Default users created in {self.users_file}")
-        except Exception as e:
-            logger.error(f"Could not create default users file: {e}")
-        
-        return default_users
-    
+            self._listener_remove = service.add_change_listener(self._on_user_change)
+        except AttributeError:
+            self._listener_remove = None
+
+    def set_user_service(self, service: LocalUserService) -> None:
+        if service is None:
+            raise ValueError("service must not be None")
+        if service is self.user_service:
+            return
+        self._attach_user_service(service)
+        self.invalidate_user_cache()
+
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
-        """Authenticate against local user database"""
-        user_data = self.users.get(username)
-        if not user_data:
-            logger.debug(f"User {username} not found in local database")
+        """Authenticate against local user database."""
+        try:
+            user = self._get_user(username)
+        except LocalUserNotFound:
+            logger.debug("User %s not found in local database", username)
             return False
-        
-        if not user_data.get('enabled', True):
-            logger.info(f"User {username} is disabled")
+
+        if not user.enabled:
+            logger.info("User %s is disabled", username)
             return False
-        
-        # Check password hash if available, otherwise plain text
-        if user_data.get('password_hash'):
-            return self._verify_password_hash(password, user_data['password_hash'])
+
+        if user.password_hash:
+            return self._verify_password_hash(password, user.password_hash)
+
+        if user.password is None:
+            logger.debug("User %s has no password configured", username)
+            return False
+
+        result = user.password == password
+        if result:
+            logger.info("Authentication successful for %s", username)
         else:
-            # Plain text comparison (for demo purposes)
-            result = user_data.get('password') == password
-            if result:
-                logger.info(f"Authentication successful for {username}")
-            else:
-                logger.info(f"Authentication failed for {username}")
-            return result
-    
+            logger.info("Authentication failed for %s", username)
+        return result
+
     def get_user_attributes(self, username: str) -> Dict[str, Any]:
-        """Get user attributes"""
-        user_data = self.users.get(username, {})
-        # Remove password from returned attributes for security
-        attrs = {k: v for k, v in user_data.items() if k not in ['password', 'password_hash']}
+        try:
+            user = self._get_user(username)
+        except LocalUserNotFound:
+            return {}
+        attrs = user.to_dict()
+        attrs.pop("password", None)
+        attrs.pop("password_hash", None)
         return attrs
-    
+
     def change_password(self, username: str, old_password: str, new_password: str) -> bool:
-        """Change user password"""
         if not self.authenticate(username, old_password):
             return False
-        
         try:
-            self.users[username]['password'] = new_password
-            # Optionally hash the password
-            # self.users[username]['password_hash'] = self._hash_password(new_password)
-            # self.users[username]['password'] = None
-            
-            self._save_users()
-            logger.info(f"Password changed for user {username}")
+            self.user_service.set_password(username, new_password, store_hash=False)
+            logger.info("Password changed for user %s", username)
             return True
-        except Exception as e:
-            logger.error(f"Failed to change password for {username}: {e}")
+        except LocalUserServiceError:
+            logger.exception("Failed to change password for %s", username)
             return False
-    
+
     def add_user(self, username: str, password: str, **attributes) -> bool:
-        """Add new user"""
-        if username in self.users:
-            logger.warning(f"User {username} already exists")
-            return False
-        
         try:
-            self.users[username] = {
-                "password": password,
-                "password_hash": None,
-                "privilege_level": attributes.get('privilege_level', 1),
-                "service": attributes.get('service', 'exec'),
-                "shell_command": attributes.get('shell_command', ['show']),
-                "groups": attributes.get('groups', ['users']),
-                "enabled": attributes.get('enabled', True),
-                "description": attributes.get('description', f'User {username}')
-            }
-            
-            self._save_users()
-            logger.info(f"User {username} added successfully")
+            self.user_service.create_user(
+                username,
+                password=password,
+                privilege_level=attributes.get("privilege_level", 1),
+                service=attributes.get("service", "exec"),
+                shell_command=attributes.get("shell_command", ["show"]),
+                groups=attributes.get("groups", ["users"]),
+                enabled=attributes.get("enabled", True),
+                description=attributes.get("description"),
+            )
+            logger.info("User %s added successfully", username)
             return True
-        except Exception as e:
-            logger.error(f"Failed to add user {username}: {e}")
+        except (LocalUserExists, LocalUserValidationError) as exc:
+            logger.error("Failed to add user %s: %s", username, exc)
             return False
-    
+
     def remove_user(self, username: str) -> bool:
-        """Remove user"""
-        if username not in self.users:
-            return False
-        
         try:
-            del self.users[username]
-            self._save_users()
-            logger.info(f"User {username} removed")
+            self.user_service.delete_user(username)
+            logger.info("User %s removed", username)
+            self.invalidate_user_cache(username)
             return True
-        except Exception as e:
-            logger.error(f"Failed to remove user {username}: {e}")
+        except LocalUserNotFound:
             return False
-    
+
     def reload_users(self) -> bool:
-        """Reload users from file"""
         try:
-            self.users = self._load_users()
-            logger.info("Users reloaded successfully")
+            self.user_service.reload()
+            self.invalidate_user_cache()
+            logger.info("Local users reloaded successfully")
             return True
-        except Exception as e:
-            logger.error(f"Failed to reload users: {e}")
+        except Exception as exc:
+            logger.error("Failed to reload users: %s", exc)
             return False
-    
-    def _save_users(self):
-        """Save users to file"""
-        with open(self.users_file, 'w') as f:
-            json.dump(self.users, f, indent=2)
-    
+
+    def invalidate_user_cache(self, username: Optional[str] = None) -> None:
+        with self._cache_lock:
+            if username is None:
+                self._user_cache.clear()
+            else:
+                self._user_cache.pop(username, None)
+
+    def _on_user_change(self, _event: str, username: str) -> None:
+        self.invalidate_user_cache(username)
+
+    def _get_user(self, username: str) -> LocalUserRecord:
+        with self._cache_lock:
+            cached = self._user_cache.get(username)
+        if cached is not None:
+            return self._clone_record(cached)
+        record = self.user_service.get_user(username)
+        with self._cache_lock:
+            self._user_cache[username] = record
+        return self._clone_record(record)
+
+    @staticmethod
+    def _clone_record(record: LocalUserRecord) -> LocalUserRecord:
+        return replace(
+            record,
+            shell_command=list(record.shell_command),
+            groups=list(record.groups),
+        )
+
     def _hash_password(self, password: str) -> str:
-        """Hash password using SHA-256"""
-        return hashlib.sha256(password.encode('utf-8')).hexdigest()
-    
+        import hashlib
+
+        return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
     def _verify_password_hash(self, password: str, password_hash: str) -> bool:
-        """Verify password against hash"""
         return self._hash_password(password) == password_hash
-    
+
     def is_available(self) -> bool:
-        """Check if backend is available"""
-        return bool(self.users)
-    
+        return True
+
     def get_stats(self) -> Dict[str, Any]:
-        """Get backend statistics"""
-        enabled_users = sum(1 for user in self.users.values() if user.get('enabled', True))
+        users = self.user_service.list_users()
+        enabled_users = sum(1 for user in users if user.enabled)
         return {
-            'total_users': len(self.users),
-            'enabled_users': enabled_users,
-            'disabled_users': len(self.users) - enabled_users,
-            'users_file': self.users_file
+            "total_users": len(users),
+            "enabled_users": enabled_users,
         }
