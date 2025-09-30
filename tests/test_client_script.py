@@ -15,6 +15,8 @@ def test_test_client_script_runs(run_test_client, server_process):
         "PASSED",
         "Authentication PASSED",
         "Authentication successful",
-        "✓ Authentication PASSED"
+        "✓ Authentication PASSED",
+        "Authentication accepted",
+        "✅ Authentication accepted"
     ]
     assert any(marker in result.stdout for marker in ok_markers), f"Unexpected test client output:\n{result.stdout}\n{result.stderr}"

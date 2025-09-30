@@ -7,6 +7,8 @@ import configparser
 import json
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, List
+from urllib.parse import urlparse
+from urllib.request import urlopen
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
 
@@ -40,7 +42,9 @@ class TacacsConfig:
     """TACACS+ server configuration manager"""
 
     def __init__(self, config_file: str='config/tacacs.conf'):
-        self.config_file = config_file
+        env_source = os.environ.get('TACACS_CONFIG')
+        self.config_source = env_source or config_file
+        self.config_file = None if self._is_url(self.config_source) else self.config_source
         self.config = configparser.ConfigParser(interpolation=None)
         self._load_config()
 
@@ -48,24 +52,49 @@ class TacacsConfig:
         """Load configuration from file"""
         self._set_defaults()
         try:
-            if os.path.exists(self.config_file):
-                self.config.read(self.config_file)
+            if self._is_url(self.config_source):
+                self._load_from_url(self.config_source)
             else:
-                self.save_config()
+                path = self.config_file or self.config_source
+                if os.path.exists(path):
+                    self.config.read(path)
+                else:
+                    self.config_file = path
+                    self.save_config()
         except Exception as e:
             logger.exception('Failed to load configuration (%s). Using defaults.', e)
 
     def _set_defaults(self):
         """Set default configuration values"""
         self.config['server'] = {'host': '0.0.0.0', 'port': '49', 'secret_key': 'tacacs123', 'log_level': 'INFO', 'max_connections': '50', 'socket_timeout': '30'}
-        self.config['auth'] = {'backends': 'local', 'users_file': 'config/users.json', 'require_all_backends': 'false'}
+        self.config['auth'] = {
+            'backends': 'local',
+            'local_auth_db': 'data/local_auth.db',
+            'require_all_backends': 'false'
+        }
         self.config['ldap'] = {'server': 'ldap://localhost:389', 'base_dn': 'ou=people,dc=example,dc=com', 'user_attribute': 'uid', 'bind_dn': '', 'bind_password': '', 'use_tls': 'false', 'timeout': '10'}
         self.config['database'] = {'accounting_db': 'data/tacacs_accounting.db', 'cleanup_days': '90', 'auto_cleanup': 'true'}
         self.config['security'] = {'max_auth_attempts': '3', 'auth_timeout': '300', 'encryption_required': 'true', 'allowed_clients': '', 'denied_clients': ''}
         self.config['logging'] = {'log_file': 'logs/tacacs.log', 'log_format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s', 'log_rotation': 'true', 'max_log_size': '10MB', 'backup_count': '5'}
+        self.config['admin'] = {
+            'username': 'admin',
+            'password_hash': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
+            'session_timeout_minutes': '60'
+        }
+        self.config['devices'] = {'database': 'data/devices.db', 'default_group': 'default'}
+        self.config['radius'] = {
+            'enabled': 'false',
+            'auth_port': '1812',
+            'acct_port': '1813',
+            'host': '0.0.0.0',
+            'share_backends': 'true',
+            'share_accounting': 'true'
+        }
 
     def save_config(self):
         """Save configuration to file"""
+        if self._is_url(self.config_source):
+            raise RuntimeError('Cannot save configuration when source is a URL')
         try:
             cfg_dir = os.path.dirname(self.config_file)
             if cfg_dir and (not os.path.exists(cfg_dir)):
@@ -84,6 +113,11 @@ class TacacsConfig:
         backends_str = self.config.get('auth', 'backends', fallback='local')
         return [backend.strip() for backend in backends_str.split(',') if backend.strip()]
 
+    def get_local_auth_db(self) -> str:
+        if self.config.has_option('auth', 'local_auth_db'):
+            return self.config.get('auth', 'local_auth_db')
+        return 'data/local_auth.db'
+
     def create_auth_backends(self) -> List:
         """Create authentication backend instances"""
         backends = []
@@ -93,7 +127,7 @@ class TacacsConfig:
                 # normalize backend_name before using .lower()
                 backend_name = _normalize_backend_name(backend_name)
                 if backend_name.lower() == 'local':
-                    backends.append(LocalAuthBackend(self.config.get("auth", "users_file", fallback="config/users.json")))
+                    backends.append(LocalAuthBackend(self.get_local_auth_db()))
                 elif backend_name.lower() == 'ldap':
                     backends.append(LDAPAuthBackend(dict(self.config['ldap'])))
                 else:
@@ -102,7 +136,7 @@ class TacacsConfig:
                 logger.exception("Failed to initialize auth backend '%s'", backend_name)
         if not backends:
             try:
-                backends.append(LocalAuthBackend(self.config.get('auth', 'users_file', fallback='config/users.json')))
+                backends.append(LocalAuthBackend(self.get_local_auth_db()))
             except Exception:
                 logger.exception('Failed to initialize fallback local auth backend')
         return backends
@@ -110,6 +144,22 @@ class TacacsConfig:
     def get_database_config(self) -> Dict[str, Any]:
         """Get database configuration"""
         return {'accounting_db': self.config.get('database', 'accounting_db'), 'cleanup_days': self.config.getint('database', 'cleanup_days'), 'auto_cleanup': self.config.getboolean('database', 'auto_cleanup')}
+
+    def get_device_store_config(self) -> Dict[str, Any]:
+        """Get device inventory configuration"""
+        return {
+            'database': self.config.get('devices', 'database', fallback='data/devices.db'),
+            'default_group': self.config.get('devices', 'default_group', fallback='default')
+        }
+
+    def get_admin_auth_config(self) -> Dict[str, Any]:
+        """Get admin authentication configuration"""
+        section = self.config['admin'] if 'admin' in self.config else {}
+        return {
+            'username': section.get('username', 'admin'),
+            'password_hash': section.get('password_hash', ''),
+            'session_timeout_minutes': int(section.get('session_timeout_minutes', 60)),
+        }
 
     def get_security_config(self) -> Dict[str, Any]:
         """Get security configuration"""
@@ -159,10 +209,10 @@ class TacacsConfig:
         if 'ldap' in [_normalize_backend_name(b).lower() for b in backends]:
             if not self.config.get('ldap', 'server'):
                 issues.append('LDAP backend enabled but ldap.server is not set')
-        users_file = self.config.get('auth', 'users_file')
-        users_dir = os.path.dirname(users_file)
-        if users_dir and (not os.path.exists(users_dir)):
-            issues.append(f'Users file directory does not exist: {users_dir}')
+        auth_db_path = self.get_local_auth_db()
+        auth_db_dir = os.path.dirname(auth_db_path)
+        if auth_db_dir and (not os.path.exists(auth_db_dir)):
+            issues.append(f'Local auth database directory does not exist: {auth_db_dir}')
         db_file = self.config.get('database', 'accounting_db')
         db_dir = os.path.dirname(db_file)
         if db_dir and (not os.path.exists(db_dir)):
@@ -171,8 +221,48 @@ class TacacsConfig:
 
     def get_config_summary(self) -> Dict[str, Any]:
         """Get configuration summary for display"""
-        return {'server': dict(self.config['server']), 'auth': dict(self.config['auth']), 'ldap': dict(self.config['ldap']), 'database': dict(self.config['database']), 'security': dict(self.config['security']), 'logging': dict(self.config['logging'])}
+        summary = {
+            'server': dict(self.config['server']),
+            'auth': dict(self.config['auth']),
+            'ldap': dict(self.config['ldap']),
+            'database': dict(self.config['database']),
+            'security': dict(self.config['security']),
+            'logging': dict(self.config['logging'])
+        }
+        if 'admin' in self.config:
+            summary['admin'] = dict(self.config['admin'])
+        if 'devices' in self.config:
+            summary['devices'] = dict(self.config['devices'])
+        if 'radius' in self.config:
+            summary['radius'] = dict(self.config['radius'])
+        return summary
 
+    def get_radius_config(self) -> Dict[str, Any]:
+        """Get RADIUS server configuration"""
+        return {
+            'enabled': self.config.getboolean('radius', 'enabled'),
+            'auth_port': self.config.getint('radius', 'auth_port'),
+            'acct_port': self.config.getint('radius', 'acct_port'),
+            'host': self.config.get('radius', 'host'),
+            'share_backends': self.config.getboolean('radius', 'share_backends'),
+            'share_accounting': self.config.getboolean('radius', 'share_accounting')
+        }
+
+    @staticmethod
+    def _is_url(source: str) -> bool:
+        parsed = urlparse(source)
+        return parsed.scheme in {'http', 'https', 'file'}
+
+    def _load_from_url(self, source: str) -> None:
+        try:
+            with urlopen(source) as response:
+                payload = response.read().decode('utf-8')
+        except Exception as exc:
+            logger.exception('Failed to load configuration from %s: %s', source, exc)
+            return
+        self.config.read_string(payload)
+    
+    
 def _parse_size(size_str: str) -> int:
     """Parse human readable size strings like '10MB' -> bytes"""
     try:

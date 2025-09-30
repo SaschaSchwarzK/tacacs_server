@@ -1,0 +1,297 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Local Users</h2>
+    <div style="margin-bottom: 1rem; display:flex; gap:0.5rem;">
+        <button class="btn" onclick="openUserModal()">Add User</button>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Username</th>
+            <th>Privilege</th>
+            <th>Groups</th>
+            <th>Enabled</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for user in users %}
+            <tr data-username="{{ user.username }}">
+                <td>{{ user.username }}</td>
+                <td>{{ user.privilege_level }}</td>
+                <td>{{ ", ".join(user.groups) }}</td>
+                <td>{{ "yes" if user.enabled else "no" }}</td>
+                <td>
+                    <button class="btn" onclick="editUser('{{ user.username }}')">Edit</button>
+                    <button class="btn btn-secondary" onclick="resetPassword('{{ user.username }}')">Password</button>
+                    <button class="btn btn-secondary" onclick="deleteUser('{{ user.username }}')">Delete</button>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5">No local users defined.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="userModal" class="modal-backdrop">
+    <div class="modal-card">
+        <h3 id="userModalTitle" class="modal-title">Add User</h3>
+        <div id="userError" class="alert" style="display:none;"></div>
+        <form id="userForm" onsubmit="submitUser(event)" class="modal-form">
+            <input type="hidden" id="userAction" value="create">
+            <div class="modal-field">
+                <label for="formUsername">Username</label>
+                <input type="text" id="formUsername" required>
+            </div>
+            <div class="modal-field">
+                <label for="formPrivilege">Privilege Level</label>
+                <input type="number" id="formPrivilege" min="0" max="15" value="1" required>
+            </div>
+            <div class="modal-field">
+                <label for="formGroups">Groups</label>
+                {% if group_options %}
+                <select id="formGroups" multiple size="{{ 5 if group_options|length < 5 else (8 if group_options|length > 8 else group_options|length) }}">
+                    {% for group_name in group_options %}
+                    <option value="{{ group_name }}">{{ group_name }}</option>
+                    {% endfor %}
+                </select>
+                <small class="modal-hint">Hold Ctrl/Cmd to select multiple. Leave empty for default membership.</small>
+                {% else %}
+                <select id="formGroups" multiple size="4" disabled>
+                    <option value="">No user groups defined</option>
+                </select>
+                <small class="modal-hint">Create user groups first.</small>
+                {% endif %}
+            </div>
+            <div class="modal-field">
+                <label for="formShell">Shell Commands (comma separated)</label>
+                <input type="text" id="formShell" placeholder="show">
+            </div>
+            <div class="modal-field">
+                <label for="formDescription">Description</label>
+                <input type="text" id="formDescription" placeholder="optional">
+            </div>
+            <div class="modal-field">
+                <label for="formEnabled">Enabled</label>
+                <select id="formEnabled">
+                    <option value="true" selected>Yes</option>
+                    <option value="false">No</option>
+                </select>
+            </div>
+            <div class="modal-field">
+                <label for="formPassword">Password</label>
+                <input type="password" id="formPassword" placeholder="required for new user">
+            </div>
+            <div class="modal-actions">
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="passwordModal" class="modal-backdrop">
+    <div class="modal-card">
+        <h3 class="modal-title">Set Password</h3>
+        <div id="passwordError" class="alert" style="display:none;"></div>
+        <form id="passwordForm" onsubmit="submitPassword(event)" class="modal-form">
+            <input type="hidden" id="passwordUsername">
+            <div class="modal-field">
+                <label for="passwordValue">New Password</label>
+                <input type="password" id="passwordValue" required>
+            </div>
+            <div class="modal-actions">
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closePasswordModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function getSelectedValues(selectEl) {
+    if (!selectEl || selectEl.disabled) {
+        return [];
+    }
+    return Array.from(selectEl.selectedOptions || []).map(option => option.value).filter(Boolean);
+}
+
+function setMultiSelectValues(selectEl, values) {
+    if (!selectEl) {
+        return;
+    }
+    const desired = new Set(values || []);
+    Array.from(selectEl.options).forEach(option => {
+        const shouldSelect = desired.has(option.value);
+        option.selected = shouldSelect;
+        if (shouldSelect) {
+            desired.delete(option.value);
+        }
+    });
+    // Add missing options dynamically so legacy values remain visible
+    desired.forEach(value => {
+        if (!value) {
+            return;
+        }
+        const opt = new Option(value, value, true, true);
+        selectEl.add(opt);
+    });
+    if (!selectEl.disabled && (!values || values.length === 0)) {
+        selectEl.selectedIndex = -1;
+    }
+}
+
+function openUserModal(action = 'create', user = null) {
+    document.getElementById('userForm').reset();
+    document.getElementById('userError').style.display = 'none';
+    document.getElementById('userAction').value = action;
+    document.getElementById('formUsername').readOnly = action === 'edit';
+    setMultiSelectValues(document.getElementById('formGroups'), []);
+    if (action === 'edit' && user) {
+        document.getElementById('userModalTitle').innerText = 'Edit User';
+        document.getElementById('formUsername').value = user.username;
+        document.getElementById('formPrivilege').value = user.privilege_level;
+        setMultiSelectValues(document.getElementById('formGroups'), user.groups || []);
+        document.getElementById('formShell').value = user.shell_command.join(', ');
+        document.getElementById('formDescription').value = user.description || '';
+        document.getElementById('formEnabled').value = user.enabled ? 'true' : 'false';
+    } else {
+        document.getElementById('userModalTitle').innerText = 'Add User';
+    }
+    document.getElementById('userModal').style.display = 'flex';
+}
+
+async function editUser(username) {
+    try {
+        const resp = await fetch(`/admin/users/${encodeURIComponent(username)}?format=json`, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) throw new Error('Failed to load user');
+        const user = await resp.json();
+        openUserModal('edit', user);
+    } catch (err) {
+        alert(err.message || 'Failed to load user');
+    }
+}
+
+function closeUserModal() {
+    document.getElementById('userModal').style.display = 'none';
+}
+
+async function submitUser(event) {
+    event.preventDefault();
+    const action = document.getElementById('userAction').value;
+    const username = document.getElementById('formUsername').value;
+    const groupSelect = document.getElementById('formGroups');
+    const selectedGroups = getSelectedValues(groupSelect);
+    const payload = {
+        privilege_level: Number(document.getElementById('formPrivilege').value),
+        shell_command: document.getElementById('formShell').value ? document.getElementById('formShell').value.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        description: document.getElementById('formDescription').value || undefined,
+        enabled: document.getElementById('formEnabled').value === 'true',
+        service: 'exec',
+    };
+    if (groupSelect && !groupSelect.disabled) {
+        if (action === 'create') {
+            if (selectedGroups.length) {
+                payload.groups = selectedGroups;
+            }
+        } else {
+            payload.groups = selectedGroups;
+        }
+    }
+    const password = document.getElementById('formPassword').value;
+    const errorBox = document.getElementById('userError');
+
+    try {
+        if (action === 'create') {
+            if (!password) {
+                throw new Error('Password is required for new user');
+            }
+            payload.username = username;
+            payload.password = password;
+            const resp = await fetch('/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                throw new Error(data.detail || 'Request failed');
+            }
+        } else {
+            const resp = await fetch(`/admin/users/${username}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                throw new Error(data.detail || 'Request failed');
+            }
+            if (password) {
+                await updatePassword(username, password);
+            }
+        }
+        window.location.reload();
+    } catch (err) {
+        errorBox.innerText = err.message;
+        errorBox.style.display = 'block';
+    }
+}
+
+function resetPassword(username) {
+    document.getElementById('passwordForm').reset();
+    document.getElementById('passwordUsername').value = username;
+    document.getElementById('passwordError').style.display = 'none';
+    document.getElementById('passwordModal').style.display = 'flex';
+}
+
+function closePasswordModal() {
+    document.getElementById('passwordModal').style.display = 'none';
+}
+
+async function submitPassword(event) {
+    event.preventDefault();
+    const username = document.getElementById('passwordUsername').value;
+    const password = document.getElementById('passwordValue').value;
+    const errorBox = document.getElementById('passwordError');
+    errorBox.style.display = 'none';
+
+    try {
+        await updatePassword(username, password);
+        window.location.reload();
+    } catch (err) {
+        errorBox.innerText = err.message;
+        errorBox.style.display = 'block';
+    }
+}
+
+async function updatePassword(username, password) {
+    const resp = await fetch(`/admin/users/${username}/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ password }),
+    });
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || 'Password update failed');
+    }
+}
+
+async function deleteUser(username) {
+    if (!confirm(`Delete user ${username}?`)) return;
+    const resp = await fetch(`/admin/users/${username}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) {
+        const detail = await resp.json().catch(() => ({}));
+        alert(detail.detail || 'Failed to delete user');
+    }
+    window.location.reload();
+}
+
+function deleteUserRow(username) {
+    const row = document.querySelector(`tr[data-username="${username}"]`);
+    if (row) row.remove();
+}
+</script>
+{% endblock %}

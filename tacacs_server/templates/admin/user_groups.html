@@ -1,0 +1,172 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="card">
+    <h2>User Groups</h2>
+    <div style="margin-bottom: 1rem;">
+        <button class="btn" onclick="openUserGroupModal()">Add Group</button>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>LDAP</th>
+            <th>Okta</th>
+            <th>Privilege</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for group in groups %}
+            <tr data-name="{{ group.name }}">
+                <td>{{ group.name }}</td>
+                <td>{{ group.description or "" }}</td>
+                <td>{{ group.ldap_group or "-" }}</td>
+                <td>{{ group.okta_group or "-" }}</td>
+                <td>{{ group.privilege_level }}</td>
+                <td>
+                    <button class="btn" onclick="editUserGroup('{{ group.name }}')">Edit</button>
+                    <button class="btn btn-secondary" onclick="deleteUserGroup('{{ group.name }}')">Delete</button>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6">No user groups defined.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="userGroupModal" class="modal-backdrop">
+    <div class="modal-card">
+        <h3 id="userGroupModalTitle" class="modal-title">Add User Group</h3>
+        <div id="userGroupError" class="alert" style="display:none;"></div>
+        <form id="userGroupForm" onsubmit="submitUserGroup(event)" class="modal-form">
+            <input type="hidden" id="userGroupAction" value="create">
+            <div class="modal-field">
+                <label for="userGroupName">Name</label>
+                <input type="text" id="userGroupName" required>
+            </div>
+            <div class="modal-field">
+                <label for="userGroupDescription">Description</label>
+                <input type="text" id="userGroupDescription" placeholder="optional">
+            </div>
+            <div class="modal-field">
+                <label for="userGroupLdap">LDAP Group</label>
+                <input type="text" id="userGroupLdap" placeholder="cn=group,ou=groups,dc=example,dc=com">
+            </div>
+            <div class="modal-field">
+                <label for="userGroupOkta">Okta Group</label>
+                <input type="text" id="userGroupOkta" placeholder="okta-group-id">
+            </div>
+            <div class="modal-field">
+                <label for="userGroupPrivilege">Privilege Level</label>
+                <input type="number" id="userGroupPrivilege" min="0" max="15" value="1" required>
+            </div>
+            <div class="modal-field">
+                <label for="userGroupMetadata">Metadata (JSON)</label>
+                <textarea id="userGroupMetadata" rows="3" placeholder="optional JSON"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closeUserGroupModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openUserGroupModal(action = 'create', group = null) {
+    document.getElementById('userGroupForm').reset();
+    document.getElementById('userGroupError').style.display = 'none';
+    document.getElementById('userGroupAction').value = action;
+    document.getElementById('userGroupName').readOnly = action === 'edit';
+    if (action === 'edit' && group) {
+        document.getElementById('userGroupModalTitle').innerText = 'Edit User Group';
+        document.getElementById('userGroupName').value = group.name;
+        document.getElementById('userGroupDescription').value = group.description || '';
+        document.getElementById('userGroupLdap').value = group.ldap_group || '';
+        document.getElementById('userGroupOkta').value = group.okta_group || '';
+        document.getElementById('userGroupMetadata').value = group.metadata && Object.keys(group.metadata).length ? JSON.stringify(group.metadata, null, 2) : '';
+        document.getElementById('userGroupPrivilege').value = group.privilege_level ?? 1;
+    } else {
+        document.getElementById('userGroupModalTitle').innerText = 'Add User Group';
+        document.getElementById('userGroupLdap').value = '';
+        document.getElementById('userGroupOkta').value = '';
+        document.getElementById('userGroupMetadata').value = '';
+        document.getElementById('userGroupPrivilege').value = 1;
+    }
+    document.getElementById('userGroupModal').style.display = 'flex';
+}
+
+async function editUserGroup(name) {
+    try {
+        const resp = await fetch(`/admin/user-groups/${encodeURIComponent(name)}?format=json`, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) throw new Error('Failed to load user group');
+        const group = await resp.json();
+        openUserGroupModal('edit', group);
+    } catch (err) {
+        alert(err.message || 'Failed to load user group');
+    }
+}
+
+function closeUserGroupModal() {
+    document.getElementById('userGroupModal').style.display = 'none';
+}
+
+async function submitUserGroup(event) {
+    event.preventDefault();
+    const action = document.getElementById('userGroupAction').value;
+    const name = document.getElementById('userGroupName').value;
+    const payload = {
+        description: document.getElementById('userGroupDescription').value || null,
+        ldap_group: document.getElementById('userGroupLdap').value || null,
+        okta_group: document.getElementById('userGroupOkta').value || null,
+        privilege_level: document.getElementById('userGroupPrivilege').value,
+    };
+    const metadata = document.getElementById('userGroupMetadata').value.trim();
+    if (metadata) {
+        try {
+            payload.metadata = JSON.parse(metadata);
+        } catch (e) {
+            showUserGroupError('Metadata must be valid JSON');
+            return;
+        }
+    }
+    try {
+        const url = action === 'edit' ? `/admin/user-groups/${encodeURIComponent(name)}` : '/admin/user-groups';
+        const method = action === 'edit' ? 'PUT' : 'POST';
+        if (action !== 'edit') {
+            payload.name = name;
+        }
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+            const detail = await resp.json().catch(() => ({}));
+            throw new Error(detail.detail || 'Request failed');
+        }
+        window.location.reload();
+    } catch (err) {
+        showUserGroupError(err.message);
+    }
+}
+
+function showUserGroupError(message) {
+    const box = document.getElementById('userGroupError');
+    box.innerText = message;
+    box.style.display = 'block';
+}
+
+async function deleteUserGroup(name) {
+    if (!confirm(`Delete user group ${name}?`)) return;
+    const resp = await fetch(`/admin/user-groups/${encodeURIComponent(name)}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) {
+        const detail = await resp.json().catch(() => ({}));
+        alert(detail.detail || 'Failed to delete user group');
+    }
+    window.location.reload();
+}
+</script>
+{% endblock %}
