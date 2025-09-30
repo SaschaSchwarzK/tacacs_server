@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
+from .schema import TacacsConfigSchema, validate_config_file
 
 logger = logging.getLogger(__name__)
 
@@ -190,34 +191,38 @@ class TacacsConfig:
         self.save_config()
 
     def validate_config(self) -> List[str]:
-        """Validate configuration and return list of issues"""
-        issues = []
+        """Validate configuration and return list of issues."""
+
         try:
-            port = self.config.getint('server', 'port')
-            if port <= 0 or port > 65535:
-                issues.append('server.port must be between 1 and 65535')
-        except ValueError:
-            issues.append('server.port is not a valid integer')
-        except Exception:
-            issues.append('server.port validation failed')
-        secret_key = self.config.get('server', 'secret_key')
-        if not secret_key or len(secret_key) < 8:
-            issues.append('server.secret_key must be at least 8 characters')
-        backends = self.get_auth_backends()
-        if not backends:
-            issues.append('No authentication backends configured')
-        if 'ldap' in [_normalize_backend_name(b).lower() for b in backends]:
-            if not self.config.get('ldap', 'server'):
-                issues.append('LDAP backend enabled but ldap.server is not set')
-        auth_db_path = self.get_local_auth_db()
-        auth_db_dir = os.path.dirname(auth_db_path)
-        if auth_db_dir and (not os.path.exists(auth_db_dir)):
-            issues.append(f'Local auth database directory does not exist: {auth_db_dir}')
-        db_file = self.config.get('database', 'accounting_db')
-        db_dir = os.path.dirname(db_file)
-        if db_dir and (not os.path.exists(db_dir)):
-            issues.append(f'Database directory does not exist: {db_dir}')
-        return issues
+            config_dict: Dict[str, Dict[str, str]] = {
+                'server': dict(self.config['server']),
+                'auth': dict(self.config['auth']),
+                'security': dict(self.config['security']),
+            }
+
+            if 'ldap' in self.config:
+                config_dict['ldap'] = dict(self.config['ldap'])
+            if 'okta' in self.config:
+                config_dict['okta'] = dict(self.config['okta'])
+
+            validated: TacacsConfigSchema = validate_config_file(config_dict)
+            logger.info("✓ Configuration validation passed")
+
+            auth_db_path = validated.auth.local_auth_db
+            auth_db_dir = os.path.dirname(auth_db_path)
+            issues: List[str] = []
+            if auth_db_dir and not os.path.exists(auth_db_dir):  # pragma: no cover - filesystem check
+                issues.append(f"Local auth database directory does not exist: {auth_db_dir}")
+
+            db_file = self.config.get('database', 'accounting_db')
+            db_dir = os.path.dirname(db_file)
+            if db_dir and not os.path.exists(db_dir):  # pragma: no cover - filesystem check
+                issues.append(f"Database directory does not exist: {db_dir}")
+
+            return issues
+        except ValueError as exc:
+            logger.error("✗ Configuration validation failed: %s", exc)
+            return [str(exc)]
 
     def get_config_summary(self) -> Dict[str, Any]:
         """Get configuration summary for display"""

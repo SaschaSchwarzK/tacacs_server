@@ -44,3 +44,98 @@
 2025-09-30 18:57:28,168 - tacacs_server.tacacs.server - INFO - Stopping TACACS+ server...
 2025-09-30 18:57:28,169 - __main__ - INFO - Servers stopped successfully
 2025-09-30 18:57:28,169 - tacacs_server.tacacs.server - INFO - TACACS+ server stopped
+2025-09-30 19:24:20,455 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
+2025-09-30 19:24:20,456 - tacacs_server.accounting.database - INFO - Database initialized: data/tacacs_accounting.db
+2025-09-30 19:24:20,465 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
+2025-09-30 19:24:20,465 - tacacs_server.radius.server - INFO - RADIUS: Accounting logger configured
+2025-09-30 19:24:20,466 - __main__ - INFO - RADIUS: Sharing accounting database with TACACS+
+2025-09-30 19:24:20,466 - __main__ - INFO - RADIUS server configured with 3 clients
+2025-09-30 19:24:20,466 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
+2025-09-30 19:24:20,466 - tacacs_server.tacacs.server - INFO - Added authentication backend: LocalAuthBackend(local)
+2025-09-30 19:24:20,466 - tacacs_server.radius.server - INFO - RADIUS: Added authentication backend: local
+2025-09-30 19:24:20,466 - __main__ - INFO - RADIUS: Sharing 1 auth backends with TACACS+
+2025-09-30 19:24:20,466 - __main__ - INFO - Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080
+2025-09-30 19:24:20,466 - tacacs_server.tacacs.server - INFO - Attempting to enable web monitoring on 127.0.0.1:8080
+2025-09-30 19:24:20,471 - tacacs_server.web.monitoring - INFO - Starting uvicorn for monitoring on 127.0.0.1:8080
+2025-09-30 19:24:20,672 - tacacs_server.web.monitoring - INFO - Monitoring interface started at http://127.0.0.1:8080
+2025-09-30 19:24:20,778 - tacacs_server.tacacs.server - INFO - Web monitoring enabled at http://127.0.0.1:8080
+2025-09-30 19:24:20,779 - __main__ - INFO - Monitoring successfully started at http://127.0.0.1:8080
+2025-09-30 19:24:20,779 - __main__ - INFO - ==================================================
+2025-09-30 19:24:20,779 - __main__ - INFO - TACACS+ & RADIUS Server Starting
+2025-09-30 19:24:20,779 - __main__ - INFO - ==================================================
+2025-09-30 19:24:20,779 - __main__ - INFO - Server Address: 0.0.0.0:49
+2025-09-30 19:24:20,780 - __main__ - INFO - Secret Key: *********
+2025-09-30 19:24:20,780 - __main__ - INFO - Authentication Backends: local
+2025-09-30 19:24:20,780 - __main__ - INFO - Database: data/tacacs_accounting.db
+2025-09-30 19:24:20,780 - __main__ - INFO - Configuration: config/tacacs.conf
+2025-09-30 19:24:20,780 - __main__ - INFO - 
+2025-09-30 19:24:20,780 - __main__ - INFO - Testing authentication backends:
+2025-09-30 19:24:20,780 - __main__ - INFO -   local: ✓ Available
+2025-09-30 19:24:20,780 - __main__ - INFO - 
+2025-09-30 19:24:20,780 - __main__ - INFO - RADIUS Server:
+2025-09-30 19:24:20,780 - __main__ - INFO -   Authentication Port: 1812
+2025-09-30 19:24:20,780 - __main__ - INFO -   Accounting Port: 1813
+2025-09-30 19:24:20,780 - __main__ - INFO -   Configured Clients: 3
+2025-09-30 19:24:20,781 - __main__ - INFO -   Client Groups: firewall(1), router1(1), switch1(1)
+2025-09-30 19:24:20,781 - __main__ - INFO - 
+2025-09-30 19:24:20,781 - __main__ - INFO - Server ready - waiting for connections...
+2025-09-30 19:24:20,781 - __main__ - INFO - Press Ctrl+C to stop
+2025-09-30 19:30:06,174 - __main__ - INFO - Received signal 2
+2025-09-30 19:30:06,178 - __main__ - INFO - Shutting down down servers...
+2025-09-30 19:30:06,178 - tacacs_server.radius.server - INFO - RADIUS server stopped
+2025-09-30 19:30:06,178 - tacacs_server.tacacs.server - INFO - Stopping TACACS+ server...
+2025-09-30 19:30:06,178 - __main__ - INFO - Servers stopped successfully
+2025-09-30 19:30:06,179 - tacacs_server.tacacs.server - INFO - TACACS+ server stopped
+2025-09-30 19:30:07,722 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
+2025-09-30 19:30:07,723 - config.config - ERROR - ✗ Configuration validation failed: 1 validation error for TacacsConfigSchema
+okta
+  Field required [type=missing, input_value={'server': {'host': '0.0....alse', 'timeout': '10'}}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+2025-09-30 19:30:07,724 - __main__ - ERROR - Configuration validation failed:
+2025-09-30 19:30:07,724 - __main__ - ERROR -   - 1 validation error for TacacsConfigSchema
+okta
+  Field required [type=missing, input_value={'server': {'host': '0.0....alse', 'timeout': '10'}}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+2025-09-30 19:32:32,722 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
+2025-09-30 19:32:32,723 - config.config - INFO - ✓ Configuration validation passed
+2025-09-30 19:32:32,723 - tacacs_server.accounting.database - INFO - Database initialized: data/tacacs_accounting.db
+2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
+2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Accounting logger configured
+2025-09-30 19:32:32,731 - __main__ - INFO - RADIUS: Sharing accounting database with TACACS+
+2025-09-30 19:32:32,731 - __main__ - INFO - RADIUS server configured with 3 clients
+2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
+2025-09-30 19:32:32,731 - tacacs_server.tacacs.server - INFO - Added authentication backend: LocalAuthBackend(local)
+2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Added authentication backend: local
+2025-09-30 19:32:32,732 - __main__ - INFO - RADIUS: Sharing 1 auth backends with TACACS+
+2025-09-30 19:32:32,732 - __main__ - INFO - Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080
+2025-09-30 19:32:32,732 - tacacs_server.tacacs.server - INFO - Attempting to enable web monitoring on 127.0.0.1:8080
+2025-09-30 19:32:32,737 - tacacs_server.web.monitoring - INFO - Starting uvicorn for monitoring on 127.0.0.1:8080
+2025-09-30 19:32:32,942 - tacacs_server.web.monitoring - INFO - Monitoring interface started at http://127.0.0.1:8080
+2025-09-30 19:32:33,045 - tacacs_server.tacacs.server - INFO - Web monitoring enabled at http://127.0.0.1:8080
+2025-09-30 19:32:33,045 - __main__ - INFO - Monitoring successfully started at http://127.0.0.1:8080
+2025-09-30 19:32:33,046 - __main__ - INFO - ==================================================
+2025-09-30 19:32:33,046 - __main__ - INFO - TACACS+ & RADIUS Server Starting
+2025-09-30 19:32:33,046 - __main__ - INFO - ==================================================
+2025-09-30 19:32:33,046 - __main__ - INFO - Server Address: 0.0.0.0:49
+2025-09-30 19:32:33,046 - __main__ - INFO - Secret Key: *********
+2025-09-30 19:32:33,046 - __main__ - INFO - Authentication Backends: local
+2025-09-30 19:32:33,046 - __main__ - INFO - Database: data/tacacs_accounting.db
+2025-09-30 19:32:33,046 - __main__ - INFO - Configuration: config/tacacs.conf
+2025-09-30 19:32:33,046 - __main__ - INFO - 
+2025-09-30 19:32:33,046 - __main__ - INFO - Testing authentication backends:
+2025-09-30 19:32:33,046 - __main__ - INFO -   local: ✓ Available
+2025-09-30 19:32:33,046 - __main__ - INFO - 
+2025-09-30 19:32:33,047 - __main__ - INFO - RADIUS Server:
+2025-09-30 19:32:33,047 - __main__ - INFO -   Authentication Port: 1812
+2025-09-30 19:32:33,047 - __main__ - INFO -   Accounting Port: 1813
+2025-09-30 19:32:33,047 - __main__ - INFO -   Configured Clients: 3
+2025-09-30 19:32:33,047 - __main__ - INFO -   Client Groups: firewall(1), router1(1), switch1(1)
+2025-09-30 19:32:33,047 - __main__ - INFO - 
+2025-09-30 19:32:33,047 - __main__ - INFO - Server ready - waiting for connections...
+2025-09-30 19:32:33,047 - __main__ - INFO - Press Ctrl+C to stop
+2025-09-30 19:32:35,818 - __main__ - INFO - Received signal 2
+2025-09-30 19:32:35,819 - __main__ - INFO - Shutting down down servers...
+2025-09-30 19:32:35,819 - tacacs_server.radius.server - INFO - RADIUS server stopped
+2025-09-30 19:32:35,819 - tacacs_server.tacacs.server - INFO - Stopping TACACS+ server...
+2025-09-30 19:32:35,819 - __main__ - INFO - Servers stopped successfully
+2025-09-30 19:32:35,819 - tacacs_server.tacacs.server - INFO - TACACS+ server stopped
