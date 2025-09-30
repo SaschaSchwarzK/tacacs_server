@@ -13,12 +13,101 @@ import threading
 import time
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable, Awaitable, TYPE_CHECKING
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_device_service: Optional["DeviceService"] = None
+_local_user_service: Optional["LocalUserService"] = None
+_local_user_group_service: Optional["LocalUserGroupService"] = None
+_config: Optional["TacacsConfig"] = None
+_tacacs_server_ref = None
+_radius_server_ref = None
+_admin_auth_dependency: Optional[Callable[[Request], Awaitable[None]]] = None
+_admin_session_manager: Optional["AdminSessionManager"] = None
+
+
+def get_device_service() -> Optional["DeviceService"]:
+    return _device_service
+
+
+def set_device_service(service: Optional["DeviceService"]) -> None:
+    global _device_service
+    _device_service = service
+
+
+def get_local_user_service() -> Optional["LocalUserService"]:
+    return _local_user_service
+
+
+def set_local_user_service(service: Optional["LocalUserService"]) -> None:
+    global _local_user_service
+    _local_user_service = service
+
+
+def get_local_user_group_service() -> Optional["LocalUserGroupService"]:
+    return _local_user_group_service
+
+
+def set_local_user_group_service(service: Optional["LocalUserGroupService"]) -> None:
+    global _local_user_group_service
+    _local_user_group_service = service
+
+
+def set_config(config: Optional["TacacsConfig"]) -> None:
+    global _config
+    _config = config
+
+
+def get_config() -> Optional["TacacsConfig"]:
+    return _config
+
+
+def set_tacacs_server(server) -> None:
+    global _tacacs_server_ref
+    _tacacs_server_ref = server
+
+
+def get_tacacs_server():
+    return _tacacs_server_ref
+
+
+def set_radius_server(server) -> None:
+    global _radius_server_ref
+    _radius_server_ref = server
+
+
+def get_radius_server():
+    return _radius_server_ref
+
+
+def set_admin_auth_dependency(dependency: Optional[Callable[[Request], Awaitable[None]]]) -> None:
+    global _admin_auth_dependency
+    _admin_auth_dependency = dependency
+
+
+def get_admin_auth_dependency_func() -> Optional[Callable[[Request], Awaitable[None]]]:
+    return _admin_auth_dependency
+
+
+def set_admin_session_manager(manager: Optional["AdminSessionManager"]) -> None:
+    global _admin_session_manager
+    _admin_session_manager = manager
+
+
+def get_admin_session_manager() -> Optional["AdminSessionManager"]:
+    return _admin_session_manager
+
+
+if TYPE_CHECKING:
+    from tacacs_server.devices.service import DeviceService
+    from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.auth.local_user_group_service import LocalUserGroupService
+    from tacacs_server.config.config import TacacsConfig
+    from .admin.auth import AdminSessionManager
 
 # Prometheus Metrics
 auth_requests_total = Counter('tacacs_auth_requests_total', 'Total authentication requests', ['status', 'backend'])
@@ -26,12 +115,19 @@ auth_duration = Histogram('tacacs_auth_duration_seconds', 'Authentication reques
 active_connections = Gauge('tacacs_active_connections', 'Number of active connections')
 server_uptime = Gauge('tacacs_server_uptime_seconds', 'Server uptime in seconds')
 accounting_records = Counter('tacacs_accounting_records_total', 'Total accounting records', ['status'])
+radius_auth_requests = Counter('radius_auth_requests_total', 'RADIUS authentication requests', ['status'])
+radius_acct_requests = Counter('radius_acct_requests_total', 'RADIUS accounting requests', ['type'])
+radius_active_clients = Gauge('radius_active_clients', 'Number of configured RADIUS clients')
+
 
 class TacacsMonitoringAPI:
     """Web monitoring interface for TACACS+ server"""
     
-    def __init__(self, tacacs_server, host="127.0.0.1", port=8080):
+    def __init__(self, tacacs_server, host="127.0.0.1", port=8080, radius_server=None):
         self.tacacs_server = tacacs_server
+        self.radius_server = radius_server
+        set_tacacs_server(tacacs_server)
+        set_radius_server(radius_server)
         self.host = host
         self.port = port
         self.app = FastAPI(title="TACACS+ Server Monitor", version="1.0.0")
@@ -162,14 +258,49 @@ class TacacsMonitoringAPI:
                 return {"logs": logs, "count": len(logs)}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
+
+        # Admin API router
+        try:
+            from .admin import admin_router
+
+            self.app.include_router(admin_router)
+        except Exception as exc:
+            logger.warning("Failed to include admin router: %s", exc)
+
+        if self.radius_server:
+            @self.app.get("/api/radius/status")
+            async def radius_status():
+                """RADIUS server status"""
+                return self.get_radius_stats()
+            
+            @self.app.get("/api/radius/clients")
+            async def radius_clients():
+                """RADIUS clients """
+                clients = []
+                try:
+                    clients = [
+                        {
+                            'network': str(client.network),
+                            'name': client.name,
+                            'group': client.group,
+                            'secret_length': len(client.secret),
+                            'attributes': client.attributes,
+                        }
+                        for client in getattr(self.radius_server, 'clients', [])
+                    ]
+                except Exception as exc:
+                    logger.warning("Failed to enumerate RADIUS clients: %s", exc)
+                return {
+                    'clients': clients
+                }
     
     def get_server_stats(self) -> Dict[str, Any]:
         """Get current server statistics"""
         try:
             stats = self.tacacs_server.get_stats()
             health = self.tacacs_server.get_health_status()
-            
-            return {
+
+            data = {
                 "status": "running" if self.tacacs_server.running else "stopped",
                 "uptime": health.get('uptime_seconds', 0),
                 "connections": {
@@ -202,6 +333,11 @@ class TacacsMonitoringAPI:
                 "memory": health.get('memory_usage', {}),
                 "timestamp": datetime.now().isoformat()
             }
+
+            if self.radius_server:
+                data['radius'] = self.get_radius_stats()
+
+            return data
         except Exception as e:
             logger.error(f"Error getting server stats: {e}")
             return {"error": str(e)}
@@ -345,7 +481,29 @@ class TacacsMonitoringAPI:
             pass
         logger.info("Monitoring interface stopped")
 
-
+    def get_radius_stats(self) -> Dict[str, Any]:
+        """Get RADIUS server statistics"""
+        if not self.radius_server:
+            return {'enabled': False}
+        
+        stats = self.radius_server.get_stats()
+        return {
+            'enabled': True,
+            'running': stats['running'],
+            'authentication': {
+                'requests': stats['auth_requests'],
+                'accepts': stats['auth_accepts'],
+                'rejects': stats['auth_rejects'],
+                'success_rate': stats['auth_success_rate']
+            },
+            'accounting': {
+                'requests': stats['acct_requests'],
+                'responses': stats['acct_responses']
+            },
+            'clients': stats['configured_clients'],
+            'invalid_packets': stats['invalid_packets']
+        }
+    
 # Metrics Integration for TACACS+ Server
 class PrometheusIntegration:
     """Integration helper for Prometheus metrics"""
@@ -365,6 +523,21 @@ class PrometheusIntegration:
     def update_active_connections(count: int):
         """Update active connections gauge"""
         active_connections.set(count)
+
+    @staticmethod
+    def record_radius_auth(status: str):
+        """Record RADIUS authentication"""
+        radius_auth_requests.labels(status=status).inc()
+    
+    @staticmethod
+    def record_radius_accounting(acct_type: str):
+        """Record RADIUS accounting"""
+        radius_acct_requests.labels(type=acct_type).inc()
+    
+    @staticmethod
+    def update_radius_clients(count: int):
+        """Update RADIUS clients count"""
+        radius_active_clients.set(count)
 
 
 # HTML Template for Dashboard

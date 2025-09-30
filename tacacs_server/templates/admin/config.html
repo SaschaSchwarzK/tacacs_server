@@ -1,0 +1,8 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Configuration</h2>
+    <p><strong>Source:</strong> {{ config_source }}</p>
+    <pre style="background:#111827;color:#f9fafb;padding:1rem;border-radius:6px;overflow:auto;max-height:70vh;">{{ config_json }}</pre>
+</div>
+{% endblock %}

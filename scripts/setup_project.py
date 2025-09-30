@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Create runtime directories (config, data, logs, scripts) and optionally move test_client.
+Create runtime directories (config, data, logs, scripts) and optionally move the TACACS+ client script.
 Run from project root.
 """
 from pathlib import Path
@@ -17,7 +17,7 @@ def ensure_dirs(root: Path):
 
 def move_test_client_if_present(root: Path):
     src = root / "tests" / "test_client.py"
-    dst = root / "scripts" / "test_client.py"
+    dst = root / "scripts" / "tacacs_client.py"
     if src.exists() and not dst.exists():
         shutil.move(str(src), str(dst))
         dst.chmod(0o755)
@@ -26,7 +26,11 @@ def move_test_client_if_present(root: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-root", type=Path, default=Path.cwd())
-    ap.add_argument("--move-test-client", action="store_true", help="Move tests/test_client.py -> scripts/")
+    ap.add_argument(
+        "--move-test-client",
+        action="store_true",
+        help="Move tests/test_client.py -> scripts/tacacs_client.py",
+    )
     args = ap.parse_args()
     root = args.project_root.resolve()
     ensure_dirs(root)

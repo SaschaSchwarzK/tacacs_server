@@ -1,0 +1,223 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<style>
+    .overview-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:1rem; margin-top:1rem; }
+    .stat-card { background:#1f2937; color:#f9fafb; border-radius:8px; padding:1rem 1.25rem; box-shadow:0 6px 16px rgba(17,24,39,0.2); }
+    .stat-card .stat-label { text-transform:uppercase; font-size:0.75rem; letter-spacing:0.08em; color:#d1d5db; }
+    .stat-card .stat-value { font-size:2.1rem; font-weight:600; }
+    .metrics-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; }
+    .metric-card { background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:1rem; }
+    .metric-header { display:flex; justify-content:space-between; font-weight:600; margin-bottom:0.5rem; color:#111827; }
+    .progress { position:relative; width:100%; height:12px; border-radius:6px; background:#e5e7eb; overflow:hidden; margin:0.35rem 0; }
+    .progress-success { background:#10b981; height:100%; float:left; }
+    .progress-fail { background:#ef4444; height:100%; float:left; }
+    .section-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem; margin-top:1.5rem; }
+    .simple-table table { width:100%; border-collapse:collapse; margin-top:0.75rem; }
+    .simple-table th, .simple-table td { padding:0.5rem 0.75rem; text-align:left; border-bottom:1px solid #e5e7eb; font-size:0.9rem; }
+    .simple-table th { background:#f3f4f6; font-weight:600; text-transform:uppercase; font-size:0.75rem; letter-spacing:0.05em; }
+    .muted { color:#6b7280; font-size:0.85rem; }
+</style>
+
+<div class="card">
+    <h2>Overview</h2>
+    <div class="overview-grid">
+        <div class="stat-card">
+            <div class="stat-label">Devices</div>
+            <div class="stat-value">{{ summary.devices }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Device Groups</div>
+            <div class="stat-value">{{ summary.device_groups }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Local Users</div>
+            <div class="stat-value">{{ summary.users }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">User Groups</div>
+            <div class="stat-value">{{ summary.user_groups }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-top:1.5rem;">
+    <h2>Authentication Health</h2>
+    <div class="metrics-grid" style="margin-top:1rem;">
+        <div class="metric-card">
+            <div class="metric-header">
+                <span>Authentication</span>
+                <span>{{ auth_summary.success }}/{{ auth_summary.total }}</span>
+            </div>
+            <div class="progress">
+                <div class="progress-success" style="width: {{ auth_summary.success_percent }}%;"></div>
+                <div class="progress-fail" style="width: {{ auth_summary.failure_percent }}%;"></div>
+            </div>
+            <small class="muted">Success rate: {{ auth_summary.success_percent }}%</small>
+        </div>
+        <div class="metric-card">
+            <div class="metric-header">
+                <span>Authorization</span>
+                <span>{{ author_summary.success }}/{{ author_summary.total }}</span>
+            </div>
+            <div class="progress">
+                <div class="progress-success" style="width: {{ author_summary.success_percent }}%;"></div>
+                <div class="progress-fail" style="width: {{ author_summary.failure_percent }}%;"></div>
+            </div>
+            <small class="muted">Success rate: {{ author_summary.success_percent }}%</small>
+        </div>
+        <div class="metric-card">
+            <div class="metric-header">
+                <span>Accounting</span>
+                <span>{{ acct_summary.success }}/{{ acct_summary.total }}</span>
+            </div>
+            <div class="progress">
+                <div class="progress-success" style="width: {{ acct_summary.success_percent }}%;"></div>
+                <div class="progress-fail" style="width: {{ acct_summary.failure_percent }}%;"></div>
+            </div>
+            <small class="muted">Success rate: {{ acct_summary.success_percent }}%</small>
+        </div>
+    </div>
+</div>
+
+<div class="section-grid">
+    <div class="card">
+        <h3>System Health</h3>
+        <ul class="muted" style="list-style:none; padding:0; margin:1rem 0 0 0; display:flex; flex-direction:column; gap:0.35rem;">
+            <li><strong>Uptime:</strong> {{ system_summary.uptime }}</li>
+            <li><strong>Connections:</strong> {{ system_summary.connections.active }} active / {{ system_summary.connections.total }} total</li>
+            {% if system_summary.cpu_percent is not none %}
+            <li><strong>CPU Usage:</strong> {{ '%.1f' % system_summary.cpu_percent }}%</li>
+            {% endif %}
+            {% if system_summary.memory_human %}
+            <li><strong>Memory Usage:</strong> {{ system_summary.memory_human }}{% if system_summary.memory_percent is not none %} ({{ '%.1f' % system_summary.memory_percent }}%){% endif %}</li>
+            {% endif %}
+            {% if system_summary.config_source %}
+            <li><strong>Config Source:</strong> {{ system_summary.config_source }}</li>
+            {% endif %}
+        </ul>
+    </div>
+
+    <div class="card">
+        <h3>TACACS+ Summary</h3>
+        <ul class="muted" style="list-style:none; padding:0; margin:1rem 0 0 0; display:flex; flex-direction:column; gap:0.35rem;">
+            <li><strong>Authentication Success:</strong> {{ tacacs_summary.auth.success_percent }}% ({{ tacacs_summary.auth.success }} / {{ tacacs_summary.auth.total }})</li>
+            <li><strong>Authentication Failures:</strong> {{ tacacs_summary.auth.failure }}</li>
+            <li><strong>Authorisation Success:</strong> {{ tacacs_summary.author.success_percent }}% ({{ tacacs_summary.author.success }} / {{ tacacs_summary.author.total }})</li>
+            <li><strong>Authorisation Failures:</strong> {{ tacacs_summary.author.failure }}</li>
+            <li><strong>Accounting Success:</strong> {{ tacacs_summary.acct.success_percent }}% ({{ tacacs_summary.acct.success }} / {{ tacacs_summary.acct.total }})</li>
+            <li><strong>Accounting Failures:</strong> {{ tacacs_summary.acct.failure }}</li>
+            <li class="muted" style="font-size:0.8rem;">Counts reflect totals since server start. Zero totals indicate no requests yet.</li>
+        </ul>
+    </div>
+
+    {% if radius_summary %}
+    <div class="card">
+        <h3>RADIUS Summary</h3>
+        <ul class="muted" style="list-style:none; padding:0; margin:1rem 0 0 0; display:flex; flex-direction:column; gap:0.35rem;">
+            <li><strong>RADIUS Clients:</strong> {{ radius_summary.clients }}</li>
+            <li><strong>Authentication Success:</strong> {{ radius_summary.auth.success_percent }}% ({{ radius_summary.auth.success }} / {{ radius_summary.auth.total }})</li>
+            <li><strong>Authentication Failures:</strong> {{ radius_summary.auth.failure }}</li>
+            <li><strong>Accounting Success:</strong> {{ radius_summary.acct.success_percent }}% ({{ radius_summary.acct.success }} / {{ radius_summary.acct.total }})</li>
+            <li><strong>Accounting Failures:</strong> {{ radius_summary.acct.failure }}</li>
+            <li class="muted" style="font-size:0.8rem;">Counts reflect totals since server start. Zero totals indicate no requests yet.</li>
+        </ul>
+    </div>
+    {% endif %}
+</div>
+
+<div class="section-grid" style="margin-top:1.5rem;">
+    <div class="card simple-table">
+        <h3>Recent Device Entries</h3>
+        {% if device_samples %}
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Network</th>
+                <th>Group</th>
+                <th>Secrets</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for device in device_samples %}
+            <tr>
+                <td>{{ device.name }}</td>
+                <td>{{ device.network }}</td>
+                <td>{{ device.group or '-' }}</td>
+                <td>
+                    {% if device.has_tacacs_secret or device.has_radius_secret %}
+                        {% if device.has_tacacs_secret %}TACACS{% endif %}{% if device.has_tacacs_secret and device.has_radius_secret %}, {% endif %}{% if device.has_radius_secret %}RADIUS{% endif %}
+                    {% else %}
+                        <span class="muted">None</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">No devices configured yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="card simple-table">
+        <h3>Device Groups</h3>
+        {% if group_samples %}
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Allowed User Groups</th>
+                <th>Secrets</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for group in group_samples %}
+            <tr>
+                <td>{{ group.name }}</td>
+                <td>{{ group.allowed_user_groups }}</td>
+                <td>
+                    {% if group.tacacs_secret or group.radius_secret %}
+                        {% if group.tacacs_secret %}TACACS{% endif %}{% if group.tacacs_secret and group.radius_secret %}, {% endif %}{% if group.radius_secret %}RADIUS{% endif %}
+                    {% else %}
+                        <span class="muted">None</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">No device groups defined.</p>
+        {% endif %}
+    </div>
+
+    <div class="card simple-table">
+        <h3>Local Users</h3>
+        {% if user_samples %}
+        <table>
+            <thead>
+            <tr>
+                <th>User</th>
+                <th>Privilege</th>
+                <th>Status</th>
+                <th>Groups</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for user in user_samples %}
+            <tr>
+                <td>{{ user.username }}</td>
+                <td>{{ user.privilege_level }}</td>
+                <td>{{ 'Enabled' if user.enabled else 'Disabled' }}</td>
+                <td>{{ user.groups or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">No local users available.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

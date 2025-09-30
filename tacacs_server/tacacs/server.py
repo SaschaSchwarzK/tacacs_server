@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..web.monitoring import TacacsMonitoringAPI
+    from ..devices import DeviceStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +40,16 @@ class TacacsServer:
         self.metrics = MetricsCollector()
         self.monitoring_api: Optional['TacacsMonitoringAPI'] = None
         self.enable_monitoring = False
+        self.device_store: Optional['DeviceStore'] = None
+        self._session_lock = threading.RLock()
+        self.session_secrets: Dict[int, str] = {}
 
-    def enable_web_monitoring(self, web_host="127.0.0.1", web_port=8080):
+    def enable_web_monitoring(self, web_host="127.0.0.1", web_port=8080, radius_server=None):
         """Enable web monitoring interface"""
         try:
             from ..web.monitoring import TacacsMonitoringAPI
             logger.info("Attempting to enable web monitoring on %s:%s", web_host, web_port)
-            self.monitoring_api = TacacsMonitoringAPI(self, web_host, web_port)
+            self.monitoring_api = TacacsMonitoringAPI(self, host=web_host, port=web_port, radius_server=radius_server)
             started = False
             try:
                 self.monitoring_api.start()
@@ -113,26 +117,26 @@ class TacacsServer:
         try:
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(10)
-            logger.info(f'TACACS+ server started on {self.host}:{self.port}')
-            logger.info(f'Authentication backends: {[b.name for b in self.auth_backends]}')
-            logger.info(f"Secret key: {'*' * len(self.secret_key)}")
+            logger.debug('TACACS+ server started on %s:%s', self.host, self.port)
+            logger.debug('Authentication backends: %s', [b.name for b in self.auth_backends])
+            logger.debug("Secret key length: %s", len(self.secret_key))
             while self.running:
                 try:
                     client_socket, address = self.server_socket.accept()
                     self.stats['connections_total'] += 1
                     self.stats['connections_active'] += 1
-                    logger.debug(f'New connection from {address}')
+                    logger.debug('New connection from %s', address)
                     client_thread = threading.Thread(target=self._handle_client, args=(client_socket, address), daemon=True)
                     client_thread.start()
                 except socket.error as e:
                     if self.running:
-                        logger.error(f'Socket error: {e}')
+                        logger.error('Socket error: %s', e)
                     break
                 except Exception as e:
-                    logger.error(f'Unexpected error accepting connections: {e}')
+                    logger.error('Unexpected error accepting connections: %s', e)
                     break
         except Exception as e:
-            logger.error(f'Server startup error: {e}')
+            logger.error('Server startup error: %s', e)
             raise
         finally:
             if self.server_socket:
@@ -154,6 +158,8 @@ class TacacsServer:
 
     def _handle_client(self, client_socket: socket.socket, address: Tuple[str, int]):
         """Handle client connection"""
+        session_ids: set[int] = set()
+        connection_device = None
         try:
             client_socket.settimeout(30.0)
             while self.running:
@@ -162,42 +168,83 @@ class TacacsServer:
                     if not header_data:
                         break
                     packet = TacacsPacket.unpack_header(header_data)
+                    session_ids.add(packet.session_id)
                     if not self._validate_packet_header(packet):
-                        logger.warning(f'Invalid packet header from {address}: {packet}')
+                        logger.warning('Invalid packet header from %s: %s', address, packet)
                         break
+                    if connection_device is None and self.device_store:
+                        try:
+                            connection_device = self.device_store.find_device_for_ip(address[0])
+                        except Exception as exc:
+                            logger.exception("Failed to resolve device for %s: %s", address[0], exc)
                     if packet.length > 0:
                         if packet.length > 65535:
-                            logger.warning(f'Packet too large from {address}: {packet.length} bytes')
+                            logger.warning('Packet too large from %s: %s bytes', address, packet.length)
                             break
                         body_data = self._recv_exact(client_socket, packet.length)
                         if not body_data:
-                            logger.warning(f'Incomplete packet body from {address}')
+                            logger.warning('Incomplete packet body from %s', address)
                             break
-                        packet.body = packet.decrypt_body(self.secret_key, body_data)
-                    response = self._process_packet(packet, address)
+                        secret = self._select_session_secret(packet.session_id, connection_device)
+                        packet.body = packet.decrypt_body(secret, body_data)
+                    response = self._process_packet(packet, address, connection_device)
                     if response:
-                        response_data = response.pack(self.secret_key)
+                        secret = self._select_session_secret(packet.session_id, connection_device)
+                        response_data = response.pack(secret)
                         client_socket.send(response_data)
                         if response.flags & TAC_PLUS_FLAGS.TAC_PLUS_SINGLE_CONNECT_FLAG:
                             break
                 except socket.timeout:
-                    logger.debug(f'Client timeout: {address}')
+                    logger.debug('Client timeout: %s', address)
                     break
                 except socket.error as e:
-                    logger.debug(f'Client socket error {address}: {e}')
+                    logger.debug('Client socket error %s: %s', address, e)
                     break
                 except Exception as e:
-                    logger.error(f'Error handling client {address}: {e}')
+                    logger.error('Error handling client %s: %s', address, e)
                     break
         except Exception as e:
-            logger.error(f'Client handling error {address}: {e}')
+            logger.error('Client handling error %s: %s', address, e)
         finally:
             try:
                 client_socket.close()
             except Exception:
                 pass
+            with self._session_lock:
+                for session_id in session_ids:
+                    self.session_secrets.pop(session_id, None)
+                    self.handlers.cleanup_session(session_id)
             self.stats['connections_active'] -= 1
-            logger.debug(f'Connection closed: {address}')
+            logger.debug('Connection closed: %s', address)
+
+    def _select_session_secret(self, session_id: int, device_record) -> str:
+        """Ensure a session secret is registered, preferring device-specific keys."""
+        with self._session_lock:
+            secret = self.session_secrets.get(session_id)
+            if secret is None:
+                secret = self._resolve_tacacs_secret(device_record) or self.secret_key
+                self.session_secrets[session_id] = secret
+                if device_record is not None:
+                    self.handlers.session_device[session_id] = device_record
+            elif device_record is not None and session_id not in self.handlers.session_device:
+                self.handlers.session_device[session_id] = device_record
+            return secret
+
+    def _resolve_tacacs_secret(self, device_record) -> Optional[str]:
+        """Resolve TACACS shared secret strictly from device group configuration."""
+        if not device_record:
+            return None
+        group = getattr(device_record, 'group', None)
+        if not group:
+            return None
+        if getattr(group, 'tacacs_secret', None):
+            return group.tacacs_secret
+        metadata = getattr(group, 'metadata', {}) or {}
+        if isinstance(metadata, dict):
+            secret = metadata.get('tacacs_secret')
+            if secret:
+                return str(secret)
+        return None
 
     def _recv_exact(self, sock: socket.socket, length: int) -> Optional[bytes]:
         """Receive exactly the specified number of bytes"""
@@ -226,13 +273,21 @@ class TacacsServer:
             return False
         return True
 
-    def _process_packet(self, packet: TacacsPacket, address: Tuple[str, int]) -> Optional[TacacsPacket]:
+    def _process_packet(self, packet: TacacsPacket, address: Tuple[str, int], device_record=None) -> Optional[TacacsPacket]:
         """Process incoming packet and return response"""
         try:
             logger.debug(f'Processing packet from {address}: {packet}')
+            if device_record is None and self.device_store:
+                try:
+                    device_record = self.device_store.find_device_for_ip(address[0])
+                except Exception as exc:
+                    logger.exception("Failed to resolve device for %s: %s", address[0], exc)
+
+            self._select_session_secret(packet.session_id, device_record)
+
             if packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN:
                 self.stats['auth_requests'] += 1
-                response = self.handlers.handle_authentication(packet)
+                response = self.handlers.handle_authentication(packet, device_record)
                 if response and len(response.body) > 0:
                     status = response.body[0]
                     if status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS:
@@ -242,7 +297,7 @@ class TacacsServer:
                 return response
             elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR:
                 self.stats['author_requests'] += 1
-                response = self.handlers.handle_authorization(packet)
+                response = self.handlers.handle_authorization(packet, device_record)
                 if response and len(response.body) > 0:
                     status = response.body[0]
                     if status in [TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD, TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_REPL]:
@@ -252,7 +307,7 @@ class TacacsServer:
                 return response
             elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT:
                 self.stats['acct_requests'] += 1
-                response = self.handlers.handle_accounting(packet)
+                response = self.handlers.handle_accounting(packet, device_record)
                 if response and len(response.body) >= 6:
                     status = int.from_bytes(response.body[4:6], byteorder='big')
                     if status == TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_SUCCESS:

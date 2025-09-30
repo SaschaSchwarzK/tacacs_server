@@ -1,0 +1,171 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Devices</h2>
+    <div style="margin-bottom: 1rem;">
+        <button class="btn" onclick="openDeviceModal()">Add Device</button>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Name</th>
+            <th>Network</th>
+            <th>Group</th>
+            <th>Group Secrets</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody id="deviceTable">
+        {% for device in devices %}
+            <tr data-id="{{ device.id }}">
+                <td>{{ device.name }}</td>
+                <td>{{ device.network }}</td>
+                <td>{{ device.group or "-" }}</td>
+                <td>
+                    {% if device.group_radius_secret or device.group_tacacs_secret %}
+                        {% if device.group_tacacs_secret %}TACACS{% endif %}{% if device.group_tacacs_secret and device.group_radius_secret %}, {% endif %}{% if device.group_radius_secret %}RADIUS{% endif %}
+                    {% else %}
+                        <span class="muted">None</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn" onclick="editDevice({{ device.id }})">Edit</button>
+                    <button class="btn btn-secondary" onclick="deleteDevice({{ device.id }})">Delete</button>
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6">No devices configured.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="deviceModal" class="modal-backdrop">
+    <div class="modal-card">
+        <h3 id="deviceModalTitle" class="modal-title">Add Device</h3>
+        <div id="deviceError" class="alert" style="display:none;"></div>
+        <form id="deviceForm" onsubmit="submitDevice(event)" class="modal-form">
+            <input type="hidden" name="id" id="deviceId">
+            <div class="modal-field">
+                <label for="deviceName">Name</label>
+                <input type="text" name="name" id="deviceName" required>
+            </div>
+            <div class="modal-field">
+                <label for="deviceNetwork">Network (CIDR)</label>
+                <input type="text" name="network" id="deviceNetwork" required>
+            </div>
+            <div class="modal-field">
+                <label for="deviceGroup">Group</label>
+                {% if group_options %}
+                <select name="group" id="deviceGroup">
+                    <option value="">(No group)</option>
+                    {% for group_name in group_options %}
+                    <option value="{{ group_name }}">{{ group_name }}</option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <select name="group" id="deviceGroup" disabled>
+                    <option value="">No groups available</option>
+                </select>
+                <small class="field-hint">Create a device group first.</small>
+                {% endif %}
+            </div>
+            <div class="modal-actions">
+                <button type="submit" class="btn">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="closeDeviceModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function setSelectValue(selectEl, value) {
+    if (!selectEl) return;
+    if (!value) {
+        selectEl.value = '';
+        return;
+    }
+    const existing = Array.from(selectEl.options).find(opt => opt.value === value);
+    if (existing) {
+        selectEl.value = value;
+    } else {
+        const newOption = new Option(value, value, true, true);
+        selectEl.add(newOption);
+    }
+}
+
+function openDeviceModal() {
+    document.getElementById('deviceForm').reset();
+    document.getElementById('deviceId').value = '';
+    document.getElementById('deviceModalTitle').innerText = 'Add Device';
+    document.getElementById('deviceModal').style.display = 'flex';
+    document.getElementById('deviceError').style.display = 'none';
+    const groupSelect = document.getElementById('deviceGroup');
+    if (groupSelect) {
+        groupSelect.value = '';
+    }
+}
+
+async function editDevice(id) {
+    try {
+        const resp = await fetch(`/admin/devices/${id}?format=json`, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) throw new Error('Failed to load device');
+        const device = await resp.json();
+        openDeviceModal();
+        document.getElementById('deviceModalTitle').innerText = 'Edit Device';
+        document.getElementById('deviceId').value = device.id;
+        document.getElementById('deviceName').value = device.name || '';
+        document.getElementById('deviceNetwork').value = device.network || '';
+        setSelectValue(document.getElementById('deviceGroup'), device.group || '');
+    } catch (err) {
+        alert(err.message || 'Failed to load device');
+    }
+}
+
+function closeDeviceModal() {
+    document.getElementById('deviceModal').style.display = 'none';
+}
+
+async function submitDevice(event) {
+    event.preventDefault();
+    const errorBox = document.getElementById('deviceError');
+    errorBox.style.display = 'none';
+
+    const form = event.target;
+    const payload = {
+        name: form.name.value,
+        network: form.network.value,
+        group: form.group ? (form.group.value || null) : null,
+    };
+
+    const deviceId = document.getElementById('deviceId').value;
+    const method = deviceId ? 'PUT' : 'POST';
+    const url = deviceId ? `/admin/devices/${deviceId}` : '/admin/devices';
+
+    try {
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.detail || 'Request failed');
+        }
+        window.location.reload();
+    } catch (err) {
+        errorBox.innerText = err.message;
+        errorBox.style.display = 'block';
+    }
+}
+
+async function deleteDevice(id) {
+    if (!confirm('Delete this device?')) return;
+    const resp = await fetch(`/admin/devices/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) {
+        alert('Failed to delete device');
+    }
+    window.location.reload();
+}
+</script>
+{% endblock %}
