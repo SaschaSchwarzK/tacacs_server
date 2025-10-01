@@ -1,6 +1,5 @@
 """Local SQLite-Based Authentication Backend."""
 
-import logging
 import threading
 from dataclasses import replace
 from typing import Any, Callable, Dict, Optional
@@ -14,8 +13,9 @@ from .local_user_service import (
     LocalUserValidationError,
 )
 from .local_models import LocalUserRecord
+from tacacs_server.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LocalAuthBackend(AuthenticationBackend):

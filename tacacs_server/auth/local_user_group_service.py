@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
@@ -10,8 +9,9 @@ from typing import Dict, Optional
 
 from .local_models import LocalUserGroupRecord
 from .local_store import LocalAuthStore, UNSET
+from tacacs_server.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LocalUserGroupServiceError(Exception):

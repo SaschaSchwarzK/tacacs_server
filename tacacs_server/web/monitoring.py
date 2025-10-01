@@ -15,10 +15,11 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Callable, Awaitable, TYPE_CHECKING
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _device_service: Optional["DeviceService"] = None
 _local_user_service: Optional["LocalUserService"] = None

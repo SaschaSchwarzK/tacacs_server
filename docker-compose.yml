@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  tacacs:
+    build: .
+    ports:
+      - "49:49"      # TACACS+
+      - "1812:1812/udp"  # RADIUS Auth
+      - "1813:1813/udp"  # RADIUS Acct
+      - "8080:8080"  # Web UI
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - TACACS_LDAP_BIND_PASSWORD=${LDAP_PASSWORD}
+      - TACACS_OKTA_CLIENT_SECRET=${OKTA_SECRET}
+    restart: unless-stopped

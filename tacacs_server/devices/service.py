@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import ipaddress
-import logging
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .store import DeviceGroup, DeviceRecord, DeviceStore
+from tacacs_server.utils.logger import get_logger
 
 UNSET = object()
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class DeviceServiceError(Exception):
     """Base error for device service operations."""
