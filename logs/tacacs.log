@@ -1,141 +1,48 @@
-2025-09-30 18:56:57,226 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
-2025-09-30 18:56:57,226 - tacacs_server.accounting.database - INFO - Database initialized: data/tacacs_accounting.db
-2025-09-30 18:56:57,231 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
-2025-09-30 18:56:57,231 - tacacs_server.radius.server - INFO - RADIUS: Accounting logger configured
-2025-09-30 18:56:57,231 - __main__ - INFO - RADIUS: Sharing accounting database with TACACS+
-2025-09-30 18:56:57,231 - __main__ - INFO - RADIUS server configured with 3 clients
-2025-09-30 18:56:57,232 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
-2025-09-30 18:56:57,232 - tacacs_server.tacacs.server - INFO - Added authentication backend: LocalAuthBackend(local)
-2025-09-30 18:56:57,232 - tacacs_server.radius.server - INFO - RADIUS: Added authentication backend: local
-2025-09-30 18:56:57,232 - __main__ - INFO - RADIUS: Sharing 1 auth backends with TACACS+
-2025-09-30 18:56:57,232 - __main__ - INFO - Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080
-2025-09-30 18:56:57,232 - tacacs_server.tacacs.server - INFO - Attempting to enable web monitoring on 127.0.0.1:8080
-2025-09-30 18:56:57,237 - tacacs_server.web.monitoring - INFO - Starting uvicorn for monitoring on 127.0.0.1:8080
-2025-09-30 18:56:57,442 - tacacs_server.web.monitoring - INFO - Monitoring interface started at http://127.0.0.1:8080
-2025-09-30 18:56:57,545 - tacacs_server.tacacs.server - INFO - Web monitoring enabled at http://127.0.0.1:8080
-2025-09-30 18:56:57,545 - __main__ - INFO - Monitoring successfully started at http://127.0.0.1:8080
-2025-09-30 18:56:57,546 - __main__ - INFO - ==================================================
-2025-09-30 18:56:57,546 - __main__ - INFO - TACACS+ & RADIUS Server Starting
-2025-09-30 18:56:57,546 - __main__ - INFO - ==================================================
-2025-09-30 18:56:57,546 - __main__ - INFO - Server Address: 0.0.0.0:49
-2025-09-30 18:56:57,546 - __main__ - INFO - Secret Key: *********
-2025-09-30 18:56:57,546 - __main__ - INFO - Authentication Backends: local
-2025-09-30 18:56:57,546 - __main__ - INFO - Database: data/tacacs_accounting.db
-2025-09-30 18:56:57,546 - __main__ - INFO - Configuration: config/tacacs.conf
-2025-09-30 18:56:57,546 - __main__ - INFO - 
-2025-09-30 18:56:57,546 - __main__ - INFO - Testing authentication backends:
-2025-09-30 18:56:57,546 - __main__ - INFO -   local: ✓ Available
-2025-09-30 18:56:57,546 - __main__ - INFO - 
-2025-09-30 18:56:57,546 - __main__ - INFO - RADIUS Server:
-2025-09-30 18:56:57,546 - __main__ - INFO -   Authentication Port: 1812
-2025-09-30 18:56:57,547 - __main__ - INFO -   Accounting Port: 1813
-2025-09-30 18:56:57,547 - __main__ - INFO -   Configured Clients: 3
-2025-09-30 18:56:57,547 - __main__ - INFO -   Client Groups: firewall(1), router1(1), switch1(1)
-2025-09-30 18:56:57,547 - __main__ - INFO - 
-2025-09-30 18:56:57,547 - __main__ - INFO - Server ready - waiting for connections...
-2025-09-30 18:56:57,547 - __main__ - INFO - Press Ctrl+C to stop
-2025-09-30 18:57:06,033 - tacacs_server.tacacs.handlers - INFO - TACACS authentication success: user=user detail=backend=local device=firewall
-2025-09-30 18:57:08,041 - tacacs_server.tacacs.handlers - WARNING - TACACS authentication failed: user=user reason=no backend accepted credentials device=firewall
-2025-09-30 18:57:14,790 - tacacs_server.radius.server - INFO - RADIUS authentication success: user=user detail=backend=local device=firewall
-2025-09-30 18:57:16,736 - tacacs_server.radius.server - WARNING - RADIUS authentication failed: user=user reason=no backend accepted credentials device=firewall
-2025-09-30 18:57:28,167 - __main__ - INFO - Received signal 2
-2025-09-30 18:57:28,168 - __main__ - INFO - Shutting down down servers...
-2025-09-30 18:57:28,168 - tacacs_server.radius.server - INFO - RADIUS server stopped
-2025-09-30 18:57:28,168 - tacacs_server.tacacs.server - INFO - Stopping TACACS+ server...
-2025-09-30 18:57:28,169 - __main__ - INFO - Servers stopped successfully
-2025-09-30 18:57:28,169 - tacacs_server.tacacs.server - INFO - TACACS+ server stopped
-2025-09-30 19:24:20,455 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
-2025-09-30 19:24:20,456 - tacacs_server.accounting.database - INFO - Database initialized: data/tacacs_accounting.db
-2025-09-30 19:24:20,465 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
-2025-09-30 19:24:20,465 - tacacs_server.radius.server - INFO - RADIUS: Accounting logger configured
-2025-09-30 19:24:20,466 - __main__ - INFO - RADIUS: Sharing accounting database with TACACS+
-2025-09-30 19:24:20,466 - __main__ - INFO - RADIUS server configured with 3 clients
-2025-09-30 19:24:20,466 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
-2025-09-30 19:24:20,466 - tacacs_server.tacacs.server - INFO - Added authentication backend: LocalAuthBackend(local)
-2025-09-30 19:24:20,466 - tacacs_server.radius.server - INFO - RADIUS: Added authentication backend: local
-2025-09-30 19:24:20,466 - __main__ - INFO - RADIUS: Sharing 1 auth backends with TACACS+
-2025-09-30 19:24:20,466 - __main__ - INFO - Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080
-2025-09-30 19:24:20,466 - tacacs_server.tacacs.server - INFO - Attempting to enable web monitoring on 127.0.0.1:8080
-2025-09-30 19:24:20,471 - tacacs_server.web.monitoring - INFO - Starting uvicorn for monitoring on 127.0.0.1:8080
-2025-09-30 19:24:20,672 - tacacs_server.web.monitoring - INFO - Monitoring interface started at http://127.0.0.1:8080
-2025-09-30 19:24:20,778 - tacacs_server.tacacs.server - INFO - Web monitoring enabled at http://127.0.0.1:8080
-2025-09-30 19:24:20,779 - __main__ - INFO - Monitoring successfully started at http://127.0.0.1:8080
-2025-09-30 19:24:20,779 - __main__ - INFO - ==================================================
-2025-09-30 19:24:20,779 - __main__ - INFO - TACACS+ & RADIUS Server Starting
-2025-09-30 19:24:20,779 - __main__ - INFO - ==================================================
-2025-09-30 19:24:20,779 - __main__ - INFO - Server Address: 0.0.0.0:49
-2025-09-30 19:24:20,780 - __main__ - INFO - Secret Key: *********
-2025-09-30 19:24:20,780 - __main__ - INFO - Authentication Backends: local
-2025-09-30 19:24:20,780 - __main__ - INFO - Database: data/tacacs_accounting.db
-2025-09-30 19:24:20,780 - __main__ - INFO - Configuration: config/tacacs.conf
-2025-09-30 19:24:20,780 - __main__ - INFO - 
-2025-09-30 19:24:20,780 - __main__ - INFO - Testing authentication backends:
-2025-09-30 19:24:20,780 - __main__ - INFO -   local: ✓ Available
-2025-09-30 19:24:20,780 - __main__ - INFO - 
-2025-09-30 19:24:20,780 - __main__ - INFO - RADIUS Server:
-2025-09-30 19:24:20,780 - __main__ - INFO -   Authentication Port: 1812
-2025-09-30 19:24:20,780 - __main__ - INFO -   Accounting Port: 1813
-2025-09-30 19:24:20,780 - __main__ - INFO -   Configured Clients: 3
-2025-09-30 19:24:20,781 - __main__ - INFO -   Client Groups: firewall(1), router1(1), switch1(1)
-2025-09-30 19:24:20,781 - __main__ - INFO - 
-2025-09-30 19:24:20,781 - __main__ - INFO - Server ready - waiting for connections...
-2025-09-30 19:24:20,781 - __main__ - INFO - Press Ctrl+C to stop
-2025-09-30 19:30:06,174 - __main__ - INFO - Received signal 2
-2025-09-30 19:30:06,178 - __main__ - INFO - Shutting down down servers...
-2025-09-30 19:30:06,178 - tacacs_server.radius.server - INFO - RADIUS server stopped
-2025-09-30 19:30:06,178 - tacacs_server.tacacs.server - INFO - Stopping TACACS+ server...
-2025-09-30 19:30:06,178 - __main__ - INFO - Servers stopped successfully
-2025-09-30 19:30:06,179 - tacacs_server.tacacs.server - INFO - TACACS+ server stopped
-2025-09-30 19:30:07,722 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
-2025-09-30 19:30:07,723 - config.config - ERROR - ✗ Configuration validation failed: 1 validation error for TacacsConfigSchema
-okta
-  Field required [type=missing, input_value={'server': {'host': '0.0....alse', 'timeout': '10'}}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.11/v/missing
-2025-09-30 19:30:07,724 - __main__ - ERROR - Configuration validation failed:
-2025-09-30 19:30:07,724 - __main__ - ERROR -   - 1 validation error for TacacsConfigSchema
-okta
-  Field required [type=missing, input_value={'server': {'host': '0.0....alse', 'timeout': '10'}}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.11/v/missing
-2025-09-30 19:32:32,722 - config.config - INFO - Logging configured - Level: INFO, File: logs/tacacs.log
-2025-09-30 19:32:32,723 - config.config - INFO - ✓ Configuration validation passed
-2025-09-30 19:32:32,723 - tacacs_server.accounting.database - INFO - Database initialized: data/tacacs_accounting.db
-2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
-2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Accounting logger configured
-2025-09-30 19:32:32,731 - __main__ - INFO - RADIUS: Sharing accounting database with TACACS+
-2025-09-30 19:32:32,731 - __main__ - INFO - RADIUS server configured with 3 clients
-2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Refreshed 3 client definitions
-2025-09-30 19:32:32,731 - tacacs_server.tacacs.server - INFO - Added authentication backend: LocalAuthBackend(local)
-2025-09-30 19:32:32,731 - tacacs_server.radius.server - INFO - RADIUS: Added authentication backend: local
-2025-09-30 19:32:32,732 - __main__ - INFO - RADIUS: Sharing 1 auth backends with TACACS+
-2025-09-30 19:32:32,732 - __main__ - INFO - Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080
-2025-09-30 19:32:32,732 - tacacs_server.tacacs.server - INFO - Attempting to enable web monitoring on 127.0.0.1:8080
-2025-09-30 19:32:32,737 - tacacs_server.web.monitoring - INFO - Starting uvicorn for monitoring on 127.0.0.1:8080
-2025-09-30 19:32:32,942 - tacacs_server.web.monitoring - INFO - Monitoring interface started at http://127.0.0.1:8080
-2025-09-30 19:32:33,045 - tacacs_server.tacacs.server - INFO - Web monitoring enabled at http://127.0.0.1:8080
-2025-09-30 19:32:33,045 - __main__ - INFO - Monitoring successfully started at http://127.0.0.1:8080
-2025-09-30 19:32:33,046 - __main__ - INFO - ==================================================
-2025-09-30 19:32:33,046 - __main__ - INFO - TACACS+ & RADIUS Server Starting
-2025-09-30 19:32:33,046 - __main__ - INFO - ==================================================
-2025-09-30 19:32:33,046 - __main__ - INFO - Server Address: 0.0.0.0:49
-2025-09-30 19:32:33,046 - __main__ - INFO - Secret Key: *********
-2025-09-30 19:32:33,046 - __main__ - INFO - Authentication Backends: local
-2025-09-30 19:32:33,046 - __main__ - INFO - Database: data/tacacs_accounting.db
-2025-09-30 19:32:33,046 - __main__ - INFO - Configuration: config/tacacs.conf
-2025-09-30 19:32:33,046 - __main__ - INFO - 
-2025-09-30 19:32:33,046 - __main__ - INFO - Testing authentication backends:
-2025-09-30 19:32:33,046 - __main__ - INFO -   local: ✓ Available
-2025-09-30 19:32:33,046 - __main__ - INFO - 
-2025-09-30 19:32:33,047 - __main__ - INFO - RADIUS Server:
-2025-09-30 19:32:33,047 - __main__ - INFO -   Authentication Port: 1812
-2025-09-30 19:32:33,047 - __main__ - INFO -   Accounting Port: 1813
-2025-09-30 19:32:33,047 - __main__ - INFO -   Configured Clients: 3
-2025-09-30 19:32:33,047 - __main__ - INFO -   Client Groups: firewall(1), router1(1), switch1(1)
-2025-09-30 19:32:33,047 - __main__ - INFO - 
-2025-09-30 19:32:33,047 - __main__ - INFO - Server ready - waiting for connections...
-2025-09-30 19:32:33,047 - __main__ - INFO - Press Ctrl+C to stop
-2025-09-30 19:32:35,818 - __main__ - INFO - Received signal 2
-2025-09-30 19:32:35,819 - __main__ - INFO - Shutting down down servers...
-2025-09-30 19:32:35,819 - tacacs_server.radius.server - INFO - RADIUS server stopped
-2025-09-30 19:32:35,819 - tacacs_server.tacacs.server - INFO - Stopping TACACS+ server...
-2025-09-30 19:32:35,819 - __main__ - INFO - Servers stopped successfully
-2025-09-30 19:32:35,819 - tacacs_server.tacacs.server - INFO - TACACS+ server stopped
+{"timestamp": "2025-10-01T16:56:53.082946+00:00", "level": "WARNING", "logger": "config.config", "message": "Ignoring configured log_format in favour of structured JSON output", "extra": {"configured_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"}}
+{"timestamp": "2025-10-01T16:56:53.083072+00:00", "level": "INFO", "logger": "config.config", "message": "Logging configured", "extra": {"log_level": "INFO", "log_file": "logs/tacacs.log"}}
+{"timestamp": "2025-10-01T16:56:53.083230+00:00", "level": "INFO", "logger": "config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-01T16:56:53.091730+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-01T16:56:53.104269+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-01T16:56:53.104307+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-01T16:56:53.104338+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-01T16:56:53.104369+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-01T16:56:53.104496+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-01T16:56:53.104677+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-01T16:56:53.104706+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-01T16:56:53.104737+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-01T16:56:53.104772+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-01T16:56:53.104799+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-01T16:56:53.109966+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-01T16:56:53.315774+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-01T16:56:53.419084+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-01T16:56:53.419273+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-01T16:56:53.419445+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-01T16:56:53.419541+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-01T16:56:53.419624+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-01T16:56:53.419805+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-01T16:56:53.420007+00:00", "level": "INFO", "logger": "__main__", "message": "Secret Key: *********"}
+{"timestamp": "2025-10-01T16:56:53.420119+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-01T16:56:53.420219+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-01T16:56:53.420309+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-01T16:56:53.420443+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-01T16:56:53.420527+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-01T16:56:53.420616+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-01T16:56:53.420725+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-01T16:56:53.420871+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-01T16:56:53.421288+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-01T16:56:53.421436+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-01T16:56:53.421531+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-01T16:56:53.422181+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-01T16:56:53.422274+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-01T16:56:53.422367+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-01T16:56:53.422448+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-01T16:56:57.777303+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS authentication success: user=user detail=backend=local device=firewall"}
+{"timestamp": "2025-10-01T16:57:00.351122+00:00", "level": "WARNING", "logger": "tacacs_server.radius.server", "message": "RADIUS authentication failed: user=user reason=no backend accepted credentials device=firewall"}
+{"timestamp": "2025-10-01T16:57:10.520104+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.handlers", "message": "TACACS authentication success: user=user detail=backend=local device=firewall"}
+{"timestamp": "2025-10-01T16:57:12.328409+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.handlers", "message": "TACACS authentication failed: user=user reason=no backend accepted credentials device=firewall"}
+{"timestamp": "2025-10-01T16:57:21.678763+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-01T16:57:21.682605+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-01T16:57:21.682845+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-01T16:57:21.682946+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-01T16:57:21.683069+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-01T16:57:21.683151+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
