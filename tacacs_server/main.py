@@ -3,7 +3,6 @@ TACACS+ Server - Main Entry Point
 """
 import sys
 import signal
-import logging
 import argparse
 import textwrap
 from pathlib import Path
@@ -29,7 +28,9 @@ from tacacs_server.web.monitoring import (
     set_admin_auth_dependency,
     set_config as monitoring_set_config,
 )
-logger = logging.getLogger(__name__)
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class TacacsServerManager:
     """TACACS+ Server Manager"""

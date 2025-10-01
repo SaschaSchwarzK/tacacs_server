@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import sqlite3
 import threading
@@ -12,11 +11,12 @@ from typing import Callable, Iterable, List, Optional
 
 from .local_models import LocalUserRecord
 from .local_store import LocalAuthStore
+from tacacs_server.utils.logger import get_logger
 
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LocalUserServiceError(Exception):

@@ -12,7 +12,6 @@ import socket
 import hashlib
 import struct
 import secrets
-import logging
 import threading
 import time
 import ipaddress
@@ -21,8 +20,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from tacacs_server.auth.base import AuthenticationBackend
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
+from tacacs_server.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # RADIUS Packet Codes
 RADIUS_ACCESS_REQUEST = 1

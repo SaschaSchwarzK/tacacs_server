@@ -2,8 +2,8 @@
 TACACS+ AAA Request Handlers
 """
 import struct
-import logging
 from typing import List, Dict, Any, Optional
+
 from .packet import TacacsPacket
 from .constants import *
 from ..accounting.models import AccountingRecord
@@ -17,8 +17,9 @@ from ..utils.auth_logger import (
 from ..utils.security import validate_username, sanitize_command, AuthRateLimiter
 from ..utils.exceptions import AuthenticationError, AuthorizationError
 from ..web.monitoring import PrometheusIntegration
+from ..utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class AAAHandlers:
     """TACACS+ Authentication, Authorization, and Accounting handlers"""

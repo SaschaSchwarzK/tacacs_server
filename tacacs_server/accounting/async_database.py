@@ -5,9 +5,10 @@ import aiosqlite
 import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import logging
 
-logger = logging.getLogger(__name__)
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class AsyncDatabaseLogger:
     """Async database logger for high-performance accounting"""
@@ -144,13 +145,23 @@ class AsyncDatabaseLogger:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             
-            # Total records
-            cursor = await db.execute('''
-                SELECT COUNT(*) as count FROM accounting_logs 
-                WHERE timestamp > datetime('now', '-{} days')
-            '''.format(days))
-            row = await cursor.fetchone()
-            total_records = row['count'] if row else 0
+            # Total records (prefer pre-computed stats, fall back to raw count)
+            try:
+                cursor = await db.execute('''
+                    SELECT COALESCE(SUM(total_records), 0) AS count
+                    FROM mv_daily_stats
+                    WHERE stat_date > date('now', '-{} days')
+                '''.format(days))
+                row = await cursor.fetchone()
+                total_records = row['count'] if row else 0
+            except Exception as exc:
+                logger.warning("Failed to read mv_daily_stats (%s), counting logs directly", exc)
+                cursor = await db.execute('''
+                    SELECT COUNT(*) as count FROM accounting_logs 
+                    WHERE timestamp > datetime('now', '-{} days')
+                '''.format(days))
+                row = await cursor.fetchone()
+                total_records = row['count'] if row else 0
             
             # Unique users
             cursor = await db.execute('''

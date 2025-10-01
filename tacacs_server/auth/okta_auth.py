@@ -2,7 +2,6 @@
 Okta authentication backend (OAuth2 token endpoint) with in-memory caching.
 """
 from typing import Dict, Any, Optional, Tuple
-import logging
 import time
 import threading
 import requests
@@ -11,8 +10,9 @@ import base64
 import datetime
 
 from .base import AuthenticationBackend
+from tacacs_server.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def _parse_exp_from_jwt(token: str) -> Optional[int]:
     try:

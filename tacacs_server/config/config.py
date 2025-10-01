@@ -9,11 +9,13 @@ from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, List
 from urllib.parse import urlparse
 from urllib.request import urlopen
+
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
+from tacacs_server.utils.logger import configure as configure_logging, get_logger
 from .schema import TacacsConfigSchema, validate_config_file
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # helper to normalize backend entries (string, dict, ...)
 def _normalize_backend_name(item: Any) -> str:
@@ -291,15 +293,11 @@ def setup_logging(config: TacacsConfig):
         if log_dir and (not os.path.exists(log_dir)):
             os.makedirs(log_dir, exist_ok=True)
     log_level = getattr(logging, log_config['log_level'].upper(), logging.INFO)
-    log_format = log_config['log_format']
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
+    handlers: List[logging.Handler] = []
+
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
-    console_formatter = logging.Formatter(log_format)
-    console_handler.setFormatter(console_formatter)
-    root_logger.addHandler(console_handler)
+    handlers.append(console_handler)
+
     if log_file:
         try:
             if log_config.get('log_rotation', False):
@@ -308,10 +306,13 @@ def setup_logging(config: TacacsConfig):
                 file_handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
             else:
                 file_handler = logging.FileHandler(log_file)
-            file_handler.setLevel(log_level)
-            file_handler.setFormatter(console_formatter)
-            root_logger.addHandler(file_handler)
+            handlers.append(file_handler)
         except Exception:
             logger.exception('Failed to create file log handler for %s', log_file)
-    root_logger.setLevel(log_level)
-    logger.info(f"Logging configured - Level: {log_config['log_level']}, File: {log_file or 'Console only'}")
+
+    configure_logging(level=log_level, handlers=handlers)
+
+    if log_config.get('log_format') and log_config['log_format'].lower() not in {'', 'json', 'structured'}:
+        logger.warning('Ignoring configured log_format in favour of structured JSON output', configured_format=log_config['log_format'])
+
+    logger.info('Logging configured', log_level=log_config['log_level'], log_file=log_file or 'console-only')

@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import ipaddress
 import json
-import logging
 import sqlite3
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Union, Any
 
-logger = logging.getLogger(__name__)
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 JsonDict = Dict[str, Any]

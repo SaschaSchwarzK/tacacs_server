@@ -3,7 +3,6 @@ TACACS+ Server Main Class
 """
 import socket
 import threading
-import logging
 import time
 import psutil
 from collections import Counter
@@ -16,12 +15,13 @@ from .constants import *
 from tacacs_server.auth.base import AuthenticationBackend
 from ..accounting.database import DatabaseLogger
 from typing import TYPE_CHECKING
+from ..utils.logger import get_logger
 
 if TYPE_CHECKING:
     from ..web.monitoring import TacacsMonitoringAPI
     from ..devices import DeviceStore
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class TacacsServer:
     """TACACS+ Server implementation"""

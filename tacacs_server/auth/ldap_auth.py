@@ -2,11 +2,11 @@
 LDAP Authentication Backend
 """
 
-import logging
 from typing import Dict, Any, Optional
 from .base import AuthenticationBackend
+from tacacs_server.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 try:
     import ldap3
