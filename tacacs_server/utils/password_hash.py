@@ -4,7 +4,6 @@ Replaces weak SHA-256 hashing with industry-standard bcrypt.
 """
 
 import secrets
-from typing import Optional
 
 from .logger import get_logger
 
@@ -24,7 +23,7 @@ class PasswordHasher:
     DEFAULT_ROUNDS = 12  # Good balance of security and performance
     
     @classmethod
-    def hash_password(cls, password: str, rounds: Optional[int] = None) -> str:
+    def hash_password(cls, password: str, rounds: int | None = None) -> str:
         """
         Hash a password using bcrypt.
         
@@ -96,7 +95,7 @@ class PasswordHasher:
         return hashed.startswith('$2a$') or hashed.startswith('$2b$') or hashed.startswith('$2y$')
     
     @classmethod
-    def needs_rehash(cls, hashed: str, rounds: Optional[int] = None) -> bool:
+    def needs_rehash(cls, hashed: str, rounds: int | None = None) -> bool:
         """
         Check if a hash needs to be rehashed (e.g., due to increased rounds).
         
@@ -151,7 +150,7 @@ class LegacyPasswordMigrator:
         return secrets.compare_digest(computed_hash, legacy_hash)
     
     @classmethod
-    def migrate_password(cls, password: str, legacy_hash: str) -> Optional[str]:
+    def migrate_password(cls, password: str, legacy_hash: str) -> str | None:
         """
         Migrate a password from legacy SHA-256 to bcrypt.
         
@@ -201,6 +200,6 @@ def verify_password(password: str, hashed: str) -> bool:
     return False
 
 
-def migrate_legacy_password(password: str, legacy_hash: str) -> Optional[str]:
+def migrate_legacy_password(password: str, legacy_hash: str) -> str | None:
     """Convenience function for migrating legacy passwords."""
     return LegacyPasswordMigrator.migrate_password(password, legacy_hash)

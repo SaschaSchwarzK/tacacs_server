@@ -5,8 +5,8 @@ Tests for input validation security features.
 import pytest
 
 from tacacs_server.utils.exceptions import ValidationError
-from tacacs_server.utils.validation import InputValidator, FormValidator
-from tacacs_server.utils.sql_security import ParameterizedQuery, SQLSecurityError
+from tacacs_server.utils.sql_security import ParameterizedQuery
+from tacacs_server.utils.validation import FormValidator, InputValidator
 
 
 class TestInputValidator:

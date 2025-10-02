@@ -4,7 +4,6 @@ Provides both HTML dashboard and Prometheus metrics endpoint
 """
 
 import asyncio
-import json
 import threading
 import time
 from collections.abc import Awaitable, Callable

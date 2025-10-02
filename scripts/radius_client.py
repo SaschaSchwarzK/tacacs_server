@@ -198,7 +198,7 @@ def test_batch_credentials(csv_file, server='localhost', port=1812, secret=None)
         return False
     
     try:
-        with open(csv_file, 'r') as f:
+        with open(csv_file) as f:
             reader = csv.reader(f)
             credentials = [(row[0], row[1]) for row in reader if len(row) >= 2]
     except (FileNotFoundError, IndexError, PermissionError) as e:
@@ -225,7 +225,7 @@ def test_batch_credentials(csv_file, server='localhost', port=1812, secret=None)
     successful = sum(1 for _, success in results if success)
     failed = len(results) - successful
     
-    print(f"\n=== Batch Test Summary ===")
+    print("\n=== Batch Test Summary ===")
     print(f"Total tests: {len(results)}")
     print(f"Successful: {successful}")
     print(f"Failed: {failed}")

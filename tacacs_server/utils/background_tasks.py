@@ -6,7 +6,6 @@ Periodic tasks for metrics collection, cleanup, and maintenance.
 
 import threading
 import time
-from typing import Optional
 
 from .audit_logger import get_audit_logger
 from .logger import get_logger
@@ -22,7 +21,7 @@ class BackgroundTaskManager:
     def __init__(self, tacacs_server=None):
         self.tacacs_server = tacacs_server
         self.running = False
-        self.task_thread: Optional[threading.Thread] = None
+        self.task_thread: threading.Thread | None = None
         self.metrics_interval = 60  # Record metrics every minute
         self.cleanup_interval = 3600  # Cleanup every hour
         self.last_metrics_time = 0
@@ -128,9 +127,9 @@ class BackgroundTaskManager:
 
 
 # Global task manager instance
-_task_manager: Optional[BackgroundTaskManager] = None
+_task_manager: BackgroundTaskManager | None = None
 
-def get_task_manager() -> Optional[BackgroundTaskManager]:
+def get_task_manager() -> BackgroundTaskManager | None:
     """Get global task manager instance"""
     return _task_manager
 

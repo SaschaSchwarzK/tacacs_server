@@ -30,9 +30,12 @@ from tacacs_server.devices.service import (
     DeviceValidationError,
     GroupNotFound,
 )
-from tacacs_server.utils.validation import FormValidator, InputValidator, validate_api_input
-from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.audit_logger import get_audit_logger
+from tacacs_server.utils.exceptions import ValidationError
+from tacacs_server.utils.validation import (
+    FormValidator,
+    InputValidator,
+)
 
 from ..monitoring import (
     get_admin_auth_dependency_func,
@@ -1326,8 +1329,8 @@ async def export_devices(
     ]
     
     if format.lower() == "csv":
-        import io
         import csv
+        import io
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=["name", "network", "group"])
         writer.writeheader()
@@ -1364,8 +1367,8 @@ async def export_users(
     ]
     
     if format.lower() == "csv":
-        import io
         import csv
+        import io
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=[
             "username", "privilege_level", "service", "groups", "enabled", "description"
@@ -1552,7 +1555,7 @@ async def get_server_logs(lines: int = 100, _: None = Depends(admin_guard)):
     
     log_file = "logs/tacacs.log"
     try:
-        with open(log_file, 'r', encoding='utf-8') as f:
+        with open(log_file, encoding='utf-8') as f:
             all_lines = f.readlines()
             recent_logs = [line.strip() for line in all_lines[-lines:]]
         return {"logs": recent_logs, "count": len(recent_logs)}

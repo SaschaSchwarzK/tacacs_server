@@ -7,7 +7,6 @@ SQLite-based storage for metrics history and trend analysis.
 import sqlite3
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from .logger import get_logger
 
@@ -55,7 +54,7 @@ class MetricsHistory:
                 ON metrics_snapshots(timestamp)
             """)
     
-    def record_snapshot(self, metrics: Dict) -> bool:
+    def record_snapshot(self, metrics: dict) -> bool:
         """Record a metrics snapshot"""
         try:
             timestamp = int(time.time())
@@ -90,7 +89,7 @@ class MetricsHistory:
             logger.error(f"Failed to record metrics snapshot: {e}")
             return False
     
-    def get_historical_data(self, hours: int = 24) -> List[Dict]:
+    def get_historical_data(self, hours: int = 24) -> list[dict]:
         """Get historical metrics data"""
         try:
             since_timestamp = int(time.time() - (hours * 3600))
@@ -108,7 +107,7 @@ class MetricsHistory:
             logger.error(f"Failed to get historical data: {e}")
             return []
     
-    def get_summary_stats(self, hours: int = 24) -> Dict:
+    def get_summary_stats(self, hours: int = 24) -> dict:
         """Get summary statistics for time period"""
         try:
             since_timestamp = int(time.time() - (hours * 3600))
@@ -165,7 +164,7 @@ class MetricsHistory:
 
 
 # Global metrics history instance
-_metrics_history: Optional[MetricsHistory] = None
+_metrics_history: MetricsHistory | None = None
 
 def get_metrics_history() -> MetricsHistory:
     """Get global metrics history instance"""

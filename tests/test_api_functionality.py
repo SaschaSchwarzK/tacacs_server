@@ -2,32 +2,27 @@
 Tests for API functionality without requiring FastAPI TestClient
 """
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
 
 from tacacs_server.web.admin.routers import (
-    reload_server_config,
-    reset_server_stats,
+    create_device,
+    create_group,
+    create_user,
+    create_user_group,
+    delete_device,
+    get_device,
+    get_group_details,
     get_server_logs,
     get_server_status,
-    update_config,
-    create_device,
-    get_device,
-    update_device,
-    delete_device,
-    create_group,
-    get_group_details,
-    update_group,
-    delete_group,
-    create_user,
     get_user_details,
-    update_user,
-    set_user_password,
-    delete_user,
-    create_user_group,
     get_user_group_details,
-    update_user_group,
-    delete_user_group
+    reload_server_config,
+    reset_server_stats,
+    set_user_password,
+    update_config,
+    update_device,
 )
 
 
@@ -388,6 +383,7 @@ class TestErrorHandling:
     async def test_device_not_found(self):
         """Test handling when device is not found"""
         from fastapi import HTTPException
+
         from tacacs_server.devices.service import DeviceNotFound
         
         with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
@@ -404,6 +400,7 @@ class TestErrorHandling:
     async def test_validation_error(self):
         """Test handling validation errors"""
         from fastapi import HTTPException
+
         from tacacs_server.devices.service import DeviceValidationError
         
         with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:

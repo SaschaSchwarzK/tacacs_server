@@ -11,3 +11,6 @@ build/
 .vscode/
 tools/
 Fixes/
+*.db
+*.db-shm
+*.db-wal

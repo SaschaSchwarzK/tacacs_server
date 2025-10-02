@@ -4,9 +4,9 @@ LDAP Authentication Backend
 
 from typing import Any
 
+from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.validation import InputValidator
-from tacacs_server.utils.exceptions import ValidationError
 
 from .base import AuthenticationBackend
 

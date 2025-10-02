@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
-from tacacs_server.utils.sql_security import ParameterizedQuery
 
 logger = get_logger(__name__)
 

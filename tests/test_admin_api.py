@@ -2,15 +2,16 @@
 Tests for Admin API endpoints
 """
 
-import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch
 
-from tacacs_server.web.admin.routers import admin_router
-from tacacs_server.web.admin.auth import AdminAuthConfig, AdminSessionManager
-from tacacs_server.auth.local_user_service import LocalUserService
+import pytest
+from fastapi.testclient import TestClient
+
 from tacacs_server.auth.local_user_group_service import LocalUserGroupService
+from tacacs_server.auth.local_user_service import LocalUserService
 from tacacs_server.devices.service import DeviceService
+from tacacs_server.web.admin.auth import AdminSessionManager
+from tacacs_server.web.admin.routers import admin_router
 
 
 @pytest.fixture

@@ -2,13 +2,14 @@
 Test configuration and fixtures
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
-from tacacs_server.auth.local_user_service import LocalUserService
+import pytest
+
 from tacacs_server.auth.local_store import LocalAuthStore
+from tacacs_server.auth.local_user_service import LocalUserService
 
 
 @pytest.fixture

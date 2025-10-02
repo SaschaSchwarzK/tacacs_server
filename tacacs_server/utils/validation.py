@@ -6,7 +6,7 @@ Provides centralized validation to prevent injection attacks and ensure data int
 import ipaddress
 import re
 import string
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from urllib.parse import urlparse
 
 from .exceptions import ValidationError
@@ -117,7 +117,7 @@ class InputValidator:
         return hostname
     
     @classmethod
-    def validate_port(cls, port: Union[str, int]) -> int:
+    def validate_port(cls, port: str | int) -> int:
         """Validate port number."""
         try:
             port_num = int(port)
@@ -130,7 +130,7 @@ class InputValidator:
         return port_num
     
     @classmethod
-    def validate_privilege_level(cls, level: Union[str, int]) -> int:
+    def validate_privilege_level(cls, level: str | int) -> int:
         """Validate TACACS+ privilege level."""
         try:
             level_num = int(level)
@@ -211,7 +211,7 @@ class InputValidator:
         return url
     
     @classmethod
-    def validate_json_dict(cls, data: Any, field_name: str = "data") -> Dict[str, Any]:
+    def validate_json_dict(cls, data: Any, field_name: str = "data") -> dict[str, Any]:
         """Validate JSON dictionary input."""
         if data is None:
             return {}
@@ -225,7 +225,7 @@ class InputValidator:
         return data
     
     @classmethod
-    def validate_string_list(cls, items: Any, field_name: str = "items") -> List[str]:
+    def validate_string_list(cls, items: Any, field_name: str = "items") -> list[str]:
         """Validate list of strings."""
         if items is None:
             return []
@@ -323,7 +323,7 @@ class FormValidator:
     """Specialized validator for web form inputs."""
     
     @classmethod
-    def validate_device_form(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_device_form(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Validate device creation/update form."""
         validated = {}
         
@@ -343,7 +343,7 @@ class FormValidator:
         return validated
     
     @classmethod
-    def validate_user_form(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_user_form(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Validate user creation/update form."""
         validated = {}
         
@@ -384,7 +384,7 @@ class FormValidator:
         return validated
     
     @classmethod
-    def validate_group_form(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_group_form(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Validate device group creation/update form."""
         validated = {}
         

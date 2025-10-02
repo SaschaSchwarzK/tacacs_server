@@ -4,10 +4,10 @@ Configuration Management for TACACS+ Server
 import configparser
 import logging
 import os
+import time
 from logging.handlers import RotatingFileHandler
 from typing import Any
 from urllib.parse import urlparse
-import time
 from urllib.request import urlopen
 
 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
@@ -153,7 +153,7 @@ class TacacsConfig:
                 os.makedirs(cfg_dir, exist_ok=True)
             with open(self.config_file, 'w') as fh:
                 self.config.write(fh)
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error('Failed to save configuration to %s: %s', self.config_file, e)
             raise RuntimeError(f'Configuration save failed: {e}') from e
         except Exception as e:

@@ -8,7 +8,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .logger import get_logger
 
@@ -56,11 +56,11 @@ class AuditLogger:
         user_id: str,
         action: str,
         resource_type: str,
-        resource_id: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        client_ip: Optional[str] = None,
+        resource_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        client_ip: str | None = None,
         success: bool = True,
-        error_message: Optional[str] = None
+        error_message: str | None = None
     ) -> bool:
         """Log an admin action"""
         try:
@@ -97,10 +97,10 @@ class AuditLogger:
     def get_audit_log(
         self,
         hours: int = 24,
-        user_id: Optional[str] = None,
-        action: Optional[str] = None,
+        user_id: str | None = None,
+        action: str | None = None,
         limit: int = 100
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Get audit log entries"""
         try:
             since_timestamp = int(time.time() - (hours * 3600))
@@ -141,7 +141,7 @@ class AuditLogger:
             logger.error(f"Failed to get audit log: {e}")
             return []
     
-    def get_audit_summary(self, hours: int = 24) -> Dict:
+    def get_audit_summary(self, hours: int = 24) -> dict:
         """Get audit summary statistics"""
         try:
             since_timestamp = int(time.time() - (hours * 3600))
@@ -195,7 +195,7 @@ class AuditLogger:
 
 
 # Global audit logger instance
-_audit_logger: Optional[AuditLogger] = None
+_audit_logger: AuditLogger | None = None
 
 def get_audit_logger() -> AuditLogger:
     """Get global audit logger instance"""

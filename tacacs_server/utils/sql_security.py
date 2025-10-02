@@ -5,7 +5,7 @@ Provides parameterized query helpers and input sanitization.
 
 import re
 import sqlite3
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from .exceptions import ValidationError
 from .logger import get_logger
@@ -99,10 +99,10 @@ class ParameterizedQuery:
         return value
     
     @classmethod
-    def build_select(cls, table: str, columns: List[str], 
-                    where_conditions: Optional[Dict[str, Any]] = None,
-                    order_by: Optional[str] = None,
-                    limit: Optional[int] = None) -> Tuple[str, List[Any]]:
+    def build_select(cls, table: str, columns: list[str], 
+                    where_conditions: dict[str, Any] | None = None,
+                    order_by: str | None = None,
+                    limit: int | None = None) -> tuple[str, list[Any]]:
         """
         Build a secure SELECT query with parameters.
         
@@ -154,7 +154,7 @@ class ParameterizedQuery:
         return query, params
     
     @classmethod
-    def build_insert(cls, table: str, data: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    def build_insert(cls, table: str, data: dict[str, Any]) -> tuple[str, list[Any]]:
         """
         Build a secure INSERT query with parameters.
         
@@ -188,8 +188,8 @@ class ParameterizedQuery:
         return query, values
     
     @classmethod
-    def build_update(cls, table: str, data: Dict[str, Any], 
-                    where_conditions: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    def build_update(cls, table: str, data: dict[str, Any], 
+                    where_conditions: dict[str, Any]) -> tuple[str, list[Any]]:
         """
         Build a secure UPDATE query with parameters.
         
@@ -232,7 +232,7 @@ class ParameterizedQuery:
         return query, params
     
     @classmethod
-    def build_delete(cls, table: str, where_conditions: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    def build_delete(cls, table: str, where_conditions: dict[str, Any]) -> tuple[str, list[Any]]:
         """
         Build a secure DELETE query with parameters.
         
@@ -282,7 +282,7 @@ class SecureDatabase:
             self._connection.execute("PRAGMA synchronous = NORMAL")
         return self._connection
     
-    def execute_query(self, query: str, params: Optional[List[Any]] = None) -> sqlite3.Cursor:
+    def execute_query(self, query: str, params: list[Any] | None = None) -> sqlite3.Cursor:
         """Execute a parameterized query safely."""
         conn = self.connect()
         cursor = conn.cursor()
@@ -299,10 +299,10 @@ class SecureDatabase:
             logger.error(f"Params: {params}")
             raise SQLSecurityError(f"Database operation failed: {e}") from e
     
-    def select(self, table: str, columns: List[str], 
-              where_conditions: Optional[Dict[str, Any]] = None,
-              order_by: Optional[str] = None,
-              limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def select(self, table: str, columns: list[str], 
+              where_conditions: dict[str, Any] | None = None,
+              order_by: str | None = None,
+              limit: int | None = None) -> list[dict[str, Any]]:
         """Execute secure SELECT query."""
         query, params = ParameterizedQuery.build_select(
             table, columns, where_conditions, order_by, limit
@@ -318,7 +318,7 @@ class SecureDatabase:
         
         return results
     
-    def insert(self, table: str, data: Dict[str, Any]) -> int:
+    def insert(self, table: str, data: dict[str, Any]) -> int:
         """Execute secure INSERT query."""
         query, params = ParameterizedQuery.build_insert(table, data)
         
@@ -327,8 +327,8 @@ class SecureDatabase:
         
         return cursor.lastrowid
     
-    def update(self, table: str, data: Dict[str, Any], 
-              where_conditions: Dict[str, Any]) -> int:
+    def update(self, table: str, data: dict[str, Any], 
+              where_conditions: dict[str, Any]) -> int:
         """Execute secure UPDATE query."""
         query, params = ParameterizedQuery.build_update(table, data, where_conditions)
         
@@ -337,7 +337,7 @@ class SecureDatabase:
         
         return cursor.rowcount
     
-    def delete(self, table: str, where_conditions: Dict[str, Any]) -> int:
+    def delete(self, table: str, where_conditions: dict[str, Any]) -> int:
         """Execute secure DELETE query."""
         query, params = ParameterizedQuery.build_delete(table, where_conditions)
         

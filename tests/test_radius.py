@@ -51,9 +51,10 @@ def test_radius_packet_pack_unpack():
 @pytest.fixture
 def radius_server(tmp_path):
     """Create RADIUS server for testing"""
+    import uuid
+
     from tacacs_server.auth.local import LocalAuthBackend
     from tacacs_server.auth.local_user_service import LocalUserService
-    import uuid
 
     # Use unique database and username to avoid conflicts
     unique_id = str(uuid.uuid4())[:8]

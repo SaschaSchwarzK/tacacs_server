@@ -2,8 +2,8 @@
 Simple tests for API functionality
 """
 
+
 import pytest
-from unittest.mock import Mock, patch
 
 
 class TestAPIFunctionality:

@@ -9,10 +9,13 @@ from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 
-from tacacs_server.utils.logger import get_logger
-from tacacs_server.utils.validation import InputValidator
 from tacacs_server.utils.exceptions import ValidationError
-from tacacs_server.utils.password_hash import PasswordHasher, verify_password, migrate_legacy_password
+from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.password_hash import (
+    PasswordHasher,
+    verify_password,
+)
+from tacacs_server.utils.validation import InputValidator
 
 from .local_models import LocalUserRecord
 from .local_store import LocalAuthStore
