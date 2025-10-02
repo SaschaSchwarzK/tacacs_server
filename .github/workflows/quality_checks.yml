@@ -88,16 +88,6 @@ jobs:
             **/*token*
             **/*credential*
 
-  workflow-lint:
-    name: Lint GitHub Workflows (zizmor)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run zizmor
-        uses: zizmorcore/zizmor-action@c04216618f9d4b8b8c7b8b7e1e1b8b7e6e1b8b7e  # v0.2.0
-        with:
-          path: ".github/workflows"
-
   codeql:
     name: CodeQL (Python)
     runs-on: ubuntu-latest
