@@ -148,7 +148,9 @@ class RADIUSPacket:
         self.authenticator = authenticator  # 16 bytes
         self.attributes = attributes or []
 
-    def pack(self, secret: bytes | None = None, request_auth: bytes | None = None) -> bytes:
+    def pack(
+        self, secret: bytes | None = None, request_auth: bytes | None = None
+    ) -> bytes:
         """Pack RADIUS packet into bytes with proper authenticator calculation.
 
         Args:

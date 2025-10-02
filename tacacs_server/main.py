@@ -4,7 +4,7 @@ import sys
 import textwrap
 from collections import Counter
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
@@ -40,8 +40,8 @@ class TacacsServerManager:
     def __init__(self, config_file: str = "config/tacacs.conf"):
         self.config = TacacsConfig(config_file)
         monitoring_set_config(self.config)
-        self.server: Optional[TacacsServer] = None
-        self.radius_server: Optional[Any] = None
+        self.server: TacacsServer | None = None
+        self.radius_server: Any | None = None
         self.device_store = None
         self.device_service = None
         self.local_auth_store: LocalAuthStore | None = None
@@ -375,7 +375,9 @@ class TacacsServerManager:
     def _print_startup_info(self):
         """Print server startup information"""
         server_config = self.config.get_server_config()
-        auth_backends = [b.name for b in self.server.auth_backends] if self.server else []
+        auth_backends = (
+            [b.name for b in self.server.auth_backends] if self.server else []
+        )
         db_config = self.config.get_database_config()
         logger.info(f"Server Address: {server_config['host']}:{server_config['port']}")
         logger.info(f"Secret Key: {'*' * len(server_config['secret_key'])}")
