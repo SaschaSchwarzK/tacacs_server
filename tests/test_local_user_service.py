@@ -13,6 +13,7 @@ from tacacs_server.auth.local_user_service import (
 @pytest.fixture
 def user_service(tmp_path):
     import uuid
+
     unique_id = str(uuid.uuid4())[:8]
     db_path = tmp_path / f"users_{unique_id}.db"
     return LocalUserService(db_path)
@@ -69,6 +70,7 @@ def test_local_user_validation(user_service: LocalUserService):
 
 def test_local_user_reload(tmp_path):
     import uuid
+
     unique_id = str(uuid.uuid4())[:8]
     db_path = tmp_path / f"reload_users_{unique_id}.db"
     service = LocalUserService(db_path)
@@ -86,6 +88,7 @@ def test_local_user_reload(tmp_path):
 
 def test_local_user_seed_from_json(tmp_path):
     import uuid
+
     unique_id = str(uuid.uuid4())[:8]
     legacy = tmp_path / f"legacy_users_{unique_id}.json"
     legacy.write_text(
@@ -113,7 +116,7 @@ def test_local_user_seed_from_json(tmp_path):
         service="exec",
         groups=["legacy"],
         enabled=True,
-        shell_command=["show"]
+        shell_command=["show"],
     )
     assert user.username == "dan"
     assert user.privilege_level == 5
@@ -122,6 +125,7 @@ def test_local_user_seed_from_json(tmp_path):
 
 def test_local_user_service_change_listeners(tmp_path):
     import uuid
+
     unique_id = str(uuid.uuid4())[:8]
     service = LocalUserService(tmp_path / f"change_users_{unique_id}.db")
     events: list[tuple[str, str]] = []

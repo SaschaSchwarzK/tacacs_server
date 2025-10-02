@@ -1,4 +1,5 @@
 """Service helpers for managing local users stored in SQLite."""
+
 from __future__ import annotations
 
 import json
@@ -85,9 +86,7 @@ class LocalUserService:
             try:
                 callback(event, username)
             except Exception:
-                logger.exception(
-                    "LocalUserService change listener failed"
-                )
+                logger.exception("LocalUserService change listener failed")
 
     # ------------------------------------------------------------------
     # Basic ops
@@ -153,27 +152,23 @@ class LocalUserService:
 
         updates = {
             "privilege_level": (
-                self._validate_privilege(privilege_level) 
-                if privilege_level is not None else None
+                self._validate_privilege(privilege_level)
+                if privilege_level is not None
+                else None
             ),
             "service": (
-                self._validate_service(service) 
-                if service is not None else None
+                self._validate_service(service) if service is not None else None
             ),
             "shell_command": (
-                self._validate_list(shell_command, "shell_command") 
-                if shell_command is not None else None
+                self._validate_list(shell_command, "shell_command")
+                if shell_command is not None
+                else None
             ),
             "groups": (
-                self._validate_list(groups, "groups") 
-                if groups is not None else None
+                self._validate_list(groups, "groups") if groups is not None else None
             ),
-            "enabled": (
-                bool(enabled) if enabled is not None else None
-            ),
-            "description": (
-                description if description is not None else None
-            ),
+            "enabled": (bool(enabled) if enabled is not None else None),
+            "description": (description if description is not None else None),
         }
         stored = self.store.update_user(
             username,
@@ -236,31 +231,23 @@ class LocalUserService:
             if self.store.list_users():
                 return
         except Exception:
-            logger.exception(
-                "Failed to inspect local auth store before seeding"
-            )
+            logger.exception("Failed to inspect local auth store before seeding")
             return
 
         try:
             with seed_path.open("r", encoding="utf-8") as fh:
                 payload = json.load(fh)
         except Exception:
-            logger.exception(
-                "Failed to load legacy users seed from %s", seed_path
-            )
+            logger.exception("Failed to load legacy users seed from %s", seed_path)
             return
 
         if not isinstance(payload, dict):
-            logger.warning(
-                "Legacy users seed %s is not a JSON object", seed_path
-            )
+            logger.warning("Legacy users seed %s is not a JSON object", seed_path)
             return
 
         for username, data in payload.items():
             if not isinstance(data, dict):
-                logger.warning(
-                    "Skipping legacy user %s with invalid payload", username
-                )
+                logger.warning("Skipping legacy user %s with invalid payload", username)
                 continue
             try:
                 record = LocalUserRecord.from_dict(username, data)
@@ -270,9 +257,7 @@ class LocalUserService:
                     # Already present, skip
                     continue
             except Exception:
-                logger.exception(
-                    "Failed to import legacy user %s", username
-                )
+                logger.exception("Failed to import legacy user %s", username)
 
     @staticmethod
     def _clone(record: LocalUserRecord) -> LocalUserRecord:
@@ -354,7 +339,7 @@ class LocalUserService:
         user = self.store.get_user(username)
         if not user or not user.password_hash:
             return False
-        
+
         # Try verification with current hash
         if verify_password(password, user.password_hash):
             # Check if we need to migrate from legacy hash
@@ -369,31 +354,31 @@ class LocalUserService:
                 except Exception as e:
                     logger.error(f"Failed to migrate password for user {username}: {e}")
             return True
-        
+
         return False
-    
+
     @staticmethod
     def _validate_safe_path(path: Path | str, allowed_base: str = "data") -> Path:
         """Validate path to prevent directory traversal attacks."""
         if not path:
             raise LocalUserValidationError("Path cannot be empty")
-        
+
         try:
             # Convert to Path and resolve to absolute path
             path_obj = Path(path).resolve()
             base_path = Path(allowed_base).resolve()
-            
+
             # Ensure path is within allowed base directory
             try:
                 path_obj.relative_to(base_path)
             except ValueError:
                 # Path is outside allowed base, create safe path
                 safe_name = Path(path).name  # Get just the filename
-                if not safe_name or safe_name in ('.', '..'):
+                if not safe_name or safe_name in (".", ".."):
                     raise LocalUserValidationError("Invalid filename")
                 path_obj = base_path / safe_name
-            
+
             return path_obj
-            
+
         except Exception as e:
             raise LocalUserValidationError(f"Invalid path: {e}") from e

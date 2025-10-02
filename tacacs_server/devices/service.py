@@ -1,4 +1,5 @@
 """Higher-level service helpers for device and group management."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -13,6 +14,7 @@ UNSET = object()
 
 
 logger = get_logger(__name__)
+
 
 class DeviceServiceError(Exception):
     """Base error for device service operations."""
@@ -159,7 +161,8 @@ class DeviceService:
             or allowed_user_groups is not UNSET
         ):
             merged_metadata = (
-                _ensure_metadata(metadata) if metadata is not None 
+                _ensure_metadata(metadata)
+                if metadata is not None
                 else dict(group.metadata)
             )
             if metadata is None and getattr(group, "allowed_user_groups", None):
@@ -200,12 +203,10 @@ class DeviceService:
             name=new_name,
             description=description,
             tacacs_profile=(
-                _ensure_metadata(tacacs_profile) 
-                if tacacs_profile is not None else None
+                _ensure_metadata(tacacs_profile) if tacacs_profile is not None else None
             ),
             radius_profile=(
-                _ensure_metadata(radius_profile) 
-                if radius_profile is not None else None
+                _ensure_metadata(radius_profile) if radius_profile is not None else None
             ),
             metadata=merged_metadata,
         )

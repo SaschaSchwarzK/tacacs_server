@@ -1,4 +1,5 @@
 """Admin router skeleton for device management."""
+
 from __future__ import annotations
 
 import inspect
@@ -101,7 +102,7 @@ def _parse_allowed_groups(value) -> list[str] | None:
     if value is None:
         return None
     if isinstance(value, str):
-        raw_tokens = value.replace('\n', ',').split(',')
+        raw_tokens = value.replace("\n", ",").split(",")
     else:
         try:
             raw_tokens = [str(token) for token in value]
@@ -130,8 +131,8 @@ def _parse_int(value, field: str, *, required: bool = False) -> int | None:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=f"{field} must be an integer"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field} must be an integer",
         ) from exc
 
 
@@ -175,11 +176,11 @@ def _format_bytes(value: int | None) -> str:
     if not value and value != 0:
         return "0 B"
     value = int(value)
-    units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
     size = float(value)
     for unit in units:
         if size < 1024.0 or unit == units[-1]:
-            return f"{size:.1f} {unit}" if unit != 'B' else f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
         size /= 1024.0
     return f"{size:.1f} PB"
 
@@ -239,7 +240,7 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
     groups = device_service.list_groups() if device_service else []
     users = user_service.list_users() if user_service else []
     user_groups = user_group_service.list_groups() if user_group_service else []
-    
+
     summary = {
         "devices": len(devices),
         "device_groups": len(groups),
@@ -277,9 +278,9 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
     uptime_text = _format_duration(uptime_seconds)
 
     memory_usage = health.get("memory_usage", {}) or {}
-    mem_total = memory_usage.get('total')
-    mem_used = memory_usage.get('used')
-    mem_percent = memory_usage.get('percent')
+    mem_total = memory_usage.get("total")
+    mem_used = memory_usage.get("used")
+    mem_percent = memory_usage.get("percent")
     if not mem_total:
         vm = psutil.virtual_memory()
         mem_total = vm.total
@@ -298,14 +299,14 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
         clients = getattr(radius_server, "clients", []) or []
         radius_acct = _calc_metric(
             {
-                'auth_requests': r_stats.get('acct_requests', 0),
-                'auth_success': r_stats.get('acct_responses', 0),
-                'auth_failures': r_stats.get('acct_requests', 0)
-                - r_stats.get('acct_responses', 0),
+                "auth_requests": r_stats.get("acct_requests", 0),
+                "auth_success": r_stats.get("acct_responses", 0),
+                "auth_failures": r_stats.get("acct_requests", 0)
+                - r_stats.get("acct_responses", 0),
             },
-            total_key='auth_requests',
-            success_key='auth_success',
-            failure_key='auth_failures',
+            total_key="auth_requests",
+            success_key="auth_success",
+            failure_key="auth_failures",
         )
         radius_summary = {
             "clients": len(clients),
@@ -343,22 +344,26 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
 
     group_samples = []
     for group in groups[:5]:
-        group_samples.append({
-            "name": group.name,
-            "description": group.description,
-            "allowed_user_groups": len(group.allowed_user_groups or []),
-            "tacacs_secret": bool(group.tacacs_secret),
-            "radius_secret": bool(group.radius_secret),
-        })
+        group_samples.append(
+            {
+                "name": group.name,
+                "description": group.description,
+                "allowed_user_groups": len(group.allowed_user_groups or []),
+                "tacacs_secret": bool(group.tacacs_secret),
+                "radius_secret": bool(group.radius_secret),
+            }
+        )
 
     user_samples = []
     for record in users[:5]:
-        user_samples.append({
-            "username": record.username,
-            "privilege_level": record.privilege_level,
-            "enabled": record.enabled,
-            "groups": ", ".join(record.groups or []),
-        })
+        user_samples.append(
+            {
+                "username": record.username,
+                "privilege_level": record.privilege_level,
+                "enabled": record.enabled,
+                "groups": ", ".join(record.groups or []),
+            }
+        )
 
     config = monitoring_get_config()
     config_source = None
@@ -374,7 +379,7 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
         "memory_percent": mem_percent,
         "memory_human": f"{_format_bytes(mem_used)} / { _format_bytes(mem_total)}"
         if mem_total is not None
-        else 'N/A',
+        else "N/A",
         "config_source": config_source,
     }
 
@@ -450,27 +455,23 @@ async def view_config_trailing_slash():
 
 
 @admin_router.put("/config")
-async def update_config(
-    request: Request,
-    _: None = Depends(admin_guard)
-):
+async def update_config(request: Request, _: None = Depends(admin_guard)):
     """Update server configuration with comprehensive error handling."""
     config = monitoring_get_config()
     if not config:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Configuration unavailable"
+            detail="Configuration unavailable",
         )
-    
+
     try:
         payload = await request.json()
     except (ValueError, TypeError) as e:
         logger.warning("Invalid JSON in config update: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON payload: {e}"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON payload: {e}"
         ) from e
-    
+
     try:
         # Update different sections based on payload
         if "server" in payload:
@@ -479,20 +480,20 @@ async def update_config(
             config.update_auth_config(**payload["auth"])
         if "ldap" in payload:
             config.update_ldap_config(**payload["ldap"])
-        
+
         logger.info("Configuration updated successfully")
         return {"success": True, "message": "Configuration updated"}
     except ValueError as e:
         logger.error("Configuration validation error: %s", e)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Configuration validation failed: {e}"
+            detail=f"Configuration validation failed: {e}",
         ) from e
     except Exception as e:
         logger.error("Unexpected error updating configuration: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error during configuration update"
+            detail="Internal server error during configuration update",
         ) from e
 
 
@@ -503,30 +504,34 @@ async def list_devices(
     _: None = Depends(admin_guard),
     search: str = None,
     group_filter: str = None,
-    limit: int = 100
+    limit: int = 100,
 ):
     # Get all devices
     all_devices = service.list_devices()
-    
+
     # Apply search filter
     if search:
         search_lower = search.lower()
         all_devices = [
-            device for device in all_devices
-            if (search_lower in device.name.lower() or 
-                search_lower in str(device.network).lower())
+            device
+            for device in all_devices
+            if (
+                search_lower in device.name.lower()
+                or search_lower in str(device.network).lower()
+            )
         ]
-    
+
     # Apply group filter
     if group_filter:
         all_devices = [
-            device for device in all_devices
+            device
+            for device in all_devices
             if device.group and device.group.name == group_filter
         ]
-    
+
     # Apply limit
     devices = all_devices[:limit]
-    
+
     data = [
         {
             "id": record.id,
@@ -542,20 +547,16 @@ async def list_devices(
         }
         for record in devices
     ]
-    
+
     accept = request.headers.get("accept", "")
     if "application/json" in accept or request.query_params.get("format") == "json":
         return {
             "devices": data,
             "total": len(all_devices),
             "shown": len(data),
-            "filters": {
-                "search": search,
-                "group_filter": group_filter,
-                "limit": limit
-            }
+            "filters": {"search": search, "group_filter": group_filter, "limit": limit},
         }
-    
+
     group_options = sorted(group.name for group in service.list_groups())
     return templates.TemplateResponse(
         "admin/devices.html",
@@ -585,17 +586,17 @@ async def create_device(
         except (ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid JSON payload: {e}"
+                detail=f"Invalid JSON payload: {e}",
             ) from e
-        
+
         payload = FormValidator.validate_device_form(payload)
-        
+
         record = service.create_device(
             name=payload.get("name"),
             network=payload.get("network"),
             group=payload.get("group"),
         )
-        
+
         # Audit log
         audit_logger.log_action(
             user_id="admin",  # TODO: Get actual user from session
@@ -604,12 +605,13 @@ async def create_device(
             resource_id=str(record.id),
             details={"name": record.name, "network": str(record.network)},
             client_ip=request.client.host,
-            success=True
+            success=True,
         )
-        
+
         logger.info(
-            "Admin UI: created device id=%s name=%s", record.id, 
-            InputValidator.sanitize_log_input(payload.get("name", ""))
+            "Admin UI: created device id=%s name=%s",
+            record.id,
+            InputValidator.sanitize_log_input(payload.get("name", "")),
         )
         return {"id": record.id}
     except ValidationError as exc:
@@ -617,10 +619,10 @@ async def create_device(
             user_id="admin",
             action="create_device",
             resource_type="device",
-            details=payload if 'payload' in locals() else {},
+            details=payload if "payload" in locals() else {},
             client_ip=request.client.host,
             success=False,
-            error_message=str(exc)
+            error_message=str(exc),
         )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -630,10 +632,10 @@ async def create_device(
             user_id="admin",
             action="create_device",
             resource_type="device",
-            details=payload if 'payload' in locals() else {},
+            details=payload if "payload" in locals() else {},
             client_ip=request.client.host,
             success=False,
-            error_message=str(exc)
+            error_message=str(exc),
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
@@ -699,7 +701,7 @@ async def delete_device(
     audit_logger = get_audit_logger()
     try:
         service.delete_device(device_id)
-        
+
         # Audit log
         audit_logger.log_action(
             user_id="admin",
@@ -707,9 +709,9 @@ async def delete_device(
             resource_type="device",
             resource_id=str(device_id),
             client_ip=request.client.host,
-            success=True
+            success=True,
         )
-        
+
         logger.info("Admin UI: deleted device id=%s", device_id)
     except DeviceNotFound as exc:
         audit_logger.log_action(
@@ -719,7 +721,7 @@ async def delete_device(
             resource_id=str(device_id),
             client_ip=request.client.host,
             success=False,
-            error_message=str(exc)
+            error_message=str(exc),
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -813,12 +815,15 @@ async def update_group(
             tacacs_profile=payload.get("tacacs_profile"),
             radius_profile=payload.get("radius_profile"),
             metadata=payload.get("metadata"),
-            radius_secret=
-            payload.get("radius_secret") if "radius_secret" in payload else UNSET,
-            tacacs_secret=
-            payload.get("tacacs_secret") if "tacacs_secret" in payload else UNSET,
-            device_config=
-            payload.get("device_config") if "device_config" in payload else UNSET,
+            radius_secret=payload.get("radius_secret")
+            if "radius_secret" in payload
+            else UNSET,
+            tacacs_secret=payload.get("tacacs_secret")
+            if "tacacs_secret" in payload
+            else UNSET,
+            device_config=payload.get("device_config")
+            if "device_config" in payload
+            else UNSET,
             allowed_user_groups=payload.get("allowed_user_groups")
             if "allowed_user_groups" in payload
             else UNSET,
@@ -1020,34 +1025,36 @@ async def list_users(
     search: str = None,
     enabled_filter: bool = None,
     group_filter: str = None,
-    limit: int = 100
+    limit: int = 100,
 ):
     # Get all users
     all_users = service.list_users()
-    
+
     # Apply search filter
     if search:
         search_lower = search.lower()
         all_users = [
-            user for user in all_users
-            if (search_lower in user.username.lower() or 
-                (user.description and search_lower in user.description.lower()))
+            user
+            for user in all_users
+            if (
+                search_lower in user.username.lower()
+                or (user.description and search_lower in user.description.lower())
+            )
         ]
-    
+
     # Apply enabled filter
     if enabled_filter is not None:
         all_users = [user for user in all_users if user.enabled == enabled_filter]
-    
+
     # Apply group filter
     if group_filter:
         all_users = [
-            user for user in all_users
-            if user.groups and group_filter in user.groups
+            user for user in all_users if user.groups and group_filter in user.groups
         ]
-    
+
     # Apply limit
     users = all_users[:limit]
-    
+
     group_options = [g.name for g in group_service.list_groups()]
     data = [
         {
@@ -1061,7 +1068,7 @@ async def list_users(
         }
         for r in users
     ]
-    
+
     accept = request.headers.get("accept", "")
     if "application/json" in accept or request.query_params.get("format") == "json":
         return {
@@ -1072,10 +1079,10 @@ async def list_users(
                 "search": search,
                 "enabled_filter": enabled_filter,
                 "group_filter": group_filter,
-                "limit": limit
-            }
+                "limit": limit,
+            },
         }
-    
+
     return templates.TemplateResponse(
         "admin/users.html",
         {
@@ -1104,9 +1111,9 @@ async def create_user(
         except (ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid JSON payload: {e}"
+                detail=f"Invalid JSON payload: {e}",
             ) from e
-        
+
         payload = FormValidator.validate_user_form(payload)
         record = service.create_user(
             username=payload.get("username", ""),
@@ -1118,8 +1125,10 @@ async def create_user(
             enabled=payload.get("enabled", True),
             description=payload.get("description"),
         )
-        logger.info("Admin UI: created user %s", 
-                   InputValidator.sanitize_log_input(record.username))
+        logger.info(
+            "Admin UI: created user %s",
+            InputValidator.sanitize_log_input(record.username),
+        )
         return {"username": record.username}
     except ValidationError as exc:
         raise HTTPException(
@@ -1147,7 +1156,7 @@ async def update_user(
         username = InputValidator.validate_username(username)
         payload = await request.json()
         payload = FormValidator.validate_user_form(payload)
-        
+
         record = service.update_user(
             username,
             privilege_level=payload.get("privilege_level"),
@@ -1157,12 +1166,14 @@ async def update_user(
             enabled=payload.get("enabled"),
             description=payload.get("description"),
         )
-        logger.info("Admin UI: updated user %s", 
-                   InputValidator.sanitize_log_input(username))
+        logger.info(
+            "Admin UI: updated user %s", InputValidator.sanitize_log_input(username)
+        )
         return {"username": record.username}
     except (LocalUserNotFound, ValidationError) as exc:
         status_code = (
-            status.HTTP_404_NOT_FOUND if isinstance(exc, LocalUserNotFound)
+            status.HTTP_404_NOT_FOUND
+            if isinstance(exc, LocalUserNotFound)
             else status.HTTP_400_BAD_REQUEST
         )
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
@@ -1183,22 +1194,25 @@ async def set_user_password(
         # Validate username from path parameter
         username = InputValidator.validate_username(username)
         payload = await request.json()
-        
+
         password = payload.get("password")
         if not password:
             raise ValidationError("Password is required")
-        
+
         # Validate password strength
         password = InputValidator.validate_password(password)
-        
+
         store_hash = payload.get("store_hash", True)
         record = service.set_password(username, password, store_hash=store_hash)
-        logger.info("Admin UI: updated password for user %s", 
-                   InputValidator.sanitize_log_input(username))
+        logger.info(
+            "Admin UI: updated password for user %s",
+            InputValidator.sanitize_log_input(username),
+        )
         return {"username": record.username}
     except (LocalUserNotFound, ValidationError) as exc:
         status_code = (
-            status.HTTP_404_NOT_FOUND if isinstance(exc, LocalUserNotFound)
+            status.HTTP_404_NOT_FOUND
+            if isinstance(exc, LocalUserNotFound)
             else status.HTTP_400_BAD_REQUEST
         )
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
@@ -1259,7 +1273,7 @@ async def bulk_create_devices(
     """Bulk create devices"""
     results = []
     errors = []
-    
+
     for i, device_data in enumerate(devices):
         try:
             record = service.create_device(
@@ -1270,20 +1284,21 @@ async def bulk_create_devices(
             results.append({"index": i, "id": record.id, "name": record.name})
         except Exception as e:
             logger.warning(
-                "Failed to create device at index %d: %s | data: %s", 
-                i, e, device_data, exc_info=True
+                "Failed to create device at index %d: %s | data: %s",
+                i,
+                e,
+                device_data,
+                exc_info=True,
             )
-            errors.append({
-                "index": i,
-                "error": "Failed to create device",
-                "data": device_data
-            })
-    
+            errors.append(
+                {"index": i, "error": "Failed to create device", "data": device_data}
+            )
+
     logger.info(f"Bulk device creation: {len(results)} success, {len(errors)} errors")
     return {
         "created": results,
         "errors": errors,
-        "summary": {"success": len(results), "failed": len(errors)}
+        "summary": {"success": len(results), "failed": len(errors)},
     }
 
 
@@ -1296,7 +1311,7 @@ async def bulk_create_users(
     """Bulk create users"""
     results = []
     errors = []
-    
+
     for i, user_data in enumerate(users):
         try:
             record = service.create_user(
@@ -1312,20 +1327,21 @@ async def bulk_create_users(
             results.append({"index": i, "username": record.username})
         except Exception as e:
             logger.warning(
-                "Failed to create user at index %d: %s | data: %s", 
-                i, e, user_data, exc_info=True
+                "Failed to create user at index %d: %s | data: %s",
+                i,
+                e,
+                user_data,
+                exc_info=True,
             )
-            errors.append({
-                "index": i,
-                "error": "Failed to create user",
-                "data": user_data
-            })
-    
+            errors.append(
+                {"index": i, "error": "Failed to create user", "data": user_data}
+            )
+
     logger.info(f"Bulk user creation: {len(results)} success, {len(errors)} errors")
     return {
         "created": results,
         "errors": errors,
-        "summary": {"success": len(results), "failed": len(errors)}
+        "summary": {"success": len(results), "failed": len(errors)},
     }
 
 
@@ -1333,7 +1349,7 @@ async def bulk_create_users(
 async def export_devices(
     service: DeviceService = Depends(get_device_service),
     _: None = Depends(admin_guard),
-    format: str = "json"
+    format: str = "json",
 ):
     """Export devices data"""
     devices = service.list_devices()
@@ -1345,22 +1361,24 @@ async def export_devices(
         }
         for device in devices
     ]
-    
+
     if format.lower() == "csv":
         import csv
         import io
+
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=["name", "network", "group"])
         writer.writeheader()
         writer.writerows(data)
-        
+
         from fastapi.responses import Response
+
         return Response(
             content=output.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=devices.csv"}
+            headers={"Content-Disposition": "attachment; filename=devices.csv"},
         )
-    
+
     return {"devices": data, "count": len(data)}
 
 
@@ -1368,7 +1386,7 @@ async def export_devices(
 async def export_users(
     service: LocalUserService = Depends(get_user_service),
     _: None = Depends(admin_guard),
-    format: str = "json"
+    format: str = "json",
 ):
     """Export users data"""
     users = service.list_users()
@@ -1383,24 +1401,34 @@ async def export_users(
         }
         for user in users
     ]
-    
+
     if format.lower() == "csv":
         import csv
         import io
+
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=[
-            "username", "privilege_level", "service", "groups", "enabled", "description"
-        ])
+        writer = csv.DictWriter(
+            output,
+            fieldnames=[
+                "username",
+                "privilege_level",
+                "service",
+                "groups",
+                "enabled",
+                "description",
+            ],
+        )
         writer.writeheader()
         writer.writerows(data)
-        
+
         from fastapi.responses import Response
+
         return Response(
             content=output.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=users.csv"}
+            headers={"Content-Disposition": "attachment; filename=users.csv"},
         )
-    
+
     return {"users": data, "count": len(data)}
 
 
@@ -1417,7 +1445,7 @@ async def get_audit_log(
     audit_logger = get_audit_logger()
     entries = audit_logger.get_audit_log(hours, user_id, action, limit)
     summary = audit_logger.get_audit_summary(hours)
-    
+
     return {
         "entries": entries,
         "summary": summary,
@@ -1425,8 +1453,8 @@ async def get_audit_log(
             "hours": hours,
             "user_id": user_id,
             "action": action,
-            "limit": limit
-        }
+            "limit": limit,
+        },
     }
 
 
@@ -1463,18 +1491,17 @@ async def admin_login(
         # Validate login inputs
         if not username or not password:
             raise ValidationError("Username and password are required")
-        
+
         username = InputValidator.validate_username(username)
         # Don't validate password strength for login, just basic sanitization
         if len(password) > 128:
             raise ValidationError("Password too long")
-        
+
         token = manager.login(username, password)
     except (HTTPException, ValidationError) as exc:
         if isinstance(exc, ValidationError):
             exc = HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc)
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
             )
         if is_json:
             raise exc
@@ -1525,19 +1552,18 @@ async def reload_server_config(_: None = Depends(admin_guard)):
     if not tacacs_server:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TACACS server unavailable"
+            detail="TACACS server unavailable",
         )
-    
+
     try:
         success = tacacs_server.reload_configuration()
         return {
             "success": success,
-            "message": "Configuration reloaded" if success else "Reload failed"
+            "message": "Configuration reloaded" if success else "Reload failed",
         }
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -1548,16 +1574,15 @@ async def reset_server_stats(_: None = Depends(admin_guard)):
     if not tacacs_server:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TACACS server unavailable"
+            detail="TACACS server unavailable",
         )
-    
+
     try:
         tacacs_server.reset_stats()
         return {"success": True, "message": "Statistics reset"}
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
@@ -1568,38 +1593,37 @@ async def get_server_logs(lines: int = 100, _: None = Depends(admin_guard)):
     if lines < 1 or lines > 10000:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Lines parameter must be between 1 and 10000"
+            detail="Lines parameter must be between 1 and 10000",
         )
-    
+
     log_file = "logs/tacacs.log"
     try:
-        with open(log_file, encoding='utf-8') as f:
+        with open(log_file, encoding="utf-8") as f:
             all_lines = f.readlines()
             recent_logs = [line.strip() for line in all_lines[-lines:]]
         return {"logs": recent_logs, "count": len(recent_logs)}
     except FileNotFoundError:
         logger.warning("Log file not found: %s", log_file)
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Log file not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Log file not found"
         )
     except PermissionError:
         logger.error("Permission denied reading log file: %s", log_file)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Permission denied reading log file"
+            detail="Permission denied reading log file",
         )
     except UnicodeDecodeError as e:
         logger.error("Encoding error reading log file: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Log file encoding error"
+            detail="Log file encoding error",
         )
     except Exception as e:
         logger.error("Unexpected error reading logs: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not read log file"
+            detail="Could not read log file",
         )
 
 
@@ -1608,33 +1632,33 @@ async def get_server_status(_: None = Depends(admin_guard)):
     """Get detailed server status"""
     tacacs_server = monitoring_get_tacacs_server()
     radius_server = monitoring_get_radius_server()
-    
+
     if not tacacs_server:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="TACACS server unavailable"
+            detail="TACACS server unavailable",
         )
-    
+
     try:
         stats = tacacs_server.get_stats()
         health = tacacs_server.get_health_status()
-        
+
         result = {
             "tacacs": {
                 "running": tacacs_server.running,
                 "uptime_seconds": health.get("uptime_seconds", 0),
                 "connections": {
                     "active": stats.get("connections_active", 0),
-                    "total": stats.get("connections_total", 0)
+                    "total": stats.get("connections_total", 0),
                 },
                 "authentication": {
                     "requests": stats.get("auth_requests", 0),
                     "successes": stats.get("auth_success", 0),
-                    "failures": stats.get("auth_failures", 0)
-                }
+                    "failures": stats.get("auth_failures", 0),
+                },
             }
         }
-        
+
         if radius_server:
             radius_stats = radius_server.get_stats()
             result["radius"] = {
@@ -1643,15 +1667,14 @@ async def get_server_status(_: None = Depends(admin_guard)):
                 "authentication": {
                     "requests": radius_stats.get("auth_requests", 0),
                     "accepts": radius_stats.get("auth_accepts", 0),
-                    "rejects": radius_stats.get("auth_rejects", 0)
-                }
+                    "rejects": radius_stats.get("auth_rejects", 0),
+                },
             }
         else:
             result["radius"] = {"enabled": False}
-        
+
         return result
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )

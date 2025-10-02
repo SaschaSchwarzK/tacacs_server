@@ -1,4 +1,5 @@
 """SQLite-backed device inventory for TACACS+ and RADIUS."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -167,7 +168,8 @@ class DeviceStore:
         allowed_groups_raw = metadata.pop("allowed_user_groups", [])
         if isinstance(allowed_groups_raw, list):
             allowed_groups = [
-                str(item) for item in allowed_groups_raw 
+                str(item)
+                for item in allowed_groups_raw
                 if isinstance(item, str) and item
             ]
         else:
@@ -246,7 +248,7 @@ class DeviceStore:
                 if updates:
                     params.append(name)
                     # Use parameterized query to prevent SQL injection
-                    update_clause = ', '.join(updates)
+                    update_clause = ", ".join(updates)
                     query_sql = (
                         f"UPDATE device_groups SET {update_clause}, "
                         "updated_at = CURRENT_TIMESTAMP WHERE name = ?"
@@ -326,7 +328,7 @@ class DeviceStore:
         params.append(group_id)
         with self._lock:
             # Use parameterized query to prevent SQL injection
-            update_clause = ', '.join(updates)
+            update_clause = ", ".join(updates)
             query_sql = (
                 f"UPDATE device_groups SET {update_clause}, "
                 "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -337,7 +339,7 @@ class DeviceStore:
         return self.get_group_by_id(group_id)
 
     def delete_group(self, group_id: int, *, cascade: bool = False) -> bool:
-        """Delete a device group. 
+        """Delete a device group.
         If cascade is False and devices exist, raise ValueError.
         """
         with self._lock:
@@ -420,7 +422,7 @@ class DeviceStore:
                     params.append(name)
                     params.append(str(network_obj))
                     # Use parameterized query to prevent SQL injection
-                    update_clause = ', '.join(updates)
+                    update_clause = ", ".join(updates)
                     query_sql = (
                         f"UPDATE devices SET {update_clause}, "
                         "updated_at = CURRENT_TIMESTAMP WHERE name = ? AND network = ?"
@@ -493,7 +495,7 @@ class DeviceStore:
         params.append(device_id)
         with self._lock:
             # Use parameterized query to prevent SQL injection
-            update_clause = ', '.join(updates)
+            update_clause = ", ".join(updates)
             query_sql = (
                 f"UPDATE devices SET {update_clause}, "
                 "updated_at = CURRENT_TIMESTAMP WHERE id = ?"

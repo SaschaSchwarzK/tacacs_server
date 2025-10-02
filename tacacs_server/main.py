@@ -33,10 +33,11 @@ from tacacs_server.web.monitoring import (
 
 logger = get_logger(__name__)
 
+
 class TacacsServerManager:
     """TACACS+ Server Manager"""
 
-    def __init__(self, config_file: str='config/tacacs.conf'):
+    def __init__(self, config_file: str = "config/tacacs.conf"):
         self.config = TacacsConfig(config_file)
         monitoring_set_config(self.config)
         self.server = None
@@ -57,22 +58,22 @@ class TacacsServerManager:
         setup_logging(self.config)
         issues = self.config.validate_config()
         if issues:
-            logger.error('Configuration validation failed:')
+            logger.error("Configuration validation failed:")
             for issue in issues:
-                logger.error(f'  - {issue}')
+                logger.error(f"  - {issue}")
             return False
         server_config = self.config.get_server_config()
         self.server = TacacsServer(
-            host=server_config['host'],
-            port=server_config['port'],
-            secret_key=server_config['secret_key'],
+            host=server_config["host"],
+            port=server_config["port"],
+            secret_key=server_config["secret_key"],
         )
 
         # Initialize device inventory
         try:
             self.device_store_config = self.config.get_device_store_config()
-            self.device_store = DeviceStore(self.device_store_config['database'])
-            default_group = self.device_store_config.get('default_group')
+            self.device_store = DeviceStore(self.device_store_config["database"])
+            default_group = self.device_store_config.get("default_group")
             if default_group:
                 self.device_store.ensure_group(
                     default_group, description="Default device group"
@@ -83,7 +84,7 @@ class TacacsServerManager:
                 self._handle_device_change
             )
             # Expose store on server for future integrations
-            if hasattr(self.server, 'device_store'):
+            if hasattr(self.server, "device_store"):
                 self.server.device_store = self.device_store
         except Exception as exc:
             logger.exception("Failed to initialise device store: %s", exc)
@@ -107,7 +108,7 @@ class TacacsServerManager:
             self.local_user_group_service = None
             set_local_user_service(None)
             set_local_user_group_service(None)
-            if self.server and hasattr(self.server, 'handlers'):
+            if self.server and hasattr(self.server, "handlers"):
                 self.server.handlers.set_local_user_group_service(None)
         else:
             try:
@@ -127,7 +128,7 @@ class TacacsServerManager:
                     store=local_store,
                 )
                 set_local_user_group_service(self.local_user_group_service)
-                if self.server and hasattr(self.server, 'handlers'):
+                if self.server and hasattr(self.server, "handlers"):
                     self.server.handlers.set_local_user_group_service(
                         self.local_user_group_service
                     )
@@ -137,7 +138,7 @@ class TacacsServerManager:
                 )
                 self.local_user_group_service = None
                 set_local_user_group_service(None)
-                if self.server and hasattr(self.server, 'handlers'):
+                if self.server and hasattr(self.server, "handlers"):
                     self.server.handlers.set_local_user_group_service(None)
 
         # Register pending refresh if radius server not yet initialised
@@ -147,14 +148,14 @@ class TacacsServerManager:
         # Configure admin authentication
         try:
             admin_auth_cfg = self.config.get_admin_auth_config()
-            username = admin_auth_cfg.get('username', 'admin')
-            password_hash = admin_auth_cfg.get('password', '')
+            username = admin_auth_cfg.get("username", "admin")
+            password_hash = admin_auth_cfg.get("password", "")
             if password_hash:
                 auth_config = AdminAuthConfig(
                     username=username,
                     password_hash=password_hash,
                     session_timeout_minutes=admin_auth_cfg.get(
-                        'session_timeout_minutes', 60
+                        "session_timeout_minutes", 60
                     ),
                 )
                 self.admin_session_manager = AdminSessionManager(auth_config)
@@ -175,19 +176,19 @@ class TacacsServerManager:
             set_admin_auth_dependency(None)
         # Setup RADIUS server if enabled
         radius_config = self.config.get_radius_config()
-        if radius_config['enabled']:
+        if radius_config["enabled"]:
             self._setup_radius_server(radius_config)
         auth_backends = self.config.create_auth_backends()
         for backend in auth_backends:
             if isinstance(backend, LocalAuthBackend) and self.local_user_service:
                 backend.set_user_service(self.local_user_service)
             self.server.add_auth_backend(backend)
-            if self.radius_server and radius_config.get('share_backends', False):
-                if backend not in getattr(self.radius_server, 'auth_backends', []):
+            if self.radius_server and radius_config.get("share_backends", False):
+                if backend not in getattr(self.radius_server, "auth_backends", []):
                     self.radius_server.add_auth_backend(backend)
 
-        if self.radius_server and radius_config.get('share_backends', False):
-            shared = len(getattr(self.radius_server, 'auth_backends', []))
+        if self.radius_server and radius_config.get("share_backends", False):
+            shared = len(getattr(self.radius_server, "auth_backends", []))
             logger.info("RADIUS: Sharing %d auth backends with TACACS+", shared)
         # Enable monitoring if configured (tolerate missing section)
         # read monitoring section safely: prefer helper API, fallback to RawConfigParser
@@ -259,15 +260,17 @@ class TacacsServerManager:
         """Setup RADIUS server"""
         try:
             from tacacs_server.radius.server import RADIUSServer
-            
+
             self.radius_server = RADIUSServer(
-                host=radius_config['host'],
-                port=radius_config['auth_port'],
-                accounting_port=radius_config['acct_port']
+                host=radius_config["host"],
+                port=radius_config["auth_port"],
+                accounting_port=radius_config["acct_port"],
             )
             self.radius_server.device_store = self.device_store
             if self.local_user_group_service:
-                self.radius_server.set_local_user_group_service(self.local_user_group_service)
+                self.radius_server.set_local_user_group_service(
+                    self.local_user_group_service
+                )
 
             # Configure RADIUS client devices from the device store when available
             initial_clients = []
@@ -286,10 +289,10 @@ class TacacsServerManager:
                 logger.info("RADIUS: no clients defined in device store")
 
             # Share authentication backends with TACACS+
-            if radius_config['share_backends']:
+            if radius_config["share_backends"]:
                 shared_initial = 0
                 for backend in self.server.auth_backends:
-                    if backend not in getattr(self.radius_server, 'auth_backends', []):
+                    if backend not in getattr(self.radius_server, "auth_backends", []):
                         self.radius_server.add_auth_backend(backend)
                         shared_initial += 1
                 if shared_initial:
@@ -297,12 +300,12 @@ class TacacsServerManager:
                         "RADIUS: Sharing %d auth backends with TACACS+",
                         len(self.radius_server.auth_backends),
                     )
-            
+
             # Share accounting database with TACACS+
-            if radius_config['share_accounting']:
+            if radius_config["share_accounting"]:
                 self.radius_server.set_accounting_logger(self.server.db_logger)
                 logger.info("RADIUS: Sharing accounting database with TACACS+")
-            
+
             logger.info("RADIUS server configured with %d clients", configured_clients)
 
             if self._pending_radius_refresh:
@@ -320,19 +323,19 @@ class TacacsServerManager:
         signal.signal(signal.SIGTERM, self._signal_handler)
         try:
             self.running = True
-            logger.info('=' * 50)
+            logger.info("=" * 50)
             logger.info("TACACS+ & RADIUS Server Starting")
-            logger.info('=' * 50)
+            logger.info("=" * 50)
             self._print_startup_info()
             # Start RADIUS server if configured
             if self.radius_server:
                 self.radius_server.start()
-            # Start TACACS+ server 
+            # Start TACACS+ server
             self.server.start()
         except KeyboardInterrupt:
-            logger.info('Received interrupt signal')
+            logger.info("Received interrupt signal")
         except Exception as e:
-            logger.error(f'Server error: {e}')
+            logger.error(f"Server error: {e}")
             return False
         finally:
             self.stop()
@@ -341,7 +344,7 @@ class TacacsServerManager:
     def stop(self):
         """Stop the TACACS+ server"""
         if self.server and self.running:
-            logger.info('Shutting down down servers...')
+            logger.info("Shutting down down servers...")
             self.running = False
             # Stop RADIUS server
             if self.radius_server:
@@ -355,11 +358,11 @@ class TacacsServerManager:
                     self._device_change_unsubscribe = None
             # Stop TACACS+ server
             self.server.stop()
-            logger.info('Servers stopped successfully')
+            logger.info("Servers stopped successfully")
 
     def _signal_handler(self, signum, frame):
         """Handle system signals"""
-        logger.info(f'Received signal {signum}')
+        logger.info(f"Received signal {signum}")
         self.stop()
 
     def _print_startup_info(self):
@@ -367,30 +370,24 @@ class TacacsServerManager:
         server_config = self.config.get_server_config()
         auth_backends = [b.name for b in self.server.auth_backends]
         db_config = self.config.get_database_config()
-        logger.info(
-            f"Server Address: {server_config['host']}:{server_config['port']}"
-        )
-        logger.info(
-            f"Secret Key: {'*' * len(server_config['secret_key'])}"
-        )
+        logger.info(f"Server Address: {server_config['host']}:{server_config['port']}")
+        logger.info(f"Secret Key: {'*' * len(server_config['secret_key'])}")
         logger.info(f"Authentication Backends: {', '.join(auth_backends)}")
         logger.info(f"Database: {db_config['accounting_db']}")
-        source = getattr(
-            self.config, 'config_source', self.config.config_file
-        )
-        logger.info(f'Configuration: {source}')
-        logger.info('')
-        logger.info('Testing authentication backends:')
+        source = getattr(self.config, "config_source", self.config.config_file)
+        logger.info(f"Configuration: {source}")
+        logger.info("")
+        logger.info("Testing authentication backends:")
         for backend in self.server.auth_backends:
-            status = '✓ Available' if backend.is_available() else '✗ Unavailable'
-            logger.info(f'  {backend.name}: {status}')
+            status = "✓ Available" if backend.is_available() else "✗ Unavailable"
+            logger.info(f"  {backend.name}: {status}")
         # Add RADIUS info
         if self.radius_server:
             logger.info("")
             logger.info("RADIUS Server:")
             logger.info(f"  Authentication Port: {self.radius_server.port}")
             logger.info(f"  Accounting Port: {self.radius_server.accounting_port}")
-            client_list = getattr(self.radius_server, 'clients', [])
+            client_list = getattr(self.radius_server, "clients", [])
             logger.info(f"  Configured Clients: {len(client_list)}")
             if client_list:
                 if isinstance(client_list, dict):
@@ -400,13 +397,16 @@ class TacacsServerManager:
 
                 try:
                     group_counts = Counter(
-                        (entry.get('group') 
-                         if isinstance(entry, dict) 
-                         else getattr(entry, 'group', None)) or 'ungrouped'
+                        (
+                            entry.get("group")
+                            if isinstance(entry, dict)
+                            else getattr(entry, "group", None)
+                        )
+                        or "ungrouped"
                         for entry in entries
                     )
                     summary = ", ".join(
-                        f"{group}({count})" 
+                        f"{group}({count})"
                         for group, count in group_counts.most_common(5)
                     )
                     if len(group_counts) > 5:
@@ -415,9 +415,10 @@ class TacacsServerManager:
                 except Exception:
                     # If summarising fails just skip detailed output
                     pass
-        logger.info('')
-        logger.info('Server ready - waiting for connections...')
-        logger.info('Press Ctrl+C to stop')
+        logger.info("")
+        logger.info("Server ready - waiting for connections...")
+        logger.info("Press Ctrl+C to stop")
+
 
 def create_test_client_script():
     """Create test client script"""
@@ -622,41 +623,43 @@ def create_test_client_script():
     ''')
     import os
     import stat
-    os.makedirs('scripts', exist_ok=True)
-    script_path = 'scripts/tacacs_client.py'
-    with open(script_path, 'w') as f:
+
+    os.makedirs("scripts", exist_ok=True)
+    script_path = "scripts/tacacs_client.py"
+    with open(script_path, "w") as f:
         f.write(test_client_code)
     st = os.stat(script_path)
     os.chmod(script_path, st.st_mode | stat.S_IEXEC)
 
+
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='TACACS+ Server')
+    parser = argparse.ArgumentParser(description="TACACS+ Server")
     parser.add_argument(
-        '-c', '--config', default='config/tacacs.conf', help='Configuration file path'
+        "-c", "--config", default="config/tacacs.conf", help="Configuration file path"
     )
     parser.add_argument(
-        '--create-test-client',
-        action='store_true',
-        help='Create test client script and exit',
+        "--create-test-client",
+        action="store_true",
+        help="Create test client script and exit",
     )
     parser.add_argument(
-        '--validate-config', action='store_true', help='Validate configuration and exit'
+        "--validate-config", action="store_true", help="Validate configuration and exit"
     )
-    parser.add_argument('--version', action='version', version='TACACS+ Server 1.0')
+    parser.add_argument("--version", action="version", version="TACACS+ Server 1.0")
     args = parser.parse_args()
-    for directory in ['config', 'data', 'logs', 'tests', 'scripts']:
+    for directory in ["config", "data", "logs", "tests", "scripts"]:
         Path(directory).mkdir(exist_ok=True)
     if args.create_test_client:
         try:
             create_test_client_script()
-            print('Test client created: scripts/tacacs_client.py')
+            print("Test client created: scripts/tacacs_client.py")
             print(
-                'Usage: python scripts/tacacs_client.py [host] [port] [secret] '
-                '[username] [password]'
+                "Usage: python scripts/tacacs_client.py [host] [port] [secret] "
+                "[username] [password]"
             )
         except Exception as e:
-            print(f'Error creating test client: {e}')
+            print(f"Error creating test client: {e}")
             return 1
         return 0
     if args.validate_config:
@@ -664,22 +667,24 @@ def main():
             config = TacacsConfig(args.config)
             issues = config.validate_config()
             if issues:
-                print('Configuration validation failed:')
+                print("Configuration validation failed:")
                 for issue in issues:
-                    print(f'  - {issue}')
+                    print(f"  - {issue}")
                 return 1
             else:
-                print('Configuration is valid')
+                print("Configuration is valid")
                 return 0
         except Exception as e:
-            print(f'Error validating configuration: {e}')
+            print(f"Error validating configuration: {e}")
             return 1
     try:
         server_manager = TacacsServerManager(args.config)
         success = server_manager.start()
         return 0 if success else 1
     except Exception as e:
-        print(f'Failed to start server: {e}')
+        print(f"Failed to start server: {e}")
         return 1
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     sys.exit(main())

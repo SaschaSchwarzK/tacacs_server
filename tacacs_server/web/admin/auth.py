@@ -1,4 +1,5 @@
 """Admin authentication helpers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -21,7 +22,7 @@ class AdminAuthConfig:
             raise ValueError("Password hash must be a non-empty string")
         if not isinstance(session_timeout_minutes, int) or session_timeout_minutes <= 0:
             raise ValueError("Session timeout must be a positive integer")
-        
+
         self.username = username.strip()
         self.password_hash = password_hash
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
@@ -71,9 +72,9 @@ def get_admin_auth_dependency(session_manager: AdminSessionManager):
         token = request.cookies.get("admin_session")
         if not token or not session_manager.validate(token):
             raise HTTPException(
-                status_code=status.HTTP_307_TEMPORARY_REDIRECT, 
-                detail="Unauthorized", 
-                headers={"Location": "/admin/login"}
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                detail="Unauthorized",
+                headers={"Location": "/admin/login"},
             )
 
     return dependency

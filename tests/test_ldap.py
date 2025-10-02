@@ -13,14 +13,13 @@ def _inject_fake_ldap3(monkeypatch):
 
     class FakeConnection:
         def __init__(
-            self, server, user=None, password=None, auto_bind=False, 
-            *args, **kwargs
+            self, server, user=None, password=None, auto_bind=False, *args, **kwargs
         ):
             self.server = server
             self.user = user
             self.password = password
             # Simulate successful bind only for password == "validpass"
-            self.bound = (password == "validpass")
+            self.bound = password == "validpass"
             self.entries = []
 
         def bind(self):
@@ -52,7 +51,7 @@ def _inject_fake_ldap3(monkeypatch):
     core_mod = types.SimpleNamespace()
     core_mod.exceptions = types.SimpleNamespace(LDAPException=Exception)
     fake.core = core_mod
-    
+
     # Provide utils module used by ldap_auth
     utils_mod = types.SimpleNamespace()
     utils_mod.dn = types.SimpleNamespace()
@@ -63,6 +62,7 @@ def _inject_fake_ldap3(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "ldap3", fake)
     return fake
+
 
 def _make_backend(ldap_mod, cfg):
     cls = ldap_mod.LDAPAuthBackend
@@ -100,6 +100,7 @@ def _make_backend(ldap_mod, cfg):
             f"Could not instantiate LDAPAuthBackend with available signatures: {e}"
         )
 
+
 def test_ldap_auth_success(monkeypatch):
     _inject_fake_ldap3(monkeypatch)
     ldap_mod = importlib.import_module("tacacs_server.auth.ldap_auth")
@@ -116,6 +117,7 @@ def test_ldap_auth_success(monkeypatch):
 
     backend = _make_backend(ldap_mod, cfg)
     assert backend.authenticate("jdoe", "validpass") is True
+
 
 def test_ldap_auth_fail_wrong_password(monkeypatch):
     _inject_fake_ldap3(monkeypatch)

@@ -24,10 +24,10 @@ class LocalAuthBackend(AuthenticationBackend):
     """Local authentication backend backed by :class:`LocalUserService`."""
 
     def __init__(
-        self, 
-        db_path: str = "data/local_auth.db", 
-        *, 
-        service: LocalUserService | None = None
+        self,
+        db_path: str = "data/local_auth.db",
+        *,
+        service: LocalUserService | None = None,
     ):
         super().__init__("local")
         self.db_path = db_path
@@ -180,11 +180,12 @@ class LocalAuthBackend(AuthenticationBackend):
 
     def _verify_password_hash(self, password: str, password_hash: str) -> bool:
         # Check if it's a bcrypt hash (starts with $2b$)
-        if password_hash.startswith('$2b$'):
+        if password_hash.startswith("$2b$"):
             try:
                 import bcrypt
+
                 return bcrypt.checkpw(
-                    password.encode('utf-8'), password_hash.encode('utf-8')
+                    password.encode("utf-8"), password_hash.encode("utf-8")
                 )
             except ImportError:
                 logger.error("bcrypt not available for password verification")

@@ -22,10 +22,10 @@ from tacacs_server.config.config import TacacsConfig  # noqa: E402
 
 def validate_configuration(config_file: str = None) -> bool:
     """Validate TACACS+ configuration file"""
-    
+
     print("TACACS+ Configuration Validator")
     print("=" * 40)
-    
+
     # Use provided file or default
     if config_file:
         if not os.path.exists(config_file):
@@ -33,42 +33,42 @@ def validate_configuration(config_file: str = None) -> bool:
             return False
         print(f"📁 Configuration file: {config_file}")
     else:
-        config_file = os.getenv('TACACS_CONFIG', 'config/tacacs.conf')
+        config_file = os.getenv("TACACS_CONFIG", "config/tacacs.conf")
         print(f"📁 Configuration file: {config_file} (default)")
-    
+
     try:
         # Load configuration
         print("\n🔍 Loading configuration...")
         config = TacacsConfig(config_file)
-        
+
         # Validate configuration
         print("🔍 Validating configuration...")
         issues = config.validate_config()
-        
+
         if not issues:
             print("✅ Configuration validation PASSED")
             print("\n📊 Configuration Summary:")
-            
+
             # Display key configuration details
             server_config = config.get_server_config()
             print(
                 f"   Server: {server_config.get('host', '[unknown]')}:"
                 f"{server_config.get('port', '[unknown]')}"
             )
-            
+
             auth_backends = config.get_auth_backends()
             print(f"   Auth backends: {', '.join(auth_backends)}")
-            
+
             security_config = config.get_security_config()
             print(f"   Max auth attempts: {security_config['max_auth_attempts']}")
             print(f"   Auth timeout: {security_config['auth_timeout']}s")
-            
-            if config.get_radius_config()['enabled']:
+
+            if config.get_radius_config()["enabled"]:
                 radius_config = config.get_radius_config()
                 print(f"   RADIUS: enabled on port {radius_config['auth_port']}")
             else:
                 print("   RADIUS: disabled")
-            
+
             return True
         else:
             print("❌ Configuration validation FAILED")
@@ -76,7 +76,7 @@ def validate_configuration(config_file: str = None) -> bool:
             for i, issue in enumerate(issues, 1):
                 print(f"   {i}. {issue}")
             return False
-            
+
     except Exception as e:
         print(f"❌ Configuration validation ERROR: {e}")
         return False
@@ -88,37 +88,36 @@ def main():
         description="Validate TACACS+ server configuration"
     )
     parser.add_argument(
-        "config_file", 
-        nargs="?", 
+        "config_file",
+        nargs="?",
         help=(
             "Configuration file path (default: config/tacacs.conf or "
             "TACACS_CONFIG env var)"
-        )
+        ),
     )
     parser.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="Quiet mode - only show errors"
+        "--quiet", "-q", action="store_true", help="Quiet mode - only show errors"
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.quiet:
         # Redirect stdout to suppress normal output, keep stderr for errors
         import io
+
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
-    
+
     try:
         success = validate_configuration(args.config_file)
-        
+
         if args.quiet:
             sys.stdout = old_stdout
             if not success:
                 print("Configuration validation failed", file=sys.stderr)
-        
+
         sys.exit(0 if success else 1)
-        
+
     except KeyboardInterrupt:
         if args.quiet:
             sys.stdout = old_stdout

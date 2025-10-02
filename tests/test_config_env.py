@@ -26,8 +26,8 @@ def test_config_env_file(monkeypatch, tmp_path):
     config = TacacsConfig()
 
     server_cfg = config.get_server_config()
-    assert server_cfg['port'] == 5555
-    assert server_cfg['host'] == "127.0.0.1"
+    assert server_cfg["port"] == 5555
+    assert server_cfg["host"] == "127.0.0.1"
     assert config.config_file == str(cfg_file)
 
     monkeypatch.delenv("TACACS_CONFIG", raising=False)
@@ -59,7 +59,6 @@ def test_sanitize_config_masks_sensitive_fields():
     assert sanitized["metadata"]["nested"]["api_token"].startswith("[redacted")
 
 
-
 def test_config_env_url(monkeypatch, tmp_path):
     # Test that non-HTTPS URLs are rejected for security
     cfg_file = tmp_path / "env_url.conf"
@@ -70,7 +69,7 @@ def test_config_env_url(monkeypatch, tmp_path):
 
     # Should fall back to default config due to security restriction
     server_cfg = config.get_server_config()
-    assert server_cfg['port'] == 49  # Default port
+    assert server_cfg["port"] == 49  # Default port
     assert config.config_file is None
 
     monkeypatch.delenv("TACACS_CONFIG", raising=False)

@@ -1,6 +1,7 @@
 """
 RADIUS Server Tests
 """
+
 import ipaddress
 import time
 from types import SimpleNamespace
@@ -17,36 +18,38 @@ def test_radius_packet_creation():
     packet = RADIUSPacket(
         code=1,  # Access-Request
         identifier=123,
-        authenticator=b'\x00' * 16
+        authenticator=b"\x00" * 16,
     )
-    
+
     packet.add_string(1, "testuser")
     packet.add_integer(6, 6)  # Service-Type: Administrative
-    
+
     assert packet.code == 1
     assert packet.identifier == 123
     assert len(packet.attributes) == 2
+
 
 def test_radius_packet_pack_unpack():
     """Test packet packing and unpacking"""
     original = RADIUSPacket(
         code=2,  # Access-Accept
         identifier=42,
-        authenticator=b'\xFF' * 16
+        authenticator=b"\xff" * 16,
     )
     original.add_string(18, "Welcome")
-    
+
     # Pack
-    secret = b'secret123'
-    request_auth = b'\x00' * 16
+    secret = b"secret123"
+    request_auth = b"\x00" * 16
     packed = original.pack(secret, request_auth)
-    
+
     # Unpack
     unpacked = RADIUSPacket.unpack(packed, secret)
-    
+
     assert unpacked.code == original.code
     assert unpacked.identifier == original.identifier
     assert len(unpacked.attributes) == len(original.attributes)
+
 
 @pytest.fixture
 def radius_server(tmp_path):
@@ -65,26 +68,28 @@ def radius_server(tmp_path):
         password="TestPass123",
         privilege_level=15,
     )
-    
+
     # Create server
-    server = RADIUSServer(host='127.0.0.1', port=11812, 
-                         accounting_port=11813, secret='testsecret')
-    
+    server = RADIUSServer(
+        host="127.0.0.1", port=11812, accounting_port=11813, secret="testsecret"
+    )
+
     # Add backend
     backend = LocalAuthBackend(str(auth_db))
     server.add_auth_backend(backend)
-    
+
     # Add test client
-    server.add_client('127.0.0.1', 'testsecret', 'test-nas')
-    
+    server.add_client("127.0.0.1", "testsecret", "test-nas")
+
     # Start server
     server.start()
     time.sleep(0.5)  # Wait for server to start
-    
+
     yield server
-    
+
     # Cleanup
     server.stop()
+
 
 def test_radius_authentication(radius_server):
     """Test RADIUS authentication flow"""
@@ -92,23 +97,24 @@ def test_radius_authentication(radius_server):
     # Simplified version here
     assert radius_server.running
     assert len(radius_server.clients) == 1
-    assert any(client.contains('127.0.0.1') for client in radius_server.clients)
+    assert any(client.contains("127.0.0.1") for client in radius_server.clients)
+
 
 def test_radius_stats(radius_server):
     """Test RADIUS statistics"""
     stats = radius_server.get_stats()
-    
-    assert 'auth_requests' in stats
-    assert 'auth_accepts' in stats
-    assert 'auth_rejects' in stats
-    assert 'configured_clients' in stats
-    assert stats['running']
+
+    assert "auth_requests" in stats
+    assert "auth_accepts" in stats
+    assert "auth_rejects" in stats
+    assert "configured_clients" in stats
+    assert stats["running"]
 
 
 def test_radius_refresh_clients_on_change(tmp_path):
     store = DeviceStore(tmp_path / "devices.db")
     service = DeviceService(store)
-    radius = RADIUSServer(secret='test123')
+    radius = RADIUSServer(secret="test123")
 
     service.add_change_listener(
         lambda: radius.refresh_clients(store.iter_radius_clients())
@@ -140,7 +146,7 @@ def test_radius_refresh_clients_on_change(tmp_path):
 def test_radius_ignores_device_specific_secret(tmp_path):
     store = DeviceStore(tmp_path / "devices.db")
     service = DeviceService(store)
-    radius = RADIUSServer(secret='test123')
+    radius = RADIUSServer(secret="test123")
 
     group = service.create_group("firewall", radius_secret=None)
     device = service.create_device(
@@ -168,8 +174,9 @@ def test_radius_ignores_device_specific_secret(tmp_path):
     assert client is not None
     assert client.secret == "group-secret"
 
+
 def test_radius_group_policy_allows_privilege_override():
-    radius = RADIUSServer(secret='test123')
+    radius = RADIUSServer(secret="test123")
     radius.set_local_user_group_service(
         SimpleNamespace(get_group=lambda name: SimpleNamespace(privilege_level=9))
     )
@@ -181,15 +188,15 @@ def test_radius_group_policy_allows_privilege_override():
         attributes={},
         allowed_user_groups=["firewall"],
     )
-    user_attrs = {'groups': ['firewall'], 'privilege_level': 1}
+    user_attrs = {"groups": ["firewall"], "privilege_level": 1}
     allowed, message = radius._apply_user_group_policy(client, user_attrs)
     assert allowed is True
-    assert message == ''
-    assert user_attrs['privilege_level'] == 9
+    assert message == ""
+    assert user_attrs["privilege_level"] == 9
 
 
 def test_radius_group_policy_denies_without_membership():
-    radius = RADIUSServer(secret='test123')
+    radius = RADIUSServer(secret="test123")
     radius.set_local_user_group_service(
         SimpleNamespace(get_group=lambda name: SimpleNamespace(privilege_level=5))
     )
@@ -201,7 +208,7 @@ def test_radius_group_policy_denies_without_membership():
         attributes={},
         allowed_user_groups=["switch-admins"],
     )
-    user_attrs = {'groups': ['firewall'], 'privilege_level': 15}
+    user_attrs = {"groups": ["firewall"], "privilege_level": 15}
     allowed, message = radius._apply_user_group_policy(client, user_attrs)
     assert allowed is False
-    assert message.startswith('User not permitted')
+    assert message.startswith("User not permitted")

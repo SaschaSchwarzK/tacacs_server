@@ -83,6 +83,14 @@ jobs:
           path: |
             test-results/junit.xml
             coverage.xml
+          exclude: |
+            **/*.env
+            **/*.key
+            **/*.pem
+            **/*secret*
+            **/*password*
+            **/*token*
+            **/*credential*
 
   workflow-lint:
     name: Lint GitHub Workflows (zizmor)

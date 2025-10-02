@@ -7,4 +7,4 @@ that shares backends with TACACS+ server.
 
 from .server import RADIUSAttribute, RADIUSPacket, RADIUSServer
 
-__all__ = ['RADIUSServer', 'RADIUSPacket', 'RADIUSAttribute']
+__all__ = ["RADIUSServer", "RADIUSPacket", "RADIUSAttribute"]

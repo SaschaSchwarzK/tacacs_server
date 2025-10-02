@@ -16,19 +16,20 @@ from tacacs_server.utils.sql_security import ParameterizedQuery
 
 logger = get_logger(__name__)
 
+
 class DatabasePool:
     """Connection pool for SQLite database"""
-    
+
     def __init__(self, db_path: str, pool_size: int = 5):
         self.db_path = db_path
         self.pool = queue.Queue(pool_size)
         self._lock = threading.Lock()
-        
+
         # Ensure directory exists
         db_file = Path(db_path)
         if not db_file.parent.exists():
             db_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize pool with connections
         for _ in range(pool_size):
             conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10)
@@ -38,7 +39,7 @@ class DatabasePool:
             conn.execute("PRAGMA temp_store = MEMORY;")
             conn.execute("PRAGMA cache_size = -2000;")
             self.pool.put(conn)
-    
+
     @contextmanager
     def get_connection(self):
         """Get database connection from pool"""
@@ -51,7 +52,7 @@ class DatabasePool:
             raise
         finally:
             self.pool.put(conn)
-    
+
     def close_all(self):
         """Close all connections in pool"""
         with self._lock:
@@ -62,9 +63,11 @@ class DatabasePool:
                 except queue.Empty:
                     break
 
+
 class DatabaseLogger:
     RECENT_WINDOW_DAYS = 30
     STATS_CACHE_TTL_SECONDS = 60
+
     def __init__(
         self, db_path: str = "data/tacacs_accounting.db", maintain_mv: bool = True
     ):
@@ -81,7 +84,7 @@ class DatabaseLogger:
                 raise ValueError(f"Database path outside allowed directory: {db_file}")
             if not db_file.parent.exists():
                 db_file.parent.mkdir(parents=True, exist_ok=True)
-            
+
             self.conn = sqlite3.connect(
                 str(db_file), timeout=10, check_same_thread=False
             )
@@ -92,7 +95,7 @@ class DatabaseLogger:
             self.conn.execute("PRAGMA temp_store = MEMORY;")
             self.conn.execute("PRAGMA cache_size = -2000;")
             self._initialize_schema()
-            
+
             # ADD THIS LINE AFTER SUCCESSFUL INITIALIZATION:
             self.pool = DatabasePool(str(db_file))
 
@@ -440,61 +443,76 @@ class DatabaseLogger:
     def log_accounting(self, record) -> bool:
         """Log accounting record (uses pool if available)"""
         return self.log_accounting_with_pool(record)
-    
+
     def log_accounting_with_pool(self, record) -> bool:
         """Log accounting record using connection pool"""
         if not self.pool:
             # Fallback to original single connection method
             return self.log_accounting_original(record)
-        
+
         try:
-            status = getattr(record, 'status', None)
+            status = getattr(record, "status", None)
             with self.pool.get_connection() as conn:
                 # Prepare data for insertion
                 data = record.to_dict()
-                timestamp_value = data.get('timestamp') or self._now_utc_iso()
-                data['timestamp'] = timestamp_value
-                data['is_recent'] = self._compute_is_recent(timestamp_value)
+                timestamp_value = data.get("timestamp") or self._now_utc_iso()
+                data["timestamp"] = timestamp_value
+                data["is_recent"] = self._compute_is_recent(timestamp_value)
 
                 # Build safe query with validated columns
                 valid_columns = {
-                    'timestamp', 'username', 'session_id', 'status', 'service', 
-                    'command', 'client_ip', 'port', 'start_time', 'stop_time',
-                    'bytes_in', 'bytes_out', 'elapsed_time', 'privilege_level',
-                    'authentication_method', 'nas_port', 'nas_port_type', 
-                    'task_id', 'timezone', 'is_recent'
+                    "timestamp",
+                    "username",
+                    "session_id",
+                    "status",
+                    "service",
+                    "command",
+                    "client_ip",
+                    "port",
+                    "start_time",
+                    "stop_time",
+                    "bytes_in",
+                    "bytes_out",
+                    "elapsed_time",
+                    "privilege_level",
+                    "authentication_method",
+                    "nas_port",
+                    "nas_port_type",
+                    "task_id",
+                    "timezone",
+                    "is_recent",
                 }
-                
+
                 # Filter to only valid columns
                 safe_data = {k: v for k, v in data.items() if k in valid_columns}
                 columns = list(safe_data.keys())
-                placeholders = ['?' for _ in columns]
+                placeholders = ["?" for _ in columns]
                 values = list(safe_data.values())
-                
+
                 query = ParameterizedQuery(
                     f"INSERT INTO accounting_logs ({','.join(columns)}) "
                     f"VALUES ({','.join(placeholders)})"
                 ).sql
-                
+
                 conn.execute(query, values)
                 # Connection is automatically committed by the context manager
-                
+
                 logger.info(
                     f"Accounting logged: {record.username}@{record.session_id} - "
                     f"{record.command} [{record.status}]"
                 )
 
             # Update active sessions once the write transaction has closed
-            if status == 'START':
+            if status == "START":
                 self._start_session_with_pool(record)
-            elif status == 'STOP':
+            elif status == "STOP":
                 self._stop_session_with_pool(record)
-            elif status == 'UPDATE':
+            elif status == "UPDATE":
                 self._update_session_with_pool(record)
 
             self._invalidate_stats_cache_for_timestamp(timestamp_value)
             return True
-                
+
         except Exception as e:
             logger.error(f"Failed to log accounting record with pool: {e}")
             return False
@@ -504,21 +522,24 @@ class DatabaseLogger:
         """Start tracking an active session using pool"""
         try:
             with self.pool.get_connection() as conn:
-                conn.execute('''
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO active_sessions 
                     (session_id, username, client_ip, start_time, last_update, 
                      service, port, privilege_level)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    record.session_id,
-                    record.username,
-                    record.client_ip,
-                    record.start_time or self._now_utc_iso(),
-                    self._now_utc_iso(),
-                    record.service,
-                    record.port,
-                    record.privilege_level
-                ))
+                """,
+                    (
+                        record.session_id,
+                        record.username,
+                        record.client_ip,
+                        record.start_time or self._now_utc_iso(),
+                        self._now_utc_iso(),
+                        record.service,
+                        record.port,
+                        record.privilege_level,
+                    ),
+                )
         except Exception as e:
             logger.error(f"Failed to start session tracking with pool: {e}")
 
@@ -526,16 +547,19 @@ class DatabaseLogger:
         """Update active session using pool"""
         try:
             with self.pool.get_connection() as conn:
-                conn.execute('''
+                conn.execute(
+                    """
                     UPDATE active_sessions 
                     SET last_update = ?, bytes_in = ?, bytes_out = ?
                     WHERE session_id = ?
-                ''', (
-                    self._now_utc_iso(),
-                    record.bytes_in,
-                    record.bytes_out,
-                    record.session_id
-                ))
+                """,
+                    (
+                        self._now_utc_iso(),
+                        record.bytes_in,
+                        record.bytes_out,
+                        record.session_id,
+                    ),
+                )
         except Exception as e:
             logger.error(f"Failed to update session with pool: {e}")
 
@@ -544,8 +568,8 @@ class DatabaseLogger:
         try:
             with self.pool.get_connection() as conn:
                 conn.execute(
-                    'DELETE FROM active_sessions WHERE session_id = ?', 
-                    (record.session_id,)
+                    "DELETE FROM active_sessions WHERE session_id = ?",
+                    (record.session_id,),
                 )
         except Exception as e:
             logger.error(f"Failed to stop session tracking with pool: {e}")
@@ -555,7 +579,7 @@ class DatabaseLogger:
         """Close database connections and pool"""
         if self.pool:
             self.pool.close_all()
-        
+
         if self.conn:
             try:
                 self.conn.close()
@@ -567,7 +591,6 @@ class DatabaseLogger:
         """Ensure cleanup on object destruction"""
         self.close()
 
-
     def log_accounting_original(self, record: dict[str, Any]) -> bool:
         """Original log_accounting method as fallback"""
         if not self.conn:
@@ -575,7 +598,7 @@ class DatabaseLogger:
             return False
 
         try:
-            data = record.to_dict() if hasattr(record, 'to_dict') else dict(record)
+            data = record.to_dict() if hasattr(record, "to_dict") else dict(record)
         except Exception:
             logger.exception("Invalid accounting record payload")
             return False
@@ -646,11 +669,11 @@ class DatabaseLogger:
             self.conn.rollback()
             logger.exception("Failed to write accounting record")
             return False
-    
+
     def get_statistics(self, days: int = 30) -> dict[str, Any]:
         """Return aggregate accounting stats for the requested window."""
         days = max(int(days), 0)
-        date_offset = f'-{days} days'
+        date_offset = f"-{days} days"
 
         cached = self._get_cached_stats(days)
         if cached is not None:
@@ -659,7 +682,7 @@ class DatabaseLogger:
         def _row_value(row: Any, key: str, index: int) -> int:
             if row is None:
                 return 0
-            if hasattr(row, 'keys') and key in row.keys():
+            if hasattr(row, "keys") and key in row.keys():
                 return row[key] or 0
             try:
                 return row[index] or 0
@@ -669,7 +692,7 @@ class DatabaseLogger:
         def _fetch_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             """Fetch statistics with optimized query path."""
             conn.row_factory = sqlite3.Row
-            
+
             # Try materialized view first for better performance
             if self.maintain_mv:
                 try:
@@ -677,14 +700,14 @@ class DatabaseLogger:
                         "SELECT COALESCE(SUM(total_records), 0) AS total_records, "
                         "COALESCE(SUM(unique_users), 0) AS unique_users "
                         "FROM mv_daily_stats WHERE stat_date > date('now', ?)",
-                        (date_offset,)
+                        (date_offset,),
                     )
                     row = cursor.fetchone()
                     if row is not None:
                         return {
-                            'period_days': days,
-                            'total_records': _row_value(row, 'total_records', 0),
-                            'unique_users': _row_value(row, 'unique_users', 1)
+                            "period_days": days,
+                            "total_records": _row_value(row, "total_records", 0),
+                            "unique_users": _row_value(row, "unique_users", 1),
                         }
                 except sqlite3.Error as exc:
                     logger.warning(
@@ -697,13 +720,13 @@ class DatabaseLogger:
                 "COUNT(DISTINCT username) AS unique_users "
                 "FROM accounting_logs WHERE timestamp > datetime('now', ?) "
                 "AND is_recent = 1",
-                (date_offset,)
+                (date_offset,),
             )
             row = cursor.fetchone()
             return {
-                'period_days': days,
-                'total_records': _row_value(row, 'total_records', 0),
-                'unique_users': _row_value(row, 'unique_users', 1)
+                "period_days": days,
+                "total_records": _row_value(row, "total_records", 0),
+                "unique_users": _row_value(row, "unique_users", 1),
             }
 
         try:
@@ -721,23 +744,23 @@ class DatabaseLogger:
             return dict(result)
         except Exception as exc:
             logger.error(f"Failed to gather statistics: {exc}")
-            return {'period_days': days, 'total_records': 0, 'unique_users': 0}
+            return {"period_days": days, "total_records": 0, "unique_users": 0}
 
     def get_recent_records(
         self, since: datetime, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Get recent accounting records for monitoring with optimized query.
-        
+
         Args:
             since: Start datetime for record retrieval
             limit: Maximum number of records to return
-            
+
         Returns:
             List of accounting record dictionaries
         """
         # Validate limit to prevent resource exhaustion
         limit = min(max(1, int(limit)), 10000)
-        
+
         try:
             # Use optimized query with index hint
             query = (
@@ -746,7 +769,7 @@ class DatabaseLogger:
                 "WHERE timestamp >= ? AND is_recent = 1 "
                 "ORDER BY timestamp DESC LIMIT ?"
             )
-            
+
             if self.pool:
                 with self.pool.get_connection() as conn:
                     cursor = conn.execute(query, (since.isoformat(), limit))
@@ -760,19 +783,19 @@ class DatabaseLogger:
         except Exception as e:
             logger.error("Failed to get recent records: %s", e)
             return []
-    
+
     def get_hourly_stats(self, hours: int = 24) -> list[dict[str, Any]]:
         """Get hourly statistics for charts with performance optimization.
-        
+
         Args:
             hours: Number of hours to look back (max 168 for 1 week)
-            
+
         Returns:
             List of hourly statistics dictionaries
         """
         # Validate and limit hours to prevent excessive queries
         hours = min(max(1, int(hours)), 168)  # Max 1 week
-        
+
         try:
             # Optimized query using is_recent index
             query = (
@@ -785,15 +808,15 @@ class DatabaseLogger:
                 "GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp) "
                 "ORDER BY hour"
             )
-            
+
             if self.pool:
                 with self.pool.get_connection() as conn:
-                    cursor = conn.execute(query, (f'-{hours} hours',))
+                    cursor = conn.execute(query, (f"-{hours} hours",))
                     return [dict(row) for row in cursor.fetchall()]
             else:
                 with sqlite3.connect(self.db_path, timeout=5) as conn:
                     conn.row_factory = sqlite3.Row
-                    cursor = conn.execute(query, (f'-{hours} hours',))
+                    cursor = conn.execute(query, (f"-{hours} hours",))
                     return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error("Failed to get hourly stats: %s", e)

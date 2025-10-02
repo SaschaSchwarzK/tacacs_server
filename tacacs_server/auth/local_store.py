@@ -1,4 +1,5 @@
 """SQLite-backed persistence for local users and groups."""
+
 from __future__ import annotations
 
 import json

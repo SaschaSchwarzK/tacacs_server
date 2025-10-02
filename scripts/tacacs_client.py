@@ -5,7 +5,7 @@ TACACS+ PAP Test Client
 Usage:
   Single test: python tacacs_client.py [host] [port] [secret] [username] [password]
   Batch test:  python tacacs_client.py --batch credentials.csv
-  
+
 CSV format: username,password
 """
 
@@ -25,23 +25,23 @@ from dataclasses import dataclass
 
 def md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -> bytes:
     """Generate the MD5 pad as defined in TACACS+ RFC 8907.
-    
+
     Note: MD5 is used here as mandated by the TACACS+ protocol specification,
     not for general cryptographic purposes. This is protocol-required legacy.
-    
+
     Args:
         session_id: TACACS+ session identifier
         key: Shared secret key
         version: TACACS+ version byte
         seq_no: Sequence number
         length: Required pad length in bytes
-        
+
     Returns:
         Encryption pad bytes of specified length
     """
     if length <= 0:
-        return b''
-        
+        return b""
+
     pad = bytearray()
     session_id_bytes = struct.pack("!L", session_id)
     key_bytes = key.encode("utf-8")
@@ -88,17 +88,17 @@ def pap_authentication(
     password: str = None,
 ) -> PapResult:
     """Perform TACACS+ PAP authentication test.
-    
+
     Args:
         host: TACACS+ server hostname or IP
         port: TACACS+ server port (default 49)
         key: Shared secret key
         username: Username for authentication
         password: Password for authentication
-        
+
     Returns:
         PapResult containing authentication outcome and details
-        
+
     Raises:
         OSError: On network connection errors
     """
@@ -167,7 +167,7 @@ def pap_authentication(
         offset = 6
         server_message = None
         if msg_len:
-            server_message = decrypted[offset:offset + msg_len].decode(
+            server_message = decrypted[offset : offset + msg_len].decode(
                 "utf-8", errors="replace"
             )
             offset += msg_len
@@ -188,7 +188,7 @@ def pap_authentication(
         if server_message:
             print(f"Server Message: {server_message}")
         if data_len:
-            attr_data = decrypted[offset:offset + data_len]
+            attr_data = decrypted[offset : offset + data_len]
             print(f"Additional Data ({data_len} bytes): {attr_data.hex()}")
 
         return PapResult(success, status, server_message, detail)
@@ -210,35 +210,26 @@ def pap_authentication(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Simple TACACS+ PAP client")
     parser.add_argument(
-        "host", 
-        nargs="?", 
-        default=os.getenv('TACACS_SERVER', 'localhost'), 
-        help="Server host"
+        "host",
+        nargs="?",
+        default=os.getenv("TACACS_SERVER", "localhost"),
+        help="Server host",
     )
     parser.add_argument(
-        "port", 
-        nargs="?", 
-        type=int, 
-        default=int(os.getenv('TACACS_PORT', '49')), 
-        help="Server port"
+        "port",
+        nargs="?",
+        type=int,
+        default=int(os.getenv("TACACS_PORT", "49")),
+        help="Server port",
     )
     parser.add_argument(
-        "secret", 
-        nargs="?", 
-        default=os.getenv('TACACS_SECRET'), 
-        help="Shared secret"
+        "secret", nargs="?", default=os.getenv("TACACS_SECRET"), help="Shared secret"
     )
     parser.add_argument(
-        "username", 
-        nargs="?", 
-        default=os.getenv('TACACS_USERNAME'), 
-        help="Username"
+        "username", nargs="?", default=os.getenv("TACACS_USERNAME"), help="Username"
     )
     parser.add_argument(
-        "password", 
-        nargs="?", 
-        default=os.getenv('TACACS_PASSWORD'), 
-        help="Password"
+        "password", nargs="?", default=os.getenv("TACACS_PASSWORD"), help="Password"
     )
     return parser.parse_args(argv)
 
@@ -250,9 +241,10 @@ def test_batch_credentials(
     if not key:
         print("Error: TACACS+ secret required for batch testing")
         return False
-    
+
     # Validate file path to prevent path traversal
     from pathlib import Path
+
     try:
         csv_path = Path(csv_file).resolve()
         cwd = Path.cwd().resolve()
@@ -262,7 +254,7 @@ def test_batch_credentials(
     except (OSError, ValueError):
         print(f"Error: Invalid file path: {csv_file}")
         return False
-    
+
     try:
         with open(csv_file) as f:
             reader = csv.reader(f)
@@ -270,27 +262,27 @@ def test_batch_credentials(
     except (FileNotFoundError, IndexError, PermissionError) as e:
         print(f"Error reading CSV file: {e}")
         return False
-    
+
     if not credentials:
         print("No valid credentials found in CSV file")
         return False
-    
+
     print(f"\nBatch testing {len(credentials)} credentials...\n")
-    
+
     results = []
     start_time = time.time()
-    
+
     for i, (username, password) in enumerate(credentials, 1):
         print(f"[{i}/{len(credentials)}] Testing {username}...")
         result = pap_authentication(host, port, key, username, password)
         results.append((username, result.success))
         time.sleep(0.1)  # Brief pause between tests
-    
+
     # Summary
     total_time = time.time() - start_time
     successful = sum(1 for _, success in results if success)
     failed = len(results) - successful
-    
+
     print("\n=== Batch Test Summary ===")
     print(f"Total tests: {len(results)}")
     print(f"Successful: {successful}")
@@ -298,34 +290,35 @@ def test_batch_credentials(
     print(f"Success rate: {successful/len(results)*100:.1f}%")
     print(f"Total time: {total_time:.2f}s")
     print(f"Average time per test: {total_time/len(results):.2f}s")
-    
+
     return failed == 0
+
 
 def main(argv: list[str] | None = None) -> int:
     # Check for batch mode
-    if argv and len(argv) > 0 and argv[0] == '--batch':
+    if argv and len(argv) > 0 and argv[0] == "--batch":
         if len(argv) < 2:
             print("Error: CSV file required for batch mode")
             print("Usage: python tacacs_client.py --batch credentials.csv")
             return 1
-        
+
         csv_file = argv[1]
-        host = os.getenv('TACACS_SERVER', 'localhost')
-        port = int(os.getenv('TACACS_PORT', '49'))
-        secret = os.getenv('TACACS_SECRET')
-        
+        host = os.getenv("TACACS_SERVER", "localhost")
+        port = int(os.getenv("TACACS_PORT", "49"))
+        secret = os.getenv("TACACS_SECRET")
+
         if not secret:
             print(
                 "Error: TACACS_SECRET environment variable required for batch testing"
             )
             return 1
-        
+
         success = test_batch_credentials(csv_file, host, port, secret)
         return 0 if success else 1
-    
+
     # Single test mode (existing functionality)
     args = parse_args(argv)
-    
+
     if not args.secret:
         print(
             "Error: TACACS+ secret required (set TACACS_SECRET env var "
@@ -342,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
             "Error: Password required (set TACACS_PASSWORD env var or pass as argument)"
         )
         return 1
-    
+
     result = pap_authentication(
         args.host, args.port, args.secret, args.username, args.password
     )
