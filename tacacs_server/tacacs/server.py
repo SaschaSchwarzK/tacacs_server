@@ -42,7 +42,7 @@ class TacacsServer:
         self,
         host: str = "0.0.0.0",
         port: int = TAC_PLUS_DEFAULT_PORT,
-        secret_key: str = None,
+        secret_key: str | None = None,
     ):
         self.host = host
         self.port = port

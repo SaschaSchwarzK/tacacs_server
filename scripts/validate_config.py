@@ -20,7 +20,7 @@ sys.path.insert(0, str(project_root))
 from tacacs_server.config.config import TacacsConfig  # noqa: E402
 
 
-def validate_configuration(config_file: str = None) -> bool:
+def validate_configuration(config_file: str | None = None) -> bool:
     """Validate TACACS+ configuration file"""
 
     print("TACACS+ Configuration Validator")

@@ -83,9 +83,9 @@ class PapResult:
 def pap_authentication(
     host: str = "localhost",
     port: int = 49,
-    key: str = None,
-    username: str = None,
-    password: str = None,
+    key: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
 ) -> PapResult:
     """Perform TACACS+ PAP authentication test.
 
@@ -235,7 +235,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def test_batch_credentials(
-    csv_file: str, host: str = "localhost", port: int = 49, key: str = None
+    csv_file: str, host: str = "localhost", port: int = 49, key: str | None = None
 ) -> bool:
     """Test multiple credentials from CSV file"""
     if not key:

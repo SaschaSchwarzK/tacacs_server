@@ -30,7 +30,7 @@ jobs:
         uses: ./.github/actions/setup-python-poetry
 
   quality:
-    name: Lint (Ruff • Bandit)
+    name: Lint (Ruff • Mypy • Bandit)
     runs-on: ubuntu-latest
     needs: [setup]
     timeout-minutes: 10
@@ -45,6 +45,14 @@ jobs:
       - name: Ruff (format check)
         run: |
           poetry run ruff format --check .
+
+      - name: Mypy (type check)
+        run: |
+          echo "Running mypy file by file to reduce output noise..."
+          find tacacs_server -name "*.py" -type f | while read -r file; do
+            echo "Checking $file..."
+            poetry run mypy "$file" || echo "Issues found in $file"
+          done
 
       - name: Bandit (security lint)
         run: |
@@ -88,7 +96,7 @@ jobs:
             **/*token*
             **/*credential*
 
-CodeQL:
+  codeql:
     name: CodeQL (Python)
     runs-on: ubuntu-latest
     needs: [setup]

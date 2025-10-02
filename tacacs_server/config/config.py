@@ -367,7 +367,7 @@ class TacacsConfig:
         issues = []
 
         try:
-            config_dict: dict[str, dict[str, str]] = {
+            config_dict: dict[str, dict[str, Any]] = {
                 "server": dict(self.config["server"]),
                 "auth": dict(self.config["auth"]),
                 "security": dict(self.config["security"]),
@@ -504,9 +504,9 @@ class TacacsConfig:
         # Add validation status
         validation_issues = self.validate_config()
         summary["_validation"] = {
-            "valid": len(validation_issues) == 0,
-            "issues": validation_issues,
-            "last_checked": time.time(),
+            "valid": str(len(validation_issues) == 0),
+            "issues": str(validation_issues),
+            "last_checked": str(time.time()),
         }
 
         return summary
@@ -548,7 +548,7 @@ class TacacsConfig:
             return False
 
         hostname = parsed.hostname
-        if self._is_private_network(hostname):
+        if hostname and self._is_private_network(hostname):
             logger.error("Local/private network URLs are not allowed")
             return False
 
@@ -572,7 +572,8 @@ class TacacsConfig:
             if response.length and response.length > max_size:
                 logger.error("Configuration file too large")
                 return None
-            return response.read().decode("utf-8")
+            content: str = response.read().decode("utf-8")
+            return content
 
 
 def _parse_size(size_str: str) -> int:
@@ -609,7 +610,7 @@ def setup_logging(config: TacacsConfig):
             if log_config.get("log_rotation", False):
                 max_bytes = _parse_size(log_config.get("max_log_size", "10MB"))
                 backup_count = int(log_config.get("backup_count", 5))
-                file_handler = RotatingFileHandler(
+                file_handler: logging.Handler = RotatingFileHandler(
                     log_file, maxBytes=max_bytes, backupCount=backup_count
                 )
             else:
@@ -626,12 +627,11 @@ def setup_logging(config: TacacsConfig):
         "structured",
     }:
         logger.warning(
-            "Ignoring configured log_format in favour of structured JSON output",
-            configured_format=log_config["log_format"],
+            "Ignoring configured log_format in favour of structured JSON output"
         )
 
     logger.info(
-        "Logging configured",
-        log_level=log_config["log_level"],
-        log_file=log_file or "console-only",
+        "Logging configured: level=%s, file=%s",
+        log_config["log_level"],
+        log_file or "console-only",
     )

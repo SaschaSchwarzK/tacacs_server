@@ -4,7 +4,7 @@ import sys
 import textwrap
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
@@ -40,8 +40,8 @@ class TacacsServerManager:
     def __init__(self, config_file: str = "config/tacacs.conf"):
         self.config = TacacsConfig(config_file)
         monitoring_set_config(self.config)
-        self.server = None
-        self.radius_server = None
+        self.server: Optional[TacacsServer] = None
+        self.radius_server: Optional[Any] = None
         self.device_store = None
         self.device_service = None
         self.local_auth_store: LocalAuthStore | None = None
@@ -182,7 +182,8 @@ class TacacsServerManager:
         for backend in auth_backends:
             if isinstance(backend, LocalAuthBackend) and self.local_user_service:
                 backend.set_user_service(self.local_user_service)
-            self.server.add_auth_backend(backend)
+            if self.server:
+                self.server.add_auth_backend(backend)
             if self.radius_server and radius_config.get("share_backends", False):
                 if backend not in getattr(self.radius_server, "auth_backends", []):
                     self.radius_server.add_auth_backend(backend)
@@ -216,9 +217,11 @@ class TacacsServerManager:
                 web_port,
             )
             try:
-                started = self.server.enable_web_monitoring(
-                    web_host, web_port, radius_server=self.radius_server
-                )
+                started = False
+                if self.server:
+                    started = self.server.enable_web_monitoring(
+                        web_host, web_port, radius_server=self.radius_server
+                    )
                 if started:
                     logger.info(
                         "Monitoring successfully started at http://%s:%s",
@@ -261,19 +264,21 @@ class TacacsServerManager:
         try:
             from tacacs_server.radius.server import RADIUSServer
 
-            self.radius_server = RADIUSServer(
+            radius_server = RADIUSServer(
                 host=radius_config["host"],
                 port=radius_config["auth_port"],
                 accounting_port=radius_config["acct_port"],
             )
-            self.radius_server.device_store = self.device_store
-            if self.local_user_group_service:
+            self.radius_server = radius_server
+            if self.device_store:
+                self.radius_server.device_store = self.device_store
+            if self.local_user_group_service and self.radius_server:
                 self.radius_server.set_local_user_group_service(
                     self.local_user_group_service
                 )
 
             # Configure RADIUS client devices from the device store when available
-            initial_clients = []
+            initial_clients: list[dict[str, Any]] = []
             if self.device_store:
                 try:
                     initial_clients = self.device_store.iter_radius_clients()
@@ -283,26 +288,27 @@ class TacacsServerManager:
                     )
                     initial_clients = []
 
-            self.radius_server.refresh_clients(initial_clients)
+            if self.radius_server:
+                self.radius_server.refresh_clients(initial_clients)
             configured_clients = len(initial_clients)
             if not initial_clients:
                 logger.info("RADIUS: no clients defined in device store")
 
             # Share authentication backends with TACACS+
-            if radius_config["share_backends"]:
+            if radius_config["share_backends"] and self.server and self.radius_server:
                 shared_initial = 0
                 for backend in self.server.auth_backends:
                     if backend not in getattr(self.radius_server, "auth_backends", []):
                         self.radius_server.add_auth_backend(backend)
                         shared_initial += 1
-                if shared_initial:
+                if shared_initial and self.radius_server:
                     logger.info(
                         "RADIUS: Sharing %d auth backends with TACACS+",
-                        len(self.radius_server.auth_backends),
+                        len(getattr(self.radius_server, "auth_backends", [])),
                     )
 
             # Share accounting database with TACACS+
-            if radius_config["share_accounting"]:
+            if radius_config["share_accounting"] and self.server and self.radius_server:
                 self.radius_server.set_accounting_logger(self.server.db_logger)
                 logger.info("RADIUS: Sharing accounting database with TACACS+")
 
@@ -331,7 +337,8 @@ class TacacsServerManager:
             if self.radius_server:
                 self.radius_server.start()
             # Start TACACS+ server
-            self.server.start()
+            if self.server:
+                self.server.start()
         except KeyboardInterrupt:
             logger.info("Received interrupt signal")
         except Exception as e:
@@ -368,7 +375,7 @@ class TacacsServerManager:
     def _print_startup_info(self):
         """Print server startup information"""
         server_config = self.config.get_server_config()
-        auth_backends = [b.name for b in self.server.auth_backends]
+        auth_backends = [b.name for b in self.server.auth_backends] if self.server else []
         db_config = self.config.get_database_config()
         logger.info(f"Server Address: {server_config['host']}:{server_config['port']}")
         logger.info(f"Secret Key: {'*' * len(server_config['secret_key'])}")
@@ -378,9 +385,10 @@ class TacacsServerManager:
         logger.info(f"Configuration: {source}")
         logger.info("")
         logger.info("Testing authentication backends:")
-        for backend in self.server.auth_backends:
-            status = "✓ Available" if backend.is_available() else "✗ Unavailable"
-            logger.info(f"  {backend.name}: {status}")
+        if self.server:
+            for backend in self.server.auth_backends:
+                status = "✓ Available" if backend.is_available() else "✗ Unavailable"
+                logger.info(f"  {backend.name}: {status}")
         # Add RADIUS info
         if self.radius_server:
             logger.info("")

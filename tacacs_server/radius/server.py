@@ -148,7 +148,7 @@ class RADIUSPacket:
         self.authenticator = authenticator  # 16 bytes
         self.attributes = attributes or []
 
-    def pack(self, secret: bytes = None, request_auth: bytes = None) -> bytes:
+    def pack(self, secret: bytes | None = None, request_auth: bytes | None = None) -> bytes:
         """Pack RADIUS packet into bytes with proper authenticator calculation.
 
         Args:
@@ -184,7 +184,7 @@ class RADIUSPacket:
         return packet
 
     @classmethod
-    def unpack(cls, data: bytes, secret: bytes = None) -> "RADIUSPacket":
+    def unpack(cls, data: bytes, secret: bytes | None = None) -> "RADIUSPacket":
         """Unpack RADIUS packet from bytes"""
         if len(data) < 20:
             raise ValueError(f"Packet too short: {len(data)} bytes")
@@ -343,7 +343,7 @@ class RADIUSServer:
         host: str = "0.0.0.0",
         port: int = 1812,
         accounting_port: int = 1813,
-        secret: str = None,
+        secret: str | None = None,
     ):
         self.host = host
         self.port = port
