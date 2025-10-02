@@ -1267,7 +1267,12 @@ async def bulk_create_devices(
             )
             results.append({"index": i, "id": record.id, "name": record.name})
         except Exception as e:
-            errors.append({"index": i, "error": str(e), "data": device_data})
+            logger.warning("Failed to create device at index %d: %s | data: %s", i, e, device_data, exc_info=True)
+            errors.append({
+                "index": i,
+                "error": "Failed to create device",
+                "data": device_data
+            })
     
     logger.info(f"Bulk device creation: {len(results)} success, {len(errors)} errors")
     return {

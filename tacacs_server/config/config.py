@@ -161,11 +161,11 @@ class TacacsConfig:
             raise
 
     def get_server_config(self) -> dict[str, Any]:
-        """Get server configuration"""
+        """Get server configuration (excluding sensitive values)"""
         return {
             'host': self.config.get('server', 'host'), 
             'port': self.config.getint('server', 'port'), 
-            'secret_key': self.config.get('server', 'secret_key'), 
+            # secret_key intentionally omitted to avoid accidental leakage
             'max_connections': self.config.getint('server', 'max_connections'), 
             'socket_timeout': self.config.getint('server', 'socket_timeout')
         }
