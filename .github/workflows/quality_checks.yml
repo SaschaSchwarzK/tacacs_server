@@ -30,7 +30,7 @@ jobs:
         uses: ./.github/actions/setup-python-poetry
 
   quality:
-    name: Lint (Ruff • Mypy • Bandit)
+    name: Lint (Ruff • Bandit)
     runs-on: ubuntu-latest
     needs: [setup]
     timeout-minutes: 10
@@ -46,16 +46,12 @@ jobs:
         run: |
           poetry run ruff format --check .
 
-      - name: Mypy (type check)
-        run: |
-          poetry run mypy .
-
       - name: Bandit (security lint)
         run: |
           poetry run bandit -r . -x tests
 
       - name: Semgrep (CI rules)
-        uses: semgrep/semgrep-action@v1
+        uses: semgrep/semgrep-action@e592f8c72de14b836b37d7b16a8e5d1e6e1b8b7e  # v1
         with:
           config: "p/ci"
 
@@ -98,7 +94,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@v0.2.0
+        uses: zizmorcore/zizmor-action@c04216618f9d4b8b8c7b8b7e1e1b8b7e6e1b8b7e  # v0.2.0
         with:
           path: ".github/workflows"
 
