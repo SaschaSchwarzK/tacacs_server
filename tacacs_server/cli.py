@@ -13,9 +13,10 @@ def main():
         # Expect tacacs_server/main.py to implement a main() function
         from . import main as pkg_main
         return pkg_main.main()
-    except Exception as exc:
-        logger.error("Could not start tacacs-server", error=str(exc))
+    except Exception as _:
+        logger.error("Could not start tacacs-server", exc_info=True)
         return 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

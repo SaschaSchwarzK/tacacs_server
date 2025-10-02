@@ -5,14 +5,14 @@ import json
 import re
 import sqlite3
 import threading
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional
+
+from tacacs_server.utils.logger import get_logger
 
 from .local_models import LocalUserRecord
 from .local_store import LocalAuthStore
-from tacacs_server.utils.logger import get_logger
-
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -42,8 +42,8 @@ class LocalUserService:
         self,
         db_path: Path | str = "data/local_auth.db",
         *,
-        store: Optional[LocalAuthStore] = None,
-        seed_file: Optional[Path | str] = None,
+        store: LocalAuthStore | None = None,
+        seed_file: Path | str | None = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = store or LocalAuthStore(self.db_path)
@@ -55,7 +55,9 @@ class LocalUserService:
     # ------------------------------------------------------------------
     # Change listeners
     # ------------------------------------------------------------------
-    def add_change_listener(self, callback: Callable[[str, str], None]) -> Callable[[], None]:
+    def add_change_listener(
+        self, callback: Callable[[str, str], None]
+    ) -> Callable[[], None]:
         with self._listeners_lock:
             self._listeners.append(callback)
 
@@ -75,12 +77,14 @@ class LocalUserService:
             try:
                 callback(event, username)
             except Exception:
-                logger.exception("LocalUserService change listener failed")
+                logger.exception(
+                    "LocalUserService change listener failed"
+                )
 
     # ------------------------------------------------------------------
     # Basic ops
     # ------------------------------------------------------------------
-    def list_users(self) -> List[LocalUserRecord]:
+    def list_users(self) -> list[LocalUserRecord]:
         return [self._clone(record) for record in self.store.list_users()]
 
     def get_user(self, username: str) -> LocalUserRecord:
@@ -93,14 +97,14 @@ class LocalUserService:
         self,
         username: str,
         *,
-        password: Optional[str] = None,
-        password_hash: Optional[str] = None,
+        password: str | None = None,
+        password_hash: str | None = None,
         privilege_level: int = 1,
         service: str = "exec",
-        shell_command: Optional[Iterable[str]] = None,
-        groups: Optional[Iterable[str]] = None,
+        shell_command: Iterable[str] | None = None,
+        groups: Iterable[str] | None = None,
         enabled: bool = True,
-        description: Optional[str] = None,
+        description: str | None = None,
     ) -> LocalUserRecord:
         username = username.strip()
         self._validate_username(username)
@@ -128,24 +132,40 @@ class LocalUserService:
         self,
         username: str,
         *,
-        privilege_level: Optional[int] = None,
-        service: Optional[str] = None,
-        shell_command: Optional[Iterable[str]] = None,
-        groups: Optional[Iterable[str]] = None,
-        enabled: Optional[bool] = None,
-        description: Optional[str] = None,
+        privilege_level: int | None = None,
+        service: str | None = None,
+        shell_command: Iterable[str] | None = None,
+        groups: Iterable[str] | None = None,
+        enabled: bool | None = None,
+        description: str | None = None,
     ) -> LocalUserRecord:
         existing = self.store.get_user(username)
         if not existing:
             raise LocalUserNotFound(f"User '{username}' not found")
 
         updates = {
-            "privilege_level": self._validate_privilege(privilege_level) if privilege_level is not None else None,
-            "service": self._validate_service(service) if service is not None else None,
-            "shell_command": self._validate_list(shell_command, "shell_command") if shell_command is not None else None,
-            "groups": self._validate_list(groups, "groups") if groups is not None else None,
-            "enabled": bool(enabled) if enabled is not None else None,
-            "description": description if description is not None else None,
+            "privilege_level": (
+                self._validate_privilege(privilege_level) 
+                if privilege_level is not None else None
+            ),
+            "service": (
+                self._validate_service(service) 
+                if service is not None else None
+            ),
+            "shell_command": (
+                self._validate_list(shell_command, "shell_command") 
+                if shell_command is not None else None
+            ),
+            "groups": (
+                self._validate_list(groups, "groups") 
+                if groups is not None else None
+            ),
+            "enabled": (
+                bool(enabled) if enabled is not None else None
+            ),
+            "description": (
+                description if description is not None else None
+            ),
         }
         stored = self.store.update_user(
             username,
@@ -170,7 +190,9 @@ class LocalUserService:
     ) -> LocalUserRecord:
         password = password.strip()
         if len(password) < 4:
-            raise LocalUserValidationError("Password must be at least 4 characters")
+            raise LocalUserValidationError(
+                "Password must be at least 4 characters"
+            )
 
         existing = self.store.get_user(username)
         if not existing:
@@ -206,23 +228,31 @@ class LocalUserService:
             if self.store.list_users():
                 return
         except Exception:
-            logger.exception("Failed to inspect local auth store before seeding")
+            logger.exception(
+                "Failed to inspect local auth store before seeding"
+            )
             return
 
         try:
             with seed_path.open("r", encoding="utf-8") as fh:
                 payload = json.load(fh)
         except Exception:
-            logger.exception("Failed to load legacy users seed from %s", seed_path)
+            logger.exception(
+                "Failed to load legacy users seed from %s", seed_path
+            )
             return
 
         if not isinstance(payload, dict):
-            logger.warning("Legacy users seed %s is not a JSON object", seed_path)
+            logger.warning(
+                "Legacy users seed %s is not a JSON object", seed_path
+            )
             return
 
         for username, data in payload.items():
             if not isinstance(data, dict):
-                logger.warning("Skipping legacy user %s with invalid payload", username)
+                logger.warning(
+                    "Skipping legacy user %s with invalid payload", username
+                )
                 continue
             try:
                 record = LocalUserRecord.from_dict(username, data)
@@ -232,7 +262,9 @@ class LocalUserService:
                     # Already present, skip
                     continue
             except Exception:
-                logger.exception("Failed to import legacy user %s", username)
+                logger.exception(
+                    "Failed to import legacy user %s", username
+                )
 
     @staticmethod
     def _clone(record: LocalUserRecord) -> LocalUserRecord:
@@ -254,7 +286,9 @@ class LocalUserService:
         try:
             level = int(level)
         except (TypeError, ValueError) as exc:
-            raise LocalUserValidationError("Privilege level must be an integer") from exc
+            raise LocalUserValidationError(
+                "Privilege level must be an integer"
+            ) from exc
         if level < 0 or level > 15:
             raise LocalUserValidationError("Privilege level must be between 0 and 15")
         return level
@@ -266,27 +300,31 @@ class LocalUserService:
         return service
 
     @staticmethod
-    def _validate_list(values: Optional[Iterable[str]], field: str) -> List[str]:
+    def _validate_list(values: Iterable[str] | None, field: str) -> list[str]:
         if values is None:
             if field == "shell_command":
                 return ["show"]
             if field == "groups":
                 return ["users"]
             return []
-        result: List[str] = []
+        result: list[str] = []
         for value in values:
             if not isinstance(value, str) or not value:
-                raise LocalUserValidationError(f"{field} entries must be non-empty strings")
+                raise LocalUserValidationError(
+                    f"{field} entries must be non-empty strings"
+                )
             result.append(value)
         return result
 
     @staticmethod
     def _resolve_password(
-        password: Optional[str],
-        password_hash: Optional[str],
-    ) -> tuple[Optional[str], Optional[str]]:
+        password: str | None,
+        password_hash: str | None,
+    ) -> tuple[str | None, str | None]:
         if password_hash and password:
-            raise LocalUserValidationError("Provide only password or password_hash, not both")
+            raise LocalUserValidationError(
+                "Provide only password or password_hash, not both"
+            )
         if password:
             password = password.strip()
             if len(password) < 4:
@@ -294,9 +332,13 @@ class LocalUserService:
             return None, LocalUserService._hash_password(password)
         if password_hash:
             if len(password_hash) != 64:
-                raise LocalUserValidationError("password_hash must be a SHA-256 hex digest")
+                raise LocalUserValidationError(
+                    "password_hash must be a SHA-256 hex digest"
+                )
             return None, password_hash
-        raise LocalUserValidationError("Either password or password_hash must be provided")
+        raise LocalUserValidationError(
+            "Either password or password_hash must be provided"
+        )
 
     @staticmethod
     def _hash_password(password: str) -> str:

@@ -7,15 +7,15 @@ import sqlite3
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Union, Any
+from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-JsonDict = Dict[str, Any]
-NetworkType = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
+JsonDict = dict[str, Any]
+NetworkType = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
 @dataclass(frozen=True)
@@ -24,14 +24,14 @@ class DeviceGroup:
 
     id: int
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     tacacs_profile: JsonDict = field(default_factory=dict)
     radius_profile: JsonDict = field(default_factory=dict)
     metadata: JsonDict = field(default_factory=dict)
-    tacacs_secret: Optional[str] = None
-    radius_secret: Optional[str] = None
+    tacacs_secret: str | None = None
+    radius_secret: str | None = None
     device_config: JsonDict = field(default_factory=dict)
-    allowed_user_groups: List[str] = field(default_factory=list)
+    allowed_user_groups: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -41,9 +41,9 @@ class DeviceRecord:
     id: int
     name: str
     network: NetworkType
-    group: Optional[DeviceGroup]
-    tacacs_secret: Optional[str]
-    radius_secret: Optional[str]
+    group: DeviceGroup | None
+    tacacs_secret: str | None
+    radius_secret: str | None
     metadata: JsonDict = field(default_factory=dict)
 
     @property
@@ -62,9 +62,9 @@ class RadiusClientConfig:
     network: NetworkType
     secret: str
     name: str
-    group: Optional[str] = None
+    group: str | None = None
     attributes: JsonDict = field(default_factory=dict)
-    allowed_user_groups: List[str] = field(default_factory=list)
+    allowed_user_groups: list[str] = field(default_factory=list)
 
     def matches(self, ip: str) -> bool:
         try:
@@ -77,7 +77,7 @@ class RadiusClientConfig:
 class DeviceStore:
     """Device inventory with SQLite persistence."""
 
-    def __init__(self, db_path: Union[str, Path] = "data/devices.db") -> None:
+    def __init__(self, db_path: str | Path = "data/devices.db") -> None:
         self.db_path = Path(db_path)
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,10 +138,10 @@ class DeviceStore:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _json_dump(self, data: Optional[JsonDict]) -> str:
+    def _json_dump(self, data: JsonDict | None) -> str:
         return json.dumps(data or {})
 
-    def _json_load(self, payload: Optional[str]) -> JsonDict:
+    def _json_load(self, payload: str | None) -> JsonDict:
         if not payload:
             return {}
         try:
@@ -160,7 +160,10 @@ class DeviceStore:
             device_config = {}
         allowed_groups_raw = metadata.pop("allowed_user_groups", [])
         if isinstance(allowed_groups_raw, list):
-            allowed_groups = [str(item) for item in allowed_groups_raw if isinstance(item, str) and item]
+            allowed_groups = [
+                str(item) for item in allowed_groups_raw 
+                if isinstance(item, str) and item
+            ]
         else:
             allowed_groups = []
         return DeviceGroup(
@@ -176,7 +179,9 @@ class DeviceStore:
             allowed_user_groups=allowed_groups,
         )
 
-    def _row_to_device(self, row: sqlite3.Row, groups: Dict[int, DeviceGroup]) -> DeviceRecord:
+    def _row_to_device(
+        self, row: sqlite3.Row, groups: dict[int, DeviceGroup]
+    ) -> DeviceRecord:
         network = ipaddress.ip_network(row["network"], strict=False)
         group = groups.get(row["group_id"])
         return DeviceRecord(
@@ -189,7 +194,7 @@ class DeviceStore:
             metadata=self._json_load(row["metadata"]),
         )
 
-    def _load_groups(self) -> Dict[int, DeviceGroup]:
+    def _load_groups(self) -> dict[int, DeviceGroup]:
         with self._lock:
             cur = self._conn.execute("SELECT * FROM device_groups")
             groups = {row["id"]: self._row_to_group(row) for row in cur.fetchall()}
@@ -198,16 +203,16 @@ class DeviceStore:
     # ------------------------------------------------------------------
     # Group operations
     # ------------------------------------------------------------------
-    def list_groups(self) -> List[DeviceGroup]:
+    def list_groups(self) -> list[DeviceGroup]:
         return list(self._load_groups().values())
 
     def ensure_group(
         self,
         name: str,
-        description: Optional[str] = None,
-        tacacs_profile: Optional[JsonDict] = None,
-        radius_profile: Optional[JsonDict] = None,
-        metadata: Optional[JsonDict] = None,
+        description: str | None = None,
+        tacacs_profile: JsonDict | None = None,
+        radius_profile: JsonDict | None = None,
+        metadata: JsonDict | None = None,
     ) -> DeviceGroup:
         """Create the group if it does not exist or update metadata."""
         with self._lock:
@@ -218,8 +223,8 @@ class DeviceStore:
             row = cur.fetchone()
             if row:
                 # Update existing group if new data provided
-                updates: List[str] = []
-                params: List[Any] = []
+                updates: list[str] = []
+                params: list[Any] = []
                 if description is not None:
                     updates.append("description = ?")
                     params.append(description)
@@ -234,7 +239,8 @@ class DeviceStore:
                     params.append(self._json_dump(metadata))
                 if updates:
                     params.append(name)
-                    query = f"UPDATE device_groups SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE name = ?"
+                    query = f"""UPDATE device_groups SET {', '.join(updates)},
+                         updated_at = CURRENT_TIMESTAMP WHERE name = ?"""
                     self._conn.execute(query, tuple(params))
                     self._conn.commit()
                     return self.get_group_by_name(name)  # refreshed row
@@ -242,7 +248,8 @@ class DeviceStore:
 
             self._conn.execute(
                 """
-                INSERT INTO device_groups (name, description, tacacs_profile, radius_profile, metadata)
+                INSERT INTO device_groups (name, description, tacacs_profile, 
+                                         radius_profile, metadata)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (
@@ -256,7 +263,7 @@ class DeviceStore:
             self._conn.commit()
             return self.get_group_by_name(name)
 
-    def get_group_by_name(self, name: str) -> Optional[DeviceGroup]:
+    def get_group_by_name(self, name: str) -> DeviceGroup | None:
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM device_groups WHERE name = ?",
@@ -265,7 +272,7 @@ class DeviceStore:
             row = cur.fetchone()
             return self._row_to_group(row) if row else None
 
-    def get_group_by_id(self, group_id: int) -> Optional[DeviceGroup]:
+    def get_group_by_id(self, group_id: int) -> DeviceGroup | None:
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM device_groups WHERE id = ?",
@@ -278,14 +285,14 @@ class DeviceStore:
         self,
         group_id: int,
         *,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        tacacs_profile: Optional[JsonDict] = None,
-        radius_profile: Optional[JsonDict] = None,
-        metadata: Optional[JsonDict] = None,
-    ) -> Optional[DeviceGroup]:
-        updates: List[str] = []
-        params: List[Any] = []
+        name: str | None = None,
+        description: str | None = None,
+        tacacs_profile: JsonDict | None = None,
+        radius_profile: JsonDict | None = None,
+        metadata: JsonDict | None = None,
+    ) -> DeviceGroup | None:
+        updates: list[str] = []
+        params: list[Any] = []
 
         if name is not None:
             updates.append("name = ?")
@@ -308,14 +315,17 @@ class DeviceStore:
 
         params.append(group_id)
         with self._lock:
-            query = f"UPDATE device_groups SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            query = f"""UPDATE device_groups SET {', '.join(updates)}, 
+                 updated_at = CURRENT_TIMESTAMP WHERE id = ?"""
             self._conn.execute(query, tuple(params))
             self._conn.commit()
 
         return self.get_group_by_id(group_id)
 
     def delete_group(self, group_id: int, *, cascade: bool = False) -> bool:
-        """Delete a device group. If cascade is False and devices exist, raise ValueError."""
+        """Delete a device group. 
+        If cascade is False and devices exist, raise ValueError.
+        """
         with self._lock:
             cur = self._conn.execute(
                 "SELECT COUNT(1) AS cnt FROM devices WHERE group_id = ?",
@@ -340,14 +350,14 @@ class DeviceStore:
     # ------------------------------------------------------------------
     # Device operations
     # ------------------------------------------------------------------
-    def list_devices(self) -> List[DeviceRecord]:
+    def list_devices(self) -> list[DeviceRecord]:
         groups = self._load_groups()
         with self._lock:
             cur = self._conn.execute("SELECT * FROM devices ORDER BY name")
             rows = cur.fetchall()
         return [self._row_to_device(row, groups) for row in rows]
 
-    def list_devices_by_group(self, group_id: int) -> List[DeviceRecord]:
+    def list_devices_by_group(self, group_id: int) -> list[DeviceRecord]:
         groups = self._load_groups()
         with self._lock:
             cur = self._conn.execute(
@@ -357,7 +367,7 @@ class DeviceStore:
             rows = cur.fetchall()
         return [self._row_to_device(row, groups) for row in rows]
 
-    def get_device_by_id(self, device_id: int) -> Optional[DeviceRecord]:
+    def get_device_by_id(self, device_id: int) -> DeviceRecord | None:
         groups = self._load_groups()
         with self._lock:
             cur = self._conn.execute(
@@ -370,13 +380,13 @@ class DeviceStore:
     def ensure_device(
         self,
         name: str,
-        network: Union[str, NetworkType],
+        network: str | NetworkType,
         *,
-        group: Optional[str] = None,
+        group: str | None = None,
     ) -> DeviceRecord:
         """Create or update a device entry."""
         network_obj = ipaddress.ip_network(str(network), strict=False)
-        group_id: Optional[int] = None
+        group_id: int | None = None
         if group:
             grp = self.ensure_group(group)
             group_id = grp.id
@@ -387,15 +397,17 @@ class DeviceStore:
             )
             row = cur.fetchone()
             if row:
-                updates: List[str] = []
-                params: List[Any] = []
+                updates: list[str] = []
+                params: list[Any] = []
                 if group_id is not None:
                     updates.append("group_id = ?")
                     params.append(group_id)
                 if updates:
                     params.append(name)
                     params.append(str(network_obj))
-                    query = f"UPDATE devices SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE name = ? AND network = ?"
+                    query = f"""UPDATE devices SET {', '.join(updates)}, 
+                         updated_at = CURRENT_TIMESTAMP 
+                     WHERE name = ? AND network = ?"""
                     self._conn.execute(query, tuple(params))
                     self._conn.commit()
                 groups = self._load_groups()
@@ -403,7 +415,8 @@ class DeviceStore:
 
             self._conn.execute(
                 """
-                INSERT INTO devices (name, network, tacacs_secret, radius_secret, metadata, group_id)
+                INSERT INTO devices (name, network, tacacs_secret, radius_secret, 
+                                     metadata, group_id)
                 VALUES (?, ?, NULL, NULL, NULL, ?)
                 """,
                 (
@@ -426,14 +439,14 @@ class DeviceStore:
         self,
         device_id: int,
         *,
-        name: Optional[str] = None,
-        network: Optional[Union[str, NetworkType]] = None,
-        group: Optional[str] = None,
+        name: str | None = None,
+        network: str | NetworkType | None = None,
+        group: str | None = None,
         clear_group: bool = False,
-    ) -> Optional[DeviceRecord]:
+    ) -> DeviceRecord | None:
         """Update an existing device entry."""
-        updates: List[str] = []
-        params: List[Any] = []
+        updates: list[str] = []
+        params: list[Any] = []
 
         if name is not None:
             updates.append("name = ?")
@@ -462,7 +475,8 @@ class DeviceStore:
 
         params.append(device_id)
         with self._lock:
-            query = f"UPDATE devices SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            query = f"""UPDATE devices SET {', '.join(updates)}, 
+                 updated_at = CURRENT_TIMESTAMP WHERE id = ?"""
             self._conn.execute(query, tuple(params))
             self._conn.commit()
 
@@ -480,10 +494,9 @@ class DeviceStore:
     # ------------------------------------------------------------------
     # RADIUS helpers
     # ------------------------------------------------------------------
-    def iter_radius_clients(self) -> List[RadiusClientConfig]:
-        groups = self._load_groups()
+    def iter_radius_clients(self) -> list[RadiusClientConfig]:
         devices = self.list_devices()
-        clients: List[RadiusClientConfig] = []
+        clients: list[RadiusClientConfig] = []
         for device in devices:
             group_obj = device.group
             group_name = group_obj.name if group_obj else None
@@ -508,13 +521,16 @@ class DeviceStore:
 
             if not secret:
                 logger.debug(
-                    "DeviceStore: skipping device '%s' (%s) - no RADIUS secret via group",
+                    "DeviceStore: skipping device '%s' (%s) - "
+                    "no RADIUS secret via group",
                     device.name,
                     device.network,
                 )
                 continue
 
-            client_name = device_cfg.get("radius_name") if isinstance(device_cfg, dict) else None
+            client_name = (
+                device_cfg.get("radius_name") if isinstance(device_cfg, dict) else None
+            )
             if not client_name:
                 client_name = device.name
             clients.append(
@@ -524,21 +540,23 @@ class DeviceStore:
                     name=str(client_name),
                     group=group_name,
                     attributes=merged_attrs,
-                    allowed_user_groups=list(group_obj.allowed_user_groups if group_obj else []),
+                    allowed_user_groups=list(
+                        group_obj.allowed_user_groups if group_obj else []
+                    ),
                 )
             )
         # Sort by prefix length descending so longest match wins during lookup
         clients.sort(key=lambda c: c.network.prefixlen, reverse=True)
         return clients
 
-    def resolve_radius_client(self, ip: str) -> Optional[RadiusClientConfig]:
+    def resolve_radius_client(self, ip: str) -> RadiusClientConfig | None:
         ip_obj = ipaddress.ip_address(ip)
         for client in self.iter_radius_clients():
             if ip_obj in client.network:
                 return client
         return None
 
-    def find_device_by_network(self, network: Union[str, NetworkType]) -> Optional[DeviceRecord]:
+    def find_device_by_network(self, network: str | NetworkType) -> DeviceRecord | None:
         network_obj = ipaddress.ip_network(str(network), strict=False)
         groups = self._load_groups()
         with self._lock:
@@ -549,7 +567,7 @@ class DeviceStore:
             row = cur.fetchone()
         return self._row_to_device(row, groups) if row else None
 
-    def find_device_for_ip(self, ip: str) -> Optional[DeviceRecord]:
+    def find_device_for_ip(self, ip: str) -> DeviceRecord | None:
         """Resolve a device record for the given client IP address."""
         try:
             ip_obj = ipaddress.ip_address(ip)
@@ -574,7 +592,7 @@ class DeviceStore:
         with self._lock:
             self._conn.close()
 
-    def __enter__(self) -> "DeviceStore":
+    def __enter__(self) -> DeviceStore:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:  # type: ignore[override]

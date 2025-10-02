@@ -107,7 +107,9 @@ def test_local_user_seed_from_json(tmp_path):
 def test_local_user_service_change_listeners(tmp_path):
     service = LocalUserService(tmp_path / "users.db")
     events: list[tuple[str, str]] = []
-    remove = service.add_change_listener(lambda event, username: events.append((event, username)))
+    remove = service.add_change_listener(
+        lambda event, username: events.append((event, username))
+    )
 
     service.create_user("alice", password="secret123")
     assert ("created", "alice") in events

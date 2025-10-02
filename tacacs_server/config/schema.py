@@ -1,6 +1,5 @@
 """Pydantic schema for TACACS+ configuration validation."""
 
-from typing import Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -48,19 +47,21 @@ class TacacsConfigSchema(BaseModel):
     server: ServerConfigSchema
     auth: AuthConfigSchema
     security: SecurityConfigSchema
-    ldap: Optional[LdapConfigSchema] = None
-    okta: Optional[OktaConfigSchema] = None
+    ldap: LdapConfigSchema | None = None
+    okta: OktaConfigSchema | None = None
 
     @field_validator('auth')
     @classmethod
     def backends_not_empty(cls, value: AuthConfigSchema) -> AuthConfigSchema:
-        backends = [entry.strip() for entry in value.backends.split(',') if entry.strip()]
+        backends = [
+            entry.strip() for entry in value.backends.split(',') if entry.strip()
+        ]
         if not backends:
             raise ValueError("At least one authentication backend must be configured")
         return value
 
 
-def validate_config_file(payload: Dict) -> TacacsConfigSchema:
+def validate_config_file(payload: dict) -> TacacsConfigSchema:
     """Validate configuration payload with Pydantic schema."""
 
     return TacacsConfigSchema(**payload)

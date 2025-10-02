@@ -2,15 +2,15 @@
 Enhanced authorization utilities
 """
 import re
-from typing import List, Dict
+
 
 class CommandMatcher:
     """Enhanced command matching with regex support"""
     
     def __init__(self):
-        self.patterns: Dict[int, List[re.Pattern]] = {}
+        self.patterns: dict[int, list[re.Pattern]] = {}
     
-    def add_patterns(self, privilege_level: int, patterns: List[str]):
+    def add_patterns(self, privilege_level: int, patterns: list[str]):
         """Add command patterns for privilege level"""
         compiled_patterns = []
         for pattern in patterns:
@@ -32,7 +32,7 @@ class CommandMatcher:
                         return True
         return False
     
-    def get_allowed_commands(self, user_privilege: int) -> List[str]:
+    def get_allowed_commands(self, user_privilege: int) -> list[str]:
         """Get list of allowed command patterns for user"""
         allowed = []
         for priv_level in range(user_privilege, 16):

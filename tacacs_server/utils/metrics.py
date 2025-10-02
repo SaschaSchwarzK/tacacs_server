@@ -1,9 +1,10 @@
 """
 Metrics collection for TACACS+ server
 """
-from collections import Counter, deque
-from typing import Dict, Any
 import time
+from collections import Counter, deque
+from typing import Any
+
 
 class MetricsCollector:
     """Collect and analyze server metrics"""
@@ -32,7 +33,7 @@ class MetricsCollector:
         """Record authentication method usage"""
         self.auth_methods[method] += 1
     
-    def get_auth_stats(self) -> Dict[str, float]:
+    def get_auth_stats(self) -> dict[str, float]:
         """Get authentication statistics"""
         if not self.auth_latencies:
             return {}
@@ -46,10 +47,13 @@ class MetricsCollector:
             'min_latency_ms': min(latencies),
             'max_latency_ms': max(latencies),
             'p50_latency_ms': latencies[len(latencies) // 2],
-            'p95_latency_ms': latencies[int(len(latencies) * 0.95)] if len(latencies) > 20 else max(latencies)
+            'p95_latency_ms': (
+                latencies[int(len(latencies) * 0.95)] 
+                if len(latencies) > 20 else max(latencies)
+            )
         }
     
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get complete metrics summary"""
         return {
             'uptime_seconds': time.time() - self.start_time,
@@ -58,7 +62,10 @@ class MetricsCollector:
             'auth_methods': dict(self.auth_methods),
             'packet_stats': {
                 'count': len(self.packet_sizes),
-                'avg_size': sum(self.packet_sizes) / len(self.packet_sizes) if self.packet_sizes else 0,
+                'avg_size': (
+                    sum(self.packet_sizes) / len(self.packet_sizes) 
+                    if self.packet_sizes else 0
+                ),
                 'max_size': max(self.packet_sizes) if self.packet_sizes else 0
             }
         }

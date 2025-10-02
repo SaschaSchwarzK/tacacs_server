@@ -7,11 +7,13 @@ from typing import Any
 
 from .logging_config import (
     StructuredJSONFormatter,
-    configure_logging as _configure_logging,
-    get_structured_logger,
     bind_context,
     clear_context,
+    get_structured_logger,
     logging_context,
+)
+from .logging_config import (
+    configure_logging as _configure_logging,
 )
 
 __all__ = [
@@ -24,7 +26,9 @@ __all__ = [
 ]
 
 
-def configure(*, level: int = logging.INFO, handlers: list[logging.Handler] | None = None) -> None:
+def configure(
+    *, level: int = logging.INFO, handlers: list[logging.Handler] | None = None
+) -> None:
     """Configure structured logging for the application."""
     _configure_logging(level=level, handlers=handlers)
 

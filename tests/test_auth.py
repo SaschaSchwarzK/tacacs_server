@@ -14,6 +14,7 @@ from tacacs_server.tacacs.handlers import AAAHandlers
 from tacacs_server.tacacs.packet import TacacsPacket
 from tacacs_server.tacacs.server import TacacsServer
 
+
 def test_local_auth_backend_basic(tmp_path):
     db_path = tmp_path / 'local_auth.db'
     service = LocalUserService(db_path)

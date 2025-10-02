@@ -1,10 +1,11 @@
 """
 Async database operations for better performance
 """
-import aiosqlite
 import asyncio
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any
+
+import aiosqlite
 
 from tacacs_server.utils.logger import get_logger
 
@@ -56,7 +57,7 @@ class AsyncDatabaseLogger:
             ''')
             await db.commit()
     
-    async def log_accounting(self, record: Dict[str, Any]) -> bool:
+    async def log_accounting(self, record: dict[str, Any]) -> bool:
         """Queue accounting record for async write"""
         try:
             await self.write_queue.put(record)
@@ -83,14 +84,20 @@ class AsyncDatabaseLogger:
                 
                 # Flush if batch is full or time elapsed
                 current_time = asyncio.get_event_loop().time()
-                if len(batch) >= batch_size or (current_time - last_flush) >= flush_interval:
+                if (
+                    len(batch) >= batch_size
+                    or (current_time - last_flush) >= flush_interval
+                ):
                     await self._flush_batch(batch)
                     batch = []
                     last_flush = current_time
                     
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Flush partial batch if time elapsed
-                if batch and (asyncio.get_event_loop().time() - last_flush) >= flush_interval:
+                if (
+                    batch
+                    and (asyncio.get_event_loop().time() - last_flush) >= flush_interval
+                ):
                     await self._flush_batch(batch)
                     batch = []
                     last_flush = asyncio.get_event_loop().time()
@@ -101,7 +108,7 @@ class AsyncDatabaseLogger:
         if batch:
             await self._flush_batch(batch)
     
-    async def _flush_batch(self, batch: List[Dict[str, Any]]):
+    async def _flush_batch(self, batch: list[dict[str, Any]]):
         """Flush batch of records to database"""
         if not batch:
             return
@@ -140,34 +147,36 @@ class AsyncDatabaseLogger:
         except Exception as e:
             logger.error(f"Error flushing batch to database: {e}")
     
-    async def get_statistics(self, days: int = 30) -> Dict[str, Any]:
+    async def get_statistics(self, days: int = 30) -> dict[str, Any]:
         """Get accounting statistics"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             
             # Total records (prefer pre-computed stats, fall back to raw count)
             try:
-                cursor = await db.execute('''
+                cursor = await db.execute(f'''
                     SELECT COALESCE(SUM(total_records), 0) AS count
                     FROM mv_daily_stats
-                    WHERE stat_date > date('now', '-{} days')
-                '''.format(days))
+                    WHERE stat_date > date('now', '-{days} days')
+                ''')
                 row = await cursor.fetchone()
                 total_records = row['count'] if row else 0
             except Exception as exc:
-                logger.warning("Failed to read mv_daily_stats (%s), counting logs directly", exc)
-                cursor = await db.execute('''
+                logger.warning(
+                    "Failed to read mv_daily_stats (%s), counting logs directly", exc
+                )
+                cursor = await db.execute(f'''
                     SELECT COUNT(*) as count FROM accounting_logs 
-                    WHERE timestamp > datetime('now', '-{} days')
-                '''.format(days))
+                    WHERE timestamp > datetime('now', '-{days} days')
+                ''')
                 row = await cursor.fetchone()
                 total_records = row['count'] if row else 0
             
             # Unique users
-            cursor = await db.execute('''
+            cursor = await db.execute(f'''
                 SELECT COUNT(DISTINCT username) as count FROM accounting_logs 
-                WHERE timestamp > datetime('now', '-{} days')
-            '''.format(days))
+                WHERE timestamp > datetime('now', '-{days} days')
+            ''')
             row = await cursor.fetchone()
             unique_users = row['count'] if row else 0
             

@@ -3,19 +3,26 @@ Web Monitoring Interface for TACACS+ Server
 Provides both HTML dashboard and Prometheus metrics endpoint
 """
 
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-import uvicorn
 import asyncio
 import threading
 import time
-import json
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Callable, Awaitable, TYPE_CHECKING
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 from tacacs_server.utils.logger import get_logger
 
@@ -27,7 +34,7 @@ _local_user_group_service: Optional["LocalUserGroupService"] = None
 _config: Optional["TacacsConfig"] = None
 _tacacs_server_ref = None
 _radius_server_ref = None
-_admin_auth_dependency: Optional[Callable[[Request], Awaitable[None]]] = None
+_admin_auth_dependency: Callable[[Request], Awaitable[None]] | None = None
 _admin_session_manager: Optional["AdminSessionManager"] = None
 
 
@@ -85,12 +92,16 @@ def get_radius_server():
     return _radius_server_ref
 
 
-def set_admin_auth_dependency(dependency: Optional[Callable[[Request], Awaitable[None]]]) -> None:
+def set_admin_auth_dependency(
+    dependency: Callable[[Request], Awaitable[None]] | None
+) -> None:
     global _admin_auth_dependency
     _admin_auth_dependency = dependency
 
 
-def get_admin_auth_dependency_func() -> Optional[Callable[[Request], Awaitable[None]]]:
+def get_admin_auth_dependency_func() -> (
+    Callable[[Request], Awaitable[None]] | None
+):
     return _admin_auth_dependency
 
 
@@ -104,21 +115,36 @@ def get_admin_session_manager() -> Optional["AdminSessionManager"]:
 
 
 if TYPE_CHECKING:
-    from tacacs_server.devices.service import DeviceService
-    from tacacs_server.auth.local_user_service import LocalUserService
     from tacacs_server.auth.local_user_group_service import LocalUserGroupService
+    from tacacs_server.auth.local_user_service import LocalUserService
     from tacacs_server.config.config import TacacsConfig
+    from tacacs_server.devices.service import DeviceService
+
     from .admin.auth import AdminSessionManager
 
 # Prometheus Metrics
-auth_requests_total = Counter('tacacs_auth_requests_total', 'Total authentication requests', ['status', 'backend'])
-auth_duration = Histogram('tacacs_auth_duration_seconds', 'Authentication request duration')
+auth_requests_total = Counter(
+    'tacacs_auth_requests_total', 
+    'Total authentication requests', 
+    ['status', 'backend']
+)
+auth_duration = Histogram(
+    'tacacs_auth_duration_seconds', 'Authentication request duration'
+)
 active_connections = Gauge('tacacs_active_connections', 'Number of active connections')
 server_uptime = Gauge('tacacs_server_uptime_seconds', 'Server uptime in seconds')
-accounting_records = Counter('tacacs_accounting_records_total', 'Total accounting records', ['status'])
-radius_auth_requests = Counter('radius_auth_requests_total', 'RADIUS authentication requests', ['status'])
-radius_acct_requests = Counter('radius_acct_requests_total', 'RADIUS accounting requests', ['type'])
-radius_active_clients = Gauge('radius_active_clients', 'Number of configured RADIUS clients')
+accounting_records = Counter(
+    'tacacs_accounting_records_total', 'Total accounting records', ['status']
+)
+radius_auth_requests = Counter(
+    'radius_auth_requests_total', 'RADIUS authentication requests', ['status']
+)
+radius_acct_requests = Counter(
+    'radius_acct_requests_total', 'RADIUS accounting requests', ['type']
+)
+radius_active_clients = Gauge(
+    'radius_active_clients', 'Number of configured RADIUS clients'
+)
 
 
 class TacacsMonitoringAPI:
@@ -177,7 +203,6 @@ class TacacsMonitoringAPI:
             """Health check endpoint"""
             try:
                 health = self.tacacs_server.get_health_status()
-                status_code = 200 if health.get('status') == 'healthy' else 503
                 return health
             except Exception as e:
                 raise HTTPException(status_code=503, detail=f"Health check failed: {e}")
@@ -237,7 +262,8 @@ class TacacsMonitoringAPI:
             """Reload server configuration"""
             try:
                 success = self.tacacs_server.reload_configuration()
-                return {"success": success, "message": "Configuration reloaded" if success else "Reload failed"}
+                message = "Configuration reloaded" if success else "Reload failed"
+                return {"success": success, "message": message}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
         
@@ -295,7 +321,7 @@ class TacacsMonitoringAPI:
                     'clients': clients
                 }
     
-    def get_server_stats(self) -> Dict[str, Any]:
+    def get_server_stats(self) -> dict[str, Any]:
         """Get current server statistics"""
         try:
             stats = self.tacacs_server.get_stats()
@@ -343,7 +369,7 @@ class TacacsMonitoringAPI:
             logger.error(f"Error getting server stats: {e}")
             return {"error": str(e)}
     
-    def get_backend_stats(self) -> List[Dict[str, Any]]:
+    def get_backend_stats(self) -> list[dict[str, Any]]:
         """Get authentication backend statistics"""
         backends = []
         try:
@@ -360,7 +386,7 @@ class TacacsMonitoringAPI:
         
         return backends
     
-    def get_database_stats(self) -> Dict[str, Any]:
+    def get_database_stats(self) -> dict[str, Any]:
         """Get database statistics"""
         try:
             return self.tacacs_server.db_logger.get_statistics(days=30)
@@ -368,7 +394,7 @@ class TacacsMonitoringAPI:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}
     
-    def get_session_stats(self) -> Dict[str, Any]:
+    def get_session_stats(self) -> dict[str, Any]:
         """Get active session statistics"""
         try:
             active_sessions = self.tacacs_server.get_active_sessions()
@@ -381,12 +407,12 @@ class TacacsMonitoringAPI:
             logger.error(f"Error getting session stats: {e}")
             return {"error": str(e)}
     
-    def get_recent_logs(self, lines: int = 100) -> List[str]:
+    def get_recent_logs(self, lines: int = 100) -> list[str]:
         """Get recent log entries"""
         try:
             # Read from log file - this is a simple implementation
             log_file = "logs/tacacs.log"
-            with open(log_file, 'r') as f:
+            with open(log_file) as f:
                 all_lines = f.readlines()
                 return [line.strip() for line in all_lines[-lines:]]
         except Exception as e:
@@ -399,28 +425,37 @@ class TacacsMonitoringAPI:
     
     def update_prometheus_metrics(self):
         """
-        Collect runtime stats from the running TACACS server and update Prometheus metrics.
+        Collect runtime stats from the running TACACS server and update 
+        Prometheus metrics.
         Be tolerant: if tacacs_server isn't available or doesn't expose the expected
         get_stats() API, skip updating (export zeros implicitly).
         """
         try:
             # Guard: nothing to do if no server reference
             if not self.tacacs_server:
-                logger.debug("Monitoring: no tacacs_server bound, skipping metrics update")
+                logger.debug(
+                    "Monitoring: no tacacs_server bound, skipping metrics update"
+                )
                 return
 
             # Try common locations for a get_stats() method
             stats = None
             if hasattr(self.tacacs_server, "get_stats"):
                 stats = self.tacacs_server.get_stats()
-            elif hasattr(self.tacacs_server, "server") and hasattr(self.tacacs_server.server, "get_stats"):
+            elif (hasattr(self.tacacs_server, "server") and 
+                  hasattr(self.tacacs_server.server, "get_stats")):
                 stats = self.tacacs_server.server.get_stats()
             else:
-                logger.debug("Monitoring: tacacs_server has no get_stats(), skipping metrics update")
+                logger.debug(
+                    "Monitoring: tacacs_server has no get_stats(), "
+                    "skipping metrics update"
+                )
                 return
 
             if not stats:
-                logger.debug("Monitoring: stats object empty/None, skipping metrics update")
+                logger.debug(
+                    "Monitoring: stats object empty/None, skipping metrics update"
+                )
                 return
 
             # update prometheus metrics using the 'stats' mapping (keeps old logic)
@@ -428,7 +463,9 @@ class TacacsMonitoringAPI:
             # self.auth_requests_counter.inc(stats.get("auth_requests_delta", 0))
             # self.active_connections_gauge.set(stats.get("active_connections", 0))
             # self.uptime_gauge.set(stats.get("uptime_seconds", 0))
-            # self.accounting_records_counter.inc(stats.get("accounting_records_delta", 0))
+            # self.accounting_records_counter.inc(
+            #     stats.get("accounting_records_delta", 0)
+            # )
             # ...existing code...
 
         except Exception as exc:
@@ -443,8 +480,13 @@ class TacacsMonitoringAPI:
         def run_server():
             """Run the FastAPI server in a separate thread"""
             try:
-                logger.info("Starting uvicorn for monitoring on %s:%s", self.host, self.port)
-                config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="warning", access_log=False)
+                logger.info(
+                    "Starting uvicorn for monitoring on %s:%s", self.host, self.port
+                )
+                config = uvicorn.Config(
+                    self.app, host=self.host, port=self.port, 
+                    log_level="warning", access_log=False
+                )
                 server = uvicorn.Server(config)
                 # keep reference so we can signal shutdown later
                 self.server = server
@@ -460,7 +502,9 @@ class TacacsMonitoringAPI:
         # short wait to allow uvicorn to bind
         time.sleep(0.2)
         if self.server_thread.is_alive():
-            logger.info("Monitoring interface started at http://%s:%s", self.host, self.port)
+            logger.info(
+                "Monitoring interface started at http://%s:%s", self.host, self.port
+            )
             return True
         else:
             logger.error("Monitoring thread did not start")
@@ -482,7 +526,7 @@ class TacacsMonitoringAPI:
             pass
         logger.info("Monitoring interface stopped")
 
-    def get_radius_stats(self) -> Dict[str, Any]:
+    def get_radius_stats(self) -> dict[str, Any]:
         """Get RADIUS server statistics"""
         if not self.radius_server:
             return {'enabled': False}
@@ -551,24 +595,52 @@ DASHBOARD_TEMPLATE = '''
     <title>TACACS+ Server Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f5f5f5; 
+        }
         .container { max-width: 1200px; margin: 0 auto; }
         .header { text-align: center; margin-bottom: 30px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stats-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+            gap: 20px; 
+            margin-bottom: 30px; 
+        }
+        .stat-card { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+        }
         .stat-title { font-size: 14px; color: #666; margin-bottom: 8px; }
         .stat-value { font-size: 24px; font-weight: bold; color: #333; }
         .stat-success { color: #28a745; }
         .stat-error { color: #dc3545; }
         .stat-warning { color: #ffc107; }
-        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .chart-container { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+            margin-bottom: 20px; 
+        }
         .status-online { color: #28a745; }
         .status-offline { color: #dc3545; }
         .backend-list { list-style: none; padding: 0; }
         .backend-item { padding: 8px; border-left: 4px solid #ddd; margin-bottom: 8px; }
         .backend-available { border-left-color: #28a745; }
         .backend-unavailable { border-left-color: #dc3545; }
-        .refresh-btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .refresh-btn { 
+            background: #007bff; 
+            color: white; 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+        }
         .refresh-btn:hover { background: #0056b3; }
     </style>
 </head>
@@ -576,7 +648,9 @@ DASHBOARD_TEMPLATE = '''
     <div class="container">
         <div class="header">
             <h1>TACACS+ Server Monitor</h1>
-            <p class="status-{{ 'online' if stats.status == 'running' else 'offline' }}">
+            <p class="status-{{
+                'online' if stats.status == 'running' else 'offline' 
+            }}">
                 Server Status: {{ stats.status.upper() }}
             </p>
             <button class="refresh-btn" onclick="location.reload()">Refresh</button>
@@ -585,7 +659,9 @@ DASHBOARD_TEMPLATE = '''
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-title">Uptime</div>
-                <div class="stat-value">{{ (stats.uptime // 3600) }}h {{ ((stats.uptime % 3600) // 60) }}m</div>
+                <div class="stat-value">
+                    {{ (stats.uptime // 3600) }}h {{ ((stats.uptime % 3600) // 60) }}m
+                </div>
             </div>
             
             <div class="stat-card">
@@ -595,7 +671,11 @@ DASHBOARD_TEMPLATE = '''
             
             <div class="stat-card">
                 <div class="stat-title">Auth Success Rate</div>
-                <div class="stat-value stat-{{ 'success' if stats.authentication.success_rate > 90 else 'warning' if stats.authentication.success_rate > 70 else 'error' }}">
+                <div class="stat-value stat-{{
+                    'success' if stats.authentication.success_rate > 90 
+                    else 'warning' if stats.authentication.success_rate > 70 
+                    else 'error' 
+                }}">
                     {{ stats.authentication.success_rate }}%
                 </div>
             </div>
@@ -627,7 +707,10 @@ DASHBOARD_TEMPLATE = '''
             data: {
                 labels: ['Success', 'Failed'],
                 datasets: [{
-                    data: [{{ stats.authentication.successes }}, {{ stats.authentication.failures }}],
+                    data: [
+                        {{ stats.authentication.successes }}, 
+                        {{ stats.authentication.failures }}
+                    ],
                     backgroundColor: ['#28a745', '#dc3545']
                 }]
             },
@@ -650,8 +733,13 @@ DASHBOARD_TEMPLATE = '''
                 backendList.innerHTML = '';
                 backends.forEach(backend => {
                     const li = document.createElement('li');
-                    li.className = `backend-item ${backend.available ? 'backend-available' : 'backend-unavailable'}`;
-                    li.innerHTML = `<strong>${backend.name}</strong> (${backend.type}) - ${backend.available ? 'Available' : 'Unavailable'}`;
+                    li.className = `backend-item ${
+                        backend.available ? 'backend-available' : 'backend-unavailable'
+                    }`;
+                    li.innerHTML = `<strong>${backend.name}</strong> "
+                    "(${backend.type}) - ${
+                        backend.available ? 'Available' : 'Unavailable'
+                    }`;
                     backendList.appendChild(li);
                 });
             });
