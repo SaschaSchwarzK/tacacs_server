@@ -21,3 +21,7 @@ class ConfigurationError(TacacsException):
 class DatabaseError(TacacsException):
     """Database specific error"""
     pass
+
+class ValidationError(TacacsException):
+    """Input validation error"""
+    pass

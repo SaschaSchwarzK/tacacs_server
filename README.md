@@ -8,11 +8,12 @@ A modern TACACS+/RADIUS appliance implemented in Python. The project focuses on 
 - **AAA backends**: Local SQLite, LDAP, and Okta integrations with group-aware authorisation rules.
 - **Secure device management**: Shared secrets defined on device groups only (no per-device secrets), with masking in logs and UI.
 - **Rich admin console**: Manage devices, device groups, user groups, local users, and review masked configuration directly in the browser.
-- **Insightful dashboard**: Dedicated tiles for system health, TACACS+, and RADIUS showing real-time success/failure rates, CPU/memory usage, and connection counts.
+- **Real-time dashboard**: WebSocket-powered live updates showing system health, TACACS+, and RADIUS metrics without page refreshes.
 - **Event visibility**: Consistent TACACS+/RADIUS logging with detailed failure reasons and backend identifiers.
 - **Prometheus ready**: `/metrics` endpoint plus helper Grafana queries.
 - **Config flexibility**: Load configuration from the default file or via the `TACACS_CONFIG` environment variable (filesystem path or URL).
-- **Comprehensive test suite**: Pytest-based tests and helper scripts for TACACS+/RADIUS clients.
+- **Enhanced testing**: Batch testing capabilities for multiple credentials and comprehensive configuration validation.
+- **Search & filtering**: Advanced filtering in admin interface for efficient management of large datasets.
 
 Quickstart (Poetry)
 1. Install dependencies:
@@ -42,16 +43,16 @@ Access the Web Interface:
 
 ## Admin Web Console
 
-- **Dashboard** – Three dedicated tiles for system health, TACACS+, and RADIUS along with recent devices, groups, and users.
-- **Devices** – Create or edit devices with a group dropdown (no inline secrets).
+- **Real-time Dashboard** – Live-updating tiles for system health, TACACS+, and RADIUS metrics with WebSocket connectivity.
+- **Devices** – Create or edit devices with search and filtering capabilities (no inline secrets).
   ![Devices](docs/images/Devices_page.png)
 - **Device Groups** – Maintain shared secrets, device metadata, and allowed user groups via multi-select controls.
   ![Device groups](docs/images/Device_Groups_page.png)
 - **User Groups** – Manage privilege levels and directory mappings.
   ![User groups](docs/images/User_Groups_page.png)
-- **Local Users** – Edit users, privilege, and group memberships with selection lists.
+- **Local Users** – Edit users with search, filtering by status/group, and bulk operations.
   ![Users](docs/images/Users_page.png)
-- **Configuration Viewer** – Read-only view of the active configuration with secrets masked, reflecting whatever source `TACACS_CONFIG` resolved to.
+- **Configuration Viewer** – Read-only view with validation status and backup functionality.
   ![Configuration](docs/images/Configuration_page.png)
 
 Unauthenticated admin requests are redirected to the login page; sessions are held in-memory with configurable timeouts.
@@ -61,12 +62,16 @@ Unauthenticated admin requests are redirected to the login page; sessions are he
 - Default configuration file: `config/tacacs.conf`
 - Override via environment variable: `TACACS_CONFIG=/path/to/tacacs.conf` or `TACACS_CONFIG=https://example/config.ini`
 - URL sources are fetched read-only; local files remain editable through the web console or manual edits.
+- **Configuration validation**: Use `python scripts/validate_config.py` to validate configuration before deployment
+- **Automatic backup**: Configuration changes create automatic backups for rollback capability
 
 ## APIs & Monitoring
 
 - `/api/status`, `/api/stats`, `/api/backends`, `/api/sessions`, `/api/accounting` – JSON endpoints backing the UI.
 - `/api/admin/reload-config`, `/api/admin/reset-stats` – management helpers.
+- `/ws/metrics` – WebSocket endpoint for real-time dashboard updates.
 - `/metrics` – Prometheus scrape endpoint.
+- **Search & Filter APIs**: All list endpoints support `search`, filtering, and pagination parameters.
 
 Prometheus Configuration
 Add this to your prometheus.yml:
@@ -118,7 +123,10 @@ Important files
 - LICENSE               -> license text (MIT)
 - MANIFEST.in           -> optional package include patterns
 - scripts/setup_project.py -> create runtime dirs and move test client
-- scripts/tacacs_client.py -> TACACS+ client script (moved from tests/)
+- scripts/tacacs_client.py -> TACACS+ client script with batch testing
+- scripts/radius_client.py -> RADIUS client script with batch testing
+- scripts/validate_config.py -> Configuration validation tool
+- scripts/example_credentials.csv -> Example CSV for batch testing
 
 Configuration
 - Default config file: config/tacacs.conf
@@ -128,6 +136,8 @@ Configuration
 Testing notes
 - Tests expect either the package installed editable (poetry run pip install -e .) or running with PYTHONPATH set to the project root:
   PYTHONPATH="$(pwd)" poetry run pytest -q
+- **Batch testing**: Use `python scripts/tacacs_client.py --batch credentials.csv` for testing multiple credentials
+- **Configuration validation**: Use `python scripts/validate_config.py` for pre-deployment validation
 
 Development notes
 - Prefer Authorization Code / PKCE or Authn API + SSWS token for Okta integrations.

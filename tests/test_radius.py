@@ -53,12 +53,15 @@ def radius_server(tmp_path):
     """Create RADIUS server for testing"""
     from tacacs_server.auth.local import LocalAuthBackend
     from tacacs_server.auth.local_user_service import LocalUserService
+    import uuid
 
-    auth_db = tmp_path / "local_auth.db"
+    # Use unique database and username to avoid conflicts
+    unique_id = str(uuid.uuid4())[:8]
+    auth_db = tmp_path / f"radius_auth_{unique_id}.db"
     service = LocalUserService(auth_db)
     service.create_user(
-        "testuser",
-        password="testpass",
+        f"testuser_{unique_id}",
+        password="TestPass123",
         privilege_level=15,
     )
     
@@ -104,7 +107,7 @@ def test_radius_stats(radius_server):
 def test_radius_refresh_clients_on_change(tmp_path):
     store = DeviceStore(tmp_path / "devices.db")
     service = DeviceService(store)
-    radius = RADIUSServer()
+    radius = RADIUSServer(secret='test123')
 
     service.add_change_listener(
         lambda: radius.refresh_clients(store.iter_radius_clients())
@@ -136,7 +139,7 @@ def test_radius_refresh_clients_on_change(tmp_path):
 def test_radius_ignores_device_specific_secret(tmp_path):
     store = DeviceStore(tmp_path / "devices.db")
     service = DeviceService(store)
-    radius = RADIUSServer()
+    radius = RADIUSServer(secret='test123')
 
     group = service.create_group("firewall", radius_secret=None)
     device = service.create_device(
@@ -165,7 +168,7 @@ def test_radius_ignores_device_specific_secret(tmp_path):
     assert client.secret == "group-secret"
 
 def test_radius_group_policy_allows_privilege_override():
-    radius = RADIUSServer()
+    radius = RADIUSServer(secret='test123')
     radius.set_local_user_group_service(
         SimpleNamespace(get_group=lambda name: SimpleNamespace(privilege_level=9))
     )
@@ -185,7 +188,7 @@ def test_radius_group_policy_allows_privilege_override():
 
 
 def test_radius_group_policy_denies_without_membership():
-    radius = RADIUSServer()
+    radius = RADIUSServer(secret='test123')
     radius.set_local_user_group_service(
         SimpleNamespace(get_group=lambda name: SimpleNamespace(privilege_level=5))
     )

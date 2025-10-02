@@ -2,20 +2,39 @@
 """
 RADIUS Test Client
 
-Usage: python test_radius_client.py [server] [port] [secret] [username] [password]
+Usage: 
+  Single test: python radius_client.py [server] [port] [secret] [username] [password]
+  Batch test:  python radius_client.py --batch credentials.csv
+  
+CSV format: username,password
 """
 
+import csv
 import hashlib
+import os
 import secrets
 import socket
 import struct
 import sys
+import time
+import warnings
 
 
 def create_access_request(username: str, password: str, 
                          identifier: int, secret: bytes) -> bytes:
-    """Create RADIUS Access-Request packet"""
+    """Create RADIUS Access-Request packet with encrypted password.
     
+    Args:
+        username: Username for authentication
+        password: Password for authentication  
+        identifier: Packet identifier (0-255)
+        secret: Shared secret as bytes
+        
+    Returns:
+        Tuple of (packet_bytes, authenticator_bytes)
+        
+    Note: MD5 is used for password encryption as mandated by RADIUS RFC 2865.
+    """
     # Generate random authenticator
     authenticator = secrets.token_bytes(16)
     
@@ -38,7 +57,10 @@ def create_access_request(username: str, password: str,
     for i in range(0, len(password_bytes), 16):
         chunk = password_bytes[i:i+16]
         hash_input = secret + prev
-        key = hashlib.md5(hash_input).digest()
+        # MD5 required by RADIUS RFC 2865 - not for general cryptographic use
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            key = hashlib.md5(hash_input).digest()
         encrypted_chunk = bytes(a ^ b for a, b in zip(chunk, key))
         encrypted_password += encrypted_chunk
         prev = encrypted_chunk
@@ -59,8 +81,20 @@ def create_access_request(username: str, password: str,
     
     return packet, authenticator
 
-def test_radius_auth(server='localhost', port=1812, secret='radius123',
-                    username='admin', password='admin123'):
+def test_radius_auth(server='localhost', port=1812, secret=None,
+                    username=None, password=None):
+    """Test RADIUS authentication against server.
+    
+    Args:
+        server: RADIUS server hostname or IP
+        port: RADIUS server port (default 1812)
+        secret: Shared secret string
+        username: Username for authentication
+        password: Password for authentication
+        
+    Returns:
+        bool: True if authentication successful, False otherwise
+    """
     """Test RADIUS authentication"""
     
     print("Testing RADIUS authentication:")
@@ -70,9 +104,9 @@ def test_radius_auth(server='localhost', port=1812, secret='radius123',
     print()
     
     try:
-        # Create socket
+        # Create socket with timeout to prevent blocking connections
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(5.0)
+        sock.settimeout(5.0)  # 5 second timeout
         
         # Create Access-Request
         identifier = secrets.randbelow(256)
@@ -133,19 +167,111 @@ def test_radius_auth(server='localhost', port=1812, secret='radius123',
     except TimeoutError:
         print("✗ Request timed out - server not responding")
         return False
-    except Exception as e:
-        print(f"✗ Error: {e}")
+    except (ConnectionError, OSError) as e:
+        print(f"✗ Network error: {e}")
+        return False
+    except (ValueError, struct.error) as e:
+        print(f"✗ Protocol error: {e}")
         return False
     finally:
-        sock.close()
+        try:
+            sock.close()
+        except (OSError, AttributeError):
+            pass  # Socket already closed, invalid, or None
+
+def test_batch_credentials(csv_file, server='localhost', port=1812, secret=None):
+    """Test multiple credentials from CSV file"""
+    if not secret:
+        print("Error: RADIUS secret required for batch testing")
+        return False
+    
+    # Validate file path to prevent path traversal
+    from pathlib import Path
+    try:
+        csv_path = Path(csv_file).resolve()
+        cwd = Path.cwd().resolve()
+        if not csv_path.is_relative_to(cwd) or not csv_path.is_file():
+            print(f"Error: Invalid or unsafe file path: {csv_file}")
+            return False
+    except (OSError, ValueError):
+        print(f"Error: Invalid file path: {csv_file}")
+        return False
+    
+    try:
+        with open(csv_file, 'r') as f:
+            reader = csv.reader(f)
+            credentials = [(row[0], row[1]) for row in reader if len(row) >= 2]
+    except (FileNotFoundError, IndexError, PermissionError) as e:
+        print(f"Error reading CSV file: {e}")
+        return False
+    
+    if not credentials:
+        print("No valid credentials found in CSV file")
+        return False
+    
+    print(f"\nBatch testing {len(credentials)} credentials...\n")
+    
+    results = []
+    start_time = time.time()
+    
+    for i, (username, password) in enumerate(credentials, 1):
+        print(f"[{i}/{len(credentials)}] Testing {username}...")
+        success = test_radius_auth(server, port, secret, username, password)
+        results.append((username, success))
+        time.sleep(0.1)  # Brief pause between tests
+    
+    # Summary
+    total_time = time.time() - start_time
+    successful = sum(1 for _, success in results if success)
+    failed = len(results) - successful
+    
+    print(f"\n=== Batch Test Summary ===")
+    print(f"Total tests: {len(results)}")
+    print(f"Successful: {successful}")
+    print(f"Failed: {failed}")
+    print(f"Success rate: {successful/len(results)*100:.1f}%")
+    print(f"Total time: {total_time:.2f}s")
+    print(f"Average time per test: {total_time/len(results):.2f}s")
+    
+    return failed == 0
 
 def main():
     """Main function"""
-    server = sys.argv[1] if len(sys.argv) > 1 else 'localhost'
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else 1812
-    secret = sys.argv[3] if len(sys.argv) > 3 else 'radius123'
-    username = sys.argv[4] if len(sys.argv) > 4 else 'admin'
-    password = sys.argv[5] if len(sys.argv) > 5 else 'admin123'
+    # Check for batch mode
+    if len(sys.argv) > 1 and sys.argv[1] == '--batch':
+        if len(sys.argv) < 3:
+            print("Error: CSV file required for batch mode")
+            print("Usage: python radius_client.py --batch credentials.csv")
+            sys.exit(1)
+        
+        csv_file = sys.argv[2]
+        server = os.getenv('RADIUS_SERVER', 'localhost')
+        port = int(os.getenv('RADIUS_PORT', '1812'))
+        secret = os.getenv('RADIUS_SECRET')
+        
+        if not secret:
+            print("Error: RADIUS_SECRET environment variable required for batch testing")
+            sys.exit(1)
+        
+        success = test_batch_credentials(csv_file, server, port, secret)
+        sys.exit(0 if success else 1)
+    
+    # Single test mode (existing functionality)
+    server = sys.argv[1] if len(sys.argv) > 1 else os.getenv('RADIUS_SERVER', 'localhost')
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else int(os.getenv('RADIUS_PORT', '1812'))
+    secret = sys.argv[3] if len(sys.argv) > 3 else os.getenv('RADIUS_SECRET')
+    username = sys.argv[4] if len(sys.argv) > 4 else os.getenv('RADIUS_USERNAME')
+    password = sys.argv[5] if len(sys.argv) > 5 else os.getenv('RADIUS_PASSWORD')
+    
+    if not secret:
+        print("Error: RADIUS secret required (set RADIUS_SECRET env var or pass as argument)")
+        sys.exit(1)
+    if not username:
+        print("Error: Username required (set RADIUS_USERNAME env var or pass as argument)")
+        sys.exit(1)
+    if not password:
+        print("Error: Password required (set RADIUS_PASSWORD env var or pass as argument)")
+        sys.exit(1)
     
     success = test_radius_auth(server, port, secret, username, password)
     sys.exit(0 if success else 1)

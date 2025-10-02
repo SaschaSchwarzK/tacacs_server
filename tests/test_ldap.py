@@ -52,6 +52,14 @@ def _inject_fake_ldap3(monkeypatch):
     core_mod = types.SimpleNamespace()
     core_mod.exceptions = types.SimpleNamespace(LDAPException=Exception)
     fake.core = core_mod
+    
+    # Provide utils module used by ldap_auth
+    utils_mod = types.SimpleNamespace()
+    utils_mod.dn = types.SimpleNamespace()
+    utils_mod.dn.escape_filter_chars = lambda x: x  # Simple passthrough
+    utils_mod.conv = types.SimpleNamespace()
+    utils_mod.conv.escape_filter_chars = lambda x: x  # Simple passthrough
+    fake.utils = utils_mod
 
     monkeypatch.setitem(sys.modules, "ldap3", fake)
     return fake

@@ -12,6 +12,7 @@ from time import monotonic
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.sql_security import ParameterizedQuery
 
 logger = get_logger(__name__)
 
@@ -73,7 +74,11 @@ class DatabaseLogger:
         self.maintain_mv = maintain_mv
 
         try:
-            db_file = Path(self.db_path)
+            # Resolve and validate path to prevent path traversal
+            db_file = Path(self.db_path).resolve()
+            # Ensure path is within expected directory structure
+            if not str(db_file).startswith(str(Path.cwd().resolve())):
+                raise ValueError(f"Database path outside allowed directory: {db_file}")
             if not db_file.parent.exists():
                 db_file.parent.mkdir(parents=True, exist_ok=True)
             
@@ -451,15 +456,24 @@ class DatabaseLogger:
                 data['timestamp'] = timestamp_value
                 data['is_recent'] = self._compute_is_recent(timestamp_value)
 
-                # Build dynamic query based on available data
-                columns = list(data.keys())
-                placeholders = ['?' for _ in columns]
-                values = list(data.values())
+                # Build safe query with validated columns
+                valid_columns = {
+                    'timestamp', 'username', 'session_id', 'status', 'service', 
+                    'command', 'client_ip', 'port', 'start_time', 'stop_time',
+                    'bytes_in', 'bytes_out', 'elapsed_time', 'privilege_level',
+                    'authentication_method', 'nas_port', 'nas_port_type', 
+                    'task_id', 'timezone', 'is_recent'
+                }
                 
-                query = f"""
-                    INSERT INTO accounting_logs ({','.join(columns)}) 
-                    VALUES ({','.join(placeholders)})
-                """
+                # Filter to only valid columns
+                safe_data = {k: v for k, v in data.items() if k in valid_columns}
+                columns = list(safe_data.keys())
+                placeholders = ['?' for _ in columns]
+                values = list(safe_data.values())
+                
+                query = ParameterizedQuery(
+                    f"INSERT INTO accounting_logs ({','.join(columns)}) VALUES ({','.join(placeholders)})"
+                ).sql
                 
                 conn.execute(query, values)
                 # Connection is automatically committed by the context manager
@@ -652,17 +666,16 @@ class DatabaseLogger:
                 return 0
 
         def _fetch_stats(conn: sqlite3.Connection) -> dict[str, Any]:
+            """Fetch statistics with optimized query path."""
             conn.row_factory = sqlite3.Row
+            
+            # Try materialized view first for better performance
             if self.maintain_mv:
                 try:
                     cursor = conn.execute(
-                        """
-                        SELECT 
-                            COALESCE(SUM(total_records), 0) AS total_records,
-                            COALESCE(SUM(unique_users), 0) AS unique_users
-                        FROM mv_daily_stats
-                        WHERE stat_date > date('now', ?)
-                        """,
+                        "SELECT COALESCE(SUM(total_records), 0) AS total_records, "
+                        "COALESCE(SUM(unique_users), 0) AS unique_users "
+                        "FROM mv_daily_stats WHERE stat_date > date('now', ?)",
                         (date_offset,)
                     )
                     row = cursor.fetchone()
@@ -674,18 +687,13 @@ class DatabaseLogger:
                         }
                 except sqlite3.Error as exc:
                     logger.warning(
-                        "mv_daily_stats unavailable (%s); falling back to live counts",
-                        exc,
+                        "Materialized view unavailable (%s), using live query", exc
                     )
 
+            # Fallback to live query with optimized index usage
             cursor = conn.execute(
-                """
-                SELECT 
-                    COUNT(*) AS total_records,
-                    COUNT(DISTINCT username) AS unique_users
-                FROM accounting_logs
-                WHERE timestamp > datetime('now', ?)
-                """,
+                "SELECT COUNT(*) AS total_records, COUNT(DISTINCT username) AS unique_users "
+                "FROM accounting_logs WHERE timestamp > datetime('now', ?) AND is_recent = 1",
                 (date_offset,)
             )
             row = cursor.fetchone()
@@ -715,51 +723,75 @@ class DatabaseLogger:
     def get_recent_records(
         self, since: datetime, limit: int = 100
     ) -> list[dict[str, Any]]:
-        """Get recent accounting records for monitoring"""
+        """Get recent accounting records for monitoring with optimized query.
+        
+        Args:
+            since: Start datetime for record retrieval
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of accounting record dictionaries
+        """
+        # Validate limit to prevent resource exhaustion
+        limit = min(max(1, int(limit)), 10000)
+        
         try:
+            # Use optimized query with index hint
+            query = (
+                "SELECT username, session_id, status, service, command, client_ip, "
+                "timestamp, bytes_in, bytes_out FROM accounting_logs "
+                "WHERE timestamp >= ? AND is_recent = 1 "
+                "ORDER BY timestamp DESC LIMIT ?"
+            )
+            
             if self.pool:
                 with self.pool.get_connection() as conn:
-                    cursor = conn.execute('''
-                        SELECT * FROM accounting_logs 
-                        WHERE timestamp >= ? 
-                        ORDER BY timestamp DESC 
-                        LIMIT ?
-                    ''', (since.isoformat(), limit))
+                    cursor = conn.execute(query, (since.isoformat(), limit))
                     return [dict(row) for row in cursor.fetchall()]
             else:
-                # Fallback to single connection
-                conn = sqlite3.connect(self.db_file)
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute('''
-                    SELECT * FROM accounting_logs 
-                    WHERE timestamp >= ? 
-                    ORDER BY timestamp DESC 
-                    LIMIT ?
-                ''', (since.isoformat(), limit))
-                results = [dict(row) for row in cursor.fetchall()]
-                conn.close()
-                return results
+                # Fallback with proper resource management
+                with sqlite3.connect(self.db_path, timeout=5) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.execute(query, (since.isoformat(), limit))
+                    return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to get recent records: {e}")
+            logger.error("Failed to get recent records: %s", e)
             return []
     
     def get_hourly_stats(self, hours: int = 24) -> list[dict[str, Any]]:
-        """Get hourly statistics for charts"""
+        """Get hourly statistics for charts with performance optimization.
+        
+        Args:
+            hours: Number of hours to look back (max 168 for 1 week)
+            
+        Returns:
+            List of hourly statistics dictionaries
+        """
+        # Validate and limit hours to prevent excessive queries
+        hours = min(max(1, int(hours)), 168)  # Max 1 week
+        
         try:
+            # Optimized query using is_recent index
+            query = (
+                "SELECT strftime('%Y-%m-%d %H:00:00', timestamp) as hour, "
+                "COUNT(*) as total, "
+                "SUM(CASE WHEN status = 'START' THEN 1 ELSE 0 END) as starts, "
+                "SUM(CASE WHEN status = 'STOP' THEN 1 ELSE 0 END) as stops "
+                "FROM accounting_logs "
+                "WHERE timestamp >= datetime('now', ?) AND is_recent = 1 "
+                "GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp) "
+                "ORDER BY hour"
+            )
+            
             if self.pool:
                 with self.pool.get_connection() as conn:
-                    cursor = conn.execute(f'''
-                        SELECT 
-                            strftime('%Y-%m-%d %H:00:00', timestamp) as hour,
-                            COUNT(*) as total,
-                            SUM(CASE WHEN status = 'START' THEN 1 ELSE 0 END) as starts,
-                            SUM(CASE WHEN status = 'STOP' THEN 1 ELSE 0 END) as stops
-                        FROM accounting_logs 
-                        WHERE timestamp >= datetime('now', '-{hours} hours')
-                        GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp)
-                        ORDER BY hour
-                    ''')
+                    cursor = conn.execute(query, (f'-{hours} hours',))
+                    return [dict(row) for row in cursor.fetchall()]
+            else:
+                with sqlite3.connect(self.db_path, timeout=5) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.execute(query, (f'-{hours} hours',))
                     return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to get hourly stats: {e}")
+            logger.error("Failed to get hourly stats: %s", e)
             return []

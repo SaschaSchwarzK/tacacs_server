@@ -648,7 +648,9 @@ class AAAHandlers:
 
     def _extract_string(self, data: bytes, offset: int, length: int) -> str:
         """Safely extract string from packet data"""
-        if offset + length > len(data):
+        if offset < 0 or length < 0 or offset + length > len(data):
+            return ''
+        if length > 1024:  # Prevent excessive memory allocation
             return ''
         return data[offset : offset + length].decode('utf-8', errors='replace')
 

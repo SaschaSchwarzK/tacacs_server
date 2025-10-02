@@ -15,37 +15,34 @@ from tacacs_server.tacacs.packet import TacacsPacket
 from tacacs_server.tacacs.server import TacacsServer
 
 
-def test_local_auth_backend_basic(tmp_path):
-    db_path = tmp_path / 'local_auth.db'
-    service = LocalUserService(db_path)
-    service.create_user('admin', password='admin123')
-    backend = LocalAuthBackend(str(db_path))
+def test_local_auth_backend_basic(test_db):
+    service = LocalUserService(test_db)
+    service.create_user('testuser', password='TestPass123')
+    backend = LocalAuthBackend(test_db, service=service)
     assert getattr(backend, 'name', '') == 'local'
     stats = backend.get_stats()
     assert isinstance(stats, dict)
     assert 'total_users' in stats
-    assert stats['total_users'] >= 0
+    assert stats['total_users'] >= 1
 
-def test_local_auth_backend_rejects_wrong_password(tmp_path):
-    db_path = tmp_path / 'local_auth.db'
-    service = LocalUserService(db_path)
-    service.create_user('admin', password='admin123')
-    backend = LocalAuthBackend(str(db_path))
-    assert backend.authenticate('admin', 'wrongpassword') is False
+def test_local_auth_backend_rejects_wrong_password(test_db):
+    service = LocalUserService(test_db)
+    service.create_user('testuser', password='TestPass123')
+    backend = LocalAuthBackend(test_db, service=service)
+    assert backend.authenticate('testuser', 'wrongpassword') is False
 
 
-def test_local_auth_backend_cache_invalidation(tmp_path):
-    db_path = tmp_path / 'local_auth.db'
-    service = LocalUserService(db_path)
-    service.create_user('alice', password='password1')
-    backend = LocalAuthBackend(str(db_path), service=service)
+def test_local_auth_backend_cache_invalidation(test_db):
+    service = LocalUserService(test_db)
+    service.create_user('alice', password='Password1')
+    backend = LocalAuthBackend(test_db, service=service)
 
-    assert backend.authenticate('alice', 'password1') is True
+    assert backend.authenticate('alice', 'Password1') is True
 
-    service.set_password('alice', 'password2', store_hash=True)
+    service.set_password('alice', 'Password2', store_hash=True)
 
-    assert backend.authenticate('alice', 'password2') is True
-    assert backend.authenticate('alice', 'password1') is False
+    assert backend.authenticate('alice', 'Password2') is True
+    assert backend.authenticate('alice', 'Password1') is False
 
 
 class StaticBackend(AuthenticationBackend):
@@ -151,7 +148,7 @@ def test_tacacs_authorization_denies_unmatched_group():
 
 
 def test_tacacs_resolves_device_secret():
-    server = TacacsServer()
+    server = TacacsServer(secret_key='test-secret')
     device = _make_device(['firewall'], tacacs_secret='device-secret')
     assert server._resolve_tacacs_secret(device) == 'device-secret'
 

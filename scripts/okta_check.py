@@ -97,17 +97,21 @@ def main():
         )
         sys.exit(2)
 
-    username = args.username or input("Username: ").strip()
-    password = getpass.getpass("Password (will not be echoed): ")
+    username = args.username or os.getenv('OKTA_USERNAME') or input("Username: ").strip()
+    password = os.getenv('OKTA_PASSWORD') or getpass.getpass("Password (will not be echoed): ")
 
     print(f"\n-> Token request to {org} (client_id={client_id}), verify_tls={verify}")
     r = token_request(org, client_id, username, password, verify=verify)
     print("Token endpoint response:", r.status_code)
     try:
         tr = r.json()
-        print(pretty(tr))
+        # Redact sensitive fields from output
+        safe_response = {k: v for k, v in tr.items() if k not in ['access_token', 'refresh_token', 'id_token']}
+        if 'access_token' in tr:
+            safe_response['access_token'] = '[REDACTED]'
+        print(pretty(safe_response))
     except Exception:
-        print(r.text)
+        print("[Response content redacted]")
 
     if r.status_code != 200:
         # If client not allowed to use password grant -> try Authn API fallback
@@ -133,10 +137,7 @@ def main():
 
     access_token = tr.get("access_token")
     expires_in = tr.get("expires_in")
-    print(
-        f"\naccess_token present: {'yes' if access_token else 'no'}, "
-        f"expires_in: {expires_in}"
-    )
+    print(f"\nAuthentication: {'successful' if access_token else 'failed'}")
 
     if access_token:
         print("\n-> Userinfo request")

@@ -49,12 +49,12 @@ class AsyncDatabaseLogger:
                     status TEXT NOT NULL,
                     bytes_in INTEGER DEFAULT 0,
                     bytes_out INTEGER DEFAULT 0,
-                    elapsed_time INTEGER DEFAULT 0,
-                    INDEX(username),
-                    INDEX(session_id),
-                    INDEX(timestamp)
+                    elapsed_time INTEGER DEFAULT 0
                 )
             ''')
+            await db.execute('CREATE INDEX IF NOT EXISTS idx_username ON accounting_logs(username)')
+            await db.execute('CREATE INDEX IF NOT EXISTS idx_session_id ON accounting_logs(session_id)')
+            await db.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON accounting_logs(timestamp)')
             await db.commit()
     
     async def log_accounting(self, record: dict[str, Any]) -> bool:

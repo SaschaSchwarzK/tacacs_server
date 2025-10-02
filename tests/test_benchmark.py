@@ -21,11 +21,9 @@ def running_server():
 
 
 @pytest.fixture
-def db_logger(tmp_path) -> DatabaseLogger:
+def db_logger(test_db) -> DatabaseLogger:
     """Provide a temporary accounting logger for benchmarks."""
-
-    db_path = tmp_path / "accounting.db"
-    return DatabaseLogger(str(db_path))
+    return DatabaseLogger(test_db.replace('test.db', 'accounting.db'))
 
 
 def create_test_record(index: int) -> AccountingRecord:

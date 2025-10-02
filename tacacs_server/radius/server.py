@@ -13,6 +13,7 @@ import ipaddress
 import socket
 import struct
 import threading
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -142,7 +143,17 @@ class RADIUSPacket:
         self.attributes = attributes or []
     
     def pack(self, secret: bytes = None, request_auth: bytes = None) -> bytes:
-        """Pack RADIUS packet into bytes"""
+        """Pack RADIUS packet into bytes with proper authenticator calculation.
+        
+        Args:
+            secret: Shared secret for response authenticator calculation
+            request_auth: Request authenticator for response packets
+            
+        Returns:
+            Complete RADIUS packet as bytes
+            
+        Note: MD5 is used for authenticator calculation as mandated by RADIUS RFC 2865.
+        """
         # Pack attributes
         attrs_data = b''.join(attr.pack() for attr in self.attributes)
         
@@ -155,8 +166,11 @@ class RADIUSPacket:
         # Calculate authenticator for response packets
         if secret and request_auth and self.code != RADIUS_ACCESS_REQUEST:
             # Response Authenticator = MD5(Code+ID+Length+RequestAuth+Attributes+Secret)
+            # MD5 required by RADIUS RFC 2865 - not for general cryptographic use
             data = header + request_auth + attrs_data + secret
-            authenticator = hashlib.md5(data).digest()
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                authenticator = hashlib.md5(data).digest()
         else:
             authenticator = self.authenticator
         
@@ -172,6 +186,10 @@ class RADIUSPacket:
         
         # Parse header
         code, identifier, length = struct.unpack('!BBH', data[:4])
+        
+        # Validate packet length to prevent buffer overflow
+        if length > 4096:  # RFC 2865 maximum packet size
+            raise ValueError(f"Packet too large: {length} bytes")
         
         if len(data) < length:
             raise ValueError(f"Incomplete packet: got {len(data)}, expected {length}")
@@ -199,14 +217,21 @@ class RADIUSPacket:
         return packet
     
     def _decrypt_password(self, secret: bytes):
-        """Decrypt User-Password attribute"""
+        """Decrypt User-Password attribute using RADIUS RFC 2865 algorithm.
+        
+        Note: MD5 is used here as mandated by RADIUS RFC 2865 specification,
+        not for general cryptographic purposes. This is protocol-required legacy.
+        
+        Args:
+            secret: Shared secret for decryption
+        """
         for i, attr in enumerate(self.attributes):
             if attr.attr_type == ATTR_USER_PASSWORD:
                 # Password is encrypted: c(1) = p(1) XOR MD5(secret + authenticator)
                 # c(n) = p(n) XOR MD5(secret + c(n-1))
                 encrypted = attr.value
                 if len(encrypted) % 16 != 0:
-                    logger.warning("Invalid encrypted password length")
+                    logger.warning("Invalid encrypted password length: %d", len(encrypted))
                     continue
                 
                 decrypted = b''
@@ -215,7 +240,10 @@ class RADIUSPacket:
                 for j in range(0, len(encrypted), 16):
                     chunk = encrypted[j:j+16]
                     hash_input = secret + prev
-                    key = hashlib.md5(hash_input).digest()
+                    # MD5 required by RADIUS RFC 2865 - not for general cryptographic use
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", DeprecationWarning)
+                        key = hashlib.md5(hash_input).digest()
                     decrypted_chunk = bytes(a ^ b for a, b in zip(chunk, key))
                     decrypted += decrypted_chunk
                     prev = chunk
@@ -300,10 +328,15 @@ class RADIUSServer:
     """RADIUS Server implementation"""
     
     def __init__(self, host: str = '0.0.0.0', port: int = 1812,
-                 accounting_port: int = 1813, secret: str = 'radius123'):
+                 accounting_port: int = 1813, secret: str = None):
         self.host = host
         self.port = port
         self.accounting_port = accounting_port
+        if secret is None:
+            import os
+            secret = os.getenv('RADIUS_DEFAULT_SECRET')
+            if not secret:
+                raise ValueError("RADIUS secret required (set RADIUS_DEFAULT_SECRET env var or pass as parameter)")
         self.secret = secret.encode('utf-8')
         
         self.auth_backends = []
@@ -462,9 +495,15 @@ class RADIUSServer:
         self.running = False
         
         if self.auth_socket:
-            self.auth_socket.close()
+            try:
+                self.auth_socket.close()
+            except (OSError, AttributeError):
+                pass
         if self.acct_socket:
-            self.acct_socket.close()
+            try:
+                self.acct_socket.close()
+            except (OSError, AttributeError):
+                pass
         
         logger.info("RADIUS server stopped")
     
@@ -492,16 +531,21 @@ class RADIUSServer:
                     ).start()
                 except TimeoutError:
                     continue
-                except Exception as e:
+                except (OSError, ConnectionError) as e:
                     if self.running:
                         logger.error(f"RADIUS auth server error: {e}")
                     break
                     
-        except Exception as e:
+        except (OSError, ConnectionError) as e:
             logger.error(f"Failed to start RADIUS auth server: {e}")
         finally:
             if self.auth_socket:
-                self.auth_socket.close()
+                try:
+                    self.auth_socket.close()
+                except (OSError, AttributeError):
+                    pass
+                finally:
+                    self.auth_socket = None
     
     def _start_acct_server(self):
         """Start accounting server thread"""
@@ -527,16 +571,21 @@ class RADIUSServer:
                     ).start()
                 except TimeoutError:
                     continue
-                except Exception as e:
+                except (OSError, ConnectionError) as e:
                     if self.running:
                         logger.error(f"RADIUS acct server error: {e}")
                     break
                     
-        except Exception as e:
+        except (OSError, ConnectionError) as e:
             logger.error(f"Failed to start RADIUS acct server: {e}")
         finally:
             if self.acct_socket:
-                self.acct_socket.close()
+                try:
+                    self.acct_socket.close()
+                except (OSError, AttributeError):
+                    pass
+                finally:
+                    self.acct_socket = None
     
     def _handle_auth_request(self, data: bytes, addr: tuple[str, int]):
         """Handle authentication request"""
@@ -647,7 +696,12 @@ class RADIUSServer:
             self.stats['invalid_packets'] += 1
 
     def _handle_acct_request(self, data: bytes, addr: tuple[str, int]):
-        """Handle accounting request"""
+        """Handle RADIUS accounting request with improved error handling.
+        
+        Args:
+            data: Raw packet data
+            addr: Client address tuple (ip, port)
+        """
         client_ip, client_port = addr
 
         try:
@@ -658,8 +712,12 @@ class RADIUSServer:
 
             client_secret = client_config.secret_bytes
 
-            # Parse request
-            request = RADIUSPacket.unpack(data, client_secret)
+            # Parse request with error handling
+            try:
+                request = RADIUSPacket.unpack(data, client_secret)
+            except ValueError as e:
+                logger.warning("Invalid RADIUS packet from %s: %s", client_ip, e)
+                return
 
             if request.code != RADIUS_ACCOUNTING_REQUEST:
                 logger.warning("Unexpected packet code in acct port: %s", request.code)

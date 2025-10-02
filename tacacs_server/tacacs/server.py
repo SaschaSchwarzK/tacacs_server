@@ -13,6 +13,7 @@ from tacacs_server.auth.base import AuthenticationBackend
 from ..accounting.database import DatabaseLogger
 from ..utils.logger import get_logger
 from ..utils.metrics import MetricsCollector
+from ..utils.rate_limiter import get_rate_limiter
 from .constants import (
     TAC_PLUS_ACCT_STATUS,
     TAC_PLUS_AUTHEN_STATUS,
@@ -39,10 +40,15 @@ class TacacsServer:
         self, 
         host: str='0.0.0.0', 
         port: int=TAC_PLUS_DEFAULT_PORT, 
-        secret_key: str='tacacs123'
+        secret_key: str=None
     ):
         self.host = host
         self.port = port
+        if secret_key is None:
+            import os
+            secret_key = os.getenv('TACACS_DEFAULT_SECRET')
+            if not secret_key:
+                raise ValueError("TACACS+ secret required (set TACACS_DEFAULT_SECRET env var or pass as parameter)")
         self.secret_key = secret_key
         self.auth_backends: list[AuthenticationBackend] = []
         self.db_logger = DatabaseLogger()
@@ -186,14 +192,33 @@ class TacacsServer:
         if self.server_socket:
             try:
                 self.server_socket.shutdown(socket.SHUT_RDWR)
-            except Exception:
-                pass
-            self.server_socket.close()
+            except (OSError, AttributeError):
+                pass  # Socket shutdown failed
+            try:
+                self.server_socket.close()
+            except (OSError, AttributeError):
+                pass  # Socket close failed
 
     def _handle_client(self, client_socket: socket.socket, address: tuple[str, int]):
-        """Handle client connection"""
+        """Handle client connection with improved error handling and performance."""
         session_ids: set[int] = set()
         connection_device = None
+        client_ip = address[0]
+        
+        # Rate limiting check
+        rate_limiter = get_rate_limiter()
+        if not rate_limiter.allow_request(client_ip):
+            logger.warning("Rate limit exceeded for %s", client_ip)
+            self._safe_close_socket(client_socket)
+            return
+        
+        # Pre-resolve device once for performance
+        if self.device_store:
+            try:
+                connection_device = self.device_store.find_device_for_ip(client_ip)
+            except Exception as exc:
+                logger.warning("Failed to resolve device for %s: %s", client_ip, exc)
+        
         try:
             client_socket.settimeout(30.0)
             while self.running:
@@ -201,24 +226,21 @@ class TacacsServer:
                     header_data = self._recv_exact(client_socket, TAC_PLUS_HEADER_SIZE)
                     if not header_data:
                         break
-                    packet = TacacsPacket.unpack_header(header_data)
+                    
+                    try:
+                        packet = TacacsPacket.unpack_header(header_data)
+                    except ValueError as e:
+                        logger.warning("Invalid packet from %s: %s", address, e)
+                        break
+                    
                     session_ids.add(packet.session_id)
                     if not self._validate_packet_header(packet):
                         logger.warning(
                             'Invalid packet header from %s: %s', address, packet
                         )
                         break
-                    if connection_device is None and self.device_store:
-                        try:
-                            connection_device = (
-                                self.device_store.find_device_for_ip(address[0])
-                            )
-                        except Exception as exc:
-                            logger.exception(
-                                "Failed to resolve device for %s: %s", address[0], exc
-                            )
                     if packet.length > 0:
-                        if packet.length > 65535:
+                        if packet.length > 4096:  # Reasonable TACACS+ packet size limit
                             logger.warning(
                                 'Packet too large from %s: %s bytes', 
                                 address, packet.length
@@ -253,16 +275,34 @@ class TacacsServer:
         except Exception as e:
             logger.error('Client handling error %s: %s', address, e)
         finally:
-            try:
-                client_socket.close()
-            except Exception:
-                pass
-            with self._session_lock:
-                for session_id in session_ids:
-                    self.session_secrets.pop(session_id, None)
-                    self.handlers.cleanup_session(session_id)
+            self._safe_close_socket(client_socket)
+            self._cleanup_client_session(session_ids)
             self.stats['connections_active'] -= 1
             logger.debug('Connection closed: %s', address)
+    
+    def _safe_close_socket(self, sock: socket.socket) -> None:
+        """Safely close socket with proper error handling."""
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except (OSError, AttributeError):
+            pass  # Socket may already be closed or invalid
+        try:
+            sock.close()
+        except (OSError, AttributeError):
+            pass  # Socket already closed, invalid, or None
+    
+    def _cleanup_client_session(self, session_ids: set[int]) -> None:
+        """Clean up client session data efficiently."""
+        if not session_ids:
+            return
+        
+        with self._session_lock:
+            for session_id in session_ids:
+                self.session_secrets.pop(session_id, None)
+                try:
+                    self.handlers.cleanup_session(session_id)
+                except Exception as e:
+                    logger.warning("Failed to cleanup session %s: %s", session_id, e)
 
     def _select_session_secret(self, session_id: int, device_record) -> str:
         """Ensure a session secret is registered, preferring device-specific keys."""
@@ -328,14 +368,16 @@ class TacacsServer:
     def _process_packet(
         self, packet: TacacsPacket, address: tuple[str, int], device_record=None
     ) -> TacacsPacket | None:
-        """Process incoming packet and return response"""
+        """Process incoming packet and return response with improved error handling."""
         try:
-            logger.debug(f'Processing packet from {address}: {packet}')
+            logger.debug('Processing packet from %s: %s', address, packet)
+            
+            # Device record should already be resolved for performance
             if device_record is None and self.device_store:
                 try:
                     device_record = self.device_store.find_device_for_ip(address[0])
                 except Exception as exc:
-                    logger.exception(
+                    logger.warning(
                         "Failed to resolve device for %s: %s", address[0], exc
                     )
 
@@ -378,7 +420,14 @@ class TacacsServer:
                 logger.error(f'Unknown packet type: {packet.packet_type}')
                 return None
         except Exception as e:
-            logger.error(f'Error processing packet from {address}: {e}')
+            logger.error('Error processing packet from %s: %s', address, e)
+            # Return appropriate error response based on packet type
+            if packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN:
+                self.stats['auth_failures'] += 1
+            elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR:
+                self.stats['author_failures'] += 1
+            elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT:
+                self.stats['acct_failures'] += 1
             return None
 
     def get_stats(self) -> dict:

@@ -11,7 +11,9 @@ from tacacs_server.devices.store import DeviceStore
 
 @pytest.fixture
 def device_service(tmp_path):
-    store = DeviceStore(tmp_path / "devices.db")
+    import uuid
+    unique_id = str(uuid.uuid4())[:8]
+    store = DeviceStore(tmp_path / f"devices_{unique_id}.db")
     return DeviceService(store)
 
 

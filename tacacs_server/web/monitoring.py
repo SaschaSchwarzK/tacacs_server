@@ -4,6 +4,7 @@ Provides both HTML dashboard and Prometheus metrics endpoint
 """
 
 import asyncio
+import json
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -25,6 +26,7 @@ from prometheus_client import (
 )
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.metrics_history import get_metrics_history
 
 logger = get_logger(__name__)
 
@@ -177,6 +179,26 @@ class TacacsMonitoringAPI:
         
         # static already mounted in __init__ with package-relative path
         
+        # WebSocket endpoint for real-time updates
+        @self.app.websocket("/ws/metrics")
+        async def websocket_metrics(websocket: WebSocket):
+            """WebSocket endpoint for real-time metrics"""
+            await websocket.accept()
+            try:
+                while True:
+                    stats = self.get_server_stats()
+                    await websocket.send_json({
+                        "type": "metrics_update",
+                        "data": stats,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    await asyncio.sleep(2)  # Update every 2 seconds
+            except WebSocketDisconnect:
+                logger.debug("WebSocket client disconnected")
+            except Exception as e:
+                logger.error(f"WebSocket error: {e}")
+                await websocket.close()
+        
         # HTML Dashboard
         @self.app.get("/", response_class=HTMLResponse)
         async def dashboard(request: Request):
@@ -186,7 +208,8 @@ class TacacsMonitoringAPI:
                 return self.templates.TemplateResponse("dashboard.html", {
                     "request": request,
                     "stats": stats,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "websocket_enabled": True
                 })
             except Exception as e:
                 logger.error(f"Dashboard error: {e}")
@@ -197,6 +220,21 @@ class TacacsMonitoringAPI:
         async def api_status():
             """Server status API"""
             return self.get_server_stats()
+        
+        @self.app.get("/api/metrics/history")
+        async def api_metrics_history(hours: int = 24):
+            """Historical metrics data"""
+            try:
+                history = get_metrics_history()
+                data = history.get_historical_data(hours)
+                summary = history.get_summary_stats(hours)
+                return {
+                    "data": data,
+                    "summary": summary,
+                    "period_hours": hours
+                }
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
         
         @self.app.get("/api/health")
         async def api_health():
@@ -426,19 +464,13 @@ class TacacsMonitoringAPI:
     def update_prometheus_metrics(self):
         """
         Collect runtime stats from the running TACACS server and update 
-        Prometheus metrics.
-        Be tolerant: if tacacs_server isn't available or doesn't expose the expected
-        get_stats() API, skip updating (export zeros implicitly).
+        Prometheus metrics. Also record historical data.
         """
         try:
-            # Guard: nothing to do if no server reference
             if not self.tacacs_server:
-                logger.debug(
-                    "Monitoring: no tacacs_server bound, skipping metrics update"
-                )
+                logger.debug("Monitoring: no tacacs_server bound, skipping metrics update")
                 return
 
-            # Try common locations for a get_stats() method
             stats = None
             if hasattr(self.tacacs_server, "get_stats"):
                 stats = self.tacacs_server.get_stats()
@@ -446,27 +478,29 @@ class TacacsMonitoringAPI:
                   hasattr(self.tacacs_server.server, "get_stats")):
                 stats = self.tacacs_server.server.get_stats()
             else:
-                logger.debug(
-                    "Monitoring: tacacs_server has no get_stats(), "
-                    "skipping metrics update"
-                )
+                logger.debug("Monitoring: tacacs_server has no get_stats(), skipping metrics update")
                 return
 
             if not stats:
-                logger.debug(
-                    "Monitoring: stats object empty/None, skipping metrics update"
-                )
+                logger.debug("Monitoring: stats object empty/None, skipping metrics update")
                 return
 
-            # update prometheus metrics using the 'stats' mapping (keeps old logic)
-            # e.g.:
-            # self.auth_requests_counter.inc(stats.get("auth_requests_delta", 0))
-            # self.active_connections_gauge.set(stats.get("active_connections", 0))
-            # self.uptime_gauge.set(stats.get("uptime_seconds", 0))
-            # self.accounting_records_counter.inc(
-            #     stats.get("accounting_records_delta", 0)
-            # )
-            # ...existing code...
+            # Record historical metrics
+            try:
+                import psutil
+                memory_info = psutil.virtual_memory()
+                cpu_percent = psutil.cpu_percent(interval=0.0)
+                
+                metrics_data = {
+                    **stats,
+                    'memory_usage_mb': memory_info.used / 1024 / 1024,
+                    'cpu_percent': cpu_percent
+                }
+                
+                history = get_metrics_history()
+                history.record_snapshot(metrics_data)
+            except Exception as e:
+                logger.debug(f"Failed to record historical metrics: {e}")
 
         except Exception as exc:
             logger.exception("Error updating Prometheus metrics: %s", exc)
@@ -720,10 +754,66 @@ DASHBOARD_TEMPLATE = '''
             }
         });
 
-        // Auto-refresh every 30 seconds
-        setInterval(() => {
-            location.reload();
-        }, 30000);
+        // WebSocket connection for real-time updates
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/metrics`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+            };
+            
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                if (message.type === 'metrics_update') {
+                    updateDashboard(message.data);
+                }
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket disconnected');
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    setTimeout(() => {
+                        reconnectAttempts++;
+                        connectWebSocket();
+                    }, 2000 * reconnectAttempts);
+                } else {
+                    // Fallback to page refresh
+                    setInterval(() => location.reload(), 30000);
+                }
+            };
+        }
+        
+        function updateDashboard(stats) {
+            // Update connection count
+            const activeConnEl = document.querySelector('.stat-value');
+            if (activeConnEl) {
+                activeConnEl.textContent = stats.connections.active;
+            }
+            
+            // Update success rate
+            const successRateEl = document.querySelectorAll('.stat-value')[2];
+            if (successRateEl) {
+                successRateEl.textContent = stats.authentication.success_rate + '%';
+            }
+            
+            // Update chart data
+            authChart.data.datasets[0].data = [
+                stats.authentication.successes,
+                stats.authentication.failures
+            ];
+            authChart.update('none'); // No animation for real-time updates
+        }
+        
+        // Initialize WebSocket connection
+        connectWebSocket();
 
         // Load backend information
         fetch('/api/backends')
@@ -736,10 +826,16 @@ DASHBOARD_TEMPLATE = '''
                     li.className = `backend-item ${
                         backend.available ? 'backend-available' : 'backend-unavailable'
                     }`;
-                    li.innerHTML = `<strong>${backend.name}</strong> "
-                    "(${backend.type}) - ${
-                        backend.available ? 'Available' : 'Unavailable'
-                    }`;
+                    // Sanitize backend data to prevent XSS
+                    const safeName = document.createTextNode(backend.name).textContent;
+                    const safeType = document.createTextNode(backend.type).textContent;
+                    const statusText = backend.available ? 'Available' : 'Unavailable';
+                    
+                    const nameEl = document.createElement('strong');
+                    nameEl.textContent = safeName;
+                    
+                    li.appendChild(nameEl);
+                    li.appendChild(document.createTextNode(` (${safeType}) - ${statusText}`));
                     backendList.appendChild(li);
                 });
             });

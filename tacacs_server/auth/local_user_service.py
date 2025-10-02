@@ -10,6 +10,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.validation import InputValidator
+from tacacs_server.utils.exceptions import ValidationError
+from tacacs_server.utils.password_hash import PasswordHasher, verify_password, migrate_legacy_password
 
 from .local_models import LocalUserRecord
 from .local_store import LocalAuthStore
@@ -45,12 +48,14 @@ class LocalUserService:
         store: LocalAuthStore | None = None,
         seed_file: Path | str | None = None,
     ) -> None:
-        self.db_path = Path(db_path)
+        self.db_path = self._validate_safe_path(db_path, "data")
         self.store = store or LocalAuthStore(self.db_path)
         self._listeners: list[Callable[[str, str], None]] = []
         self._listeners_lock = threading.RLock()
         if seed_file:
-            self._seed_from_json(Path(seed_file))
+            # Validate seed file path to prevent path traversal
+            safe_seed_path = self._validate_safe_path(seed_file, "data")
+            self._seed_from_json(safe_seed_path)
 
     # ------------------------------------------------------------------
     # Change listeners
@@ -188,17 +193,17 @@ class LocalUserService:
         *,
         store_hash: bool = True,
     ) -> LocalUserRecord:
-        password = password.strip()
-        if len(password) < 4:
-            raise LocalUserValidationError(
-                "Password must be at least 4 characters"
-            )
+        # Use centralized password validation
+        try:
+            password = InputValidator.validate_password(password, min_length=8)
+        except ValidationError as e:
+            raise LocalUserValidationError(str(e)) from e
 
         existing = self.store.get_user(username)
         if not existing:
             raise LocalUserNotFound(f"User '{username}' not found")
 
-        password_hash = self._hash_password(password) if store_hash else None
+        password_hash = PasswordHasher.hash_password(password) if store_hash else None
         stored = self.store.set_user_password(
             username,
             password=None,
@@ -326,10 +331,11 @@ class LocalUserService:
                 "Provide only password or password_hash, not both"
             )
         if password:
-            password = password.strip()
-            if len(password) < 4:
-                raise LocalUserValidationError("Password must be at least 4 characters")
-            return None, LocalUserService._hash_password(password)
+            try:
+                password = InputValidator.validate_password(password, min_length=8)
+            except ValidationError as e:
+                raise LocalUserValidationError(str(e)) from e
+            return None, PasswordHasher.hash_password(password)
         if password_hash:
             if len(password_hash) != 64:
                 raise LocalUserValidationError(
@@ -340,8 +346,49 @@ class LocalUserService:
             "Either password or password_hash must be provided"
         )
 
+    def verify_user_password(self, username: str, password: str) -> bool:
+        """Verify user password with automatic migration from legacy hashes."""
+        user = self.store.get_user(username)
+        if not user or not user.password_hash:
+            return False
+        
+        # Try verification with current hash
+        if verify_password(password, user.password_hash):
+            # Check if we need to migrate from legacy hash
+            if not PasswordHasher.is_bcrypt_hash(user.password_hash):
+                try:
+                    # Migrate to bcrypt
+                    new_hash = PasswordHasher.hash_password(password)
+                    self.store.set_user_password(username, password=None, password_hash=new_hash)
+                    logger.info(f"Migrated password hash for user {username} to bcrypt")
+                except Exception as e:
+                    logger.error(f"Failed to migrate password for user {username}: {e}")
+            return True
+        
+        return False
+    
     @staticmethod
-    def _hash_password(password: str) -> str:
-        import hashlib
-
-        return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    def _validate_safe_path(path: Path | str, allowed_base: str = "data") -> Path:
+        """Validate path to prevent directory traversal attacks."""
+        if not path:
+            raise LocalUserValidationError("Path cannot be empty")
+        
+        try:
+            # Convert to Path and resolve to absolute path
+            path_obj = Path(path).resolve()
+            base_path = Path(allowed_base).resolve()
+            
+            # Ensure path is within allowed base directory
+            try:
+                path_obj.relative_to(base_path)
+            except ValueError:
+                # Path is outside allowed base, create safe path
+                safe_name = Path(path).name  # Get just the filename
+                if not safe_name or safe_name in ('.', '..'):
+                    raise LocalUserValidationError("Invalid filename")
+                path_obj = base_path / safe_name
+            
+            return path_obj
+            
+        except Exception as e:
+            raise LocalUserValidationError(f"Invalid path: {e}") from e

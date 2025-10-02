@@ -5,6 +5,8 @@ LDAP Authentication Backend
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.validation import InputValidator
+from tacacs_server.utils.exceptions import ValidationError
 
 from .base import AuthenticationBackend
 
@@ -54,6 +56,11 @@ class LDAPAuthBackend(AuthenticationBackend):
             return False
         
         try:
+            # Validate inputs to prevent LDAP injection
+            username = InputValidator.validate_username(username)
+            if len(password) > 128:
+                raise ValidationError("Password too long")
+            
             # Create server connection
             server = ldap3.Server(
                 self.ldap_server,
@@ -69,8 +76,9 @@ class LDAPAuthBackend(AuthenticationBackend):
                     logger.debug(f"User {username} not found in LDAP directory")
                     return False
             else:
-                # Direct bind - construct DN from username
-                user_dn = f"{self.user_attribute}={username},{self.base_dn}"
+                # Direct bind - construct DN from username (escape for safety)
+                escaped_username = ldap3.utils.conv.escape_filter_chars(username)
+                user_dn = f"{self.user_attribute}={escaped_username},{self.base_dn}"
             
             # Attempt to bind with user credentials
             with ldap3.Connection(server, user_dn, password) as conn:
@@ -136,7 +144,9 @@ class LDAPAuthBackend(AuthenticationBackend):
                     logger.error("Failed to bind with service account")
                     return None
                 
-                search_filter = f"({self.user_attribute}={username})"
+                # Escape username for LDAP filter to prevent injection
+                escaped_username = ldap3.utils.conv.escape_filter_chars(username)
+                search_filter = f"({self.user_attribute}={escaped_username})"
                 conn.search(
                     search_base=self.base_dn,
                     search_filter=search_filter,
@@ -171,8 +181,9 @@ class LDAPAuthBackend(AuthenticationBackend):
                     logger.error("Failed to bind to LDAP server")
                     return None
                 
-                # Search for user
-                search_filter = f"({self.user_attribute}={username})"
+                # Search for user (escape username to prevent injection)
+                escaped_username = ldap3.utils.conv.escape_filter_chars(username)
+                search_filter = f"({self.user_attribute}={escaped_username})"
                 conn.search(
                     search_base=self.base_dn,
                     search_filter=search_filter,

@@ -72,6 +72,12 @@ class AccountingRecord:
     
     def format_bytes(self, bytes_count: int) -> str:
         """Format bytes as human readable string"""
+        # Validate and sanitize input
+        try:
+            bytes_count = max(0, int(bytes_count))  # Ensure non-negative integer
+        except (ValueError, TypeError):
+            return "0 B"  # Safe fallback for invalid input
+        
         for unit in ['B', 'KB', 'MB', 'GB']:
             if bytes_count < 1024.0:
                 return f"{bytes_count:.1f} {unit}"
