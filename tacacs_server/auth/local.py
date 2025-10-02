@@ -183,7 +183,9 @@ class LocalAuthBackend(AuthenticationBackend):
         if password_hash.startswith('$2b$'):
             try:
                 import bcrypt
-                return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
+                return bcrypt.checkpw(
+                    password.encode('utf-8'), password_hash.encode('utf-8')
+                )
             except ImportError:
                 logger.error("bcrypt not available for password verification")
                 return False

@@ -231,7 +231,9 @@ class RADIUSPacket:
                 # c(n) = p(n) XOR MD5(secret + c(n-1))
                 encrypted = attr.value
                 if len(encrypted) % 16 != 0:
-                    logger.warning("Invalid encrypted password length: %d", len(encrypted))
+                    logger.warning(
+                        "Invalid encrypted password length: %d", len(encrypted)
+                    )
                     continue
                 
                 decrypted = b''
@@ -240,7 +242,7 @@ class RADIUSPacket:
                 for j in range(0, len(encrypted), 16):
                     chunk = encrypted[j:j+16]
                     hash_input = secret + prev
-                    # MD5 required by RADIUS RFC 2865 - not for general cryptographic use
+                    # MD5 required by RADIUS RFC 2865 - not for general crypto use
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore", DeprecationWarning)
                         key = hashlib.md5(hash_input).digest()
@@ -336,7 +338,10 @@ class RADIUSServer:
             import os
             secret = os.getenv('RADIUS_DEFAULT_SECRET')
             if not secret:
-                raise ValueError("RADIUS secret required (set RADIUS_DEFAULT_SECRET env var or pass as parameter)")
+                raise ValueError(
+                    "RADIUS secret required (set RADIUS_DEFAULT_SECRET env var "
+                    "or pass as parameter)"
+                )
         self.secret = secret.encode('utf-8')
         
         self.auth_backends = []

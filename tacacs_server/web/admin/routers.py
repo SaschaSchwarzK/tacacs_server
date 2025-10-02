@@ -1216,7 +1216,9 @@ async def delete_user(
 ):
     try:
         service.delete_user(username)
-        logger.info("Admin UI: deleted user %s", InputValidator.sanitize_log_input(username))
+        logger.info(
+            "Admin UI: deleted user %s", InputValidator.sanitize_log_input(username)
+        )
     except LocalUserNotFound as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -1267,7 +1269,10 @@ async def bulk_create_devices(
             )
             results.append({"index": i, "id": record.id, "name": record.name})
         except Exception as e:
-            logger.warning("Failed to create device at index %d: %s | data: %s", i, e, device_data, exc_info=True)
+            logger.warning(
+                "Failed to create device at index %d: %s | data: %s", 
+                i, e, device_data, exc_info=True
+            )
             errors.append({
                 "index": i,
                 "error": "Failed to create device",
@@ -1306,7 +1311,10 @@ async def bulk_create_users(
             )
             results.append({"index": i, "username": record.username})
         except Exception as e:
-            logger.warning("Failed to create user at index %d: %s | data: %s", i, e, user_data, exc_info=True)
+            logger.warning(
+                "Failed to create user at index %d: %s | data: %s", 
+                i, e, user_data, exc_info=True
+            )
             errors.append({
                 "index": i,
                 "error": "Failed to create user",

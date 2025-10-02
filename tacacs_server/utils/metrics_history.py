@@ -116,7 +116,8 @@ class MetricsHistory:
                 cursor = conn.execute("""
                     SELECT 
                         COUNT(*) as data_points,
-                        AVG(auth_success * 100.0 / NULLIF(auth_requests, 0)) as avg_auth_success_rate,
+                        AVG(auth_success * 100.0 / NULLIF(auth_requests, 0)) as 
+                            avg_auth_success_rate,
                         MAX(connections_active) as peak_connections,
                         AVG(memory_usage_mb) as avg_memory_mb,
                         MAX(memory_usage_mb) as peak_memory_mb,

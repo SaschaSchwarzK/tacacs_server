@@ -48,7 +48,10 @@ class TacacsServer:
             import os
             secret_key = os.getenv('TACACS_DEFAULT_SECRET')
             if not secret_key:
-                raise ValueError("TACACS+ secret required (set TACACS_DEFAULT_SECRET env var or pass as parameter)")
+                raise ValueError(
+                    "TACACS+ secret required (set TACACS_DEFAULT_SECRET env var "
+                    "or pass as parameter)"
+                )
         self.secret_key = secret_key
         self.auth_backends: list[AuthenticationBackend] = []
         self.db_logger = DatabaseLogger()

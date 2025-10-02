@@ -13,7 +13,7 @@ class RateLimiter:
     def __init__(self, max_requests: int = 60, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self.buckets: dict[str, tuple[int, float]] = {}  # client_ip -> (tokens, last_refill)
+        self.buckets: dict[str, tuple[int, float]] = {}  # client_ip -> (tokens, last_refill)  # noqa: E501
     
     def allow_request(self, client_ip: str) -> bool:
         """Check if request is allowed for client IP"""

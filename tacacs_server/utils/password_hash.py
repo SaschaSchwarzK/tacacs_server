@@ -38,7 +38,9 @@ class PasswordHasher:
             RuntimeError: If bcrypt is not available
         """
         if not BCRYPT_AVAILABLE:
-            raise RuntimeError("bcrypt module not available for secure password hashing")
+            raise RuntimeError(
+                "bcrypt module not available for secure password hashing"
+            )
         
         if rounds is None:
             rounds = cls.DEFAULT_ROUNDS
@@ -92,7 +94,11 @@ class PasswordHasher:
     @classmethod
     def is_bcrypt_hash(cls, hashed: str) -> bool:
         """Check if a string is a bcrypt hash."""
-        return hashed.startswith('$2a$') or hashed.startswith('$2b$') or hashed.startswith('$2y$')
+        return (
+            hashed.startswith('$2a$') or 
+            hashed.startswith('$2b$') or 
+            hashed.startswith('$2y$')
+        )
     
     @classmethod
     def needs_rehash(cls, hashed: str, rounds: int | None = None) -> bool:
@@ -135,7 +141,10 @@ class LegacyPasswordMigrator:
     @classmethod
     def is_legacy_hash(cls, hashed: str) -> bool:
         """Check if a hash is a legacy SHA-256 hash (64 hex characters)."""
-        return len(hashed) == 64 and all(c in '0123456789abcdef' for c in hashed.lower())
+        return (
+            len(hashed) == 64 and 
+            all(c in '0123456789abcdef' for c in hashed.lower())
+        )
     
     @classmethod
     def verify_legacy_password(cls, password: str, legacy_hash: str) -> bool:
@@ -189,7 +198,9 @@ def verify_password(password: str, hashed: str) -> bool:
     
     # Fall back to legacy SHA-256 verification
     if LegacyPasswordMigrator.is_legacy_hash(hashed):
-        logger.warning("Using legacy SHA-256 password verification - consider migrating to bcrypt")
+        logger.warning(
+            "Using legacy SHA-256 password verification - consider migrating to bcrypt"
+        )
         # Legacy SHA-256 support for backward compatibility only
         import warnings
         with warnings.catch_warnings():

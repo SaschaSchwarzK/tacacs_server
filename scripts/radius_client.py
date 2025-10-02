@@ -250,27 +250,40 @@ def main():
         secret = os.getenv('RADIUS_SECRET')
         
         if not secret:
-            print("Error: RADIUS_SECRET environment variable required for batch testing")
+            print(
+                "Error: RADIUS_SECRET environment variable required for batch testing"
+            )
             sys.exit(1)
         
         success = test_batch_credentials(csv_file, server, port, secret)
         sys.exit(0 if success else 1)
     
     # Single test mode (existing functionality)
-    server = sys.argv[1] if len(sys.argv) > 1 else os.getenv('RADIUS_SERVER', 'localhost')
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else int(os.getenv('RADIUS_PORT', '1812'))
+    server = (
+        sys.argv[1] if len(sys.argv) > 1 else os.getenv('RADIUS_SERVER', 'localhost')
+    )
+    port = (
+        int(sys.argv[2]) if len(sys.argv) > 2 else int(os.getenv('RADIUS_PORT', '1812'))
+    )
     secret = sys.argv[3] if len(sys.argv) > 3 else os.getenv('RADIUS_SECRET')
     username = sys.argv[4] if len(sys.argv) > 4 else os.getenv('RADIUS_USERNAME')
     password = sys.argv[5] if len(sys.argv) > 5 else os.getenv('RADIUS_PASSWORD')
     
     if not secret:
-        print("Error: RADIUS secret required (set RADIUS_SECRET env var or pass as argument)")
+        print(
+            "Error: RADIUS secret required (set RADIUS_SECRET env var "
+            "or pass as argument)"
+        )
         sys.exit(1)
     if not username:
-        print("Error: Username required (set RADIUS_USERNAME env var or pass as argument)")
+        print(
+            "Error: Username required (set RADIUS_USERNAME env var or pass as argument)"
+        )
         sys.exit(1)
     if not password:
-        print("Error: Password required (set RADIUS_PASSWORD env var or pass as argument)")
+        print(
+            "Error: Password required (set RADIUS_PASSWORD env var or pass as argument)"
+        )
         sys.exit(1)
     
     success = test_radius_auth(server, port, secret, username, password)

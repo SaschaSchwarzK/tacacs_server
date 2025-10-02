@@ -17,13 +17,27 @@ from tacacs_server.web.admin.routers import admin_router
 @pytest.fixture
 def mock_services():
     """Mock all required services"""
-    with patch('tacacs_server.web.admin.routers.monitoring_get_device_service') as mock_device, \
-         patch('tacacs_server.web.admin.routers.monitoring_get_local_user_service') as mock_user, \
-         patch('tacacs_server.web.admin.routers.monitoring_get_local_user_group_service') as mock_user_group, \
-         patch('tacacs_server.web.admin.routers.monitoring_get_tacacs_server') as mock_tacacs, \
-         patch('tacacs_server.web.admin.routers.monitoring_get_radius_server') as mock_radius, \
-         patch('tacacs_server.web.admin.routers.monitoring_get_config') as mock_config, \
-         patch('tacacs_server.web.admin.routers.get_admin_session_manager') as mock_session:
+    with patch(
+        'tacacs_server.web.admin.routers.monitoring_get_device_service'
+    ) as mock_device, \
+         patch(
+             'tacacs_server.web.admin.routers.monitoring_get_local_user_service'
+         ) as mock_user, \
+         patch(
+             'tacacs_server.web.admin.routers.monitoring_get_local_user_group_service'
+         ) as mock_user_group, \
+         patch(
+             'tacacs_server.web.admin.routers.monitoring_get_tacacs_server'
+         ) as mock_tacacs, \
+         patch(
+             'tacacs_server.web.admin.routers.monitoring_get_radius_server'
+         ) as mock_radius, \
+         patch(
+             'tacacs_server.web.admin.routers.monitoring_get_config'
+         ) as mock_config, \
+         patch(
+             'tacacs_server.web.admin.routers.get_admin_session_manager'
+         ) as mock_session:
         
         # Mock device service
         device_service = Mock(spec=DeviceService)
@@ -238,7 +252,10 @@ class TestGroupEndpoints:
         
         with patch('tacacs_server.web.admin.routers.admin_guard'):
             response = client.post("/admin/groups",
-                                 json={"name": "routers", "description": "Router group"},
+                                 json={
+                                     "name": "routers", 
+                                     "description": "Router group"
+                                 },
                                  headers=auth_headers)
             assert response.status_code == 201
             data = response.json()
@@ -491,7 +508,9 @@ class TestValidationErrors:
     def test_nonexistent_resource(self, client, mock_services, auth_headers):
         """Test accessing nonexistent resources"""
         from tacacs_server.devices.service import DeviceNotFound
-        mock_services['device_service'].get_device.side_effect = DeviceNotFound("Device not found")
+        mock_services['device_service'].get_device.side_effect = DeviceNotFound(
+            "Device not found"
+        )
         
         with patch('tacacs_server.web.admin.routers.admin_guard'):
             response = client.get("/admin/devices/999", headers=auth_headers)

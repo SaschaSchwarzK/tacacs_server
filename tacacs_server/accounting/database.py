@@ -472,7 +472,8 @@ class DatabaseLogger:
                 values = list(safe_data.values())
                 
                 query = ParameterizedQuery(
-                    f"INSERT INTO accounting_logs ({','.join(columns)}) VALUES ({','.join(placeholders)})"
+                    f"INSERT INTO accounting_logs ({','.join(columns)}) "
+                    f"VALUES ({','.join(placeholders)})"
                 ).sql
                 
                 conn.execute(query, values)
@@ -692,8 +693,10 @@ class DatabaseLogger:
 
             # Fallback to live query with optimized index usage
             cursor = conn.execute(
-                "SELECT COUNT(*) AS total_records, COUNT(DISTINCT username) AS unique_users "
-                "FROM accounting_logs WHERE timestamp > datetime('now', ?) AND is_recent = 1",
+                "SELECT COUNT(*) AS total_records, "
+                "COUNT(DISTINCT username) AS unique_users "
+                "FROM accounting_logs WHERE timestamp > datetime('now', ?) "
+                "AND is_recent = 1",
                 (date_offset,)
             )
             row = cursor.fetchone()

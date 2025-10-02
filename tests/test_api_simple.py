@@ -45,7 +45,9 @@ class TestAPIFunctionality:
         # Validate required fields
         assert user_data["username"], "Username is required"
         assert user_data["password"], "Password is required"
-        assert isinstance(user_data["privilege_level"], int), "Privilege level must be integer"
+        assert isinstance(
+            user_data["privilege_level"], int
+        ), "Privilege level must be integer"
         assert 0 <= user_data["privilege_level"] <= 15, "Privilege level must be 0-15"
     
     def test_group_crud_operations(self):
@@ -61,8 +63,12 @@ class TestAPIFunctionality:
         
         # Validate required fields
         assert group_data["name"], "Group name is required"
-        assert len(group_data["tacacs_secret"]) >= 8, "TACACS secret must be at least 8 characters"
-        assert len(group_data["radius_secret"]) >= 8, "RADIUS secret must be at least 8 characters"
+        assert len(
+            group_data["tacacs_secret"]
+        ) >= 8, "TACACS secret must be at least 8 characters"
+        assert len(
+            group_data["radius_secret"]
+        ) >= 8, "RADIUS secret must be at least 8 characters"
     
     def test_user_group_crud_operations(self):
         """Test user group CRUD operations"""
@@ -77,8 +83,12 @@ class TestAPIFunctionality:
         
         # Validate required fields
         assert user_group_data["name"], "User group name is required"
-        assert isinstance(user_group_data["privilege_level"], int), "Privilege level must be integer"
-        assert 0 <= user_group_data["privilege_level"] <= 15, "Privilege level must be 0-15"
+        assert isinstance(
+            user_group_data["privilege_level"], int
+        ), "Privilege level must be integer"
+        assert (
+            0 <= user_group_data["privilege_level"] <= 15
+        ), "Privilege level must be 0-15"
     
     def test_configuration_validation(self):
         """Test configuration validation"""
@@ -94,7 +104,9 @@ class TestAPIFunctionality:
         assert server_config["host"], "Host is required"
         assert server_config["port"].isdigit(), "Port must be numeric"
         assert 1 <= int(server_config["port"]) <= 65535, "Port must be 1-65535"
-        assert len(server_config["secret_key"]) >= 8, "Secret key must be at least 8 characters"
+        assert len(
+            server_config["secret_key"]
+        ) >= 8, "Secret key must be at least 8 characters"
     
     def test_input_validation(self):
         """Test input validation functions"""
@@ -156,8 +168,12 @@ class TestAPIFunctionality:
             assert hashed != password, "Password should be hashed"
             
             # Test password verification
-            assert PasswordHasher.verify_password(password, hashed), "Password verification should succeed"
-            assert not PasswordHasher.verify_password("wrong", hashed), "Wrong password should fail"
+            assert PasswordHasher.verify_password(
+                password, hashed
+            ), "Password verification should succeed"
+            assert not PasswordHasher.verify_password(
+                "wrong", hashed
+            ), "Wrong password should fail"
             
         except ImportError:
             # bcrypt not available, skip test
@@ -231,7 +247,10 @@ class TestAPIFunctionality:
         
         # Test success rate calculation
         auth = server_stats["authentication"]
-        success_rate = (auth["successes"] / auth["requests"]) * 100 if auth["requests"] > 0 else 0
+        success_rate = (
+            (auth["successes"] / auth["requests"]) * 100 
+            if auth["requests"] > 0 else 0
+        )
         assert success_rate == 90.0
     
     def test_configuration_update_logic(self):
@@ -374,7 +393,9 @@ class TestAPIEndpointLogic:
         # Test privilege check
         required_privilege = auth_request["privilege_level"]
         user_privilege = user_attrs["privilege_level"]
-        assert user_privilege >= required_privilege, "User should have sufficient privilege"
+        assert (
+            user_privilege >= required_privilege
+        ), "User should have sufficient privilege"
         
         # Test command authorization
         command = auth_request["command"]

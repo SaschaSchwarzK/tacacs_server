@@ -94,7 +94,9 @@ class ParameterizedQuery:
         # Check for SQL injection patterns
         for pattern in cls.INJECTION_PATTERNS:
             if re.search(pattern, str_value, re.IGNORECASE):
-                raise ValidationError(f"{context} contains potentially unsafe SQL patterns")
+                raise ValidationError(
+                    f"{context} contains potentially unsafe SQL patterns"
+                )
         
         return value
     
@@ -183,7 +185,10 @@ class ParameterizedQuery:
             values.append(value)
             placeholders.append("?")
         
-        query = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
+        query = (
+            f"INSERT INTO {table} ({', '.join(columns)}) "
+            f"VALUES ({', '.join(placeholders)})"
+        )
         
         return query, values
     
@@ -227,12 +232,17 @@ class ParameterizedQuery:
             where_parts.append(f"{col} = ?")
             params.append(value)
         
-        query = f"UPDATE {table} SET {', '.join(set_parts)} WHERE {' AND '.join(where_parts)}"
+        query = (
+            f"UPDATE {table} SET {', '.join(set_parts)} "
+            f"WHERE {' AND '.join(where_parts)}"
+        )
         
         return query, params
     
     @classmethod
-    def build_delete(cls, table: str, where_conditions: dict[str, Any]) -> tuple[str, list[Any]]:
+    def build_delete(
+        cls, table: str, where_conditions: dict[str, Any]
+    ) -> tuple[str, list[Any]]:
         """
         Build a secure DELETE query with parameters.
         
@@ -282,7 +292,9 @@ class SecureDatabase:
             self._connection.execute("PRAGMA synchronous = NORMAL")
         return self._connection
     
-    def execute_query(self, query: str, params: list[Any] | None = None) -> sqlite3.Cursor:
+    def execute_query(
+        self, query: str, params: list[Any] | None = None
+    ) -> sqlite3.Cursor:
         """Execute a parameterized query safely."""
         conn = self.connect()
         cursor = conn.cursor()

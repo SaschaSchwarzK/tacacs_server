@@ -212,10 +212,14 @@ class TacacsConfig:
                 logger.warning("Unknown auth backend '%s' configured", backend_name)
                 return None
         except (KeyError, ValueError) as e:
-            logger.error("Configuration error for auth backend '%s': %s", backend_name, e)
+            logger.error(
+                "Configuration error for auth backend '%s': %s", backend_name, e
+            )
             return None
         except Exception as e:
-            logger.exception("Failed to initialize auth backend '%s': %s", backend_name, e)
+            logger.exception(
+                "Failed to initialize auth backend '%s': %s", backend_name, e
+            )
             return None
     
     def _create_ldap_backend(self):
@@ -241,8 +245,12 @@ class TacacsConfig:
             'auto_cleanup': self.config.getboolean('database', 'auto_cleanup'),
             'metrics_history_db': self.config.get('database', 'metrics_history_db'),
             'audit_trail_db': self.config.get('database', 'audit_trail_db'),
-            'metrics_retention_days': self.config.getint('database', 'metrics_retention_days'),
-            'audit_retention_days': self.config.getint('database', 'audit_retention_days')
+            'metrics_retention_days': self.config.getint(
+                'database', 'metrics_retention_days'
+            ),
+            'audit_retention_days': self.config.getint(
+                'database', 'audit_retention_days'
+            )
         }
 
     def get_device_store_config(self) -> dict[str, Any]:
@@ -278,10 +286,14 @@ class TacacsConfig:
         return {
             'max_auth_attempts': self.config.getint('security', 'max_auth_attempts'), 
             'auth_timeout': self.config.getint('security', 'auth_timeout'), 
-            'encryption_required': self.config.getboolean('security', 'encryption_required'), 
+            'encryption_required': self.config.getboolean(
+                'security', 'encryption_required'
+            ),
             'allowed_clients': allowed_clients,
             'denied_clients': denied_clients,
-            'rate_limit_requests': self.config.getint('security', 'rate_limit_requests'),
+            'rate_limit_requests': self.config.getint(
+                'security', 'rate_limit_requests'
+            ),
             'rate_limit_window': self.config.getint('security', 'rate_limit_window')
         }
     
@@ -321,7 +333,9 @@ class TacacsConfig:
         self._validate_temp_config(temp_config)
         self._apply_config_updates('ldap', kwargs)
     
-    def _create_temp_config_with_updates(self, section: str, updates: dict) -> configparser.ConfigParser:
+    def _create_temp_config_with_updates(
+        self, section: str, updates: dict
+    ) -> configparser.ConfigParser:
         """Create temporary config with updates for validation"""
         temp_config = configparser.ConfigParser(interpolation=None)
         temp_config.read_dict(dict(self.config))

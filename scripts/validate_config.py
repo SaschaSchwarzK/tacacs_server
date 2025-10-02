@@ -17,7 +17,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from tacacs_server.config.config import TacacsConfig
+from tacacs_server.config.config import TacacsConfig  # noqa: E402
 
 
 def validate_configuration(config_file: str = None) -> bool:
@@ -51,7 +51,10 @@ def validate_configuration(config_file: str = None) -> bool:
             
             # Display key configuration details
             server_config = config.get_server_config()
-            print(f"   Server: {server_config.get('host', '[unknown]')}:{server_config.get('port', '[unknown]')}")
+            print(
+                f"   Server: {server_config.get('host', '[unknown]')}:"
+                f"{server_config.get('port', '[unknown]')}"
+            )
             
             auth_backends = config.get_auth_backends()
             print(f"   Auth backends: {', '.join(auth_backends)}")
@@ -87,7 +90,10 @@ def main():
     parser.add_argument(
         "config_file", 
         nargs="?", 
-        help="Configuration file path (default: config/tacacs.conf or TACACS_CONFIG env var)"
+        help=(
+            "Configuration file path (default: config/tacacs.conf or "
+            "TACACS_CONFIG env var)"
+        )
     )
     parser.add_argument(
         "--quiet", "-q",

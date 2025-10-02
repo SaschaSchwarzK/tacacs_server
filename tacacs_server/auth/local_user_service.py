@@ -362,7 +362,9 @@ class LocalUserService:
                 try:
                     # Migrate to bcrypt
                     new_hash = PasswordHasher.hash_password(password)
-                    self.store.set_user_password(username, password=None, password_hash=new_hash)
+                    self.store.set_user_password(
+                        username, password=None, password_hash=new_hash
+                    )
                     logger.info(f"Migrated password hash for user {username} to bcrypt")
                 except Exception as e:
                     logger.error(f"Failed to migrate password for user {username}: {e}")

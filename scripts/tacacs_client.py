@@ -210,18 +210,42 @@ def pap_authentication(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Simple TACACS+ PAP client")
     parser.add_argument(
-        "host", nargs="?", default=os.getenv('TACACS_SERVER', 'localhost'), help="Server host"
+        "host", 
+        nargs="?", 
+        default=os.getenv('TACACS_SERVER', 'localhost'), 
+        help="Server host"
     )
     parser.add_argument(
-        "port", nargs="?", type=int, default=int(os.getenv('TACACS_PORT', '49')), help="Server port"
+        "port", 
+        nargs="?", 
+        type=int, 
+        default=int(os.getenv('TACACS_PORT', '49')), 
+        help="Server port"
     )
-    parser.add_argument("secret", nargs="?", default=os.getenv('TACACS_SECRET'), help="Shared secret")
-    parser.add_argument("username", nargs="?", default=os.getenv('TACACS_USERNAME'), help="Username")
-    parser.add_argument("password", nargs="?", default=os.getenv('TACACS_PASSWORD'), help="Password")
+    parser.add_argument(
+        "secret", 
+        nargs="?", 
+        default=os.getenv('TACACS_SECRET'), 
+        help="Shared secret"
+    )
+    parser.add_argument(
+        "username", 
+        nargs="?", 
+        default=os.getenv('TACACS_USERNAME'), 
+        help="Username"
+    )
+    parser.add_argument(
+        "password", 
+        nargs="?", 
+        default=os.getenv('TACACS_PASSWORD'), 
+        help="Password"
+    )
     return parser.parse_args(argv)
 
 
-def test_batch_credentials(csv_file: str, host: str = "localhost", port: int = 49, key: str = None) -> bool:
+def test_batch_credentials(
+    csv_file: str, host: str = "localhost", port: int = 49, key: str = None
+) -> bool:
     """Test multiple credentials from CSV file"""
     if not key:
         print("Error: TACACS+ secret required for batch testing")
@@ -291,7 +315,9 @@ def main(argv: list[str] | None = None) -> int:
         secret = os.getenv('TACACS_SECRET')
         
         if not secret:
-            print("Error: TACACS_SECRET environment variable required for batch testing")
+            print(
+                "Error: TACACS_SECRET environment variable required for batch testing"
+            )
             return 1
         
         success = test_batch_credentials(csv_file, host, port, secret)
@@ -301,13 +327,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     
     if not args.secret:
-        print("Error: TACACS+ secret required (set TACACS_SECRET env var or pass as argument)")
+        print(
+            "Error: TACACS+ secret required (set TACACS_SECRET env var "
+            "or pass as argument)"
+        )
         return 1
     if not args.username:
-        print("Error: Username required (set TACACS_USERNAME env var or pass as argument)")
+        print(
+            "Error: Username required (set TACACS_USERNAME env var or pass as argument)"
+        )
         return 1
     if not args.password:
-        print("Error: Password required (set TACACS_PASSWORD env var or pass as argument)")
+        print(
+            "Error: Password required (set TACACS_PASSWORD env var or pass as argument)"
+        )
         return 1
     
     result = pap_authentication(

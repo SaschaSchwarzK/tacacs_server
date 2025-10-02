@@ -255,7 +255,10 @@ class TestParameterizedQuery:
             limit=10
         )
         
-        expected_query = "SELECT username, email FROM users WHERE active = ? AND role = ? ORDER BY username LIMIT 10"
+        expected_query = (
+            "SELECT username, email FROM users WHERE active = ? AND role = ? "
+            "ORDER BY username LIMIT 10"
+        )
         assert query == expected_query
         assert params == [True, "admin"]
     

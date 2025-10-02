@@ -247,7 +247,9 @@ class InputValidator:
                 continue  # Skip empty strings
             
             if len(item) > 255:
-                raise ValidationError(f"{field_name} entries must be 255 characters or less")
+                raise ValidationError(
+                    f"{field_name} entries must be 255 characters or less"
+                )
             
             # Check for injection patterns
             cls._check_sql_injection(item, f"{field_name} entry")
@@ -295,14 +297,18 @@ class InputValidator:
         
         for pattern in cls.SQL_INJECTION_PATTERNS:
             if re.search(pattern, value_upper, re.IGNORECASE):
-                raise ValidationError(f"{field_name} contains potentially unsafe characters")
+                raise ValidationError(
+                    f"{field_name} contains potentially unsafe characters"
+                )
     
     @classmethod
     def _check_ldap_injection(cls, value: str, field_name: str) -> None:
         """Check for LDAP injection characters."""
         for char in cls.LDAP_INJECTION_CHARS:
             if char in value:
-                raise ValidationError(f"{field_name} contains invalid character: {char}")
+                raise ValidationError(
+                    f"{field_name} contains invalid character: {char}"
+                )
     
     @classmethod
     def _check_json_depth(cls, data: Any, field_name: str, max_depth: int = 10, 

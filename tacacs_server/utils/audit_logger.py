@@ -47,7 +47,9 @@ class AuditLogger:
             """)
             
             # Create indexes for efficient queries
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON audit_log(timestamp)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_timestamp ON audit_log(timestamp)"
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON audit_log(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_action ON audit_log(action)")
     
@@ -166,7 +168,9 @@ class AuditLogger:
                         'failed_actions': row[2],
                         'unique_users': row[3],
                         'unique_actions': row[4],
-                        'success_rate': round((row[1] / row[0] * 100) if row[0] > 0 else 0, 2)
+                        'success_rate': round(
+                            (row[1] / row[0] * 100) if row[0] > 0 else 0, 2
+                        )
                     }
                 return {}
         except Exception as e:

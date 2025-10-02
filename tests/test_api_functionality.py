@@ -32,7 +32,9 @@ class TestServerControlAPI:
     @pytest.mark.asyncio
     async def test_reload_server_config(self):
         """Test config reload functionality"""
-        with patch('tacacs_server.web.admin.routers.monitoring_get_tacacs_server') as mock_get_server:
+        with patch(
+            'tacacs_server.web.admin.routers.monitoring_get_tacacs_server'
+        ) as mock_get_server:
             mock_server = Mock()
             mock_server.reload_configuration.return_value = True
             mock_get_server.return_value = mock_server
@@ -44,7 +46,9 @@ class TestServerControlAPI:
     @pytest.mark.asyncio
     async def test_reset_server_stats(self):
         """Test stats reset functionality"""
-        with patch('tacacs_server.web.admin.routers.monitoring_get_tacacs_server') as mock_get_server:
+        with patch(
+            'tacacs_server.web.admin.routers.monitoring_get_tacacs_server'
+        ) as mock_get_server:
             mock_server = Mock()
             mock_server.reset_stats = Mock()
             mock_get_server.return_value = mock_server
@@ -71,8 +75,12 @@ class TestServerControlAPI:
     @pytest.mark.asyncio
     async def test_get_server_status(self):
         """Test server status retrieval"""
-        with patch('tacacs_server.web.admin.routers.monitoring_get_tacacs_server') as mock_get_tacacs, \
-             patch('tacacs_server.web.admin.routers.monitoring_get_radius_server') as mock_get_radius:
+        with patch(
+            'tacacs_server.web.admin.routers.monitoring_get_tacacs_server'
+        ) as mock_get_tacacs, \
+             patch(
+                 'tacacs_server.web.admin.routers.monitoring_get_radius_server'
+             ) as mock_get_radius:
             
             # Mock TACACS server
             mock_tacacs = Mock()
@@ -112,14 +120,16 @@ class TestDeviceAPI:
     @pytest.mark.asyncio
     async def test_create_device(self):
         """Test device creation"""
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_device = Mock()
             mock_device.id = 1
             mock_service.create_device.return_value = mock_device
             mock_get_service.return_value = mock_service
             
-            payload = {"name": "router1", "network": "192.168.1.0/24"}
+            # payload = {"name": "router1", "network": "192.168.1.0/24"}  # Unused
             from fastapi import Request
             mock_request = Mock(spec=Request)
             result = await create_device(mock_request, mock_service)
@@ -129,7 +139,9 @@ class TestDeviceAPI:
     @pytest.mark.asyncio
     async def test_get_device(self):
         """Test device retrieval"""
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_device = Mock()
             mock_device.id = 1
@@ -146,7 +158,9 @@ class TestDeviceAPI:
     @pytest.mark.asyncio
     async def test_update_device(self):
         """Test device update"""
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_device = Mock()
             mock_device.id = 1
@@ -163,7 +177,9 @@ class TestDeviceAPI:
     @pytest.mark.asyncio
     async def test_delete_device(self):
         """Test device deletion"""
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_service.delete_device.return_value = True
             mock_get_service.return_value = mock_service
@@ -181,7 +197,9 @@ class TestGroupAPI:
     @pytest.mark.asyncio
     async def test_create_group(self):
         """Test group creation"""
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_group = Mock()
             mock_group.id = 1
@@ -198,7 +216,9 @@ class TestGroupAPI:
     @pytest.mark.asyncio
     async def test_get_group_details(self):
         """Test group retrieval"""
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_group = Mock()
             mock_group.id = 1
@@ -223,7 +243,9 @@ class TestUserAPI:
     @pytest.mark.asyncio
     async def test_create_user(self):
         """Test user creation"""
-        with patch('tacacs_server.web.admin.routers.get_user_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_user_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_user = Mock()
             mock_user.username = "testuser"
@@ -244,7 +266,9 @@ class TestUserAPI:
     @pytest.mark.asyncio
     async def test_get_user_details(self):
         """Test user retrieval"""
-        with patch('tacacs_server.web.admin.routers.get_user_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_user_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_user = Mock()
             mock_user.username = "testuser"
@@ -264,7 +288,9 @@ class TestUserAPI:
     @pytest.mark.asyncio
     async def test_set_user_password(self):
         """Test user password update"""
-        with patch('tacacs_server.web.admin.routers.get_user_service') as mock_get_service, \
+        with patch(
+            'tacacs_server.web.admin.routers.get_user_service'
+        ) as mock_get_service, \
              patch('tacacs_server.web.admin.routers.InputValidator') as mock_validator:
             
             mock_service = Mock()
@@ -290,7 +316,9 @@ class TestUserGroupAPI:
     @pytest.mark.asyncio
     async def test_create_user_group(self):
         """Test user group creation"""
-        with patch('tacacs_server.web.admin.routers.get_user_group_service') as mock_get_service, \
+        with patch(
+            'tacacs_server.web.admin.routers.get_user_group_service'
+        ) as mock_get_service, \
              patch('tacacs_server.web.admin.routers._parse_int') as mock_parse_int:
             
             mock_service = Mock()
@@ -314,7 +342,9 @@ class TestUserGroupAPI:
     @pytest.mark.asyncio
     async def test_get_user_group_details(self):
         """Test user group retrieval"""
-        with patch('tacacs_server.web.admin.routers.get_user_group_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_user_group_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_group = Mock()
             mock_group.name = "admins"
@@ -337,7 +367,9 @@ class TestConfigurationAPI:
     @pytest.mark.asyncio
     async def test_update_config(self):
         """Test configuration update"""
-        with patch('tacacs_server.web.admin.routers.monitoring_get_config') as mock_get_config:
+        with patch(
+            'tacacs_server.web.admin.routers.monitoring_get_config'
+        ) as mock_get_config:
             mock_config = Mock()
             mock_config.update_server_config = Mock()
             mock_config.update_auth_config = Mock()
@@ -357,7 +389,9 @@ class TestConfigurationAPI:
             assert result["success"] is True
             assert "Configuration updated" in result["message"]
             
-            mock_config.update_server_config.assert_called_once_with(host="0.0.0.0", port="49")
+            mock_config.update_server_config.assert_called_once_with(
+                host="0.0.0.0", port="49"
+            )
             mock_config.update_auth_config.assert_called_once_with(backends="local")
             mock_config.update_ldap_config.assert_called_once_with(server="ldap://localhost")
 
@@ -370,7 +404,9 @@ class TestErrorHandling:
         """Test handling when server is unavailable"""
         from fastapi import HTTPException
         
-        with patch('tacacs_server.web.admin.routers.monitoring_get_tacacs_server') as mock_get_server:
+        with patch(
+            'tacacs_server.web.admin.routers.monitoring_get_tacacs_server'
+        ) as mock_get_server:
             mock_get_server.return_value = None
             
             with pytest.raises(HTTPException) as exc_info:
@@ -386,7 +422,9 @@ class TestErrorHandling:
 
         from tacacs_server.devices.service import DeviceNotFound
         
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
             mock_service.get_device.side_effect = DeviceNotFound("Device not found")
             mock_get_service.return_value = mock_service
@@ -403,15 +441,21 @@ class TestErrorHandling:
 
         from tacacs_server.devices.service import DeviceValidationError
         
-        with patch('tacacs_server.web.admin.routers.get_device_service') as mock_get_service:
+        with patch(
+            'tacacs_server.web.admin.routers.get_device_service'
+        ) as mock_get_service:
             mock_service = Mock()
-            mock_service.create_device.side_effect = DeviceValidationError("Invalid data")
+            mock_service.create_device.side_effect = DeviceValidationError(
+                "Invalid data"
+            )
             mock_get_service.return_value = mock_service
             
             with pytest.raises(HTTPException) as exc_info:
                 from fastapi import Request
                 mock_request = Mock(spec=Request)
-                mock_request.json = AsyncMock(return_value={"name": "", "network": "invalid"})
+                mock_request.json = AsyncMock(
+                    return_value={"name": "", "network": "invalid"}
+                )
                 await create_device(mock_request, mock_service)
             
             assert exc_info.value.status_code == 422

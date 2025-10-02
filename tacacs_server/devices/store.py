@@ -247,7 +247,10 @@ class DeviceStore:
                     params.append(name)
                     # Use parameterized query to prevent SQL injection
                     update_clause = ', '.join(updates)
-                    query_sql = f"UPDATE device_groups SET {update_clause}, updated_at = CURRENT_TIMESTAMP WHERE name = ?"
+                    query_sql = (
+                        f"UPDATE device_groups SET {update_clause}, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE name = ?"
+                    )
                     self._conn.execute(query_sql, params)
                     self._conn.commit()
                     return self.get_group_by_name(name)  # refreshed row
@@ -324,7 +327,10 @@ class DeviceStore:
         with self._lock:
             # Use parameterized query to prevent SQL injection
             update_clause = ', '.join(updates)
-            query_sql = f"UPDATE device_groups SET {update_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            query_sql = (
+                f"UPDATE device_groups SET {update_clause}, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            )
             self._conn.execute(query_sql, params)
             self._conn.commit()
 
@@ -415,7 +421,10 @@ class DeviceStore:
                     params.append(str(network_obj))
                     # Use parameterized query to prevent SQL injection
                     update_clause = ', '.join(updates)
-                    query_sql = f"UPDATE devices SET {update_clause}, updated_at = CURRENT_TIMESTAMP WHERE name = ? AND network = ?"
+                    query_sql = (
+                        f"UPDATE devices SET {update_clause}, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE name = ? AND network = ?"
+                    )
                     self._conn.execute(query_sql, params)
                     self._conn.commit()
                 groups = self._load_groups()
@@ -485,7 +494,10 @@ class DeviceStore:
         with self._lock:
             # Use parameterized query to prevent SQL injection
             update_clause = ', '.join(updates)
-            query_sql = f"UPDATE devices SET {update_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            query_sql = (
+                f"UPDATE devices SET {update_clause}, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            )
             self._conn.execute(query_sql, params)
             self._conn.commit()
 

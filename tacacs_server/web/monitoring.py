@@ -467,7 +467,9 @@ class TacacsMonitoringAPI:
         """
         try:
             if not self.tacacs_server:
-                logger.debug("Monitoring: no tacacs_server bound, skipping metrics update")
+                logger.debug(
+                    "Monitoring: no tacacs_server bound, skipping metrics update"
+                )
                 return
 
             stats = None
@@ -477,11 +479,16 @@ class TacacsMonitoringAPI:
                   hasattr(self.tacacs_server.server, "get_stats")):
                 stats = self.tacacs_server.server.get_stats()
             else:
-                logger.debug("Monitoring: tacacs_server has no get_stats(), skipping metrics update")
+                logger.debug(
+                    "Monitoring: tacacs_server has no get_stats(), "
+                    "skipping metrics update"
+                )
                 return
 
             if not stats:
-                logger.debug("Monitoring: stats object empty/None, skipping metrics update")
+                logger.debug(
+                    "Monitoring: stats object empty/None, skipping metrics update"
+                )
                 return
 
             # Record historical metrics
@@ -834,7 +841,9 @@ DASHBOARD_TEMPLATE = '''
                     nameEl.textContent = safeName;
                     
                     li.appendChild(nameEl);
-                    li.appendChild(document.createTextNode(` (${safeType}) - ${statusText}`));
+                    li.appendChild(
+                        document.createTextNode(` (${safeType}) - ${statusText}`)
+                    );
                     backendList.appendChild(li);
                 });
             });
