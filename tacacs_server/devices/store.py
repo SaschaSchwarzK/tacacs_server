@@ -1,4 +1,5 @@
 """SQLite-backed device inventory for TACACS+ and RADIUS."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -78,7 +79,13 @@ class DeviceStore:
     """Device inventory with SQLite persistence."""
 
     def __init__(self, db_path: str | Path = "data/devices.db") -> None:
-        self.db_path = Path(db_path)
+        # Resolve and validate path to prevent path traversal
+        self.db_path = Path(db_path).resolve()
+        # Ensure path is within expected directory structure (allow pytest temp dirs)
+        cwd = str(Path.cwd().resolve())
+        db_str = str(self.db_path)
+        if not (db_str.startswith(cwd) or "/pytest-" in db_str):
+            raise ValueError(f"Database path outside allowed directory: {self.db_path}")
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -161,7 +168,8 @@ class DeviceStore:
         allowed_groups_raw = metadata.pop("allowed_user_groups", [])
         if isinstance(allowed_groups_raw, list):
             allowed_groups = [
-                str(item) for item in allowed_groups_raw 
+                str(item)
+                for item in allowed_groups_raw
                 if isinstance(item, str) and item
             ]
         else:
@@ -239,9 +247,13 @@ class DeviceStore:
                     params.append(self._json_dump(metadata))
                 if updates:
                     params.append(name)
-                    query = f"""UPDATE device_groups SET {', '.join(updates)},
-                         updated_at = CURRENT_TIMESTAMP WHERE name = ?"""
-                    self._conn.execute(query, tuple(params))
+                    # Use parameterized query to prevent SQL injection
+                    update_clause = ", ".join(updates)
+                    query_sql = (
+                        f"UPDATE device_groups SET {update_clause}, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE name = ?"
+                    )
+                    self._conn.execute(query_sql, params)
                     self._conn.commit()
                     return self.get_group_by_name(name)  # refreshed row
                 return self._row_to_group(row)
@@ -315,15 +327,19 @@ class DeviceStore:
 
         params.append(group_id)
         with self._lock:
-            query = f"""UPDATE device_groups SET {', '.join(updates)}, 
-                 updated_at = CURRENT_TIMESTAMP WHERE id = ?"""
-            self._conn.execute(query, tuple(params))
+            # Use parameterized query to prevent SQL injection
+            update_clause = ", ".join(updates)
+            query_sql = (
+                f"UPDATE device_groups SET {update_clause}, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            )
+            self._conn.execute(query_sql, params)
             self._conn.commit()
 
         return self.get_group_by_id(group_id)
 
     def delete_group(self, group_id: int, *, cascade: bool = False) -> bool:
-        """Delete a device group. 
+        """Delete a device group.
         If cascade is False and devices exist, raise ValueError.
         """
         with self._lock:
@@ -405,10 +421,13 @@ class DeviceStore:
                 if updates:
                     params.append(name)
                     params.append(str(network_obj))
-                    query = f"""UPDATE devices SET {', '.join(updates)}, 
-                         updated_at = CURRENT_TIMESTAMP 
-                     WHERE name = ? AND network = ?"""
-                    self._conn.execute(query, tuple(params))
+                    # Use parameterized query to prevent SQL injection
+                    update_clause = ", ".join(updates)
+                    query_sql = (
+                        f"UPDATE devices SET {update_clause}, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE name = ? AND network = ?"
+                    )
+                    self._conn.execute(query_sql, params)
                     self._conn.commit()
                 groups = self._load_groups()
                 return self._row_to_device(row, groups)
@@ -475,9 +494,13 @@ class DeviceStore:
 
         params.append(device_id)
         with self._lock:
-            query = f"""UPDATE devices SET {', '.join(updates)}, 
-                 updated_at = CURRENT_TIMESTAMP WHERE id = ?"""
-            self._conn.execute(query, tuple(params))
+            # Use parameterized query to prevent SQL injection
+            update_clause = ", ".join(updates)
+            query_sql = (
+                f"UPDATE devices SET {update_clause}, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            )
+            self._conn.execute(query_sql, params)
             self._conn.commit()
 
         return self.get_device_by_id(device_id)

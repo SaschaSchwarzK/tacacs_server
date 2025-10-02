@@ -1,4 +1,5 @@
 """Service helpers for managing local user groups stored in SQLite."""
+
 from __future__ import annotations
 
 import json
@@ -97,9 +98,7 @@ class LocalUserGroupService:
         # Ensure the group exists before attempting update
         current = self.store.get_group(name)
         if not current:
-            raise LocalUserGroupNotFound(
-                f"User group '{name}' not found"
-            )
+            raise LocalUserGroupNotFound(f"User group '{name}' not found")
 
         metadata_payload = (
             self._validate_metadata(metadata)
@@ -111,9 +110,7 @@ class LocalUserGroupService:
                 privilege_level
             )
         else:
-            metadata_payload.setdefault(
-                "privilege_level", current.privilege_level
-            )
+            metadata_payload.setdefault("privilege_level", current.privilege_level)
         stored = self.store.update_group(
             name,
             description=description,
@@ -122,16 +119,12 @@ class LocalUserGroupService:
             okta_group=okta_group,
         )
         if not stored:
-            raise LocalUserGroupNotFound(
-                f"User group '{name}' not found"
-            )
+            raise LocalUserGroupNotFound(f"User group '{name}' not found")
         return self._clone(stored)
 
     def delete_group(self, name: str) -> bool:
         if not self.store.delete_group(name):
-            raise LocalUserGroupNotFound(
-                f"User group '{name}' not found"
-            )
+            raise LocalUserGroupNotFound(f"User group '{name}' not found")
         return True
 
     def reload(self) -> None:
@@ -149,24 +142,18 @@ class LocalUserGroupService:
             if self.store.list_groups():
                 return
         except Exception:
-            logger.exception(
-                "Failed to inspect local user groups before seeding"
-            )
+            logger.exception("Failed to inspect local user groups before seeding")
             return
 
         try:
             with seed_path.open("r", encoding="utf-8") as fh:
                 payload = json.load(fh)
         except Exception:
-            logger.exception(
-                "Failed to load legacy user groups from %s", seed_path
-            )
+            logger.exception("Failed to load legacy user groups from %s", seed_path)
             return
 
         if not isinstance(payload, dict):
-            logger.warning(
-                "Legacy user groups seed %s is not a JSON object", seed_path
-            )
+            logger.warning("Legacy user groups seed %s is not a JSON object", seed_path)
             return
 
         for name, data in payload.items():
@@ -182,9 +169,7 @@ class LocalUserGroupService:
                 except sqlite3.IntegrityError:
                     continue
             except Exception:
-                logger.exception(
-                    "Failed to import legacy user group %s", name
-                )
+                logger.exception("Failed to import legacy user group %s", name)
 
     @staticmethod
     def _validate_name(name: str) -> str:

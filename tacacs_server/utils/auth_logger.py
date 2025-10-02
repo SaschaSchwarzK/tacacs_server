@@ -1,4 +1,5 @@
 """Unified authentication event logging utilities for TACACS+ and RADIUS."""
+
 from __future__ import annotations
 
 from tacacs_server.utils.logger import get_logger

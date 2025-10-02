@@ -1,6 +1,6 @@
 """
 TACACS+ Protocol Constants and Enums
-Based on RFC 8907: The Terminal Access Controller Access-Control System Plus 
+Based on RFC 8907: The Terminal Access Controller Access-Control System Plus
 (TACACS+) Protocol
 """
 
@@ -9,32 +9,41 @@ from enum import IntEnum
 
 class TAC_PLUS_FLAGS(IntEnum):
     """TACACS+ packet flags"""
+
     TAC_PLUS_UNENCRYPTED_FLAG = 0x01
     TAC_PLUS_SINGLE_CONNECT_FLAG = 0x04
 
+
 class TAC_PLUS_PACKET_TYPE(IntEnum):
     """TACACS+ packet types"""
+
     TAC_PLUS_AUTHEN = 1
     TAC_PLUS_AUTHOR = 2
     TAC_PLUS_ACCT = 3
 
+
 class TAC_PLUS_AUTHEN_TYPE(IntEnum):
     """Authentication types"""
+
     TAC_PLUS_AUTHEN_TYPE_ASCII = 1
     TAC_PLUS_AUTHEN_TYPE_PAP = 2
     TAC_PLUS_AUTHEN_TYPE_CHAP = 3
     TAC_PLUS_AUTHEN_TYPE_ARAP = 4
     TAC_PLUS_AUTHEN_TYPE_MSCHAP = 5
 
+
 class TAC_PLUS_AUTHEN_ACTION(IntEnum):
     """Authentication actions"""
+
     TAC_PLUS_AUTHEN_LOGIN = 1
     TAC_PLUS_AUTHEN_CHPASS = 2
     TAC_PLUS_AUTHEN_SENDPASS = 3
     TAC_PLUS_AUTHEN_SENDAUTH = 4
 
+
 class TAC_PLUS_AUTHEN_STATUS(IntEnum):
     """Authentication status codes"""
+
     TAC_PLUS_AUTHEN_STATUS_PASS = 1
     TAC_PLUS_AUTHEN_STATUS_FAIL = 2
     TAC_PLUS_AUTHEN_STATUS_GETDATA = 3
@@ -43,8 +52,10 @@ class TAC_PLUS_AUTHEN_STATUS(IntEnum):
     TAC_PLUS_AUTHEN_STATUS_RESTART = 6
     TAC_PLUS_AUTHEN_STATUS_ERROR = 7
 
+
 class TAC_PLUS_AUTHEN_SVC(IntEnum):
     """Authentication services"""
+
     TAC_PLUS_AUTHEN_SVC_NONE = 0
     TAC_PLUS_AUTHEN_SVC_LOGIN = 1
     TAC_PLUS_AUTHEN_SVC_ENABLE = 2
@@ -56,29 +67,37 @@ class TAC_PLUS_AUTHEN_SVC(IntEnum):
     TAC_PLUS_AUTHEN_SVC_NASI = 8
     TAC_PLUS_AUTHEN_SVC_FWPROXY = 9
 
+
 class TAC_PLUS_AUTHOR_STATUS(IntEnum):
     """Authorization status codes"""
+
     TAC_PLUS_AUTHOR_STATUS_PASS_ADD = 1
     TAC_PLUS_AUTHOR_STATUS_PASS_REPL = 2
     TAC_PLUS_AUTHOR_STATUS_FAIL = 16
     TAC_PLUS_AUTHOR_STATUS_ERROR = 17
     TAC_PLUS_AUTHOR_STATUS_FOLLOW = 21
 
+
 class TAC_PLUS_ACCT_STATUS(IntEnum):
     """Accounting status codes"""
+
     TAC_PLUS_ACCT_STATUS_SUCCESS = 1
     TAC_PLUS_ACCT_STATUS_ERROR = 2
     TAC_PLUS_ACCT_STATUS_FOLLOW = 21
 
+
 class TAC_PLUS_ACCT_FLAG(IntEnum):
     """Accounting flags"""
+
     TAC_PLUS_ACCT_FLAG_MORE = 1
     TAC_PLUS_ACCT_FLAG_START = 2
     TAC_PLUS_ACCT_FLAG_STOP = 4
     TAC_PLUS_ACCT_FLAG_WATCHDOG = 8
 
+
 class TAC_PLUS_AUTHEN_METHOD(IntEnum):
     """Authentication methods"""
+
     TAC_PLUS_AUTHEN_METH_NOT_SET = 0
     TAC_PLUS_AUTHEN_METH_NONE = 1
     TAC_PLUS_AUTHEN_METH_KRB5 = 2
@@ -90,6 +109,7 @@ class TAC_PLUS_AUTHEN_METHOD(IntEnum):
     TAC_PLUS_AUTHEN_METH_RADIUS = 16
     TAC_PLUS_AUTHEN_METH_KRB4 = 17
     TAC_PLUS_AUTHEN_METH_RCMD = 32
+
 
 # Protocol constants
 TAC_PLUS_MAJOR_VER = 12

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -25,6 +25,7 @@ from prometheus_client import (
 )
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.metrics_history import get_metrics_history
 
 logger = get_logger(__name__)
 
@@ -93,15 +94,13 @@ def get_radius_server():
 
 
 def set_admin_auth_dependency(
-    dependency: Callable[[Request], Awaitable[None]] | None
+    dependency: Callable[[Request], Awaitable[None]] | None,
 ) -> None:
     global _admin_auth_dependency
     _admin_auth_dependency = dependency
 
 
-def get_admin_auth_dependency_func() -> (
-    Callable[[Request], Awaitable[None]] | None
-):
+def get_admin_auth_dependency_func() -> Callable[[Request], Awaitable[None]] | None:
     return _admin_auth_dependency
 
 
@@ -124,32 +123,30 @@ if TYPE_CHECKING:
 
 # Prometheus Metrics
 auth_requests_total = Counter(
-    'tacacs_auth_requests_total', 
-    'Total authentication requests', 
-    ['status', 'backend']
+    "tacacs_auth_requests_total", "Total authentication requests", ["status", "backend"]
 )
 auth_duration = Histogram(
-    'tacacs_auth_duration_seconds', 'Authentication request duration'
+    "tacacs_auth_duration_seconds", "Authentication request duration"
 )
-active_connections = Gauge('tacacs_active_connections', 'Number of active connections')
-server_uptime = Gauge('tacacs_server_uptime_seconds', 'Server uptime in seconds')
+active_connections = Gauge("tacacs_active_connections", "Number of active connections")
+server_uptime = Gauge("tacacs_server_uptime_seconds", "Server uptime in seconds")
 accounting_records = Counter(
-    'tacacs_accounting_records_total', 'Total accounting records', ['status']
+    "tacacs_accounting_records_total", "Total accounting records", ["status"]
 )
 radius_auth_requests = Counter(
-    'radius_auth_requests_total', 'RADIUS authentication requests', ['status']
+    "radius_auth_requests_total", "RADIUS authentication requests", ["status"]
 )
 radius_acct_requests = Counter(
-    'radius_acct_requests_total', 'RADIUS accounting requests', ['type']
+    "radius_acct_requests_total", "RADIUS accounting requests", ["type"]
 )
 radius_active_clients = Gauge(
-    'radius_active_clients', 'Number of configured RADIUS clients'
+    "radius_active_clients", "Number of configured RADIUS clients"
 )
 
 
 class TacacsMonitoringAPI:
     """Web monitoring interface for TACACS+ server"""
-    
+
     def __init__(self, tacacs_server, host="127.0.0.1", port=8080, radius_server=None):
         self.tacacs_server = tacacs_server
         self.radius_server = radius_server
@@ -171,33 +168,70 @@ class TacacsMonitoringAPI:
         self.setup_routes()
         self.server = None
         self.server_thread = None
-    
+
     def setup_routes(self):
         """Setup API routes"""
-        
+
         # static already mounted in __init__ with package-relative path
-        
+
+        # WebSocket endpoint for real-time updates
+        @self.app.websocket("/ws/metrics")
+        async def websocket_metrics(websocket: WebSocket):
+            """WebSocket endpoint for real-time metrics"""
+            await websocket.accept()
+            try:
+                while True:
+                    stats = self.get_server_stats()
+                    await websocket.send_json(
+                        {
+                            "type": "metrics_update",
+                            "data": stats,
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+                    await asyncio.sleep(2)  # Update every 2 seconds
+            except WebSocketDisconnect:
+                logger.debug("WebSocket client disconnected")
+            except Exception as e:
+                logger.error(f"WebSocket error: {e}")
+                await websocket.close()
+
         # HTML Dashboard
         @self.app.get("/", response_class=HTMLResponse)
         async def dashboard(request: Request):
             """Main monitoring dashboard"""
             try:
                 stats = self.get_server_stats()
-                return self.templates.TemplateResponse("dashboard.html", {
-                    "request": request,
-                    "stats": stats,
-                    "timestamp": datetime.now().isoformat()
-                })
+                return self.templates.TemplateResponse(
+                    "dashboard.html",
+                    {
+                        "request": request,
+                        "stats": stats,
+                        "timestamp": datetime.now().isoformat(),
+                        "websocket_enabled": True,
+                    },
+                )
             except Exception as e:
                 logger.error(f"Dashboard error: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         # API Endpoints
         @self.app.get("/api/status")
         async def api_status():
             """Server status API"""
             return self.get_server_stats()
-        
+
+        @self.app.get("/api/metrics/history")
+        async def api_metrics_history(hours: int = 24):
+            """Historical metrics data"""
+            try:
+                history = get_metrics_history()
+                data = history.get_historical_data(hours)
+                summary = history.get_summary_stats(hours)
+                return {"data": data, "summary": summary, "period_hours": hours}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.get("/api/health")
         async def api_health():
             """Health check endpoint"""
@@ -206,7 +240,7 @@ class TacacsMonitoringAPI:
                 return health
             except Exception as e:
                 raise HTTPException(status_code=503, detail=f"Health check failed: {e}")
-        
+
         @self.app.get("/api/stats")
         async def api_stats():
             """Detailed server statistics"""
@@ -214,19 +248,19 @@ class TacacsMonitoringAPI:
                 "server": self.get_server_stats(),
                 "backends": self.get_backend_stats(),
                 "database": self.get_database_stats(),
-                "sessions": self.get_session_stats()
+                "sessions": self.get_session_stats(),
             }
-        
+
         @self.app.get("/api/backends")
         async def api_backends():
             """Authentication backends status"""
             return self.get_backend_stats()
-        
+
         @self.app.get("/api/sessions")
         async def api_sessions():
             """Active sessions"""
             return self.get_session_stats()
-        
+
         @self.app.get("/api/accounting")
         async def api_accounting(hours: int = 24, limit: int = 100):
             """Recent accounting records"""
@@ -237,11 +271,11 @@ class TacacsMonitoringAPI:
                 return {
                     "records": records,
                     "count": len(records),
-                    "period_hours": hours
+                    "period_hours": hours,
                 }
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         # Prometheus Metrics Endpoint
         @self.app.get("/metrics", response_class=PlainTextResponse)
         async def metrics():
@@ -255,7 +289,7 @@ class TacacsMonitoringAPI:
             except Exception as e:
                 logger.error(f"Metrics generation error: {e}")
                 raise HTTPException(status_code=500, detail="Metrics unavailable")
-        
+
         # Control Endpoints (Admin)
         @self.app.post("/api/admin/reload-config")
         async def reload_config():
@@ -266,7 +300,7 @@ class TacacsMonitoringAPI:
                 return {"success": success, "message": message}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         @self.app.post("/api/admin/reset-stats")
         async def reset_stats():
             """Reset server statistics"""
@@ -275,7 +309,7 @@ class TacacsMonitoringAPI:
                 return {"success": True, "message": "Statistics reset"}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         @self.app.get("/api/admin/logs")
         async def get_logs(lines: int = 100):
             """Get recent log entries"""
@@ -295,32 +329,31 @@ class TacacsMonitoringAPI:
             logger.warning("Failed to include admin router: %s", exc)
 
         if self.radius_server:
+
             @self.app.get("/api/radius/status")
             async def radius_status():
                 """RADIUS server status"""
                 return self.get_radius_stats()
-            
+
             @self.app.get("/api/radius/clients")
             async def radius_clients():
-                """RADIUS clients """
+                """RADIUS clients"""
                 clients = []
                 try:
                     clients = [
                         {
-                            'network': str(client.network),
-                            'name': client.name,
-                            'group': client.group,
-                            'secret_length': len(client.secret),
-                            'attributes': client.attributes,
+                            "network": str(client.network),
+                            "name": client.name,
+                            "group": client.group,
+                            "secret_length": len(client.secret),
+                            "attributes": client.attributes,
                         }
-                        for client in getattr(self.radius_server, 'clients', [])
+                        for client in getattr(self.radius_server, "clients", [])
                     ]
                 except Exception as exc:
                     logger.warning("Failed to enumerate RADIUS clients: %s", exc)
-                return {
-                    'clients': clients
-                }
-    
+                return {"clients": clients}
+
     def get_server_stats(self) -> dict[str, Any]:
         """Get current server statistics"""
         try:
@@ -329,46 +362,44 @@ class TacacsMonitoringAPI:
 
             data = {
                 "status": "running" if self.tacacs_server.running else "stopped",
-                "uptime": health.get('uptime_seconds', 0),
+                "uptime": health.get("uptime_seconds", 0),
                 "connections": {
-                    "active": stats.get('connections_active', 0),
-                    "total": stats.get('connections_total', 0)
+                    "active": stats.get("connections_active", 0),
+                    "total": stats.get("connections_total", 0),
                 },
                 "authentication": {
-                    "requests": stats.get('auth_requests', 0),
-                    "successes": stats.get('auth_success', 0),
-                    "failures": stats.get('auth_failures', 0),
+                    "requests": stats.get("auth_requests", 0),
+                    "successes": stats.get("auth_success", 0),
+                    "failures": stats.get("auth_failures", 0),
                     "success_rate": self.calculate_success_rate(
-                        stats.get('auth_success', 0), 
-                        stats.get('auth_requests', 0)
-                    )
+                        stats.get("auth_success", 0), stats.get("auth_requests", 0)
+                    ),
                 },
                 "authorization": {
-                    "requests": stats.get('author_requests', 0),
-                    "successes": stats.get('author_success', 0),
-                    "failures": stats.get('author_failures', 0),
+                    "requests": stats.get("author_requests", 0),
+                    "successes": stats.get("author_success", 0),
+                    "failures": stats.get("author_failures", 0),
                     "success_rate": self.calculate_success_rate(
-                        stats.get('author_success', 0), 
-                        stats.get('author_requests', 0)
-                    )
+                        stats.get("author_success", 0), stats.get("author_requests", 0)
+                    ),
                 },
                 "accounting": {
-                    "requests": stats.get('acct_requests', 0),
-                    "successes": stats.get('acct_success', 0),
-                    "failures": stats.get('acct_failures', 0)
+                    "requests": stats.get("acct_requests", 0),
+                    "successes": stats.get("acct_success", 0),
+                    "failures": stats.get("acct_failures", 0),
                 },
-                "memory": health.get('memory_usage', {}),
-                "timestamp": datetime.now().isoformat()
+                "memory": health.get("memory_usage", {}),
+                "timestamp": datetime.now().isoformat(),
             }
 
             if self.radius_server:
-                data['radius'] = self.get_radius_stats()
+                data["radius"] = self.get_radius_stats()
 
             return data
         except Exception as e:
             logger.error(f"Error getting server stats: {e}")
             return {"error": str(e)}
-    
+
     def get_backend_stats(self) -> list[dict[str, Any]]:
         """Get authentication backend statistics"""
         backends = []
@@ -378,14 +409,14 @@ class TacacsMonitoringAPI:
                     "name": backend.name,
                     "type": backend.__class__.__name__,
                     "available": backend.is_available(),
-                    "stats": getattr(backend, 'get_stats', lambda: {})()
+                    "stats": getattr(backend, "get_stats", lambda: {})(),
                 }
                 backends.append(backend_info)
         except Exception as e:
             logger.error(f"Error getting backend stats: {e}")
-        
+
         return backends
-    
+
     def get_database_stats(self) -> dict[str, Any]:
         """Get database statistics"""
         try:
@@ -393,7 +424,7 @@ class TacacsMonitoringAPI:
         except Exception as e:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}
-    
+
     def get_session_stats(self) -> dict[str, Any]:
         """Get active session statistics"""
         try:
@@ -401,12 +432,12 @@ class TacacsMonitoringAPI:
             return {
                 "active_count": len(active_sessions),
                 "sessions": active_sessions[:20],  # Limit to recent 20
-                "total_shown": min(len(active_sessions), 20)
+                "total_shown": min(len(active_sessions), 20),
             }
         except Exception as e:
             logger.error(f"Error getting session stats: {e}")
             return {"error": str(e)}
-    
+
     def get_recent_logs(self, lines: int = 100) -> list[str]:
         """Get recent log entries"""
         try:
@@ -418,32 +449,29 @@ class TacacsMonitoringAPI:
         except Exception as e:
             logger.warning(f"Could not read logs: {e}")
             return ["Log file not available"]
-    
+
     def calculate_success_rate(self, successes: int, total: int) -> float:
         """Calculate success rate percentage"""
         return round((successes / total * 100) if total > 0 else 0, 2)
-    
+
     def update_prometheus_metrics(self):
         """
-        Collect runtime stats from the running TACACS server and update 
-        Prometheus metrics.
-        Be tolerant: if tacacs_server isn't available or doesn't expose the expected
-        get_stats() API, skip updating (export zeros implicitly).
+        Collect runtime stats from the running TACACS server and update
+        Prometheus metrics. Also record historical data.
         """
         try:
-            # Guard: nothing to do if no server reference
             if not self.tacacs_server:
                 logger.debug(
                     "Monitoring: no tacacs_server bound, skipping metrics update"
                 )
                 return
 
-            # Try common locations for a get_stats() method
             stats = None
             if hasattr(self.tacacs_server, "get_stats"):
                 stats = self.tacacs_server.get_stats()
-            elif (hasattr(self.tacacs_server, "server") and 
-                  hasattr(self.tacacs_server.server, "get_stats")):
+            elif hasattr(self.tacacs_server, "server") and hasattr(
+                self.tacacs_server.server, "get_stats"
+            ):
                 stats = self.tacacs_server.server.get_stats()
             else:
                 logger.debug(
@@ -458,19 +486,27 @@ class TacacsMonitoringAPI:
                 )
                 return
 
-            # update prometheus metrics using the 'stats' mapping (keeps old logic)
-            # e.g.:
-            # self.auth_requests_counter.inc(stats.get("auth_requests_delta", 0))
-            # self.active_connections_gauge.set(stats.get("active_connections", 0))
-            # self.uptime_gauge.set(stats.get("uptime_seconds", 0))
-            # self.accounting_records_counter.inc(
-            #     stats.get("accounting_records_delta", 0)
-            # )
-            # ...existing code...
+            # Record historical metrics
+            try:
+                import psutil
+
+                memory_info = psutil.virtual_memory()
+                cpu_percent = psutil.cpu_percent(interval=0.0)
+
+                metrics_data = {
+                    **stats,
+                    "memory_usage_mb": memory_info.used / 1024 / 1024,
+                    "cpu_percent": cpu_percent,
+                }
+
+                history = get_metrics_history()
+                history.record_snapshot(metrics_data)
+            except Exception as e:
+                logger.debug(f"Failed to record historical metrics: {e}")
 
         except Exception as exc:
             logger.exception("Error updating Prometheus metrics: %s", exc)
-    
+
     def start(self):
         """Start the monitoring web server"""
         if self.server_thread and self.server_thread.is_alive():
@@ -484,8 +520,11 @@ class TacacsMonitoringAPI:
                     "Starting uvicorn for monitoring on %s:%s", self.host, self.port
                 )
                 config = uvicorn.Config(
-                    self.app, host=self.host, port=self.port, 
-                    log_level="warning", access_log=False
+                    self.app,
+                    host=self.host,
+                    port=self.port,
+                    log_level="warning",
+                    access_log=False,
                 )
                 server = uvicorn.Server(config)
                 # keep reference so we can signal shutdown later
@@ -529,41 +568,42 @@ class TacacsMonitoringAPI:
     def get_radius_stats(self) -> dict[str, Any]:
         """Get RADIUS server statistics"""
         if not self.radius_server:
-            return {'enabled': False}
-        
+            return {"enabled": False}
+
         stats = self.radius_server.get_stats()
         return {
-            'enabled': True,
-            'running': stats['running'],
-            'authentication': {
-                'requests': stats['auth_requests'],
-                'accepts': stats['auth_accepts'],
-                'rejects': stats['auth_rejects'],
-                'success_rate': stats['auth_success_rate']
+            "enabled": True,
+            "running": stats["running"],
+            "authentication": {
+                "requests": stats["auth_requests"],
+                "accepts": stats["auth_accepts"],
+                "rejects": stats["auth_rejects"],
+                "success_rate": stats["auth_success_rate"],
             },
-            'accounting': {
-                'requests': stats['acct_requests'],
-                'responses': stats['acct_responses']
+            "accounting": {
+                "requests": stats["acct_requests"],
+                "responses": stats["acct_responses"],
             },
-            'clients': stats['configured_clients'],
-            'invalid_packets': stats['invalid_packets']
+            "clients": stats["configured_clients"],
+            "invalid_packets": stats["invalid_packets"],
         }
-    
+
+
 # Metrics Integration for TACACS+ Server
 class PrometheusIntegration:
     """Integration helper for Prometheus metrics"""
-    
+
     @staticmethod
     def record_auth_request(status: str, backend: str, duration: float):
         """Record authentication request metrics"""
         auth_requests_total.labels(status=status, backend=backend).inc()
         auth_duration.observe(duration)
-    
+
     @staticmethod
     def record_accounting_record(status: str):
         """Record accounting metrics"""
         accounting_records.labels(status=status).inc()
-    
+
     @staticmethod
     def update_active_connections(count: int):
         """Update active connections gauge"""
@@ -573,12 +613,12 @@ class PrometheusIntegration:
     def record_radius_auth(status: str):
         """Record RADIUS authentication"""
         radius_auth_requests.labels(status=status).inc()
-    
+
     @staticmethod
     def record_radius_accounting(acct_type: str):
         """Record RADIUS accounting"""
         radius_acct_requests.labels(type=acct_type).inc()
-    
+
     @staticmethod
     def update_radius_clients(count: int):
         """Update RADIUS clients count"""
@@ -586,7 +626,7 @@ class PrometheusIntegration:
 
 
 # HTML Template for Dashboard
-DASHBOARD_TEMPLATE = '''
+DASHBOARD_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -720,10 +760,66 @@ DASHBOARD_TEMPLATE = '''
             }
         });
 
-        // Auto-refresh every 30 seconds
-        setInterval(() => {
-            location.reload();
-        }, 30000);
+        // WebSocket connection for real-time updates
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/metrics`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+            };
+            
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                if (message.type === 'metrics_update') {
+                    updateDashboard(message.data);
+                }
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket disconnected');
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    setTimeout(() => {
+                        reconnectAttempts++;
+                        connectWebSocket();
+                    }, 2000 * reconnectAttempts);
+                } else {
+                    // Fallback to page refresh
+                    setInterval(() => location.reload(), 30000);
+                }
+            };
+        }
+        
+        function updateDashboard(stats) {
+            // Update connection count
+            const activeConnEl = document.querySelector('.stat-value');
+            if (activeConnEl) {
+                activeConnEl.textContent = stats.connections.active;
+            }
+            
+            // Update success rate
+            const successRateEl = document.querySelectorAll('.stat-value')[2];
+            if (successRateEl) {
+                successRateEl.textContent = stats.authentication.success_rate + '%';
+            }
+            
+            // Update chart data
+            authChart.data.datasets[0].data = [
+                stats.authentication.successes,
+                stats.authentication.failures
+            ];
+            authChart.update('none'); // No animation for real-time updates
+        }
+        
+        // Initialize WebSocket connection
+        connectWebSocket();
 
         // Load backend information
         fetch('/api/backends')
@@ -736,14 +832,22 @@ DASHBOARD_TEMPLATE = '''
                     li.className = `backend-item ${
                         backend.available ? 'backend-available' : 'backend-unavailable'
                     }`;
-                    li.innerHTML = `<strong>${backend.name}</strong> "
-                    "(${backend.type}) - ${
-                        backend.available ? 'Available' : 'Unavailable'
-                    }`;
+                    // Sanitize backend data to prevent XSS
+                    const safeName = document.createTextNode(backend.name).textContent;
+                    const safeType = document.createTextNode(backend.type).textContent;
+                    const statusText = backend.available ? 'Available' : 'Unavailable';
+                    
+                    const nameEl = document.createElement('strong');
+                    nameEl.textContent = safeName;
+                    
+                    li.appendChild(nameEl);
+                    li.appendChild(
+                        document.createTextNode(` (${safeType}) - ${statusText}`)
+                    );
                     backendList.appendChild(li);
                 });
             });
     </script>
 </body>
 </html>
-'''
+"""
