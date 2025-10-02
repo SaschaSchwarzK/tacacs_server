@@ -267,7 +267,10 @@ class RADIUSPacket:
             1: "Access-Request", 2: "Access-Accept", 3: "Access-Reject",
             4: "Accounting-Request", 5: "Accounting-Response", 11: "Access-Challenge"
         }
-        return f"RADIUSPacket(code={code_names.get(self.code, self.code)}, id={self.identifier}, attrs={len(self.attributes)})"
+        return (
+            f"RADIUSPacket(code={code_names.get(self.code, self.code)}, "
+            f"id={self.identifier}, attrs={len(self.attributes)})"
+        )
 
 
 @dataclass
@@ -374,7 +377,9 @@ class RADIUSServer:
     def load_clients(self, clients: list['RadiusClient']) -> None:
         """Replace current clients with pre-built entries (e.g. from DeviceStore)."""
         with self._client_lock:
-            self.clients = sorted(clients, key=lambda entry: entry.network.prefixlen, reverse=True)
+            self.clients = sorted(
+                clients, key=lambda entry: entry.network.prefixlen, reverse=True
+            )
         logger.info("RADIUS: Loaded %d client definitions", len(clients))
 
     def refresh_clients(self, client_configs) -> None:
@@ -387,9 +392,13 @@ class RADIUSServer:
                 name = getattr(cfg, "name", str(network))
                 group = getattr(cfg, "group", None)
                 attributes = dict(getattr(cfg, "attributes", {}) or {})
-                allowed_user_groups = list(getattr(cfg, "allowed_user_groups", []) or [])
+                allowed_user_groups = list(
+                    getattr(cfg, "allowed_user_groups", []) or []
+                )
             except AttributeError as exc:
-                logger.warning("RADIUS: Skipping invalid client config %s: %s", cfg, exc)
+                logger.warning(
+                    "RADIUS: Skipping invalid client config %s: %s", cfg, exc
+                )
                 continue
             new_clients.append(
                 RadiusClient(
@@ -402,7 +411,9 @@ class RADIUSServer:
                 )
             )
         with self._client_lock:
-            self.clients = sorted(new_clients, key=lambda entry: entry.network.prefixlen, reverse=True)
+            self.clients = sorted(
+                new_clients, key=lambda entry: entry.network.prefixlen, reverse=True
+            )
         logger.info("RADIUS: Refreshed %d client definitions", len(new_clients))
 
     def lookup_client(self, ip: str) -> Optional['RadiusClient']:
@@ -441,7 +452,10 @@ class RADIUSServer:
         )
         acct_thread.start()
         
-        logger.debug("RADIUS server started on %s:%s (auth) and %s (acct)", self.host, self.port, self.accounting_port)
+        logger.debug(
+            "RADIUS server started on %s:%s (auth) and %s (acct)", 
+            self.host, self.port, self.accounting_port
+        )
     
     def stop(self):
         """Stop RADIUS server"""
@@ -462,7 +476,10 @@ class RADIUSServer:
             self.auth_socket.bind((self.host, self.port))
             self.auth_socket.settimeout(1.0)
             
-            logger.debug("RADIUS authentication server listening on %s:%s", self.host, self.port)
+            logger.debug(
+                "RADIUS authentication server listening on %s:%s", 
+                self.host, self.port
+            )
             
             while self.running:
                 try:
@@ -494,7 +511,10 @@ class RADIUSServer:
             self.acct_socket.bind((self.host, self.accounting_port))
             self.acct_socket.settimeout(1.0)
             
-            logger.debug("RADIUS accounting server listening on %s:%s", self.host, self.accounting_port)
+            logger.debug(
+                "RADIUS accounting server listening on %s:%s", 
+                self.host, self.accounting_port
+            )
             
             while self.running:
                 try:
@@ -551,7 +571,9 @@ class RADIUSServer:
                     client_ip,
                 )
                 response = self._create_access_reject(request, "Missing credentials")
-                self._send_response(response, addr, client_secret, request.authenticator)
+                self._send_response(
+                    response, addr, client_secret, request.authenticator
+                )
                 return
 
             logger.debug(
@@ -564,12 +586,16 @@ class RADIUSServer:
             # Authenticate against backends
             authenticated, auth_detail = self._authenticate_user(username, password)
 
-            device_label = client_config.group or client_config.name or str(client_config.network)
+            device_label = (
+                client_config.group or client_config.name or str(client_config.network)
+            )
 
             if authenticated:
                 # Get user attributes for response
                 user_attrs = self._get_user_attributes(username)
-                allowed, denial_message = self._apply_user_group_policy(client_config, user_attrs)
+                allowed, denial_message = self._apply_user_group_policy(
+                    client_config, user_attrs
+                )
                 if allowed:
                     response = self._create_access_accept(request, user_attrs)
                     self.stats['auth_accepts'] += 1
@@ -686,7 +712,9 @@ class RADIUSServer:
         for backend in self.auth_backends:
             try:
                 if backend.authenticate(username, password):
-                    logger.debug(f"RADIUS: Authentication successful via {backend.name}")
+                    logger.debug(
+                        f"RADIUS: Authentication successful via {backend.name}"
+                    )
                     return True, f'backend={backend.name}'
             except Exception as e:
                 message = f'backend={backend.name} error={e}'
@@ -710,7 +738,9 @@ class RADIUSServer:
         
         return {}
 
-    def _apply_user_group_policy(self, client: RadiusClient, user_attrs: dict[str, Any]) -> tuple[bool, str]:
+    def _apply_user_group_policy(
+        self, client: RadiusClient, user_attrs: dict[str, Any]
+    ) -> tuple[bool, str]:
         context = PolicyContext(
             device_group_name=getattr(client, "group", None),
             allowed_user_groups=getattr(client, "allowed_user_groups", []),
@@ -776,7 +806,8 @@ class RADIUSServer:
         try:
             packet_data = response.pack(secret, request_auth)
             
-            if response.code == RADIUS_ACCESS_ACCEPT or response.code == RADIUS_ACCESS_REJECT:
+            if (response.code == RADIUS_ACCESS_ACCEPT or 
+                response.code == RADIUS_ACCESS_REJECT):
                 self.auth_socket.sendto(packet_data, addr)
             else:
                 self.acct_socket.sendto(packet_data, addr)
@@ -803,7 +834,10 @@ class RADIUSServer:
             
             # Try to parse session ID as integer
             try:
-                session_id = int(session_id_str) if session_id_str.isdigit() else hash(session_id_str) & 0xFFFFFFFF
+                session_id = (
+                    int(session_id_str) if session_id_str.isdigit() 
+                    else hash(session_id_str) & 0xFFFFFFFF
+                )
             except Exception:
                 session_id = hash(session_id_str) & 0xFFFFFFFF
             
@@ -831,8 +865,10 @@ class RADIUSServer:
             'auth_requests': self.stats['auth_requests'],
             'auth_accepts': self.stats['auth_accepts'],
             'auth_rejects': self.stats['auth_rejects'],
-            'auth_success_rate': (self.stats['auth_accepts'] / self.stats['auth_requests'] * 100) 
-                if self.stats['auth_requests'] > 0 else 0,
+            'auth_success_rate': (
+                (self.stats['auth_accepts'] / self.stats['auth_requests'] * 100) 
+                if self.stats['auth_requests'] > 0 else 0
+            ),
             'acct_requests': self.stats['acct_requests'],
             'acct_responses': self.stats['acct_responses'],
             'invalid_packets': self.stats['invalid_packets'],

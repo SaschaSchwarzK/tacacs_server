@@ -31,7 +31,9 @@ class TacacsPacket:
     def unpack_header(cls, data: bytes) -> 'TacacsPacket':
         """Unpack TACACS+ header from bytes"""
         if len(data) < TAC_PLUS_HEADER_SIZE:
-            raise ValueError(f"Invalid packet header length: {len(data)} < {TAC_PLUS_HEADER_SIZE}")
+            raise ValueError(
+                f"Invalid packet header length: {len(data)} < {TAC_PLUS_HEADER_SIZE}"
+            )
         
         version, packet_type, seq_no, flags, session_id, length = struct.unpack(
             '!BBBBLL', data[:TAC_PLUS_HEADER_SIZE]
@@ -73,8 +75,11 @@ class TacacsPacket:
                 # First iteration: session_id + key + version + seq_no
                 md5_input = session_id_bytes + key_bytes + version_bytes + seq_no_bytes
             else:
-                # Subsequent iterations: session_id + key + version + seq_no + previous_pad
-                md5_input = session_id_bytes + key_bytes + version_bytes + seq_no_bytes + pad
+                # Subsequent iterations: session_id + key + version + seq_no + 
+                # previous_pad
+                md5_input = (
+                    session_id_bytes + key_bytes + version_bytes + seq_no_bytes + pad
+                )
             
             pad += hashlib.md5(md5_input).digest()
         

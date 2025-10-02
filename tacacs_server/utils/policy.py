@@ -45,7 +45,8 @@ def evaluate_policy(
 
     Args:
         context: PolicyContext with device group settings and user groups.
-        privilege_lookup: Callable taking a group name and returning its privilege level.
+        privilege_lookup: Callable taking a group name and returning its 
+        privilege level.
     """
     allowed_groups = normalize_groups(context.allowed_user_groups)
     user_groups = normalize_groups(context.user_groups)
@@ -54,7 +55,10 @@ def evaluate_policy(
         matched_groups = [group for group in user_groups if group in allowed_groups]
         if not matched_groups:
             name = context.device_group_name or "device"
-            return PolicyResult(False, context.fallback_privilege, f"User not permitted for device group {name}")
+            return PolicyResult(
+                False, context.fallback_privilege, 
+                f"User not permitted for device group {name}"
+            )
     else:
         matched_groups = user_groups
 

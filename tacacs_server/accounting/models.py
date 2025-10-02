@@ -88,7 +88,10 @@ class AccountingRecord:
     
     def __str__(self) -> str:
         """String representation"""
-        return f"AccountingRecord({self.username}@{self.session_id}: {self.status} - {self.command})"
+        return (
+            f"AccountingRecord({self.username}@{self.session_id}: "
+            f"{self.status} - {self.command})"
+        )
 
 @dataclass
 class SessionInfo:

@@ -65,7 +65,9 @@ class AuthenticationBackend(ABC):
         except Exception:
             return False
     
-    def change_password(self, username: str, old_password: str, new_password: str) -> bool:
+    def change_password(
+        self, username: str, old_password: str, new_password: str
+    ) -> bool:
         """
         Change user password (if supported by backend)
         

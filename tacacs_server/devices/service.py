@@ -158,9 +158,14 @@ class DeviceService:
             or device_config is not UNSET
             or allowed_user_groups is not UNSET
         ):
-            merged_metadata = _ensure_metadata(metadata) if metadata is not None else dict(group.metadata)
+            merged_metadata = (
+                _ensure_metadata(metadata) if metadata is not None 
+                else dict(group.metadata)
+            )
             if metadata is None and getattr(group, "allowed_user_groups", None):
-                merged_metadata.setdefault("allowed_user_groups", list(group.allowed_user_groups))
+                merged_metadata.setdefault(
+                    "allowed_user_groups", list(group.allowed_user_groups)
+                )
             if tacacs_secret is not UNSET:
                 if tacacs_secret:
                     self._validate_secret(tacacs_secret, "tacacs_secret")
@@ -194,8 +199,14 @@ class DeviceService:
             group_id,
             name=new_name,
             description=description,
-            tacacs_profile=_ensure_metadata(tacacs_profile) if tacacs_profile is not None else None,
-            radius_profile=_ensure_metadata(radius_profile) if radius_profile is not None else None,
+            tacacs_profile=(
+                _ensure_metadata(tacacs_profile) 
+                if tacacs_profile is not None else None
+            ),
+            radius_profile=(
+                _ensure_metadata(radius_profile) 
+                if radius_profile is not None else None
+            ),
             metadata=merged_metadata,
         )
         if not updated:
@@ -324,10 +335,14 @@ class DeviceService:
         result: list[str] = []
         for group in groups:
             if not isinstance(group, str):
-                raise DeviceValidationError("allowed_user_groups entries must be strings")
+                raise DeviceValidationError(
+                    "allowed_user_groups entries must be strings"
+                )
             trimmed = group.strip()
             if not trimmed:
-                raise DeviceValidationError("allowed_user_groups entries must not be empty")
+                raise DeviceValidationError(
+                    "allowed_user_groups entries must not be empty"
+                )
             if trimmed not in result:
                 result.append(trimmed)
         return result

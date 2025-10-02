@@ -12,7 +12,10 @@ def _inject_fake_ldap3(monkeypatch):
             self.uri = uri
 
     class FakeConnection:
-        def __init__(self, server, user=None, password=None, auto_bind=False, *args, **kwargs):
+        def __init__(
+            self, server, user=None, password=None, auto_bind=False, 
+            *args, **kwargs
+        ):
             self.server = server
             self.user = user
             self.password = password
@@ -85,7 +88,9 @@ def _make_backend(ldap_mod, cfg):
     try:
         return cls(cfg["server"], cfg["base_dn"])
     except Exception as e:
-        raise RuntimeError(f"Could not instantiate LDAPAuthBackend with available signatures: {e}")
+        raise RuntimeError(
+            f"Could not instantiate LDAPAuthBackend with available signatures: {e}"
+        )
 
 def test_ldap_auth_success(monkeypatch):
     _inject_fake_ldap3(monkeypatch)

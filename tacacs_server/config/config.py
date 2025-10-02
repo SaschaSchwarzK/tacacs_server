@@ -48,7 +48,9 @@ class TacacsConfig:
     def __init__(self, config_file: str='config/tacacs.conf'):
         env_source = os.environ.get('TACACS_CONFIG')
         self.config_source = env_source or config_file
-        self.config_file = None if self._is_url(self.config_source) else self.config_source
+        self.config_file = (
+            None if self._is_url(self.config_source) else self.config_source
+        )
         self.config = configparser.ConfigParser(interpolation=None)
         self._load_config()
 
@@ -66,26 +68,63 @@ class TacacsConfig:
                     self.config_file = path
                     self.save_config()
         except Exception as e:
-            logger.exception('Failed to load configuration (%s). Using defaults.', e)
+            logger.exception(
+                'Failed to load configuration (%s). Using defaults.', e
+            )
 
     def _set_defaults(self):
         """Set default configuration values"""
-        self.config['server'] = {'host': '0.0.0.0', 'port': '49', 'secret_key': 'tacacs123', 'log_level': 'INFO', 'max_connections': '50', 'socket_timeout': '30'}
+        self.config['server'] = {
+            'host': '0.0.0.0', 
+            'port': '49', 
+            'secret_key': 'tacacs123', 
+            'log_level': 'INFO', 
+            'max_connections': '50', 
+            'socket_timeout': '30'
+        }
         self.config['auth'] = {
             'backends': 'local',
             'local_auth_db': 'data/local_auth.db',
             'require_all_backends': 'false'
         }
-        self.config['ldap'] = {'server': 'ldap://localhost:389', 'base_dn': 'ou=people,dc=example,dc=com', 'user_attribute': 'uid', 'bind_dn': '', 'bind_password': '', 'use_tls': 'false', 'timeout': '10'}
-        self.config['database'] = {'accounting_db': 'data/tacacs_accounting.db', 'cleanup_days': '90', 'auto_cleanup': 'true'}
-        self.config['security'] = {'max_auth_attempts': '3', 'auth_timeout': '300', 'encryption_required': 'true', 'allowed_clients': '', 'denied_clients': ''}
-        self.config['logging'] = {'log_file': 'logs/tacacs.log', 'log_format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s', 'log_rotation': 'true', 'max_log_size': '10MB', 'backup_count': '5'}
+        self.config['ldap'] = {
+            'server': 'ldap://localhost:389', 
+            'base_dn': 'ou=people,dc=example,dc=com', 
+            'user_attribute': 'uid', 
+            'bind_dn': '', 
+            'bind_password': '', 
+            'use_tls': 'false', 
+            'timeout': '10'
+        }
+        self.config['database'] = {
+            'accounting_db': 'data/tacacs_accounting.db', 
+            'cleanup_days': '90', 
+            'auto_cleanup': 'true'
+        }
+        self.config['security'] = {
+            'max_auth_attempts': '3', 
+            'auth_timeout': '300', 
+            'encryption_required': 'true', 
+            'allowed_clients': '', 
+            'denied_clients': ''
+        }
+        self.config['logging'] = {
+            'log_file': 'logs/tacacs.log', 
+            'log_format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+            'log_rotation': 'true', 
+            'max_log_size': '10MB', 
+            'backup_count': '5'
+        }
         self.config['admin'] = {
             'username': 'admin',
-            'password_hash': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
+            'password_hash': (
+                '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'
+            ),
             'session_timeout_minutes': '60'
         }
-        self.config['devices'] = {'database': 'data/devices.db', 'default_group': 'default'}
+        self.config['devices'] = {
+            'database': 'data/devices.db', 'default_group': 'default'
+        }
         self.config['radius'] = {
             'enabled': 'false',
             'auth_port': '1812',
@@ -110,12 +149,21 @@ class TacacsConfig:
 
     def get_server_config(self) -> dict[str, Any]:
         """Get server configuration"""
-        return {'host': self.config.get('server', 'host'), 'port': self.config.getint('server', 'port'), 'secret_key': self.config.get('server', 'secret_key'), 'max_connections': self.config.getint('server', 'max_connections'), 'socket_timeout': self.config.getint('server', 'socket_timeout')}
+        return {
+            'host': self.config.get('server', 'host'), 
+            'port': self.config.getint('server', 'port'), 
+            'secret_key': self.config.get('server', 'secret_key'), 
+            'max_connections': self.config.getint('server', 'max_connections'), 
+            'socket_timeout': self.config.getint('server', 'socket_timeout')
+        }
 
     def get_auth_backends(self) -> list[str]:
         """Get list of enabled authentication backends"""
         backends_str = self.config.get('auth', 'backends', fallback='local')
-        return [backend.strip() for backend in backends_str.split(',') if backend.strip()]
+        return [
+            backend.strip() for backend in backends_str.split(',') 
+            if backend.strip()
+        ]
 
     def get_local_auth_db(self) -> str:
         if self.config.has_option('auth', 'local_auth_db'):
@@ -135,25 +183,39 @@ class TacacsConfig:
                 elif backend_name.lower() == 'ldap':
                     backends.append(LDAPAuthBackend(dict(self.config['ldap'])))
                 else:
-                    logger.warning("Unknown auth backend '%s' configured", backend_name)
+                    logger.warning(
+                        "Unknown auth backend '%s' configured", backend_name
+                    )
             except Exception:
-                logger.exception("Failed to initialize auth backend '%s'", backend_name)
+                logger.exception(
+                    "Failed to initialize auth backend '%s'", backend_name
+                )
         if not backends:
             try:
                 backends.append(LocalAuthBackend(self.get_local_auth_db()))
             except Exception:
-                logger.exception('Failed to initialize fallback local auth backend')
+                logger.exception(
+                    'Failed to initialize fallback local auth backend'
+                )
         return backends
 
     def get_database_config(self) -> dict[str, Any]:
         """Get database configuration"""
-        return {'accounting_db': self.config.get('database', 'accounting_db'), 'cleanup_days': self.config.getint('database', 'cleanup_days'), 'auto_cleanup': self.config.getboolean('database', 'auto_cleanup')}
+        return {
+            'accounting_db': self.config.get('database', 'accounting_db'), 
+            'cleanup_days': self.config.getint('database', 'cleanup_days'), 
+            'auto_cleanup': self.config.getboolean('database', 'auto_cleanup')
+        }
 
     def get_device_store_config(self) -> dict[str, Any]:
         """Get device inventory configuration"""
         return {
-            'database': self.config.get('devices', 'database', fallback='data/devices.db'),
-            'default_group': self.config.get('devices', 'default_group', fallback='default')
+            'database': self.config.get(
+                'devices', 'database', fallback='data/devices.db'
+            ),
+            'default_group': self.config.get(
+                'devices', 'default_group', fallback='default'
+            )
         }
 
     def get_admin_auth_config(self) -> dict[str, Any]:
@@ -162,18 +224,39 @@ class TacacsConfig:
         return {
             'username': section.get('username', 'admin'),
             'password_hash': section.get('password_hash', ''),
-            'session_timeout_minutes': int(section.get('session_timeout_minutes', 60)),
+            'session_timeout_minutes': int(
+                section.get('session_timeout_minutes', 60)
+            ),
         }
 
     def get_security_config(self) -> dict[str, Any]:
         """Get security configuration"""
         allowed_clients = self.config.get('security', 'allowed_clients')
         denied_clients = self.config.get('security', 'denied_clients')
-        return {'max_auth_attempts': self.config.getint('security', 'max_auth_attempts'), 'auth_timeout': self.config.getint('security', 'auth_timeout'), 'encryption_required': self.config.getboolean('security', 'encryption_required'), 'allowed_clients': [ip.strip() for ip in allowed_clients.split(',') if ip.strip()], 'denied_clients': [ip.strip() for ip in denied_clients.split(',') if ip.strip()]}
+        return {
+            'max_auth_attempts': self.config.getint('security', 'max_auth_attempts'), 
+            'auth_timeout': self.config.getint('security', 'auth_timeout'), 
+            'encryption_required': self.config.getboolean(
+                'security', 'encryption_required'
+            ), 
+            'allowed_clients': [
+                ip.strip() for ip in allowed_clients.split(',') if ip.strip()
+            ], 
+            'denied_clients': [
+                ip.strip() for ip in denied_clients.split(',') if ip.strip()
+            ]
+        }
 
     def get_logging_config(self) -> dict[str, Any]:
         """Get logging configuration"""
-        return {'log_file': self.config.get('logging', 'log_file'), 'log_format': self.config.get('logging', 'log_format'), 'log_rotation': self.config.getboolean('logging', 'log_rotation'), 'max_log_size': self.config.get('logging', 'max_log_size'), 'backup_count': self.config.getint('logging', 'backup_count'), 'log_level': self.config.get('server', 'log_level')}
+        return {
+            'log_file': self.config.get('logging', 'log_file'), 
+            'log_format': self.config.get('logging', 'log_format'), 
+            'log_rotation': self.config.getboolean('logging', 'log_rotation'), 
+            'max_log_size': self.config.get('logging', 'max_log_size'), 
+            'backup_count': self.config.getint('logging', 'backup_count'), 
+            'log_level': self.config.get('server', 'log_level')
+        }
 
     def update_server_config(self, **kwargs):
         """Update server configuration"""
@@ -214,12 +297,14 @@ class TacacsConfig:
             auth_db_path = validated.auth.local_auth_db
             auth_db_dir = os.path.dirname(auth_db_path)
             issues: list[str] = []
-            if auth_db_dir and not os.path.exists(auth_db_dir):  # pragma: no cover - filesystem check
-                issues.append(f"Local auth database directory does not exist: {auth_db_dir}")
+            if auth_db_dir and not os.path.exists(auth_db_dir):
+                issues.append(
+                    f"Local auth database directory does not exist: {auth_db_dir}"
+                )
 
             db_file = self.config.get('database', 'accounting_db')
             db_dir = os.path.dirname(db_file)
-            if db_dir and not os.path.exists(db_dir):  # pragma: no cover - filesystem check
+            if db_dir and not os.path.exists(db_dir):
                 issues.append(f"Database directory does not exist: {db_dir}")
 
             return issues
@@ -266,7 +351,9 @@ class TacacsConfig:
             with urlopen(source) as response:
                 payload = response.read().decode('utf-8')
         except Exception as exc:
-            logger.exception('Failed to load configuration from %s: %s', source, exc)
+            logger.exception(
+                'Failed to load configuration from %s: %s', source, exc
+            )
             return
         self.config.read_string(payload)
     
@@ -304,16 +391,28 @@ def setup_logging(config: TacacsConfig):
             if log_config.get('log_rotation', False):
                 max_bytes = _parse_size(log_config.get('max_log_size', '10MB'))
                 backup_count = int(log_config.get('backup_count', 5))
-                file_handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
+                file_handler = RotatingFileHandler(
+                    log_file, maxBytes=max_bytes, backupCount=backup_count
+                )
             else:
                 file_handler = logging.FileHandler(log_file)
             handlers.append(file_handler)
         except Exception:
-            logger.exception('Failed to create file log handler for %s', log_file)
+            logger.exception(
+                'Failed to create file log handler for %s', log_file
+            )
 
     configure_logging(level=log_level, handlers=handlers)
 
-    if log_config.get('log_format') and log_config['log_format'].lower() not in {'', 'json', 'structured'}:
-        logger.warning('Ignoring configured log_format in favour of structured JSON output', configured_format=log_config['log_format'])
+    if (log_config.get('log_format') and 
+        log_config['log_format'].lower() not in {'', 'json', 'structured'}):
+        logger.warning(
+            'Ignoring configured log_format in favour of structured JSON output', 
+            configured_format=log_config['log_format']
+        )
 
-    logger.info('Logging configured', log_level=log_config['log_level'], log_file=log_file or 'console-only')
+    logger.info(
+        'Logging configured', 
+        log_level=log_config['log_level'], 
+        log_file=log_file or 'console-only'
+    )

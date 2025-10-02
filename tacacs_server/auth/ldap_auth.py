@@ -215,7 +215,8 @@ class LDAPAuthBackend(AuthenticationBackend):
                     group_dns = [group_dns]
                 
                 for group_dn in group_dns:
-                    # Extract CN from DN (e.g., "CN=administrators,OU=Groups,DC=example,DC=com")
+                    # Extract CN from DN
+                    # (e.g., "CN=administrators,OU=Groups,DC=example,DC=com")
                     if group_dn.upper().startswith('CN='):
                         cn_part = group_dn.split(',')[0]
                         group_name = cn_part[3:].lower()  # Remove "CN=" prefix

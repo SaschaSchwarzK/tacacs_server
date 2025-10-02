@@ -47,7 +47,10 @@ class MetricsCollector:
             'min_latency_ms': min(latencies),
             'max_latency_ms': max(latencies),
             'p50_latency_ms': latencies[len(latencies) // 2],
-            'p95_latency_ms': latencies[int(len(latencies) * 0.95)] if len(latencies) > 20 else max(latencies)
+            'p95_latency_ms': (
+                latencies[int(len(latencies) * 0.95)] 
+                if len(latencies) > 20 else max(latencies)
+            )
         }
     
     def get_summary(self) -> dict[str, Any]:
@@ -59,7 +62,10 @@ class MetricsCollector:
             'auth_methods': dict(self.auth_methods),
             'packet_stats': {
                 'count': len(self.packet_sizes),
-                'avg_size': sum(self.packet_sizes) / len(self.packet_sizes) if self.packet_sizes else 0,
+                'avg_size': (
+                    sum(self.packet_sizes) / len(self.packet_sizes) 
+                    if self.packet_sizes else 0
+                ),
                 'max_size': max(self.packet_sizes) if self.packet_sizes else 0
             }
         }

@@ -8,8 +8,8 @@ from typing import Any
 
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
-from tacacs_server.auth.local_user_service import LocalUserService
 from tacacs_server.auth.local_user_group_service import LocalUserGroupService
+from tacacs_server.auth.local_user_service import LocalUserService
 from tacacs_server.config.config import TacacsConfig, setup_logging
 from tacacs_server.devices.service import DeviceService
 from tacacs_server.devices.store import DeviceStore
@@ -23,10 +23,12 @@ from tacacs_server.web.admin.auth import (
 from tacacs_server.web.monitoring import (
     set_admin_auth_dependency,
     set_admin_session_manager,
-    set_config as monitoring_set_config,
     set_device_service,
     set_local_user_group_service,
     set_local_user_service,
+)
+from tacacs_server.web.monitoring import (
+    set_config as monitoring_set_config,
 )
 
 logger = get_logger(__name__)
@@ -365,11 +367,17 @@ class TacacsServerManager:
         server_config = self.config.get_server_config()
         auth_backends = [b.name for b in self.server.auth_backends]
         db_config = self.config.get_database_config()
-        logger.info(f"Server Address: {server_config['host']}:{server_config['port']}")
-        logger.info(f"Secret Key: {'*' * len(server_config['secret_key'])}")
+        logger.info(
+            f"Server Address: {server_config['host']}:{server_config['port']}"
+        )
+        logger.info(
+            f"Secret Key: {'*' * len(server_config['secret_key'])}"
+        )
         logger.info(f"Authentication Backends: {', '.join(auth_backends)}")
         logger.info(f"Database: {db_config['accounting_db']}")
-        source = getattr(self.config, 'config_source', self.config.config_file)
+        source = getattr(
+            self.config, 'config_source', self.config.config_file
+        )
         logger.info(f'Configuration: {source}')
         logger.info('')
         logger.info('Testing authentication backends:')
@@ -584,10 +592,12 @@ def create_test_client_script():
         def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             parser = argparse.ArgumentParser(description="Simple TACACS+ PAP client")
             parser.add_argument(
-                "host", nargs="?", default="localhost", help="Server host (default: localhost)"
+                "host", nargs="?", default="localhost", 
+                help="Server host (default: localhost)"
             )
             parser.add_argument(
-                "port", nargs="?", type=int, default=49, help="Server port (default: 49)"
+                "port", nargs="?", type=int, default=49, 
+                help="Server port (default: 49)"
             )
             parser.add_argument(
                 "secret", nargs="?", default="tacacs123", help="Shared secret"
@@ -642,7 +652,8 @@ def main():
             create_test_client_script()
             print('Test client created: scripts/tacacs_client.py')
             print(
-                'Usage: python scripts/tacacs_client.py [host] [port] [secret] [username] [password]'
+                'Usage: python scripts/tacacs_client.py [host] [port] [secret] '
+                '[username] [password]'
             )
         except Exception as e:
             print(f'Error creating test client: {e}')

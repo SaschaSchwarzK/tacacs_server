@@ -26,7 +26,9 @@ __all__ = [
 ]
 
 
-def configure(*, level: int = logging.INFO, handlers: list[logging.Handler] | None = None) -> None:
+def configure(
+    *, level: int = logging.INFO, handlers: list[logging.Handler] | None = None
+) -> None:
     """Configure structured logging for the application."""
     _configure_logging(level=level, handlers=handlers)
 

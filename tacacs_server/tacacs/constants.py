@@ -1,6 +1,7 @@
 """
 TACACS+ Protocol Constants and Enums
-Based on RFC 8907: The Terminal Access Controller Access-Control System Plus (TACACS+) Protocol
+Based on RFC 8907: The Terminal Access Controller Access-Control System Plus 
+(TACACS+) Protocol
 """
 
 from enum import IntEnum

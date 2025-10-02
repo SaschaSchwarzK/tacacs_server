@@ -35,7 +35,12 @@ logger = get_logger(__name__)
 class TacacsServer:
     """TACACS+ Server implementation"""
 
-    def __init__(self, host: str='0.0.0.0', port: int=TAC_PLUS_DEFAULT_PORT, secret_key: str='tacacs123'):
+    def __init__(
+        self, 
+        host: str='0.0.0.0', 
+        port: int=TAC_PLUS_DEFAULT_PORT, 
+        secret_key: str='tacacs123'
+    ):
         self.host = host
         self.port = port
         self.secret_key = secret_key
@@ -44,7 +49,12 @@ class TacacsServer:
         self.handlers = AAAHandlers(self.auth_backends, self.db_logger)
         self.running = False
         self.server_socket: socket.socket | None = None
-        self.stats = {'connections_total': 0, 'connections_active': 0, 'auth_requests': 0, 'auth_success': 0, 'auth_failures': 0, 'author_requests': 0, 'author_success': 0, 'author_failures': 0, 'acct_requests': 0, 'acct_success': 0, 'acct_failures': 0}
+        self.stats = {
+            'connections_total': 0, 'connections_active': 0, 
+            'auth_requests': 0, 'auth_success': 0, 'auth_failures': 0, 
+            'author_requests': 0, 'author_success': 0, 'author_failures': 0, 
+            'acct_requests': 0, 'acct_success': 0, 'acct_failures': 0
+        }
         self.start_time = time.time()
         self.metrics = MetricsCollector()
         self.monitoring_api: TacacsMonitoringAPI | None = None
@@ -53,12 +63,18 @@ class TacacsServer:
         self._session_lock = threading.RLock()
         self.session_secrets: dict[int, str] = {}
 
-    def enable_web_monitoring(self, web_host="127.0.0.1", web_port=8080, radius_server=None):
+    def enable_web_monitoring(
+        self, web_host="127.0.0.1", web_port=8080, radius_server=None
+    ):
         """Enable web monitoring interface"""
         try:
             from ..web.monitoring import TacacsMonitoringAPI
-            logger.info("Attempting to enable web monitoring on %s:%s", web_host, web_port)
-            self.monitoring_api = TacacsMonitoringAPI(self, host=web_host, port=web_port, radius_server=radius_server)
+            logger.info(
+                "Attempting to enable web monitoring on %s:%s", web_host, web_port
+            )
+            self.monitoring_api = TacacsMonitoringAPI(
+                self, host=web_host, port=web_port, radius_server=radius_server
+            )
             started = False
             try:
                 self.monitoring_api.start()
@@ -68,13 +84,16 @@ class TacacsServer:
             # give the monitoring thread a short moment to start
             import time
             time.sleep(0.1)
-            if started and self.monitoring_api and getattr(self.monitoring_api, "server_thread", None):
+            if (started and self.monitoring_api and 
+                getattr(self.monitoring_api, "server_thread", None)):
                 alive = self.monitoring_api.server_thread.is_alive()
             else:
                 alive = False
             if alive:
                 self.enable_monitoring = True
-                logger.info("Web monitoring enabled at http://%s:%s", web_host, web_port)
+                logger.info(
+                    "Web monitoring enabled at http://%s:%s", web_host, web_port
+                )
                 return True
             else:
                 logger.error("Web monitoring thread failed to start")
@@ -127,7 +146,9 @@ class TacacsServer:
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(10)
             logger.debug('TACACS+ server started on %s:%s', self.host, self.port)
-            logger.debug('Authentication backends: %s', [b.name for b in self.auth_backends])
+            logger.debug(
+                'Authentication backends: %s', [b.name for b in self.auth_backends]
+            )
             logger.debug("Secret key length: %s", len(self.secret_key))
             while self.running:
                 try:
@@ -135,7 +156,11 @@ class TacacsServer:
                     self.stats['connections_total'] += 1
                     self.stats['connections_active'] += 1
                     logger.debug('New connection from %s', address)
-                    client_thread = threading.Thread(target=self._handle_client, args=(client_socket, address), daemon=True)
+                    client_thread = threading.Thread(
+                        target=self._handle_client, 
+                        args=(client_socket, address), 
+                        daemon=True
+                    )
                     client_thread.start()
                 except OSError as e:
                     if self.running:
@@ -179,26 +204,39 @@ class TacacsServer:
                     packet = TacacsPacket.unpack_header(header_data)
                     session_ids.add(packet.session_id)
                     if not self._validate_packet_header(packet):
-                        logger.warning('Invalid packet header from %s: %s', address, packet)
+                        logger.warning(
+                            'Invalid packet header from %s: %s', address, packet
+                        )
                         break
                     if connection_device is None and self.device_store:
                         try:
-                            connection_device = self.device_store.find_device_for_ip(address[0])
+                            connection_device = (
+                                self.device_store.find_device_for_ip(address[0])
+                            )
                         except Exception as exc:
-                            logger.exception("Failed to resolve device for %s: %s", address[0], exc)
+                            logger.exception(
+                                "Failed to resolve device for %s: %s", address[0], exc
+                            )
                     if packet.length > 0:
                         if packet.length > 65535:
-                            logger.warning('Packet too large from %s: %s bytes', address, packet.length)
+                            logger.warning(
+                                'Packet too large from %s: %s bytes', 
+                                address, packet.length
+                            )
                             break
                         body_data = self._recv_exact(client_socket, packet.length)
                         if not body_data:
                             logger.warning('Incomplete packet body from %s', address)
                             break
-                        secret = self._select_session_secret(packet.session_id, connection_device)
+                        secret = self._select_session_secret(
+                            packet.session_id, connection_device
+                        )
                         packet.body = packet.decrypt_body(secret, body_data)
                     response = self._process_packet(packet, address, connection_device)
                     if response:
-                        secret = self._select_session_secret(packet.session_id, connection_device)
+                        secret = self._select_session_secret(
+                            packet.session_id, connection_device
+                        )
                         response_data = response.pack(secret)
                         client_socket.send(response_data)
                         if response.flags & TAC_PLUS_FLAGS.TAC_PLUS_SINGLE_CONNECT_FLAG:
@@ -235,7 +273,8 @@ class TacacsServer:
                 self.session_secrets[session_id] = secret
                 if device_record is not None:
                     self.handlers.session_device[session_id] = device_record
-            elif device_record is not None and session_id not in self.handlers.session_device:
+            elif (device_record is not None and 
+                  session_id not in self.handlers.session_device):
                 self.handlers.session_device[session_id] = device_record
             return secret
 
@@ -274,7 +313,11 @@ class TacacsServer:
         if major_version != TAC_PLUS_MAJOR_VER:
             logger.warning(f'Invalid major version: {major_version}')
             return False
-        if packet.packet_type not in [TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR, TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT]:
+        if packet.packet_type not in [
+            TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 
+            TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR, 
+            TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT
+        ]:
             logger.warning(f'Invalid packet type: {packet.packet_type}')
             return False
         if packet.seq_no < 1:
@@ -282,7 +325,9 @@ class TacacsServer:
             return False
         return True
 
-    def _process_packet(self, packet: TacacsPacket, address: tuple[str, int], device_record=None) -> TacacsPacket | None:
+    def _process_packet(
+        self, packet: TacacsPacket, address: tuple[str, int], device_record=None
+    ) -> TacacsPacket | None:
         """Process incoming packet and return response"""
         try:
             logger.debug(f'Processing packet from {address}: {packet}')
@@ -290,7 +335,9 @@ class TacacsServer:
                 try:
                     device_record = self.device_store.find_device_for_ip(address[0])
                 except Exception as exc:
-                    logger.exception("Failed to resolve device for %s: %s", address[0], exc)
+                    logger.exception(
+                        "Failed to resolve device for %s: %s", address[0], exc
+                    )
 
             self._select_session_secret(packet.session_id, device_record)
 
@@ -309,7 +356,10 @@ class TacacsServer:
                 response = self.handlers.handle_authorization(packet, device_record)
                 if response and len(response.body) > 0:
                     status = response.body[0]
-                    if status in [TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD, TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_REPL]:
+                    if status in [
+                        TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD, 
+                        TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_REPL
+                    ]:
                         self.stats['author_success'] += 1
                     elif status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL:
                         self.stats['author_failures'] += 1
@@ -334,7 +384,14 @@ class TacacsServer:
     def get_stats(self) -> dict:
         """Get server statistics"""
         stats = self.stats.copy()
-        stats.update({'server_running': self.running, 'auth_backends': [{'name': b.name, 'available': b.is_available()} for b in self.auth_backends], 'active_auth_sessions': len(self.handlers.auth_sessions)})
+        stats.update({
+            'server_running': self.running, 
+            'auth_backends': [
+                {'name': b.name, 'available': b.is_available()} 
+                for b in self.auth_backends
+            ], 
+            'active_auth_sessions': len(self.handlers.auth_sessions)
+        })
         return stats
 
     def get_active_sessions(self) -> list:
@@ -343,7 +400,13 @@ class TacacsServer:
 
     def reset_stats(self):
         """Reset server statistics"""
-        self.stats = {'connections_total': 0, 'connections_active': self.stats['connections_active'], 'auth_requests': 0, 'auth_success': 0, 'auth_failures': 0, 'author_requests': 0, 'author_success': 0, 'author_failures': 0, 'acct_requests': 0, 'acct_success': 0, 'acct_failures': 0}
+        self.stats = {
+            'connections_total': 0, 
+            'connections_active': self.stats['connections_active'], 
+            'auth_requests': 0, 'auth_success': 0, 'auth_failures': 0, 
+            'author_requests': 0, 'author_success': 0, 'author_failures': 0, 
+            'acct_requests': 0, 'acct_success': 0, 'acct_failures': 0
+        }
         logger.info('Server statistics reset')
 
     def get_health_status(self) -> dict[str, Any]:
@@ -426,6 +489,9 @@ class TacacsServer:
             time.sleep(0.1)
         
         if self.stats['connections_active'] > 0:
-            logger.warning(f"Force closing {self.stats['connections_active']} remaining connections")
+            logger.warning(
+                f"Force closing {self.stats['connections_active']} "
+                f"remaining connections"
+            )
         
         logger.info("Server shutdown complete")

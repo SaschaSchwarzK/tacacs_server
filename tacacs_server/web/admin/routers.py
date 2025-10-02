@@ -102,7 +102,8 @@ def _parse_allowed_groups(value) -> list[str] | None:
         except TypeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="allowed_user_groups must be a list or comma/newline separated string",
+                detail="allowed_user_groups must be a list or "
+                "comma/newline separated string",
             ) from exc
     tokens = []
     for token in raw_tokens:
@@ -123,7 +124,8 @@ def _parse_int(value, field: str, *, required: bool = False) -> int | None:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field} must be an integer"
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f"{field} must be an integer"
         ) from exc
 
 
@@ -756,7 +758,9 @@ async def create_user_group(
             metadata=payload.get("metadata"),
             ldap_group=payload.get("ldap_group"),
             okta_group=payload.get("okta_group"),
-            privilege_level=_parse_int(payload.get("privilege_level"), "privilege_level")
+            privilege_level=_parse_int(
+                payload.get("privilege_level"), "privilege_level"
+            )
             or 1,
         )
         logger.info("Admin UI: created user group name=%s", record.name)

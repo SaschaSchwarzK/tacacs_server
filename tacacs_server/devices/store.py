@@ -161,7 +161,8 @@ class DeviceStore:
         allowed_groups_raw = metadata.pop("allowed_user_groups", [])
         if isinstance(allowed_groups_raw, list):
             allowed_groups = [
-                str(item) for item in allowed_groups_raw if isinstance(item, str) and item
+                str(item) for item in allowed_groups_raw 
+                if isinstance(item, str) and item
             ]
         else:
             allowed_groups = []
@@ -322,7 +323,9 @@ class DeviceStore:
         return self.get_group_by_id(group_id)
 
     def delete_group(self, group_id: int, *, cascade: bool = False) -> bool:
-        """Delete a device group. If cascade is False and devices exist, raise ValueError."""
+        """Delete a device group. 
+        If cascade is False and devices exist, raise ValueError.
+        """
         with self._lock:
             cur = self._conn.execute(
                 "SELECT COUNT(1) AS cnt FROM devices WHERE group_id = ?",
@@ -403,7 +406,8 @@ class DeviceStore:
                     params.append(name)
                     params.append(str(network_obj))
                     query = f"""UPDATE devices SET {', '.join(updates)}, 
-                         updated_at = CURRENT_TIMESTAMP WHERE name = ? AND network = ?"""
+                         updated_at = CURRENT_TIMESTAMP 
+                     WHERE name = ? AND network = ?"""
                     self._conn.execute(query, tuple(params))
                     self._conn.commit()
                 groups = self._load_groups()
@@ -517,7 +521,8 @@ class DeviceStore:
 
             if not secret:
                 logger.debug(
-                    "DeviceStore: skipping device '%s' (%s) - no RADIUS secret via group",
+                    "DeviceStore: skipping device '%s' (%s) - "
+                    "no RADIUS secret via group",
                     device.name,
                     device.network,
                 )

@@ -53,7 +53,9 @@ class TacacsConfigSchema(BaseModel):
     @field_validator('auth')
     @classmethod
     def backends_not_empty(cls, value: AuthConfigSchema) -> AuthConfigSchema:
-        backends = [entry.strip() for entry in value.backends.split(',') if entry.strip()]
+        backends = [
+            entry.strip() for entry in value.backends.split(',') if entry.strip()
+        ]
         if not backends:
             raise ValueError("At least one authentication backend must be configured")
         return value

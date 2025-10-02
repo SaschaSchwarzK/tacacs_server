@@ -55,7 +55,9 @@ class LocalUserService:
     # ------------------------------------------------------------------
     # Change listeners
     # ------------------------------------------------------------------
-    def add_change_listener(self, callback: Callable[[str, str], None]) -> Callable[[], None]:
+    def add_change_listener(
+        self, callback: Callable[[str, str], None]
+    ) -> Callable[[], None]:
         with self._listeners_lock:
             self._listeners.append(callback)
 
@@ -75,7 +77,9 @@ class LocalUserService:
             try:
                 callback(event, username)
             except Exception:
-                logger.exception("LocalUserService change listener failed")
+                logger.exception(
+                    "LocalUserService change listener failed"
+                )
 
     # ------------------------------------------------------------------
     # Basic ops
@@ -140,12 +144,28 @@ class LocalUserService:
             raise LocalUserNotFound(f"User '{username}' not found")
 
         updates = {
-            "privilege_level": self._validate_privilege(privilege_level) if privilege_level is not None else None,
-            "service": self._validate_service(service) if service is not None else None,
-            "shell_command": self._validate_list(shell_command, "shell_command") if shell_command is not None else None,
-            "groups": self._validate_list(groups, "groups") if groups is not None else None,
-            "enabled": bool(enabled) if enabled is not None else None,
-            "description": description if description is not None else None,
+            "privilege_level": (
+                self._validate_privilege(privilege_level) 
+                if privilege_level is not None else None
+            ),
+            "service": (
+                self._validate_service(service) 
+                if service is not None else None
+            ),
+            "shell_command": (
+                self._validate_list(shell_command, "shell_command") 
+                if shell_command is not None else None
+            ),
+            "groups": (
+                self._validate_list(groups, "groups") 
+                if groups is not None else None
+            ),
+            "enabled": (
+                bool(enabled) if enabled is not None else None
+            ),
+            "description": (
+                description if description is not None else None
+            ),
         }
         stored = self.store.update_user(
             username,
@@ -170,7 +190,9 @@ class LocalUserService:
     ) -> LocalUserRecord:
         password = password.strip()
         if len(password) < 4:
-            raise LocalUserValidationError("Password must be at least 4 characters")
+            raise LocalUserValidationError(
+                "Password must be at least 4 characters"
+            )
 
         existing = self.store.get_user(username)
         if not existing:
@@ -206,23 +228,31 @@ class LocalUserService:
             if self.store.list_users():
                 return
         except Exception:
-            logger.exception("Failed to inspect local auth store before seeding")
+            logger.exception(
+                "Failed to inspect local auth store before seeding"
+            )
             return
 
         try:
             with seed_path.open("r", encoding="utf-8") as fh:
                 payload = json.load(fh)
         except Exception:
-            logger.exception("Failed to load legacy users seed from %s", seed_path)
+            logger.exception(
+                "Failed to load legacy users seed from %s", seed_path
+            )
             return
 
         if not isinstance(payload, dict):
-            logger.warning("Legacy users seed %s is not a JSON object", seed_path)
+            logger.warning(
+                "Legacy users seed %s is not a JSON object", seed_path
+            )
             return
 
         for username, data in payload.items():
             if not isinstance(data, dict):
-                logger.warning("Skipping legacy user %s with invalid payload", username)
+                logger.warning(
+                    "Skipping legacy user %s with invalid payload", username
+                )
                 continue
             try:
                 record = LocalUserRecord.from_dict(username, data)
@@ -232,7 +262,9 @@ class LocalUserService:
                     # Already present, skip
                     continue
             except Exception:
-                logger.exception("Failed to import legacy user %s", username)
+                logger.exception(
+                    "Failed to import legacy user %s", username
+                )
 
     @staticmethod
     def _clone(record: LocalUserRecord) -> LocalUserRecord:
@@ -254,7 +286,9 @@ class LocalUserService:
         try:
             level = int(level)
         except (TypeError, ValueError) as exc:
-            raise LocalUserValidationError("Privilege level must be an integer") from exc
+            raise LocalUserValidationError(
+                "Privilege level must be an integer"
+            ) from exc
         if level < 0 or level > 15:
             raise LocalUserValidationError("Privilege level must be between 0 and 15")
         return level
@@ -276,7 +310,9 @@ class LocalUserService:
         result: list[str] = []
         for value in values:
             if not isinstance(value, str) or not value:
-                raise LocalUserValidationError(f"{field} entries must be non-empty strings")
+                raise LocalUserValidationError(
+                    f"{field} entries must be non-empty strings"
+                )
             result.append(value)
         return result
 
@@ -286,7 +322,9 @@ class LocalUserService:
         password_hash: str | None,
     ) -> tuple[str | None, str | None]:
         if password_hash and password:
-            raise LocalUserValidationError("Provide only password or password_hash, not both")
+            raise LocalUserValidationError(
+                "Provide only password or password_hash, not both"
+            )
         if password:
             password = password.strip()
             if len(password) < 4:
@@ -294,9 +332,13 @@ class LocalUserService:
             return None, LocalUserService._hash_password(password)
         if password_hash:
             if len(password_hash) != 64:
-                raise LocalUserValidationError("password_hash must be a SHA-256 hex digest")
+                raise LocalUserValidationError(
+                    "password_hash must be a SHA-256 hex digest"
+                )
             return None, password_hash
-        raise LocalUserValidationError("Either password or password_hash must be provided")
+        raise LocalUserValidationError(
+            "Either password or password_hash must be provided"
+        )
 
     @staticmethod
     def _hash_password(password: str) -> str:

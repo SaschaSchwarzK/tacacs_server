@@ -48,7 +48,9 @@ _STANDARD_ATTRS: Iterable[str] = {
     "taskName",
 }
 
-_context: ContextVar[dict[str, Any]] = ContextVar("structured_logging_context", default={})
+_context: ContextVar[dict[str, Any]] = ContextVar(
+    "structured_logging_context", default={}
+)
 _logging_configured = False
 
 
@@ -85,7 +87,9 @@ class StructuredJSONFormatter(logging.Formatter):
             payload["extra"] = extras
 
         if record.exc_info:
-            payload["exc_info"] = "".join(traceback.format_exception(*record.exc_info)).strip()
+            payload["exc_info"] = "".join(
+                traceback.format_exception(*record.exc_info)
+            ).strip()
         elif record.exc_text:
             payload["exc_info"] = record.exc_text
 

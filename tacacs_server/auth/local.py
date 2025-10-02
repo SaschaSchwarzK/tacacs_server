@@ -23,7 +23,12 @@ logger = get_logger(__name__)
 class LocalAuthBackend(AuthenticationBackend):
     """Local authentication backend backed by :class:`LocalUserService`."""
 
-    def __init__(self, db_path: str = "data/local_auth.db", *, service: LocalUserService | None = None):
+    def __init__(
+        self, 
+        db_path: str = "data/local_auth.db", 
+        *, 
+        service: LocalUserService | None = None
+    ):
         super().__init__("local")
         self.db_path = db_path
         self.user_service = service or LocalUserService(db_path)
@@ -90,7 +95,9 @@ class LocalAuthBackend(AuthenticationBackend):
         attrs.pop("password_hash", None)
         return attrs
 
-    def change_password(self, username: str, old_password: str, new_password: str) -> bool:
+    def change_password(
+        self, username: str, old_password: str, new_password: str
+    ) -> bool:
         if not self.authenticate(username, old_password):
             return False
         try:

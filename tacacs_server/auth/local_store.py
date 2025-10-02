@@ -314,7 +314,9 @@ class LocalAuthStore:
         if metadata is not None:
             metadata_payload = dict(metadata)
             if "privilege_level" not in metadata_payload:
-                metadata_payload["privilege_level"] = existing_privilege if existing_privilege is not None else 1
+                metadata_payload["privilege_level"] = (
+                    existing_privilege if existing_privilege is not None else 1
+                )
             assignments.append("metadata = ?")
             params.append(self._dump_dict(metadata_payload))
         if ldap_group is not UNSET:
