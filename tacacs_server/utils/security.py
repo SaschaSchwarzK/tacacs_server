@@ -1,10 +1,10 @@
 """
 Security utilities for TACACS+ server
 """
-import time
 import re
-from typing import Dict, List
+import time
 from collections import defaultdict
+
 
 class AuthRateLimiter:
     """Rate limiter for authentication attempts"""

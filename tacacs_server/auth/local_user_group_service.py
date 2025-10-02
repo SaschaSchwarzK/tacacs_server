@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
-from typing import Dict, Optional
+
+from tacacs_server.utils.logger import get_logger
 
 from .local_models import LocalUserGroupRecord
-from .local_store import LocalAuthStore, UNSET
+from .local_store import UNSET, LocalAuthStore
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LocalUserGroupServiceError(Exception):
@@ -37,8 +37,8 @@ class LocalUserGroupService:
         self,
         db_path: Path | str = "data/local_auth.db",
         *,
-        store: Optional[LocalAuthStore] = None,
-        seed_file: Optional[Path | str] = None,
+        store: LocalAuthStore | None = None,
+        seed_file: Path | str | None = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = store or LocalAuthStore(self.db_path)
@@ -58,10 +58,10 @@ class LocalUserGroupService:
         self,
         name: str,
         *,
-        description: Optional[str] = None,
-        metadata: Optional[Dict[str, object]] = None,
-        ldap_group: Optional[str] = None,
-        okta_group: Optional[str] = None,
+        description: str | None = None,
+        metadata: dict[str, object] | None = None,
+        ldap_group: str | None = None,
+        okta_group: str | None = None,
         privilege_level: int = 1,
     ) -> LocalUserGroupRecord:
         validated_name = self._validate_name(name)
@@ -79,23 +79,27 @@ class LocalUserGroupService:
         try:
             stored = self.store.insert_group(record)
         except sqlite3.IntegrityError as exc:
-            raise LocalUserGroupExists(f"User group '{validated_name}' already exists") from exc
+            raise LocalUserGroupExists(
+                f"User group '{validated_name}' already exists"
+            ) from exc
         return self._clone(stored)
 
     def update_group(
         self,
         name: str,
         *,
-        description: Optional[str] = None,
-        metadata: Optional[Dict[str, object]] = None,
-        ldap_group: Optional[str] | object = UNSET,
-        okta_group: Optional[str] | object = UNSET,
-        privilege_level: Optional[int] = None,
+        description: str | None = None,
+        metadata: dict[str, object] | None = None,
+        ldap_group: str | None | object = UNSET,
+        okta_group: str | None | object = UNSET,
+        privilege_level: int | None = None,
     ) -> LocalUserGroupRecord:
         # Ensure the group exists before attempting update
         current = self.store.get_group(name)
         if not current:
-            raise LocalUserGroupNotFound(f"User group '{name}' not found")
+            raise LocalUserGroupNotFound(
+                f"User group '{name}' not found"
+            )
 
         metadata_payload = (
             self._validate_metadata(metadata)
@@ -103,9 +107,13 @@ class LocalUserGroupService:
             else dict(current.metadata)
         )
         if privilege_level is not None:
-            metadata_payload["privilege_level"] = self._validate_privilege(privilege_level)
+            metadata_payload["privilege_level"] = self._validate_privilege(
+                privilege_level
+            )
         else:
-            metadata_payload.setdefault("privilege_level", current.privilege_level)
+            metadata_payload.setdefault(
+                "privilege_level", current.privilege_level
+            )
         stored = self.store.update_group(
             name,
             description=description,
@@ -114,12 +122,16 @@ class LocalUserGroupService:
             okta_group=okta_group,
         )
         if not stored:
-            raise LocalUserGroupNotFound(f"User group '{name}' not found")
+            raise LocalUserGroupNotFound(
+                f"User group '{name}' not found"
+            )
         return self._clone(stored)
 
     def delete_group(self, name: str) -> bool:
         if not self.store.delete_group(name):
-            raise LocalUserGroupNotFound(f"User group '{name}' not found")
+            raise LocalUserGroupNotFound(
+                f"User group '{name}' not found"
+            )
         return True
 
     def reload(self) -> None:
@@ -137,23 +149,31 @@ class LocalUserGroupService:
             if self.store.list_groups():
                 return
         except Exception:
-            logger.exception("Failed to inspect local user groups before seeding")
+            logger.exception(
+                "Failed to inspect local user groups before seeding"
+            )
             return
 
         try:
             with seed_path.open("r", encoding="utf-8") as fh:
                 payload = json.load(fh)
         except Exception:
-            logger.exception("Failed to load legacy user groups from %s", seed_path)
+            logger.exception(
+                "Failed to load legacy user groups from %s", seed_path
+            )
             return
 
         if not isinstance(payload, dict):
-            logger.warning("Legacy user groups seed %s is not a JSON object", seed_path)
+            logger.warning(
+                "Legacy user groups seed %s is not a JSON object", seed_path
+            )
             return
 
         for name, data in payload.items():
             if not isinstance(data, dict):
-                logger.warning("Skipping legacy user group %s with invalid payload", name)
+                logger.warning(
+                    "Skipping legacy user group %s with invalid payload", name
+                )
                 continue
             try:
                 record = LocalUserGroupRecord.from_dict(name, data)
@@ -162,7 +182,9 @@ class LocalUserGroupService:
                 except sqlite3.IntegrityError:
                     continue
             except Exception:
-                logger.exception("Failed to import legacy user group %s", name)
+                logger.exception(
+                    "Failed to import legacy user group %s", name
+                )
 
     @staticmethod
     def _validate_name(name: str) -> str:
@@ -172,7 +194,7 @@ class LocalUserGroupService:
         return name
 
     @staticmethod
-    def _validate_metadata(metadata: Optional[Dict[str, object]]) -> Dict[str, object]:
+    def _validate_metadata(metadata: dict[str, object] | None) -> dict[str, object]:
         if metadata is None:
             return {}
         if not isinstance(metadata, dict):
@@ -184,7 +206,11 @@ class LocalUserGroupService:
         try:
             level = int(level)
         except (TypeError, ValueError) as exc:
-            raise LocalUserGroupValidationError("privilege_level must be an integer") from exc
+            raise LocalUserGroupValidationError(
+                "privilege_level must be an integer"
+            ) from exc
         if level < 0 or level > 15:
-            raise LocalUserGroupValidationError("privilege_level must be between 0 and 15")
+            raise LocalUserGroupValidationError(
+                "privilege_level must be between 0 and 15"
+            )
         return level

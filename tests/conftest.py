@@ -1,12 +1,14 @@
 import os
-import sys
-import subprocess
-import time
 import socket
+import subprocess
+import sys
+import time
 from pathlib import Path
+
 import pytest
 
 from tacacs_server.auth.local_user_service import LocalUserService
+
 
 def _venv_python(root: Path) -> str:
     candidate = root / ".venv" / "bin" / "python"
@@ -82,7 +84,10 @@ def server_process(project_root: Path, venv_python: str, server_config_file: Pat
     # start server via package entrypoint (no top-level main.py required)
     cmd = [venv_python, "-m", "tacacs_server.main", "--config", str(server_config_file)]
     env = os.environ.copy()
-    p = subprocess.Popen(cmd, cwd=str(project_root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+    p = subprocess.Popen(
+        cmd, cwd=str(project_root), stdout=subprocess.PIPE, 
+        stderr=subprocess.STDOUT, text=True, env=env
+    )
     try:
         if not _wait_for_tcp(host, port, timeout=15.0):
             out = ""
@@ -92,7 +97,10 @@ def server_process(project_root: Path, venv_python: str, server_config_file: Pat
             except Exception:
                 pass
             p.kill()
-            raise RuntimeError(f"Server did not start listening on {host}:{port} in time. Output:\n{out}")
+            raise RuntimeError(
+                f"Server did not start listening on {host}:{port} in time. "
+                f"Output:\n{out}"
+            )
         yield {"process": p, "host": host, "port": port, "secret": secret}
     finally:
         if p.poll() is None:
@@ -105,15 +113,27 @@ def server_process(project_root: Path, venv_python: str, server_config_file: Pat
 @pytest.fixture
 def run_test_client(venv_python: str, project_root: Path):
     """
-    Helper to run tests/tests_client.py (or scripts/tacacs_client.py) with the venv python.
+    Helper to run tests/tests_client.py (or scripts/tacacs_client.py) 
+    with the venv python.
     Returns a callable: result = run_test_client(host, port, secret, username, password)
     """
-    def _run(host: str, port: int, secret: str, username: str = "admin", password: str = "admin123", timeout: int = 15):
+    def _run(
+        host: str, port: int, secret: str, username: str = "admin", 
+        password: str = "admin123", timeout: int = 15
+    ):
         # try tests/test_client.py first, fallback to scripts/tacacs_client.py
-        candidates = [project_root / "tests" / "test_client.py", project_root / "scripts" / "tacacs_client.py"]
+        candidates = [
+            project_root / "tests" / "test_client.py", 
+            project_root / "scripts" / "tacacs_client.py"
+        ]
         script = next((str(p) for p in candidates if p.exists()), None)
         if script is None:
-            raise FileNotFoundError("No TACACS+ client script found in tests/ or scripts/")
+            raise FileNotFoundError(
+                "No TACACS+ client script found in tests/ or scripts/"
+            )
         cmd = [venv_python, script, host, str(port), secret, username, password]
-        return subprocess.run(cmd, cwd=str(project_root), capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(
+            cmd, cwd=str(project_root), capture_output=True, 
+            text=True, timeout=timeout
+        )
     return _run

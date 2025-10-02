@@ -1,35 +1,37 @@
-"""
-TACACS+ Server - Main Entry Point
-"""
-import sys
-import signal
-import logging
 import argparse
+import signal
+import sys
 import textwrap
-from pathlib import Path
-from typing import Any, Dict, Optional
 from collections import Counter
-project_root = Path(__file__).parent.absolute()
-sys.path.insert(0, str(project_root))
-from config.config import TacacsConfig, setup_logging
-from tacacs_server.tacacs.server import TacacsServer
-from accounting.database import DatabaseLogger
-from tacacs_server.devices import DeviceStore
-from tacacs_server.devices.service import DeviceService
+from pathlib import Path
+from typing import Any
+
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
-from tacacs_server.auth.local_user_service import LocalUserService
 from tacacs_server.auth.local_user_group_service import LocalUserGroupService
-from tacacs_server.web.admin.auth import AdminAuthConfig, AdminSessionManager, get_admin_auth_dependency
+from tacacs_server.auth.local_user_service import LocalUserService
+from tacacs_server.config.config import TacacsConfig, setup_logging
+from tacacs_server.devices.service import DeviceService
+from tacacs_server.devices.store import DeviceStore
+from tacacs_server.tacacs.server import TacacsServer
+from tacacs_server.utils.logger import get_logger
+from tacacs_server.web.admin.auth import (
+    AdminAuthConfig,
+    AdminSessionManager,
+    get_admin_auth_dependency,
+)
 from tacacs_server.web.monitoring import (
-    set_device_service,
-    set_local_user_service,
-    set_local_user_group_service,
-    set_admin_session_manager,
     set_admin_auth_dependency,
+    set_admin_session_manager,
+    set_device_service,
+    set_local_user_group_service,
+    set_local_user_service,
+)
+from tacacs_server.web.monitoring import (
     set_config as monitoring_set_config,
 )
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 class TacacsServerManager:
     """TACACS+ Server Manager"""
@@ -41,11 +43,11 @@ class TacacsServerManager:
         self.radius_server = None
         self.device_store = None
         self.device_service = None
-        self.local_auth_store: Optional[LocalAuthStore] = None
+        self.local_auth_store: LocalAuthStore | None = None
         self.local_user_service = None
         self.local_user_group_service = None
         self.admin_session_manager = None
-        self.device_store_config: Dict[str, Any] = {}
+        self.device_store_config: dict[str, Any] = {}
         self.running = False
         self._device_change_unsubscribe = None
         self._pending_radius_refresh = False
@@ -60,7 +62,11 @@ class TacacsServerManager:
                 logger.error(f'  - {issue}')
             return False
         server_config = self.config.get_server_config()
-        self.server = TacacsServer(host=server_config['host'], port=server_config['port'], secret_key=server_config['secret_key'])
+        self.server = TacacsServer(
+            host=server_config['host'],
+            port=server_config['port'],
+            secret_key=server_config['secret_key'],
+        )
 
         # Initialize device inventory
         try:
@@ -68,10 +74,14 @@ class TacacsServerManager:
             self.device_store = DeviceStore(self.device_store_config['database'])
             default_group = self.device_store_config.get('default_group')
             if default_group:
-                self.device_store.ensure_group(default_group, description="Default device group")
+                self.device_store.ensure_group(
+                    default_group, description="Default device group"
+                )
             self.device_service = DeviceService(self.device_store)
             set_device_service(self.device_service)
-            self._device_change_unsubscribe = self.device_service.add_change_listener(self._handle_device_change)
+            self._device_change_unsubscribe = self.device_service.add_change_listener(
+                self._handle_device_change
+            )
             # Expose store on server for future integrations
             if hasattr(self.server, 'device_store'):
                 self.server.device_store = self.device_store
@@ -84,7 +94,7 @@ class TacacsServerManager:
         # Initialize local authentication store and services
         auth_db_path = self.config.get_local_auth_db()
 
-        local_store: Optional[LocalAuthStore] = None
+        local_store: LocalAuthStore | None = None
         try:
             local_store = LocalAuthStore(auth_db_path)
             self.local_auth_store = local_store
@@ -118,9 +128,13 @@ class TacacsServerManager:
                 )
                 set_local_user_group_service(self.local_user_group_service)
                 if self.server and hasattr(self.server, 'handlers'):
-                    self.server.handlers.set_local_user_group_service(self.local_user_group_service)
+                    self.server.handlers.set_local_user_group_service(
+                        self.local_user_group_service
+                    )
             except Exception as exc:
-                logger.exception("Failed to initialise local user group service: %s", exc)
+                logger.exception(
+                    "Failed to initialise local user group service: %s", exc
+                )
                 self.local_user_group_service = None
                 set_local_user_group_service(None)
                 if self.server and hasattr(self.server, 'handlers'):
@@ -134,19 +148,24 @@ class TacacsServerManager:
         try:
             admin_auth_cfg = self.config.get_admin_auth_config()
             username = admin_auth_cfg.get('username', 'admin')
-            password_hash = admin_auth_cfg.get('password_hash', '')
+            password_hash = admin_auth_cfg.get('password', '')
             if password_hash:
                 auth_config = AdminAuthConfig(
                     username=username,
                     password_hash=password_hash,
-                    session_timeout_minutes=admin_auth_cfg.get('session_timeout_minutes', 60),
+                    session_timeout_minutes=admin_auth_cfg.get(
+                        'session_timeout_minutes', 60
+                    ),
                 )
                 self.admin_session_manager = AdminSessionManager(auth_config)
                 set_admin_session_manager(self.admin_session_manager)
                 dependency = get_admin_auth_dependency(self.admin_session_manager)
                 set_admin_auth_dependency(dependency)
             else:
-                logger.warning("Admin password hash not configured; admin routes will be unauthenticated")
+                logger.warning(
+                    "Admin password hash not configured; "
+                    "admin routes will be unauthenticated"
+                )
                 set_admin_session_manager(None)
                 set_admin_auth_dependency(None)
         except Exception as exc:
@@ -171,14 +190,17 @@ class TacacsServerManager:
             shared = len(getattr(self.radius_server, 'auth_backends', []))
             logger.info("RADIUS: Sharing %d auth backends with TACACS+", shared)
         # Enable monitoring if configured (tolerate missing section)
-        # read monitoring section safely: prefer helper API, fallback to RawConfigParser items()
+        # read monitoring section safely: prefer helper API, fallback to RawConfigParser
+        # items()
         try:
             if hasattr(self.config, "get_monitoring_config"):
                 monitoring_config = self.config.get_monitoring_config() or {}
             else:
                 # self.config.config is a ConfigParser/RawConfigParser
                 try:
-                    monitoring_config = dict(getattr(self.config, "config").items("monitoring"))
+                    monitoring_config = dict(
+                        getattr(self.config, "config").items("monitoring")
+                    )
                 except Exception:
                     monitoring_config = {}
         except Exception:
@@ -187,13 +209,26 @@ class TacacsServerManager:
         if str(monitoring_config.get("enabled", "false")).lower() == "true":
             web_host = monitoring_config.get("web_host", "127.0.0.1")
             web_port = int(monitoring_config.get("web_port", "8080"))
-            logger.info("Monitoring configured -> attempting to enable web monitoring on %s:%s", web_host, web_port)
+            logger.info(
+                "Monitoring configured -> attempting to enable web monitoring on %s:%s",
+                web_host,
+                web_port,
+            )
             try:
-                started = self.server.enable_web_monitoring(web_host, web_port, radius_server=self.radius_server)
+                started = self.server.enable_web_monitoring(
+                    web_host, web_port, radius_server=self.radius_server
+                )
                 if started:
-                    logger.info("Monitoring successfully started at http://%s:%s", web_host, web_port)
+                    logger.info(
+                        "Monitoring successfully started at http://%s:%s",
+                        web_host,
+                        web_port,
+                    )
                 else:
-                    logger.error("Monitoring failed to start (enable_web_monitoring returned False)")
+                    logger.error(
+                        "Monitoring failed to start "
+                        "(enable_web_monitoring returned False)"
+                    )
             except Exception as e:
                 logger.exception("Exception while enabling monitoring: %s", e)
         return True
@@ -202,7 +237,9 @@ class TacacsServerManager:
         try:
             self._refresh_radius_clients()
         except Exception:
-            logger.exception("Failed to refresh RADIUS clients after device inventory change")
+            logger.exception(
+                "Failed to refresh RADIUS clients after device inventory change"
+            )
 
     def _refresh_radius_clients(self) -> None:
         if not self.device_store:
@@ -218,7 +255,7 @@ class TacacsServerManager:
         self.radius_server.refresh_clients(client_configs)
         self._pending_radius_refresh = False
 
-    def _setup_radius_server(self, radius_config: Dict[str, Any]):
+    def _setup_radius_server(self, radius_config: dict[str, Any]):
         """Setup RADIUS server"""
         try:
             from tacacs_server.radius.server import RADIUSServer
@@ -238,7 +275,9 @@ class TacacsServerManager:
                 try:
                     initial_clients = self.device_store.iter_radius_clients()
                 except Exception as exc:
-                    logger.exception("Failed to load clients from device store: %s", exc)
+                    logger.exception(
+                        "Failed to load clients from device store: %s", exc
+                    )
                     initial_clients = []
 
             self.radius_server.refresh_clients(initial_clients)
@@ -328,11 +367,17 @@ class TacacsServerManager:
         server_config = self.config.get_server_config()
         auth_backends = [b.name for b in self.server.auth_backends]
         db_config = self.config.get_database_config()
-        logger.info(f"Server Address: {server_config['host']}:{server_config['port']}")
-        logger.info(f"Secret Key: {'*' * len(server_config['secret_key'])}")
+        logger.info(
+            f"Server Address: {server_config['host']}:{server_config['port']}"
+        )
+        logger.info(
+            f"Secret Key: {'*' * len(server_config['secret_key'])}"
+        )
         logger.info(f"Authentication Backends: {', '.join(auth_backends)}")
         logger.info(f"Database: {db_config['accounting_db']}")
-        source = getattr(self.config, 'config_source', self.config.config_file)
+        source = getattr(
+            self.config, 'config_source', self.config.config_file
+        )
         logger.info(f'Configuration: {source}')
         logger.info('')
         logger.info('Testing authentication backends:')
@@ -355,11 +400,14 @@ class TacacsServerManager:
 
                 try:
                     group_counts = Counter(
-                        (entry.get('group') if isinstance(entry, dict) else getattr(entry, 'group', None)) or 'ungrouped'
+                        (entry.get('group') 
+                         if isinstance(entry, dict) 
+                         else getattr(entry, 'group', None)) or 'ungrouped'
                         for entry in entries
                     )
                     summary = ", ".join(
-                        f"{group}({count})" for group, count in group_counts.most_common(5)
+                        f"{group}({count})" 
+                        for group, count in group_counts.most_common(5)
                     )
                     if len(group_counts) > 5:
                         summary += ", ..."
@@ -389,7 +437,9 @@ def create_test_client_script():
         from typing import Optional
 
 
-        def md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -> bytes:
+        def md5_pad(
+            session_id: int, key: str, version: int, seq_no: int, length: int
+        ) -> bytes:
             pad = bytearray()
             session_id_bytes = struct.pack("!L", session_id)
             key_bytes = key.encode("utf-8")
@@ -400,13 +450,17 @@ def create_test_client_script():
                 if not pad:
                     md5_input = session_id_bytes + key_bytes + version_byte + seq_byte
                 else:
-                    md5_input = session_id_bytes + key_bytes + version_byte + seq_byte + pad
+                    md5_input = (
+                        session_id_bytes + key_bytes + version_byte + seq_byte + pad
+                    )
                 pad.extend(hashlib.md5(md5_input).digest())
 
             return bytes(pad[:length])
 
 
-        def transform_body(body: bytes, session_id: int, key: str, version: int, seq_no: int) -> bytes:
+        def transform_body(
+            body: bytes, session_id: int, key: str, version: int, seq_no: int
+        ) -> bytes:
             if not key:
                 return body
             pad = md5_pad(session_id, key, version, seq_no, len(body))
@@ -463,7 +517,9 @@ def create_test_client_script():
                 version = 0xC0
                 seq_no = 1
                 encrypted_body = transform_body(body, session_id, key, version, seq_no)
-                header = struct.pack("!BBBBLL", version, 1, seq_no, 0, session_id, len(encrypted_body))
+                header = struct.pack(
+                    "!BBBBLL", version, 1, seq_no, 0, session_id, len(encrypted_body)
+                )
 
                 print("Sending PAP authentication request...")
                 sock.sendall(header + encrypted_body)
@@ -472,22 +528,30 @@ def create_test_client_script():
                 if len(response_header) != 12:
                     return PapResult(False, -1, None, "invalid response header")
 
-                r_version, r_type, r_seq, _, r_session, r_length = struct.unpack("!BBBBLL", response_header)
+                r_version, r_type, r_seq, _, r_session, r_length = struct.unpack(
+                    "!BBBBLL", response_header
+                )
                 print(f"Received header: type={r_type}, seq={r_seq}, length={r_length}")
 
                 response_body = sock.recv(r_length) if r_length else b""
                 if len(response_body) < r_length:
                     return PapResult(False, -1, None, "truncated response body")
 
-                decrypted = transform_body(response_body, r_session, key, r_version, r_seq)
+                decrypted = transform_body(
+                    response_body, r_session, key, r_version, r_seq
+                )
                 if len(decrypted) < 6:
                     return PapResult(False, -1, None, "response too short")
 
-                status, _flags, msg_len, data_len = struct.unpack("!BBHH", decrypted[:6])
+                status, _flags, msg_len, data_len = struct.unpack(
+                    "!BBHH", decrypted[:6]
+                )
                 offset = 6
                 server_message = None
                 if msg_len:
-                    server_message = decrypted[offset:offset + msg_len].decode("utf-8", errors="replace")
+                    server_message = decrypted[offset:offset + msg_len].decode(
+                        "utf-8", errors="replace"
+                    )
                     offset += msg_len
 
                 success = status == 1
@@ -527,17 +591,29 @@ def create_test_client_script():
 
         def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             parser = argparse.ArgumentParser(description="Simple TACACS+ PAP client")
-            parser.add_argument("host", nargs="?", default="localhost", help="Server host (default: localhost)")
-            parser.add_argument("port", nargs="?", type=int, default=49, help="Server port (default: 49)")
-            parser.add_argument("secret", nargs="?", default="tacacs123", help="Shared secret")
+            parser.add_argument(
+                "host", nargs="?", default="localhost", 
+                help="Server host (default: localhost)"
+            )
+            parser.add_argument(
+                "port", nargs="?", type=int, default=49, 
+                help="Server port (default: 49)"
+            )
+            parser.add_argument(
+                "secret", nargs="?", default="tacacs123", help="Shared secret"
+            )
             parser.add_argument("username", nargs="?", default="admin", help="Username")
-            parser.add_argument("password", nargs="?", default="admin123", help="Password")
+            parser.add_argument(
+                "password", nargs="?", default="admin123", help="Password"
+            )
             return parser.parse_args(argv)
 
 
         def main(argv: Optional[list[str]] = None) -> int:
             args = parse_args(argv)
-            result = pap_authentication(args.host, args.port, args.secret, args.username, args.password)
+            result = pap_authentication(
+                args.host, args.port, args.secret, args.username, args.password
+            )
             return 0 if result.success else 1
 
 
@@ -556,9 +632,17 @@ def create_test_client_script():
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description='TACACS+ Server')
-    parser.add_argument('-c', '--config', default='config/tacacs.conf', help='Configuration file path')
-    parser.add_argument('--create-test-client', action='store_true', help='Create test client script and exit')
-    parser.add_argument('--validate-config', action='store_true', help='Validate configuration and exit')
+    parser.add_argument(
+        '-c', '--config', default='config/tacacs.conf', help='Configuration file path'
+    )
+    parser.add_argument(
+        '--create-test-client',
+        action='store_true',
+        help='Create test client script and exit',
+    )
+    parser.add_argument(
+        '--validate-config', action='store_true', help='Validate configuration and exit'
+    )
     parser.add_argument('--version', action='version', version='TACACS+ Server 1.0')
     args = parser.parse_args()
     for directory in ['config', 'data', 'logs', 'tests', 'scripts']:
@@ -567,7 +651,10 @@ def main():
         try:
             create_test_client_script()
             print('Test client created: scripts/tacacs_client.py')
-            print('Usage: python scripts/tacacs_client.py [host] [port] [secret] [username] [password]')
+            print(
+                'Usage: python scripts/tacacs_client.py [host] [port] [secret] '
+                '[username] [password]'
+            )
         except Exception as e:
             print(f'Error creating test client: {e}')
             return 1

@@ -1,7 +1,4 @@
-import os
 from pathlib import Path
-
-import pytest
 
 from tacacs_server.config.config import TacacsConfig
 from tacacs_server.web.admin.routers import _sanitize_config_data

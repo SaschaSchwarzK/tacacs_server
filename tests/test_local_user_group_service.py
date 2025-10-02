@@ -3,9 +3,9 @@ import json
 import pytest
 
 from tacacs_server.auth.local_user_group_service import (
-    LocalUserGroupService,
     LocalUserGroupExists,
     LocalUserGroupNotFound,
+    LocalUserGroupService,
     LocalUserGroupValidationError,
 )
 

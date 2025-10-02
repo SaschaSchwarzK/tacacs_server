@@ -1,19 +1,30 @@
-import configparser
+import base64
 import json
 import time
-import base64
-from pathlib import Path
+
 import requests
-import pytest
+
 from tacacs_server.auth.okta_auth import OktaAuthBackend
+
 
 def _make_jwt_with_exp(seconds_from_now: int) -> str:
     payload = {'exp': int(time.time()) + seconds_from_now}
     b = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=')
     return 'h.' + b.decode('ascii') + '.s'
 
-def _build_cfg(org_url='https://integrator-xxxx.okta.com/', client_id='xxxxx', api_token='00pmLQ0dxxxxxxx2V-_cnxxxxx3C', cache_default_ttl='60', verify_tls='False', group_map=None, require_group=False):
-    cfg = {'org_url': org_url, 'client_id': client_id, 'api_token': api_token, 'cache_default_ttl': cache_default_ttl, 'verify_tls': verify_tls}
+def _build_cfg(
+    org_url='https://integrator-xxxx.okta.com/', 
+    client_id='xxxxx', 
+    api_token='00pmLQ0dxxxxxxx2V-_cnxxxxx3C', 
+    cache_default_ttl='60', 
+    verify_tls='False', 
+    group_map=None, 
+    require_group=False
+):
+    cfg = {
+        'org_url': org_url, 'client_id': client_id, 'api_token': api_token, 
+        'cache_default_ttl': cache_default_ttl, 'verify_tls': verify_tls
+    }
     if group_map is not None:
         cfg['group_privilege_map'] = json.dumps(group_map)
     if require_group:
@@ -29,7 +40,10 @@ def test_okta_authentication_and_authorization_caching(monkeypatch):
         status_code = 200
 
         def __init__(self):
-            self._data = {'access_token': jwt, 'expires_in': 120, 'id_token': jwt, 'token_type': 'Bearer'}
+            self._data = {
+                'access_token': jwt, 'expires_in': 120, 
+                'id_token': jwt, 'token_type': 'Bearer'
+            }
 
         def json(self):
             return self._data

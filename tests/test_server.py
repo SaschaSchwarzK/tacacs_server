@@ -1,5 +1,5 @@
 import socket
-import pytest
+
 
 def test_server_accepts_tcp_connection(server_process):
     host = server_process["host"]

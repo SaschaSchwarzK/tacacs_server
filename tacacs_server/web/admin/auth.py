@@ -5,16 +5,16 @@ import hashlib
 import hmac
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi import HTTPException, Request, status
 
 
 class AdminAuthConfig:
     """Runtime configuration for admin auth."""
 
-    def __init__(self, username: str, password_hash: str, session_timeout_minutes: int = 60) -> None:
+    def __init__(
+        self, username: str, password_hash: str, session_timeout_minutes: int = 60
+    ) -> None:
         self.username = username
         self.password_hash = password_hash
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
@@ -25,14 +25,18 @@ class AdminSessionManager:
 
     def __init__(self, config: AdminAuthConfig) -> None:
         self.config = config
-        self._session_token: Optional[str] = None
-        self._session_expiry: Optional[datetime] = None
+        self._session_token: str | None = None
+        self._session_expiry: datetime | None = None
 
     def login(self, username: str, password: str) -> str:
         if username != self.config.username:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            )
         if not self._verify_password(password):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            )
 
         self._session_token = secrets.token_urlsafe(32)
         self._session_expiry = datetime.utcnow() + self.config.session_timeout
@@ -59,6 +63,10 @@ def get_admin_auth_dependency(session_manager: AdminSessionManager):
     async def dependency(request: Request) -> None:
         token = request.cookies.get("admin_session")
         if not token or not session_manager.validate(token):
-            raise HTTPException(status_code=status.HTTP_307_TEMPORARY_REDIRECT, detail="Unauthorized", headers={"Location": "/admin/login"})
+            raise HTTPException(
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT, 
+                detail="Unauthorized", 
+                headers={"Location": "/admin/login"}
+            )
 
     return dependency

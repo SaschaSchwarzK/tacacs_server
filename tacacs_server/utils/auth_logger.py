@@ -1,39 +1,56 @@
 """Unified authentication event logging utilities for TACACS+ and RADIUS."""
 from __future__ import annotations
 
-import logging
-from typing import Optional
+from tacacs_server.utils.logger import get_logger
 
-_logger = logging.getLogger("tacacs_server.auth.events")
-
-
-def _format_context(client: Optional[str], group: Optional[str]) -> str:
-    if group:
-        return f" ({group})"
-    if client:
-        return f" ({client})"
-    return ""
+_logger = get_logger("tacacs_server.auth.events", component="auth")
 
 
-def log_request(protocol: str, username: Optional[str], client: Optional[str] = None, group: Optional[str] = None, extra: Optional[str] = None) -> None:
-    user = username if username else "<unknown>"
-    suffix = _format_context(client, group)
-    message = f"{protocol} auth request: user={user}{suffix}"
+def _build_context(
+    protocol: str,
+    username: str | None,
+    client: str | None,
+    group: str | None,
+) -> dict[str, str | None]:
+    return {
+        "protocol": protocol,
+        "username": username or "<unknown>",
+        "client": client,
+        "group": group,
+    }
+
+
+def log_request(
+    protocol: str,
+    username: str | None,
+    client: str | None = None,
+    group: str | None = None,
+    extra: str | None = None,
+) -> None:
+    payload = _build_context(protocol, username, client, group)
     if extra:
-        message = f"{message} {extra}"
-    _logger.debug(message)
+        payload["details"] = extra
+    _logger.debug("Authentication request", **payload)
 
 
-def log_success(protocol: str, username: Optional[str], client: Optional[str] = None, group: Optional[str] = None) -> None:
-    user = username if username else "<unknown>"
-    suffix = _format_context(client, group)
-    _logger.info("%s authentication success: %s%s", protocol, user, suffix)
+def log_success(
+    protocol: str,
+    username: str | None,
+    client: str | None = None,
+    group: str | None = None,
+) -> None:
+    payload = _build_context(protocol, username, client, group)
+    _logger.info("Authentication success", **payload)
 
 
-def log_failure(protocol: str, username: Optional[str], client: Optional[str] = None, group: Optional[str] = None, reason: Optional[str] = None) -> None:
-    user = username if username else "<unknown>"
-    suffix = _format_context(client, group)
+def log_failure(
+    protocol: str,
+    username: str | None,
+    client: str | None = None,
+    group: str | None = None,
+    reason: str | None = None,
+) -> None:
+    payload = _build_context(protocol, username, client, group)
     if reason:
-        _logger.warning("%s authentication failed: %s%s (%s)", protocol, user, suffix, reason)
-    else:
-        _logger.warning("%s authentication failed: %s%s", protocol, user, suffix)
+        payload["reason"] = reason
+    _logger.warning("Authentication failure", **payload)

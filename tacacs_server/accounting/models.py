@@ -2,9 +2,10 @@
 Data Models for TACACS+ Accounting
 """
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any
+
 
 @dataclass
 class AccountingRecord:
@@ -15,34 +16,34 @@ class AccountingRecord:
     status: str  # START, STOP, UPDATE
     service: str = 'unknown'
     command: str = 'unknown'
-    client_ip: Optional[str] = None
-    port: Optional[str] = None
-    start_time: Optional[str] = None
-    stop_time: Optional[str] = None
+    client_ip: str | None = None
+    port: str | None = None
+    start_time: str | None = None
+    stop_time: str | None = None
     bytes_in: int = 0
     bytes_out: int = 0
     elapsed_time: int = 0
     privilege_level: int = 1
-    authentication_method: Optional[str] = None
-    nas_port: Optional[str] = None
-    nas_port_type: Optional[str] = None
-    task_id: Optional[str] = None
-    timezone: Optional[str] = None
+    authentication_method: str | None = None
+    nas_port: str | None = None
+    nas_port_type: str | None = None
+    task_id: str | None = None
+    timezone: str | None = None
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values"""
         data = asdict(self)
         return {k: v for k, v in data.items() if v is not None}
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'AccountingRecord':
+    def from_dict(cls, data: dict[str, Any]) -> 'AccountingRecord':
         """Create AccountingRecord from dictionary"""
         # Filter out keys that don't exist in the dataclass
         valid_keys = {f.name for f in cls.__dataclasses_fields__.values()}
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered_data)
     
-    def duration_seconds(self) -> Optional[int]:
+    def duration_seconds(self) -> int | None:
         """Calculate session duration in seconds"""
         if self.start_time and self.stop_time:
             try:
@@ -87,7 +88,10 @@ class AccountingRecord:
     
     def __str__(self) -> str:
         """String representation"""
-        return f"AccountingRecord({self.username}@{self.session_id}: {self.status} - {self.command})"
+        return (
+            f"AccountingRecord({self.username}@{self.session_id}: "
+            f"{self.status} - {self.command})"
+        )
 
 @dataclass
 class SessionInfo:
@@ -99,7 +103,7 @@ class SessionInfo:
     start_time: str
     last_update: str
     service: str
-    port: Optional[str] = None
+    port: str | None = None
     privilege_level: int = 1
     bytes_in: int = 0
     bytes_out: int = 0
@@ -123,11 +127,11 @@ class SessionInfo:
         except ValueError:
             return False
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return asdict(self)
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SessionInfo':
+    def from_dict(cls, data: dict[str, Any]) -> 'SessionInfo':
         """Create SessionInfo from dictionary"""
         return cls(**data)

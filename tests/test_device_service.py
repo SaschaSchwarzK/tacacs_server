@@ -27,7 +27,9 @@ def test_group_crud(device_service: DeviceService):
     assert group.name == "core"
     assert group.radius_secret == "radius123"
     assert group.tacacs_secret == "tacacs123"
-    assert group.device_config == {"radius_attributes": {"Framed-IP-Address": "1.1.1.1"}}
+    assert group.device_config == {
+        "radius_attributes": {"Framed-IP-Address": "1.1.1.1"}
+    }
     assert group.allowed_user_groups == ["netadmins", "ops"]
 
     with pytest.raises(DeviceValidationError):
@@ -44,7 +46,9 @@ def test_group_crud(device_service: DeviceService):
     assert updated.description == "Updated"
     assert updated.radius_secret == "radius456"
     assert updated.tacacs_secret is None
-    assert updated.device_config == {"radius_attributes": {"Framed-IP-Netmask": "255.255.255.0"}}
+    assert updated.device_config == {
+        "radius_attributes": {"Framed-IP-Netmask": "255.255.255.0"}
+    }
     assert updated.allowed_user_groups == ["ops"]
 
     groups = device_service.list_groups()
@@ -76,8 +80,8 @@ def test_group_delete_with_devices(device_service: DeviceService):
 
 
 def test_device_crud(device_service: DeviceService):
-    core = device_service.create_group("core", radius_secret="radius123")
-    edge = device_service.create_group("edge")
+    device_service.create_group("core", radius_secret="radius123")
+    device_service.create_group("edge")
 
     device = device_service.create_device(
         name="router1",
@@ -110,7 +114,9 @@ def test_device_crud(device_service: DeviceService):
         device_service.update_device(device_id=9999, name="missing")
 
     with pytest.raises(GroupNotFound):
-        device_service.create_device(name="router2", network="10.0.2.0/24", group="missing")
+        device_service.create_device(
+            name="router2", network="10.0.2.0/24", group="missing"
+        )
 
 
 def test_device_service_notifies_listeners(device_service: DeviceService):
@@ -121,7 +127,9 @@ def test_device_service_notifies_listeners(device_service: DeviceService):
     assert events
     events.clear()
 
-    device = device_service.create_device(name="router1", network="10.0.0.1/32", group="core")
+    device = device_service.create_device(
+        name="router1", network="10.0.0.1/32", group="core"
+    )
     assert events
     events.clear()
 

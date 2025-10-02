@@ -1,4 +1,7 @@
-import sys, importlib.util, json
+import importlib.util
+import json
+import sys
+
 print("=== inside pytest process ===")
 print("cwd:", __import__("os").getcwd())
 print("sys.path[0..5]:", json.dumps(sys.path[:6]))

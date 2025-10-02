@@ -10,7 +10,6 @@ import struct
 import sys
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 
 def md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -> bytes:
@@ -32,7 +31,9 @@ def md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -
     return bytes(pad[:length])
 
 
-def transform_body(body: bytes, session_id: int, key: str, version: int, seq_no: int) -> bytes:
+def transform_body(
+    body: bytes, session_id: int, key: str, version: int, seq_no: int
+) -> bytes:
     """Encrypt/decrypt the TACACS+ body using the MD5 pad."""
 
     if not key:
@@ -45,7 +46,7 @@ def transform_body(body: bytes, session_id: int, key: str, version: int, seq_no:
 class PapResult:
     success: bool
     status: int
-    server_message: Optional[str]
+    server_message: str | None
     detail: str
 
 
@@ -65,7 +66,7 @@ def pap_authentication(
     print(f"Password      : {obscured}")
     print(f"Shared Secret : {key}\n")
 
-    sock: Optional[socket.socket] = None
+    sock: socket.socket | None = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(10)
@@ -93,7 +94,9 @@ def pap_authentication(
         version = 0xC0
         seq_no = 1
         encrypted_body = transform_body(body, session_id, key, version, seq_no)
-        header = struct.pack("!BBBBLL", version, 1, seq_no, 0, session_id, len(encrypted_body))
+        header = struct.pack(
+            "!BBBBLL", version, 1, seq_no, 0, session_id, len(encrypted_body)
+        )
 
         print("Sending PAP authentication request...")
         sock.sendall(header + encrypted_body)
@@ -102,7 +105,9 @@ def pap_authentication(
         if len(response_header) != 12:
             return PapResult(False, -1, None, "invalid response header")
 
-        r_version, r_type, r_seq, _, r_session, r_length = struct.unpack("!BBBBLL", response_header)
+        r_version, r_type, r_seq, _, r_session, r_length = struct.unpack(
+            "!BBBBLL", response_header
+        )
         print(f"Received header: type={r_type}, seq={r_seq}, length={r_length}")
 
         response_body = sock.recv(r_length) if r_length else b""
@@ -117,7 +122,9 @@ def pap_authentication(
         offset = 6
         server_message = None
         if msg_len:
-            server_message = decrypted[offset:offset + msg_len].decode("utf-8", errors="replace")
+            server_message = decrypted[offset:offset + msg_len].decode(
+                "utf-8", errors="replace"
+            )
             offset += msg_len
 
         success = status == 1
@@ -155,19 +162,25 @@ def pap_authentication(
                 pass
 
 
-def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Simple TACACS+ PAP client")
-    parser.add_argument("host", nargs="?", default="localhost", help="Server host (default: localhost)")
-    parser.add_argument("port", nargs="?", type=int, default=49, help="Server port (default: 49)")
+    parser.add_argument(
+        "host", nargs="?", default="localhost", help="Server host (default: localhost)"
+    )
+    parser.add_argument(
+        "port", nargs="?", type=int, default=49, help="Server port (default: 49)"
+    )
     parser.add_argument("secret", nargs="?", default="tacacs123", help="Shared secret")
     parser.add_argument("username", nargs="?", default="admin", help="Username")
     parser.add_argument("password", nargs="?", default="admin123", help="Password")
     return parser.parse_args(argv)
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    result = pap_authentication(args.host, args.port, args.secret, args.username, args.password)
+    result = pap_authentication(
+        args.host, args.port, args.secret, args.username, args.password
+    )
     return 0 if result.success else 1
 
 
