@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 class ServerConfigSchema(BaseModel):
     host: str = Field(..., description="Server bind host")
     port: int = Field(..., ge=1, le=65535, description="Server TCP port")
-    secret_key: str = Field(..., min_length=8, description="Shared TACACS+ secret")
+    # secret_key removed - secrets are now per-device group
     log_level: str = Field(default="INFO")
     max_connections: int = Field(default=50, ge=1)
     socket_timeout: int = Field(default=30, ge=1)

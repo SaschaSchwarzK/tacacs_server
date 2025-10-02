@@ -46,15 +46,11 @@ class TacacsServer:
     ):
         self.host = host
         self.port = port
+        # Default fallback secret - should be overridden by device group secrets
         if secret_key is None:
             import os
 
-            secret_key = os.getenv("TACACS_DEFAULT_SECRET")
-            if not secret_key:
-                raise ValueError(
-                    "TACACS+ secret required (set TACACS_DEFAULT_SECRET env var "
-                    "or pass as parameter)"
-                )
+            secret_key = os.getenv("TACACS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK")
         self.secret_key = secret_key
         self.auth_backends: list[AuthenticationBackend] = []
         self.db_logger = DatabaseLogger()
@@ -173,7 +169,7 @@ class TacacsServer:
             logger.debug(
                 "Authentication backends: %s", [b.name for b in self.auth_backends]
             )
-            logger.debug("Secret key length: %s", len(self.secret_key))
+            logger.debug("Per-device secrets, fallback: %s chars", len(self.secret_key))
             while self.running:
                 try:
                     client_socket, address = self.server_socket.accept()

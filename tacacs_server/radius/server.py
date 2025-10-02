@@ -350,15 +350,11 @@ class RADIUSServer:
         self.host = host
         self.port = port
         self.accounting_port = accounting_port
+        # Default fallback secret - should be overridden by device-specific secrets
         if secret is None:
             import os
 
-            secret = os.getenv("RADIUS_DEFAULT_SECRET")
-            if not secret:
-                raise ValueError(
-                    "RADIUS secret required (set RADIUS_DEFAULT_SECRET env var "
-                    "or pass as parameter)"
-                )
+            secret = os.getenv("RADIUS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK")
         self.secret = secret.encode("utf-8")
 
         self.auth_backends = []

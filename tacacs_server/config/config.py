@@ -79,7 +79,6 @@ class TacacsConfig:
         self.config["server"] = {
             "host": "0.0.0.0",
             "port": "49",
-            "secret_key": os.environ.get("TACACS_SECRET", "CHANGE_ME_IN_PRODUCTION"),
             "log_level": "INFO",
             "max_connections": "50",
             "socket_timeout": "30",
@@ -414,12 +413,7 @@ class TacacsConfig:
         if port < 1 or port > 65535:
             issues.append(f"Invalid server port: {port} (must be 1-65535)")
 
-        # Secret key validation
-        secret = self.config.get("server", "secret_key")
-        if secret == "CHANGE_ME_IN_PRODUCTION":
-            issues.append("Default secret key detected - change in production")
-        elif len(secret) < 8:
-            issues.append("Secret key too short (minimum 8 characters)")
+        # Note: TACACS+ secrets are now per-device group, not global
 
         # Connection limits
         max_conn = self.config.getint("server", "max_connections")

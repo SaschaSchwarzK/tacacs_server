@@ -66,7 +66,6 @@ class TacacsServerManager:
         self.server = TacacsServer(
             host=server_config["host"],
             port=server_config["port"],
-            secret_key=server_config["secret_key"],
         )
 
         # Initialize device inventory
@@ -380,7 +379,7 @@ class TacacsServerManager:
         )
         db_config = self.config.get_database_config()
         logger.info(f"Server Address: {server_config['host']}:{server_config['port']}")
-        logger.info(f"Secret Key: {'*' * len(server_config['secret_key'])}")
+        logger.info("Secrets: Per-device group configuration")
         logger.info(f"Authentication Backends: {', '.join(auth_backends)}")
         logger.info(f"Database: {db_config['accounting_db']}")
         source = getattr(self.config, "config_source", self.config.config_file)
