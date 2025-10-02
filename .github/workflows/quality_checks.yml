@@ -51,7 +51,7 @@ jobs:
           poetry run bandit -r . -x tests
 
       - name: Semgrep (CI rules)
-        uses: semgrep/semgrep-action@e592f8c72de14b836b37d7b16a8e5d1e6e1b8b7e  # v1
+        uses: semgrep/semgrep-action@v1
         with:
           config: "p/ci"
 
