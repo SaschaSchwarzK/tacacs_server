@@ -49,15 +49,15 @@ def validate_configuration(config_file: str | None = None) -> bool:
             print("✅ Configuration validation PASSED")
             print("\n📊 Configuration Summary:")
 
-            # Display key configuration details
+            # Display key configuration details (non-sensitive only)
             server_config = config.get_server_config()
-            print(
-                f"   Server: {server_config.get('host', '[unknown]')}:"
-                f"{server_config.get('port', '[unknown]')}"
-            )
+            host = server_config.get('host', '[unknown]')
+            port = server_config.get('port', '[unknown]')
+            print(f"   Server: {host}:{port}")
 
             auth_backends = config.get_auth_backends()
-            print(f"   Auth backends: {', '.join(auth_backends)}")
+            backends_list = ', '.join(auth_backends)
+            print(f"   Auth backends: {backends_list}")
 
             security_config = config.get_security_config()
             print(f"   Max auth attempts: {security_config['max_auth_attempts']}")
