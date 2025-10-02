@@ -1,20 +1,21 @@
 """
 Okta authentication backend (OAuth2 token endpoint) with in-memory caching.
 """
-from typing import Dict, Any, Optional, Tuple
-import time
-import threading
-import requests
-import json
 import base64
-import datetime
+import json
+import threading
+import time
+from typing import Any
+
+import requests
+
+from tacacs_server.utils.logger import get_logger
 
 from .base import AuthenticationBackend
-from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-def _parse_exp_from_jwt(token: str) -> Optional[int]:
+def _parse_exp_from_jwt(token: str) -> int | None:
     try:
         parts = token.split('.')
         if len(parts) < 2:
@@ -25,7 +26,7 @@ def _parse_exp_from_jwt(token: str) -> Optional[int]:
         payload_bytes = base64.urlsafe_b64decode(payload_b64.encode('ascii'))
         payload = json.loads(payload_bytes.decode('utf-8'))
         exp = payload.get('exp')
-        if isinstance(exp, (int, float)):
+        if isinstance(exp, int | float):
             return int(exp)
     except Exception:
         logger.debug("Failed to parse exp from JWT", exc_info=True)
@@ -38,13 +39,15 @@ class OktaAuthBackend(AuthenticationBackend):
     Config options (cfg dict):
       org_url                - base Okta url, e.g. https://dev-xxxx.okta.com (required)
       client_id              - OAuth2 client id for password grant (required)
-      api_token              - Okta Management API token (SSWS) if groups queries are desired (optional)
+      api_token              - Okta Management API token (SSWS) if groups queries are
+                               desired (optional)
       cache_default_ttl      - fallback TTL in seconds (default 60)
       verify_tls             - bool for requests.verify (default True)
       group_privilege_map    - JSON string or dict mapping group names -> privilege int
-      require_group_for_auth - bool: require user to be member of mapped group to count as authorized (default False)
+      require_group_for_auth - bool: require user to be member of mapped group to count
+                               as authorized (default False)
     """
-    def __init__(self, cfg: Dict[str, Any]):
+    def __init__(self, cfg: dict[str, Any]):
         super().__init__("okta")
         self.org_url = cfg.get("org_url") or cfg.get("okta_org_url")
         if not self.org_url:
@@ -65,7 +68,7 @@ class OktaAuthBackend(AuthenticationBackend):
             except Exception:
                 gpm = {}
         # ensure keys are str and values int
-        self.group_privilege_map: Dict[str, int] = {str(k): int(v) for k, v in (gpm or {}).items()}
+        self.group_privilege_map: dict[str, int] = {str(k): int(v) for k, v in (gpm or {}).items()}
         # sensible defaults if none provided
         if not self.group_privilege_map:
             self.group_privilege_map = {"Level15": 15, "Level7": 7, "Level1": 1}
@@ -76,10 +79,10 @@ class OktaAuthBackend(AuthenticationBackend):
         self._groups_api_base = self.org_url.rstrip('/') + "/api/v1"
 
         # internal cache: username -> (result_bool, expiry_ts, attributes_dict)
-        self._cache: Dict[str, Tuple[bool, int, Dict[str, Any]]] = {}
+        self._cache: dict[str, tuple[bool, int, dict[str, Any]]] = {}
         self._lock = threading.Lock()
 
-    def _cache_get(self, username: str) -> Optional[bool]:
+    def _cache_get(self, username: str) -> bool | None:
         now = int(time.time())
         with self._lock:
             v = self._cache.get(username)
@@ -92,14 +95,14 @@ class OktaAuthBackend(AuthenticationBackend):
             del self._cache[username]
             return None
 
-    def _cache_set(self, username: str, result: bool, expiry_ts: Optional[int], attributes: Optional[Dict[str, Any]] = None):
+    def _cache_set(self, username: str, result: bool, expiry_ts: int | None, attributes: dict[str, Any] | None = None):
         if expiry_ts is None:
             expiry_ts = int(time.time()) + self.cache_default_ttl
         attrs = attributes or {}
         with self._lock:
             self._cache[username] = (result, int(expiry_ts), attrs)
 
-    def _call_token_endpoint(self, username: str, password: str) -> Tuple[bool, Optional[int], Dict[str, Any]]:
+    def _call_token_endpoint(self, username: str, password: str) -> tuple[bool, int | None, dict[str, Any]]:
         """
         Perform OAuth2 password grant against Okta token endpoint.
         Returns (success, expiry_ts_or_None, attributes)
@@ -121,7 +124,7 @@ class OktaAuthBackend(AuthenticationBackend):
             access_token = body.get("access_token")
             expires_in = body.get("expires_in")
             expiry_ts = None
-            if isinstance(expires_in, (int, float)):
+            if isinstance(expires_in, int | float):
                 expiry_ts = int(time.time()) + int(expires_in)
             elif access_token:
                 parsed = _parse_exp_from_jwt(access_token)
@@ -211,7 +214,7 @@ class OktaAuthBackend(AuthenticationBackend):
         logger.info("Okta authentication success for %s (cached until %s) priv=%s", username, expiry_ts, priv)
         return True
 
-    def get_user_attributes(self, username: str) -> Dict[str, Any]:
+    def get_user_attributes(self, username: str) -> dict[str, Any]:
         with self._lock:
             v = self._cache.get(username)
             if v:

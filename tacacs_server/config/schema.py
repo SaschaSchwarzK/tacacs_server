@@ -1,6 +1,5 @@
 """Pydantic schema for TACACS+ configuration validation."""
 
-from typing import Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -48,8 +47,8 @@ class TacacsConfigSchema(BaseModel):
     server: ServerConfigSchema
     auth: AuthConfigSchema
     security: SecurityConfigSchema
-    ldap: Optional[LdapConfigSchema] = None
-    okta: Optional[OktaConfigSchema] = None
+    ldap: LdapConfigSchema | None = None
+    okta: OktaConfigSchema | None = None
 
     @field_validator('auth')
     @classmethod
@@ -60,7 +59,7 @@ class TacacsConfigSchema(BaseModel):
         return value
 
 
-def validate_config_file(payload: Dict) -> TacacsConfigSchema:
+def validate_config_file(payload: dict) -> TacacsConfigSchema:
     """Validate configuration payload with Pydantic schema."""
 
     return TacacsConfigSchema(**payload)

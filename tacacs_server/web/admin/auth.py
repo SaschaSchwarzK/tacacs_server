@@ -5,10 +5,8 @@ import hashlib
 import hmac
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi import HTTPException, Request, status
 
 
 class AdminAuthConfig:
@@ -25,8 +23,8 @@ class AdminSessionManager:
 
     def __init__(self, config: AdminAuthConfig) -> None:
         self.config = config
-        self._session_token: Optional[str] = None
-        self._session_expiry: Optional[datetime] = None
+        self._session_token: str | None = None
+        self._session_expiry: datetime | None = None
 
     def login(self, username: str, password: str) -> str:
         if username != self.config.username:

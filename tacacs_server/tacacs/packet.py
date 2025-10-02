@@ -2,10 +2,11 @@
 TACACS+ Packet Structure and Encryption Handling
 """
 
-import struct
 import hashlib
-from typing import Optional
+import struct
+
 from .constants import TAC_PLUS_FLAGS, TAC_PLUS_HEADER_SIZE, TAC_PLUS_VERSION
+
 
 class TacacsPacket:
     """TACACS+ packet structure"""

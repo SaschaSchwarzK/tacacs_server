@@ -8,19 +8,16 @@ RFC 2865 - Remote Authentication Dial In User Service (RADIUS)
 RFC 2866 - RADIUS Accounting
 """
 
-import socket
 import hashlib
-import struct
-import secrets
-import threading
-import time
 import ipaddress
-from typing import Dict, Any, List, Optional, Tuple
+import socket
+import struct
+import threading
 from dataclasses import dataclass, field
-from datetime import datetime
-from tacacs_server.auth.base import AuthenticationBackend
-from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
+from typing import Any, Optional
+
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 
 logger = get_logger(__name__)
 
@@ -105,7 +102,7 @@ class RADIUSAttribute:
         return struct.pack('BB', self.attr_type, length) + self.value
     
     @classmethod
-    def unpack(cls, data: bytes) -> Tuple['RADIUSAttribute', int]:
+    def unpack(cls, data: bytes) -> tuple['RADIUSAttribute', int]:
         """Unpack attribute from bytes"""
         if len(data) < 2:
             raise ValueError("Incomplete attribute header")
@@ -138,7 +135,7 @@ class RADIUSPacket:
     """RADIUS packet structure"""
     
     def __init__(self, code: int, identifier: int, authenticator: bytes,
-                 attributes: Optional[List[RADIUSAttribute]] = None):
+                 attributes: list[RADIUSAttribute] | None = None):
         self.code = code
         self.identifier = identifier
         self.authenticator = authenticator  # 16 bytes
@@ -244,19 +241,19 @@ class RADIUSPacket:
         parts = [int(p) for p in ip.split('.')]
         self.add_attribute(attr_type, bytes(parts))
     
-    def get_attribute(self, attr_type: int) -> Optional[RADIUSAttribute]:
+    def get_attribute(self, attr_type: int) -> RADIUSAttribute | None:
         """Get first attribute of given type"""
         for attr in self.attributes:
             if attr.attr_type == attr_type:
                 return attr
         return None
     
-    def get_string(self, attr_type: int) -> Optional[str]:
+    def get_string(self, attr_type: int) -> str | None:
         """Get string attribute value"""
         attr = self.get_attribute(attr_type)
         return attr.as_string() if attr else None
     
-    def get_integer(self, attr_type: int) -> Optional[int]:
+    def get_integer(self, attr_type: int) -> int | None:
         """Get integer attribute value"""
         attr = self.get_attribute(attr_type)
         try:
@@ -280,9 +277,9 @@ class RadiusClient:
     network: ipaddress._BaseNetwork
     secret: str
     name: str
-    group: Optional[str] = None
-    attributes: Dict[str, Any] = field(default_factory=dict)
-    allowed_user_groups: List[str] = field(default_factory=list)
+    group: str | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+    allowed_user_groups: list[str] = field(default_factory=list)
 
     def contains(self, ip: str) -> bool:
         try:
@@ -327,7 +324,7 @@ class RADIUSServer:
         
         # Client configuration (RADIUS client devices)
         self._client_lock = threading.RLock()
-        self.clients: List[RadiusClient] = []
+        self.clients: list[RadiusClient] = []
 
     def add_auth_backend(self, backend):
         """Add authentication backend (shared with TACACS+)"""
@@ -346,11 +343,11 @@ class RADIUSServer:
         self,
         network: str,
         secret: str,
-        name: Optional[str] = None,
+        name: str | None = None,
         *,
-        group: Optional[str] = None,
-        attributes: Optional[Dict[str, Any]] = None,
-        allowed_user_groups: Optional[List[str]] = None,
+        group: str | None = None,
+        attributes: dict[str, Any] | None = None,
+        allowed_user_groups: list[str] | None = None,
     ) -> bool:
         """Add a RADIUS client by IP or network."""
         try:
@@ -374,7 +371,7 @@ class RADIUSServer:
         logger.info("RADIUS: Added client %s (%s)", client.name, client.network)
         return True
 
-    def load_clients(self, clients: List['RadiusClient']) -> None:
+    def load_clients(self, clients: list['RadiusClient']) -> None:
         """Replace current clients with pre-built entries (e.g. from DeviceStore)."""
         with self._client_lock:
             self.clients = sorted(clients, key=lambda entry: entry.network.prefixlen, reverse=True)
@@ -382,7 +379,7 @@ class RADIUSServer:
 
     def refresh_clients(self, client_configs) -> None:
         """Rebuild client list from iterable configs (network, secret, etc.)."""
-        new_clients: List[RadiusClient] = []
+        new_clients: list[RadiusClient] = []
         for cfg in client_configs:
             try:
                 network = getattr(cfg, "network")
@@ -476,7 +473,7 @@ class RADIUSServer:
                         args=(data, addr),
                         daemon=True
                     ).start()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except Exception as e:
                     if self.running:
@@ -508,7 +505,7 @@ class RADIUSServer:
                         args=(data, addr),
                         daemon=True
                     ).start()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except Exception as e:
                     if self.running:
@@ -521,7 +518,7 @@ class RADIUSServer:
             if self.acct_socket:
                 self.acct_socket.close()
     
-    def _handle_auth_request(self, data: bytes, addr: Tuple[str, int]):
+    def _handle_auth_request(self, data: bytes, addr: tuple[str, int]):
         """Handle authentication request"""
         client_ip, client_port = addr
 
@@ -623,7 +620,7 @@ class RADIUSServer:
             logger.error("Error handling RADIUS auth request from %s: %s", client_ip, e)
             self.stats['invalid_packets'] += 1
 
-    def _handle_acct_request(self, data: bytes, addr: Tuple[str, int]):
+    def _handle_acct_request(self, data: bytes, addr: tuple[str, int]):
         """Handle accounting request"""
         client_ip, client_port = addr
 
@@ -685,7 +682,7 @@ class RADIUSServer:
         if not self.auth_backends:
             return False, 'no authentication backends configured'
 
-        last_error: Optional[str] = None
+        last_error: str | None = None
         for backend in self.auth_backends:
             try:
                 if backend.authenticate(username, password):
@@ -701,7 +698,7 @@ class RADIUSServer:
 
         return False, 'no backend accepted credentials'
     
-    def _get_user_attributes(self, username: str) -> Dict[str, Any]:
+    def _get_user_attributes(self, username: str) -> dict[str, Any]:
         """Get user attributes from backends"""
         for backend in self.auth_backends:
             try:
@@ -713,7 +710,7 @@ class RADIUSServer:
         
         return {}
 
-    def _apply_user_group_policy(self, client: RadiusClient, user_attrs: Dict[str, Any]) -> tuple[bool, str]:
+    def _apply_user_group_policy(self, client: RadiusClient, user_attrs: dict[str, Any]) -> tuple[bool, str]:
         context = PolicyContext(
             device_group_name=getattr(client, "group", None),
             allowed_user_groups=getattr(client, "allowed_user_groups", []),
@@ -721,7 +718,7 @@ class RADIUSServer:
             fallback_privilege=user_attrs.get('privilege_level', 1),
         )
 
-        def _lookup_privilege(group_name: str) -> Optional[int]:
+        def _lookup_privilege(group_name: str) -> int | None:
             if not self.local_user_group_service:
                 return None
             record = self.local_user_group_service.get_group(group_name)
@@ -732,7 +729,7 @@ class RADIUSServer:
         return result.allowed, result.denial_message
     
     def _create_access_accept(self, request: RADIUSPacket, 
-                            user_attrs: Dict[str, Any]) -> RADIUSPacket:
+                            user_attrs: dict[str, Any]) -> RADIUSPacket:
         """Create Access-Accept response"""
         response = RADIUSPacket(
             code=RADIUS_ACCESS_ACCEPT,
@@ -773,7 +770,7 @@ class RADIUSServer:
         
         return response
     
-    def _send_response(self, response: RADIUSPacket, addr: Tuple[str, int],
+    def _send_response(self, response: RADIUSPacket, addr: tuple[str, int],
                       secret: bytes, request_auth: bytes):
         """Send RADIUS response"""
         try:
@@ -807,7 +804,7 @@ class RADIUSServer:
             # Try to parse session ID as integer
             try:
                 session_id = int(session_id_str) if session_id_str.isdigit() else hash(session_id_str) & 0xFFFFFFFF
-            except:
+            except Exception:
                 session_id = hash(session_id_str) & 0xFFFFFFFF
             
             record = AccountingRecord(
@@ -828,7 +825,7 @@ class RADIUSServer:
         except Exception as e:
             logger.error(f"Error logging RADIUS accounting: {e}")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get server statistics"""
         return {
             'auth_requests': self.stats['auth_requests'],

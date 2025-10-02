@@ -3,7 +3,8 @@ Abstract Authentication Backend Base Class
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any
+
 
 class AuthenticationBackend(ABC):
     """Abstract authentication backend"""
@@ -27,7 +28,7 @@ class AuthenticationBackend(ABC):
         pass
     
     @abstractmethod
-    def get_user_attributes(self, username: str) -> Dict[str, Any]:
+    def get_user_attributes(self, username: str) -> dict[str, Any]:
         """
         Get user attributes for authorization
         

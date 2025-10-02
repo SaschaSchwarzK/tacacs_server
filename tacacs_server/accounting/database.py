@@ -2,14 +2,14 @@
 Simple SQLite accounting database logger for TACACS+ server.
 """
 
-import sqlite3
 import queue
-from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+import sqlite3
 import threading
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import monotonic
-from typing import Optional, Any, Dict, List, Tuple
+from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
@@ -64,10 +64,12 @@ class DatabasePool:
 class DatabaseLogger:
     RECENT_WINDOW_DAYS = 30
     STATS_CACHE_TTL_SECONDS = 60
-    def __init__(self, db_path: str = "data/tacacs_accounting.db", maintain_mv: bool = True):
+    def __init__(
+        self, db_path: str = "data/tacacs_accounting.db", maintain_mv: bool = True
+    ):
         self.db_path = db_path
-        self.conn: Optional[sqlite3.Connection] = None
-        self._stats_cache: Dict[int, Tuple[float, Dict[str, Any]]] = {}
+        self.conn: sqlite3.Connection | None = None
+        self._stats_cache: dict[int, tuple[float, dict[str, Any]]] = {}
         self.maintain_mv = maintain_mv
 
         try:
@@ -75,7 +77,9 @@ class DatabaseLogger:
             if not db_file.parent.exists():
                 db_file.parent.mkdir(parents=True, exist_ok=True)
             
-            self.conn = sqlite3.connect(str(db_file), timeout=10, check_same_thread=False)
+            self.conn = sqlite3.connect(
+                str(db_file), timeout=10, check_same_thread=False
+            )
             # Enable foreign keys
             self.conn.execute("PRAGMA foreign_keys = ON;")
             self.conn.execute("PRAGMA journal_mode = WAL;")
@@ -92,7 +96,7 @@ class DatabaseLogger:
             if self.conn:
                 try:
                     self.conn.close()
-                except:
+                except Exception:
                     pass
             self.conn = None
             self.pool = None
@@ -100,9 +104,9 @@ class DatabaseLogger:
 
     def _now_utc_iso(self) -> str:
         """Return current UTC timestamp as ISO string."""
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
-    def _compute_is_recent(self, timestamp_str: Optional[str]) -> int:
+    def _compute_is_recent(self, timestamp_str: str | None) -> int:
         """Determine if timestamp falls within the recent statistics window."""
         if not timestamp_str:
             return 1
@@ -111,15 +115,15 @@ class DatabaseLogger:
         except ValueError:
             return 0
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.RECENT_WINDOW_DAYS)
+            ts = ts.replace(tzinfo=UTC)
+        cutoff = datetime.now(UTC) - timedelta(days=self.RECENT_WINDOW_DAYS)
         return 1 if ts >= cutoff else 0
 
     def _invalidate_stats_cache(self):
         """Flush cached statistics."""
         self._stats_cache.clear()
 
-    def _invalidate_stats_cache_for_timestamp(self, timestamp_str: Optional[str]):
+    def _invalidate_stats_cache_for_timestamp(self, timestamp_str: str | None):
         if not self._stats_cache:
             return
         if not timestamp_str:
@@ -129,12 +133,15 @@ class DatabaseLogger:
         try:
             ts = datetime.fromisoformat(timestamp_str)
         except ValueError:
-            logger.debug("Statistics cache cleared due to unparsable timestamp: %s", timestamp_str)
+            logger.debug(
+                "Statistics cache cleared due to unparsable timestamp: %s",
+                timestamp_str,
+            )
             self._invalidate_stats_cache()
             return
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        now_utc = datetime.now(timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
+        now_utc = datetime.now(UTC)
         trimmed_any = False
         for days in list(self._stats_cache.keys()):
             cutoff = now_utc - timedelta(days=days)
@@ -144,7 +151,7 @@ class DatabaseLogger:
         if trimmed_any:
             logger.debug("Statistics cache pruned for timestamp %s", timestamp_str)
 
-    def _get_cached_stats(self, days: int) -> Optional[Dict[str, Any]]:
+    def _get_cached_stats(self, days: int) -> dict[str, Any] | None:
         entry = self._stats_cache.get(days)
         if not entry:
             return None
@@ -154,8 +161,11 @@ class DatabaseLogger:
             return None
         return dict(payload)
 
-    def _set_cached_stats(self, days: int, payload: Dict[str, Any]):
-        self._stats_cache[days] = (monotonic() + self.STATS_CACHE_TTL_SECONDS, dict(payload))
+    def _set_cached_stats(self, days: int, payload: dict[str, Any]):
+        self._stats_cache[days] = (
+            monotonic() + self.STATS_CACHE_TTL_SECONDS,
+            dict(payload),
+        )
 
     def _initialize_schema(self):
         """Create tables and indexes in a SQLite-compatible way."""
@@ -179,10 +189,12 @@ class DatabaseLogger:
                 """
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_accounting_session_id ON accounting(session_id);"
+                "CREATE INDEX IF NOT EXISTS idx_accounting_session_id "
+                "ON accounting(session_id);"
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_accounting_username ON accounting(username);"
+                "CREATE INDEX IF NOT EXISTS idx_accounting_username "
+                "ON accounting(username);"
             )
 
             # Active session tracking table used by pooled logger helpers
@@ -203,10 +215,12 @@ class DatabaseLogger:
                 """
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_active_sessions_username ON active_sessions(username);"
+                "CREATE INDEX IF NOT EXISTS idx_active_sessions_username "
+                "ON active_sessions(username);"
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_active_sessions_last_update ON active_sessions(last_update);"
+                "CREATE INDEX IF NOT EXISTS idx_active_sessions_last_update "
+                "ON active_sessions(last_update);"
             )
 
             # Primary logging table for aggregated statistics
@@ -252,7 +266,8 @@ class DatabaseLogger:
                 cur.execute(f"DROP INDEX IF EXISTS {index_name};")
 
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_user_timestamp ON accounting_logs(username, timestamp DESC);"
+                "CREATE INDEX IF NOT EXISTS idx_user_timestamp "
+                "ON accounting_logs(username, timestamp DESC);"
             )
             cur.execute(
                 """
@@ -262,7 +277,8 @@ class DatabaseLogger:
                 """
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_session_id ON accounting_logs(session_id);"
+                "CREATE INDEX IF NOT EXISTS idx_session_id "
+                "ON accounting_logs(session_id);"
             )
 
             if self.maintain_mv:
@@ -320,7 +336,8 @@ class DatabaseLogger:
                         ON CONFLICT(stat_date)
                         DO UPDATE SET total_records = total_records + 1;
 
-                        INSERT OR IGNORE INTO mv_daily_unique_users(stat_date, username, first_seen_ts)
+                        INSERT OR IGNORE INTO 
+                        mv_daily_unique_users(stat_date, username, first_seen_ts)
                         VALUES (date(NEW.timestamp), NEW.username, NEW.timestamp);
                     END;
                     """
@@ -377,7 +394,8 @@ class DatabaseLogger:
                         ON CONFLICT(stat_date)
                         DO UPDATE SET total_records = total_records + 1;
 
-                        INSERT OR IGNORE INTO mv_daily_unique_users(stat_date, username, first_seen_ts)
+                        INSERT OR IGNORE INTO 
+                        mv_daily_unique_users(stat_date, username, first_seen_ts)
                         VALUES (date(NEW.timestamp), NEW.username, NEW.timestamp);
                     END;
                     """
@@ -386,7 +404,8 @@ class DatabaseLogger:
                     """
                     CREATE TRIGGER trg_accounting_logs_update_username
                     AFTER UPDATE OF username ON accounting_logs
-                    WHEN date(NEW.timestamp) = date(OLD.timestamp) AND NEW.username <> OLD.username
+                    WHEN date(NEW.timestamp) = date(OLD.timestamp) 
+                    AND NEW.username <> OLD.username
                     BEGIN
                         DELETE FROM mv_daily_unique_users
                         WHERE stat_date = date(OLD.timestamp)
@@ -397,7 +416,8 @@ class DatabaseLogger:
                                 AND date(timestamp) = date(OLD.timestamp)
                           );
 
-                        INSERT OR IGNORE INTO mv_daily_unique_users(stat_date, username, first_seen_ts)
+                        INSERT OR IGNORE INTO 
+                        mv_daily_unique_users(stat_date, username, first_seen_ts)
                         VALUES (date(NEW.timestamp), NEW.username, NEW.timestamp);
                     END;
                     """
@@ -444,7 +464,10 @@ class DatabaseLogger:
                 conn.execute(query, values)
                 # Connection is automatically committed by the context manager
                 
-                logger.info(f"Accounting logged: {record.username}@{record.session_id} - {record.command} [{record.status}]")
+                logger.info(
+                    f"Accounting logged: {record.username}@{record.session_id} - "
+                    f"{record.command} [{record.status}]"
+                )
 
             # Update active sessions once the write transaction has closed
             if status == 'START':
@@ -468,7 +491,8 @@ class DatabaseLogger:
             with self.pool.get_connection() as conn:
                 conn.execute('''
                     INSERT OR REPLACE INTO active_sessions 
-                    (session_id, username, client_ip, start_time, last_update, service, port, privilege_level)
+                    (session_id, username, client_ip, start_time, last_update, 
+                     service, port, privilege_level)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     record.session_id,
@@ -504,7 +528,10 @@ class DatabaseLogger:
         """Stop tracking an active session using pool"""
         try:
             with self.pool.get_connection() as conn:
-                conn.execute('DELETE FROM active_sessions WHERE session_id = ?', (record.session_id,))
+                conn.execute(
+                    'DELETE FROM active_sessions WHERE session_id = ?', 
+                    (record.session_id,)
+                )
         except Exception as e:
             logger.error(f"Failed to stop session tracking with pool: {e}")
 
@@ -526,7 +553,7 @@ class DatabaseLogger:
         self.close()
 
 
-    def log_accounting_original(self, record: Dict[str, Any]) -> bool:
+    def log_accounting_original(self, record: dict[str, Any]) -> bool:
         """Original log_accounting method as fallback"""
         if not self.conn:
             logger.error("Database connection not available")
@@ -545,7 +572,10 @@ class DatabaseLogger:
             is_recent = self._compute_is_recent(timestamp_value)
             cur.execute(
                 """
-                INSERT INTO accounting (session_id, username, acct_type, start_time, stop_time, bytes_in, bytes_out, attributes)
+                INSERT INTO accounting (
+                    session_id, username, acct_type, start_time, stop_time, 
+                    bytes_in, bytes_out, attributes
+                )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -602,7 +632,7 @@ class DatabaseLogger:
             logger.exception("Failed to write accounting record")
             return False
     
-    def get_statistics(self, days: int = 30) -> Dict[str, Any]:
+    def get_statistics(self, days: int = 30) -> dict[str, Any]:
         """Return aggregate accounting stats for the requested window."""
         days = max(int(days), 0)
         date_offset = f'-{days} days'
@@ -621,7 +651,7 @@ class DatabaseLogger:
             except (IndexError, TypeError):
                 return 0
 
-        def _fetch_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
+        def _fetch_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             conn.row_factory = sqlite3.Row
             if self.maintain_mv:
                 try:
@@ -643,7 +673,10 @@ class DatabaseLogger:
                             'unique_users': _row_value(row, 'unique_users', 1)
                         }
                 except sqlite3.Error as exc:
-                    logger.warning("mv_daily_stats unavailable (%s); falling back to live counts", exc)
+                    logger.warning(
+                        "mv_daily_stats unavailable (%s); falling back to live counts",
+                        exc,
+                    )
 
             cursor = conn.execute(
                 """
@@ -679,7 +712,9 @@ class DatabaseLogger:
             logger.error(f"Failed to gather statistics: {exc}")
             return {'period_days': days, 'total_records': 0, 'unique_users': 0}
 
-    def get_recent_records(self, since: datetime, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_recent_records(
+        self, since: datetime, limit: int = 100
+    ) -> list[dict[str, Any]]:
         """Get recent accounting records for monitoring"""
         try:
             if self.pool:
@@ -708,22 +743,22 @@ class DatabaseLogger:
             logger.error(f"Failed to get recent records: {e}")
             return []
     
-    def get_hourly_stats(self, hours: int = 24) -> List[Dict[str, Any]]:
+    def get_hourly_stats(self, hours: int = 24) -> list[dict[str, Any]]:
         """Get hourly statistics for charts"""
         try:
             if self.pool:
                 with self.pool.get_connection() as conn:
-                    cursor = conn.execute('''
+                    cursor = conn.execute(f'''
                         SELECT 
                             strftime('%Y-%m-%d %H:00:00', timestamp) as hour,
                             COUNT(*) as total,
                             SUM(CASE WHEN status = 'START' THEN 1 ELSE 0 END) as starts,
                             SUM(CASE WHEN status = 'STOP' THEN 1 ELSE 0 END) as stops
                         FROM accounting_logs 
-                        WHERE timestamp >= datetime('now', '-{} hours')
+                        WHERE timestamp >= datetime('now', '-{hours} hours')
                         GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp)
                         ORDER BY hour
-                    '''.format(hours))
+                    ''')
                     return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get hourly stats: {e}")

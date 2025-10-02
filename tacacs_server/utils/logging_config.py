@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import traceback
+from collections.abc import Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 __all__ = [
     "configure_logging",
@@ -47,7 +48,7 @@ _STANDARD_ATTRS: Iterable[str] = {
     "taskName",
 }
 
-_context: ContextVar[Dict[str, Any]] = ContextVar("structured_logging_context", default={})
+_context: ContextVar[dict[str, Any]] = ContextVar("structured_logging_context", default={})
 _logging_configured = False
 
 
@@ -63,8 +64,8 @@ class StructuredJSONFormatter(logging.Formatter):
         self.utc = utc
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.now(timezone.utc if self.utc else None).isoformat()
-        payload: Dict[str, Any] = {
+        timestamp = datetime.now(UTC if self.utc else None).isoformat()
+        payload: dict[str, Any] = {
             "timestamp": timestamp,
             "level": record.levelname,
             "logger": record.name,
@@ -97,7 +98,7 @@ class StructuredJSONFormatter(logging.Formatter):
 class StructuredLoggerAdapter(logging.LoggerAdapter):
     """Logger adapter that merges thread-local context with static context."""
 
-    def process(self, msg: str, kwargs: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
+    def process(self, msg: str, kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         extra = kwargs.setdefault("extra", {})
 
         custom_fields = {
@@ -118,9 +119,9 @@ class StructuredLoggerAdapter(logging.LoggerAdapter):
 def configure_logging(
     level: int = logging.INFO,
     *,
-    stream: Optional[Any] = None,
-    handlers: Optional[Iterable[logging.Handler]] = None,
-    formatter: Optional[logging.Formatter] = None,
+    stream: Any | None = None,
+    handlers: Iterable[logging.Handler] | None = None,
+    formatter: logging.Formatter | None = None,
     reset: bool = True,
 ) -> None:
     """Configure root logging with structured JSON output."""
@@ -174,7 +175,7 @@ def bind_context(**kwargs: Any) -> Token:
     return _context.set(current)
 
 
-def clear_context(token: Optional[Token] = None) -> None:
+def clear_context(token: Token | None = None) -> None:
     """Clear contextual information, optionally using a context token."""
     if token is not None:
         _context.reset(token)

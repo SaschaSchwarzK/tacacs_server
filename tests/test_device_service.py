@@ -76,8 +76,8 @@ def test_group_delete_with_devices(device_service: DeviceService):
 
 
 def test_device_crud(device_service: DeviceService):
-    core = device_service.create_group("core", radius_secret="radius123")
-    edge = device_service.create_group("edge")
+    device_service.create_group("core", radius_secret="radius123")
+    device_service.create_group("edge")
 
     device = device_service.create_device(
         name="router1",

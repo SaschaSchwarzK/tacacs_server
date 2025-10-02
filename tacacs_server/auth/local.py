@@ -1,10 +1,14 @@
 """Local SQLite-Based Authentication Backend."""
 
 import threading
+from collections.abc import Callable
 from dataclasses import replace
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+
+from tacacs_server.utils.logger import get_logger
 
 from .base import AuthenticationBackend
+from .local_models import LocalUserRecord
 from .local_user_service import (
     LocalUserExists,
     LocalUserNotFound,
@@ -12,8 +16,6 @@ from .local_user_service import (
     LocalUserServiceError,
     LocalUserValidationError,
 )
-from .local_models import LocalUserRecord
-from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -21,13 +23,13 @@ logger = get_logger(__name__)
 class LocalAuthBackend(AuthenticationBackend):
     """Local authentication backend backed by :class:`LocalUserService`."""
 
-    def __init__(self, db_path: str = "data/local_auth.db", *, service: Optional[LocalUserService] = None):
+    def __init__(self, db_path: str = "data/local_auth.db", *, service: LocalUserService | None = None):
         super().__init__("local")
         self.db_path = db_path
         self.user_service = service or LocalUserService(db_path)
-        self._user_cache: Dict[str, LocalUserRecord] = {}
+        self._user_cache: dict[str, LocalUserRecord] = {}
         self._cache_lock = threading.RLock()
-        self._listener_remove: Optional[Callable[[], None]] = None
+        self._listener_remove: Callable[[], None] | None = None
         self._attach_user_service(self.user_service)
 
     def _attach_user_service(self, service: LocalUserService) -> None:
@@ -78,7 +80,7 @@ class LocalAuthBackend(AuthenticationBackend):
             logger.info("Authentication failed for %s", username)
         return result
 
-    def get_user_attributes(self, username: str) -> Dict[str, Any]:
+    def get_user_attributes(self, username: str) -> dict[str, Any]:
         try:
             user = self._get_user(username)
         except LocalUserNotFound:
@@ -136,7 +138,7 @@ class LocalAuthBackend(AuthenticationBackend):
             logger.error("Failed to reload users: %s", exc)
             return False
 
-    def invalidate_user_cache(self, username: Optional[str] = None) -> None:
+    def invalidate_user_cache(self, username: str | None = None) -> None:
         with self._cache_lock:
             if username is None:
                 self._user_cache.clear()
@@ -175,7 +177,7 @@ class LocalAuthBackend(AuthenticationBackend):
     def is_available(self) -> bool:
         return True
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         users = self.user_service.list_users()
         enabled_users = sum(1 for user in users if user.enabled)
         return {

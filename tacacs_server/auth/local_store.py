@@ -4,12 +4,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, List, Optional
 
-from .local_models import LocalUserRecord, LocalUserGroupRecord
-
+from .local_models import LocalUserGroupRecord, LocalUserRecord
 
 UNSET = object()
 
@@ -90,7 +89,7 @@ class LocalAuthStore:
         return json.dumps(list(values) if values is not None else [])
 
     @staticmethod
-    def _load_list(payload: str | None) -> List[str]:
+    def _load_list(payload: str | None) -> list[str]:
         if not payload:
             return []
         try:
@@ -126,12 +125,12 @@ class LocalAuthStore:
     # ------------------------------------------------------------------
     # User operations
     # ------------------------------------------------------------------
-    def list_users(self) -> List[LocalUserRecord]:
+    def list_users(self) -> list[LocalUserRecord]:
         with self._lock:
             cur = self._conn.execute("SELECT * FROM local_users ORDER BY username")
             return [self._row_to_user(row) for row in cur.fetchall()]
 
-    def get_user(self, username: str) -> Optional[LocalUserRecord]:
+    def get_user(self, username: str) -> LocalUserRecord | None:
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM local_users WHERE username = ?",
@@ -142,7 +141,7 @@ class LocalAuthStore:
 
     def insert_user(self, record: LocalUserRecord) -> LocalUserRecord:
         with self._lock:
-            cur = self._conn.execute(
+            self._conn.execute(
                 """
                 INSERT INTO local_users (
                     username, password, password_hash, privilege_level,
@@ -171,13 +170,13 @@ class LocalAuthStore:
         self,
         username: str,
         *,
-        privilege_level: Optional[int] = None,
-        service: Optional[str] = None,
-        shell_command: Optional[Iterable[str]] = None,
-        groups: Optional[Iterable[str]] = None,
-        enabled: Optional[bool] = None,
-        description: Optional[str] = None,
-    ) -> Optional[LocalUserRecord]:
+        privilege_level: int | None = None,
+        service: str | None = None,
+        shell_command: Iterable[str] | None = None,
+        groups: Iterable[str] | None = None,
+        enabled: bool | None = None,
+        description: str | None = None,
+    ) -> LocalUserRecord | None:
         assignments = []
         params: list = []
         if privilege_level is not None:
@@ -221,9 +220,9 @@ class LocalAuthStore:
         self,
         username: str,
         *,
-        password: Optional[str],
-        password_hash: Optional[str],
-    ) -> Optional[LocalUserRecord]:
+        password: str | None,
+        password_hash: str | None,
+    ) -> LocalUserRecord | None:
         with self._lock:
             cur = self._conn.execute(
                 """
@@ -253,14 +252,14 @@ class LocalAuthStore:
     # ------------------------------------------------------------------
     # Group operations
     # ------------------------------------------------------------------
-    def list_groups(self) -> List[LocalUserGroupRecord]:
+    def list_groups(self) -> list[LocalUserGroupRecord]:
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM local_user_groups ORDER BY lower(name)"
             )
             return [self._row_to_group(row) for row in cur.fetchall()]
 
-    def get_group(self, name: str) -> Optional[LocalUserGroupRecord]:
+    def get_group(self, name: str) -> LocalUserGroupRecord | None:
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM local_user_groups WHERE name = ?",
@@ -273,7 +272,7 @@ class LocalAuthStore:
         metadata_payload = dict(record.metadata or {})
         metadata_payload["privilege_level"] = int(record.privilege_level)
         with self._lock:
-            cur = self._conn.execute(
+            self._conn.execute(
                 """
                 INSERT INTO local_user_groups (
                     name, description, metadata, ldap_group, okta_group,
@@ -297,11 +296,11 @@ class LocalAuthStore:
         self,
         name: str,
         *,
-        description: Optional[str] = None,
-        metadata: Optional[dict] = None,
-        ldap_group: Optional[str] | object = UNSET,
-        okta_group: Optional[str] | object = UNSET,
-    ) -> Optional[LocalUserGroupRecord]:
+        description: str | None = None,
+        metadata: dict | None = None,
+        ldap_group: str | None | object = UNSET,
+        okta_group: str | None | object = UNSET,
+    ) -> LocalUserGroupRecord | None:
         assignments = []
         params: list = []
         if description is not None:

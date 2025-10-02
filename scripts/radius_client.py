@@ -5,11 +5,12 @@ RADIUS Test Client
 Usage: python test_radius_client.py [server] [port] [secret] [username] [password]
 """
 
-import socket
 import hashlib
-import struct
 import secrets
+import socket
+import struct
 import sys
+
 
 def create_access_request(username: str, password: str, 
                          identifier: int, secret: bytes) -> bytes:
@@ -62,7 +63,7 @@ def test_radius_auth(server='localhost', port=1812, secret='radius123',
                     username='admin', password='admin123'):
     """Test RADIUS authentication"""
     
-    print(f"Testing RADIUS authentication:")
+    print("Testing RADIUS authentication:")
     print(f"  Server: {server}:{port}")
     print(f"  Username: {username}")
     print(f"  Password: {'*' * len(password)}")
@@ -105,7 +106,9 @@ def test_radius_auth(server='localhost', port=1812, secret='radius123',
             while offset < length:
                 if offset + 2 > len(response_data):
                     break
-                attr_type, attr_len = struct.unpack('BB', response_data[offset:offset+2])
+                attr_type, attr_len = struct.unpack(
+                    'BB', response_data[offset:offset+2]
+                )
                 if attr_len < 2 or offset + attr_len > len(response_data):
                     break
                 
@@ -127,7 +130,7 @@ def test_radius_auth(server='localhost', port=1812, secret='radius123',
             print(f"Unexpected response code: {code}")
             return False
             
-    except socket.timeout:
+    except TimeoutError:
         print("✗ Request timed out - server not responding")
         return False
     except Exception as e:

@@ -1,4 +1,3 @@
-import pytest
 
 def test_test_client_script_runs(run_test_client, server_process):
     host = server_process["host"]

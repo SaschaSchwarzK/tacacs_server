@@ -1,11 +1,11 @@
-import configparser
+import base64
 import json
 import time
-import base64
-from pathlib import Path
+
 import requests
-import pytest
+
 from tacacs_server.auth.okta_auth import OktaAuthBackend
+
 
 def _make_jwt_with_exp(seconds_from_now: int) -> str:
     payload = {'exp': int(time.time()) + seconds_from_now}

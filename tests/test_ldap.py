@@ -1,8 +1,8 @@
 import importlib
+import inspect
 import sys
 import types
-import inspect
-import pytest
+
 
 def _inject_fake_ldap3(monkeypatch):
     fake = types.ModuleType("ldap3")

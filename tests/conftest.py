@@ -1,12 +1,14 @@
 import os
-import sys
-import subprocess
-import time
 import socket
+import subprocess
+import sys
+import time
 from pathlib import Path
+
 import pytest
 
 from tacacs_server.auth.local_user_service import LocalUserService
+
 
 def _venv_python(root: Path) -> str:
     candidate = root / ".venv" / "bin" / "python"

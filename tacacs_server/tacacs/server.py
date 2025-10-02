@@ -4,22 +4,31 @@ TACACS+ Server Main Class
 import socket
 import threading
 import time
+from typing import TYPE_CHECKING, Any
+
 import psutil
-from collections import Counter
-from ..utils.exceptions import TacacsException
-from typing import List, Tuple, Optional, Dict, Any
-from .packet import TacacsPacket
-from .handlers import AAAHandlers
-from ..utils.metrics import MetricsCollector
-from .constants import *
+
 from tacacs_server.auth.base import AuthenticationBackend
+
 from ..accounting.database import DatabaseLogger
-from typing import TYPE_CHECKING
 from ..utils.logger import get_logger
+from ..utils.metrics import MetricsCollector
+from .constants import (
+    TAC_PLUS_ACCT_STATUS,
+    TAC_PLUS_AUTHEN_STATUS,
+    TAC_PLUS_AUTHOR_STATUS,
+    TAC_PLUS_DEFAULT_PORT,
+    TAC_PLUS_FLAGS,
+    TAC_PLUS_HEADER_SIZE,
+    TAC_PLUS_MAJOR_VER,
+    TAC_PLUS_PACKET_TYPE,
+)
+from .handlers import AAAHandlers
+from .packet import TacacsPacket
 
 if TYPE_CHECKING:
-    from ..web.monitoring import TacacsMonitoringAPI
     from ..devices import DeviceStore
+    from ..web.monitoring import TacacsMonitoringAPI
 
 logger = get_logger(__name__)
 
@@ -30,19 +39,19 @@ class TacacsServer:
         self.host = host
         self.port = port
         self.secret_key = secret_key
-        self.auth_backends: List[AuthenticationBackend] = []
+        self.auth_backends: list[AuthenticationBackend] = []
         self.db_logger = DatabaseLogger()
         self.handlers = AAAHandlers(self.auth_backends, self.db_logger)
         self.running = False
-        self.server_socket: Optional[socket.socket] = None
+        self.server_socket: socket.socket | None = None
         self.stats = {'connections_total': 0, 'connections_active': 0, 'auth_requests': 0, 'auth_success': 0, 'auth_failures': 0, 'author_requests': 0, 'author_success': 0, 'author_failures': 0, 'acct_requests': 0, 'acct_success': 0, 'acct_failures': 0}
         self.start_time = time.time()
         self.metrics = MetricsCollector()
-        self.monitoring_api: Optional['TacacsMonitoringAPI'] = None
+        self.monitoring_api: TacacsMonitoringAPI | None = None
         self.enable_monitoring = False
-        self.device_store: Optional['DeviceStore'] = None
+        self.device_store: DeviceStore | None = None
         self._session_lock = threading.RLock()
-        self.session_secrets: Dict[int, str] = {}
+        self.session_secrets: dict[int, str] = {}
 
     def enable_web_monitoring(self, web_host="127.0.0.1", web_port=8080, radius_server=None):
         """Enable web monitoring interface"""
@@ -128,7 +137,7 @@ class TacacsServer:
                     logger.debug('New connection from %s', address)
                     client_thread = threading.Thread(target=self._handle_client, args=(client_socket, address), daemon=True)
                     client_thread.start()
-                except socket.error as e:
+                except OSError as e:
                     if self.running:
                         logger.error('Socket error: %s', e)
                     break
@@ -156,7 +165,7 @@ class TacacsServer:
                 pass
             self.server_socket.close()
 
-    def _handle_client(self, client_socket: socket.socket, address: Tuple[str, int]):
+    def _handle_client(self, client_socket: socket.socket, address: tuple[str, int]):
         """Handle client connection"""
         session_ids: set[int] = set()
         connection_device = None
@@ -194,10 +203,10 @@ class TacacsServer:
                         client_socket.send(response_data)
                         if response.flags & TAC_PLUS_FLAGS.TAC_PLUS_SINGLE_CONNECT_FLAG:
                             break
-                except socket.timeout:
+                except TimeoutError:
                     logger.debug('Client timeout: %s', address)
                     break
-                except socket.error as e:
+                except OSError as e:
                     logger.debug('Client socket error %s: %s', address, e)
                     break
                 except Exception as e:
@@ -230,7 +239,7 @@ class TacacsServer:
                 self.handlers.session_device[session_id] = device_record
             return secret
 
-    def _resolve_tacacs_secret(self, device_record) -> Optional[str]:
+    def _resolve_tacacs_secret(self, device_record) -> str | None:
         """Resolve TACACS shared secret strictly from device group configuration."""
         if not device_record:
             return None
@@ -246,7 +255,7 @@ class TacacsServer:
                 return str(secret)
         return None
 
-    def _recv_exact(self, sock: socket.socket, length: int) -> Optional[bytes]:
+    def _recv_exact(self, sock: socket.socket, length: int) -> bytes | None:
         """Receive exactly the specified number of bytes"""
         data = b''
         while len(data) < length:
@@ -255,7 +264,7 @@ class TacacsServer:
                 if not chunk:
                     return None
                 data += chunk
-            except socket.error:
+            except OSError:
                 return None
         return data
 
@@ -273,7 +282,7 @@ class TacacsServer:
             return False
         return True
 
-    def _process_packet(self, packet: TacacsPacket, address: Tuple[str, int], device_record=None) -> Optional[TacacsPacket]:
+    def _process_packet(self, packet: TacacsPacket, address: tuple[str, int], device_record=None) -> TacacsPacket | None:
         """Process incoming packet and return response"""
         try:
             logger.debug(f'Processing packet from {address}: {packet}')
@@ -337,7 +346,7 @@ class TacacsServer:
         self.stats = {'connections_total': 0, 'connections_active': self.stats['connections_active'], 'auth_requests': 0, 'auth_success': 0, 'auth_failures': 0, 'author_requests': 0, 'author_success': 0, 'author_failures': 0, 'acct_requests': 0, 'acct_success': 0, 'acct_failures': 0}
         logger.info('Server statistics reset')
 
-    def get_health_status(self) -> Dict[str, Any]:
+    def get_health_status(self) -> dict[str, Any]:
         """Get server health status"""
         return {
             'status': 'healthy' if self.running else 'stopped',
@@ -355,7 +364,7 @@ class TacacsServer:
             'memory_usage': self._get_memory_usage()
         }
 
-    def _get_memory_usage(self) -> Dict[str, Any]:
+    def _get_memory_usage(self) -> dict[str, Any]:
         """Get memory usage statistics"""
         try:
             process = psutil.Process()
@@ -368,7 +377,7 @@ class TacacsServer:
         except Exception:
             return {'error': 'Unable to get memory info'}
     
-    def _check_database_health(self) -> Dict[str, Any]:
+    def _check_database_health(self) -> dict[str, Any]:
         """Check database health"""
         try:
             # Test database connection
@@ -386,8 +395,6 @@ class TacacsServer:
     def reload_configuration(self):
         """Reload configuration without restarting server"""
         try:
-            from ..config.config import TacacsConfig
-            old_backends = [b.name for b in self.auth_backends]
             
             # Reload config (assuming you have access to config object)
             # This would need to be passed in or made accessible

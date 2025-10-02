@@ -1,14 +1,14 @@
 """Shared authorization policy helpers for TACACS+ and RADIUS."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
 
 
-def normalize_groups(groups: Optional[Iterable[str]]) -> List[str]:
+def normalize_groups(groups: Iterable[str] | None) -> list[str]:
     if not groups:
         return []
-    normalized: List[str] = []
+    normalized: list[str] = []
     for value in groups:
         if not isinstance(value, str):
             continue
@@ -22,9 +22,9 @@ def normalize_groups(groups: Optional[Iterable[str]]) -> List[str]:
 class PolicyContext:
     """Input data needed to evaluate device/user group policy."""
 
-    device_group_name: Optional[str]
-    allowed_user_groups: List[str]
-    user_groups: List[str]
+    device_group_name: str | None
+    allowed_user_groups: list[str]
+    user_groups: list[str]
     fallback_privilege: int
 
 
@@ -58,7 +58,7 @@ def evaluate_policy(
     else:
         matched_groups = user_groups
 
-    privilege_candidates: List[int] = []
+    privilege_candidates: list[int] = []
     for group in matched_groups:
         try:
             privilege = privilege_lookup(group)

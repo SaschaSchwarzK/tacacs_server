@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
-from typing import Callable
-
 import pytest
 
 from tacacs_server.accounting.database import DatabaseLogger

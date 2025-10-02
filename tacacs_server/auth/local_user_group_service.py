@@ -5,11 +5,11 @@ import json
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
-from typing import Dict, Optional
+
+from tacacs_server.utils.logger import get_logger
 
 from .local_models import LocalUserGroupRecord
-from .local_store import LocalAuthStore, UNSET
-from tacacs_server.utils.logger import get_logger
+from .local_store import UNSET, LocalAuthStore
 
 logger = get_logger(__name__)
 
@@ -37,8 +37,8 @@ class LocalUserGroupService:
         self,
         db_path: Path | str = "data/local_auth.db",
         *,
-        store: Optional[LocalAuthStore] = None,
-        seed_file: Optional[Path | str] = None,
+        store: LocalAuthStore | None = None,
+        seed_file: Path | str | None = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = store or LocalAuthStore(self.db_path)
@@ -58,10 +58,10 @@ class LocalUserGroupService:
         self,
         name: str,
         *,
-        description: Optional[str] = None,
-        metadata: Optional[Dict[str, object]] = None,
-        ldap_group: Optional[str] = None,
-        okta_group: Optional[str] = None,
+        description: str | None = None,
+        metadata: dict[str, object] | None = None,
+        ldap_group: str | None = None,
+        okta_group: str | None = None,
         privilege_level: int = 1,
     ) -> LocalUserGroupRecord:
         validated_name = self._validate_name(name)
@@ -86,11 +86,11 @@ class LocalUserGroupService:
         self,
         name: str,
         *,
-        description: Optional[str] = None,
-        metadata: Optional[Dict[str, object]] = None,
-        ldap_group: Optional[str] | object = UNSET,
-        okta_group: Optional[str] | object = UNSET,
-        privilege_level: Optional[int] = None,
+        description: str | None = None,
+        metadata: dict[str, object] | None = None,
+        ldap_group: str | None | object = UNSET,
+        okta_group: str | None | object = UNSET,
+        privilege_level: int | None = None,
     ) -> LocalUserGroupRecord:
         # Ensure the group exists before attempting update
         current = self.store.get_group(name)
@@ -172,7 +172,7 @@ class LocalUserGroupService:
         return name
 
     @staticmethod
-    def _validate_metadata(metadata: Optional[Dict[str, object]]) -> Dict[str, object]:
+    def _validate_metadata(metadata: dict[str, object] | None) -> dict[str, object]:
         if metadata is None:
             return {}
         if not isinstance(metadata, dict):

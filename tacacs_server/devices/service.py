@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import ipaddress
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from collections.abc import Callable, Iterable
+from typing import Any
+
+from tacacs_server.utils.logger import get_logger
 
 from .store import DeviceGroup, DeviceRecord, DeviceStore
-from tacacs_server.utils.logger import get_logger
 
 UNSET = object()
 
@@ -28,7 +30,7 @@ class DeviceValidationError(DeviceServiceError):
     """Raised when input data fails validation."""
 
 
-def _ensure_metadata(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _ensure_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
     if payload is None:
         return {}
     if not isinstance(payload, dict):
@@ -68,7 +70,7 @@ class DeviceService:
     # ------------------------------------------------------------------
     # Groups
     # ------------------------------------------------------------------
-    def list_groups(self) -> List[DeviceGroup]:
+    def list_groups(self) -> list[DeviceGroup]:
         return self.store.list_groups()
 
     def get_group(self, group_id: int) -> DeviceGroup:
@@ -81,14 +83,14 @@ class DeviceService:
         self,
         name: str,
         *,
-        description: Optional[str] = None,
-        tacacs_profile: Optional[Dict[str, Any]] = None,
-        radius_profile: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        radius_secret: Optional[str] = None,
-        tacacs_secret: Optional[str] = None,
-        device_config: Optional[Dict[str, Any]] = None,
-        allowed_user_groups: Optional[Iterable[str]] = None,
+        description: str | None = None,
+        tacacs_profile: dict[str, Any] | None = None,
+        radius_profile: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        radius_secret: str | None = None,
+        tacacs_secret: str | None = None,
+        device_config: dict[str, Any] | None = None,
+        allowed_user_groups: Iterable[str] | None = None,
     ) -> DeviceGroup:
         name = (name or "").strip()
         if not name:
@@ -126,15 +128,15 @@ class DeviceService:
         self,
         group_id: int,
         *,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        tacacs_profile: Optional[Dict[str, Any]] = None,
-        radius_profile: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        radius_secret: Optional[str] | object = UNSET,
-        tacacs_secret: Optional[str] | object = UNSET,
-        device_config: Optional[Dict[str, Any]] | object = UNSET,
-        allowed_user_groups: Optional[Iterable[str]] | object = UNSET,
+        name: str | None = None,
+        description: str | None = None,
+        tacacs_profile: dict[str, Any] | None = None,
+        radius_profile: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        radius_secret: str | None | object = UNSET,
+        tacacs_secret: str | None | object = UNSET,
+        device_config: dict[str, Any] | None | object = UNSET,
+        allowed_user_groups: Iterable[str] | None | object = UNSET,
     ) -> DeviceGroup:
         group = self.get_group(group_id)
 
@@ -148,7 +150,7 @@ class DeviceService:
         else:
             new_name = None
 
-        merged_metadata: Optional[Dict[str, Any]] = None
+        merged_metadata: dict[str, Any] | None = None
         if (
             metadata is not None
             or radius_secret is not UNSET
@@ -214,10 +216,10 @@ class DeviceService:
     # ------------------------------------------------------------------
     # Devices
     # ------------------------------------------------------------------
-    def list_devices(self) -> List[DeviceRecord]:
+    def list_devices(self) -> list[DeviceRecord]:
         return self.store.list_devices()
 
-    def list_devices_by_group(self, group_id: int) -> List[DeviceRecord]:
+    def list_devices_by_group(self, group_id: int) -> list[DeviceRecord]:
         self.get_group(group_id)
         return self.store.list_devices_by_group(group_id)
 
@@ -232,7 +234,7 @@ class DeviceService:
         *,
         name: str,
         network: str,
-        group: Optional[str] = None,
+        group: str | None = None,
     ) -> DeviceRecord:
         name = (name or "").strip()
         if not name:
@@ -257,9 +259,9 @@ class DeviceService:
         self,
         device_id: int,
         *,
-        name: Optional[str] = None,
-        network: Optional[str] = None,
-        group: Optional[str] = None,
+        name: str | None = None,
+        network: str | None = None,
+        group: str | None = None,
         clear_group: bool = False,
     ) -> DeviceRecord:
         self.get_device(device_id)
@@ -316,10 +318,10 @@ class DeviceService:
             raise DeviceValidationError(f"{field} must be at least 4 characters")
 
     @staticmethod
-    def _validate_allowed_groups(groups: Optional[Iterable[str]]) -> List[str]:
+    def _validate_allowed_groups(groups: Iterable[str] | None) -> list[str]:
         if groups is None:
             return []
-        result: List[str] = []
+        result: list[str] = []
         for group in groups:
             if not isinstance(group, str):
                 raise DeviceValidationError("allowed_user_groups entries must be strings")

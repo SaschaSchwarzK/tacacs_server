@@ -1,6 +1,6 @@
 """Device inventory management for TACACS+/RADIUS."""
 
-from .store import DeviceStore, DeviceRecord, DeviceGroup, RadiusClientConfig
+from .store import DeviceGroup, DeviceRecord, DeviceStore, RadiusClientConfig
 
 __all__ = [
     "DeviceStore",

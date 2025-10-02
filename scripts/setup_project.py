@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Create runtime directories (config, data, logs, scripts) and optionally move the TACACS+ client script.
+Create runtime directories (config, data, logs, scripts) and optionally move the
+TACACS+ client script.
 Run from project root.
 """
-from pathlib import Path
-import shutil
 import argparse
+import shutil
+from pathlib import Path
 
 DEFAULT_DIRS = ["config", "data", "logs", "scripts"]
 

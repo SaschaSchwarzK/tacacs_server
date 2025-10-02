@@ -7,11 +7,13 @@ from typing import Any
 
 from .logging_config import (
     StructuredJSONFormatter,
-    configure_logging as _configure_logging,
-    get_structured_logger,
     bind_context,
     clear_context,
+    get_structured_logger,
     logging_context,
+)
+from .logging_config import (
+    configure_logging as _configure_logging,
 )
 
 __all__ = [

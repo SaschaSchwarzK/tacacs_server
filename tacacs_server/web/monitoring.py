@@ -3,19 +3,26 @@ Web Monitoring Interface for TACACS+ Server
 Provides both HTML dashboard and Prometheus metrics endpoint
 """
 
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-import uvicorn
 import asyncio
 import threading
 import time
-import json
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Callable, Awaitable, TYPE_CHECKING
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 from tacacs_server.utils.logger import get_logger
 
@@ -27,7 +34,7 @@ _local_user_group_service: Optional["LocalUserGroupService"] = None
 _config: Optional["TacacsConfig"] = None
 _tacacs_server_ref = None
 _radius_server_ref = None
-_admin_auth_dependency: Optional[Callable[[Request], Awaitable[None]]] = None
+_admin_auth_dependency: Callable[[Request], Awaitable[None]] | None = None
 _admin_session_manager: Optional["AdminSessionManager"] = None
 
 
@@ -85,12 +92,12 @@ def get_radius_server():
     return _radius_server_ref
 
 
-def set_admin_auth_dependency(dependency: Optional[Callable[[Request], Awaitable[None]]]) -> None:
+def set_admin_auth_dependency(dependency: Callable[[Request], Awaitable[None]] | None) -> None:
     global _admin_auth_dependency
     _admin_auth_dependency = dependency
 
 
-def get_admin_auth_dependency_func() -> Optional[Callable[[Request], Awaitable[None]]]:
+def get_admin_auth_dependency_func() -> Callable[[Request], Awaitable[None]] | None:
     return _admin_auth_dependency
 
 
@@ -104,10 +111,11 @@ def get_admin_session_manager() -> Optional["AdminSessionManager"]:
 
 
 if TYPE_CHECKING:
-    from tacacs_server.devices.service import DeviceService
-    from tacacs_server.auth.local_user_service import LocalUserService
     from tacacs_server.auth.local_user_group_service import LocalUserGroupService
+    from tacacs_server.auth.local_user_service import LocalUserService
     from tacacs_server.config.config import TacacsConfig
+    from tacacs_server.devices.service import DeviceService
+
     from .admin.auth import AdminSessionManager
 
 # Prometheus Metrics
@@ -177,7 +185,6 @@ class TacacsMonitoringAPI:
             """Health check endpoint"""
             try:
                 health = self.tacacs_server.get_health_status()
-                status_code = 200 if health.get('status') == 'healthy' else 503
                 return health
             except Exception as e:
                 raise HTTPException(status_code=503, detail=f"Health check failed: {e}")
@@ -295,7 +302,7 @@ class TacacsMonitoringAPI:
                     'clients': clients
                 }
     
-    def get_server_stats(self) -> Dict[str, Any]:
+    def get_server_stats(self) -> dict[str, Any]:
         """Get current server statistics"""
         try:
             stats = self.tacacs_server.get_stats()
@@ -343,7 +350,7 @@ class TacacsMonitoringAPI:
             logger.error(f"Error getting server stats: {e}")
             return {"error": str(e)}
     
-    def get_backend_stats(self) -> List[Dict[str, Any]]:
+    def get_backend_stats(self) -> list[dict[str, Any]]:
         """Get authentication backend statistics"""
         backends = []
         try:
@@ -360,7 +367,7 @@ class TacacsMonitoringAPI:
         
         return backends
     
-    def get_database_stats(self) -> Dict[str, Any]:
+    def get_database_stats(self) -> dict[str, Any]:
         """Get database statistics"""
         try:
             return self.tacacs_server.db_logger.get_statistics(days=30)
@@ -368,7 +375,7 @@ class TacacsMonitoringAPI:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}
     
-    def get_session_stats(self) -> Dict[str, Any]:
+    def get_session_stats(self) -> dict[str, Any]:
         """Get active session statistics"""
         try:
             active_sessions = self.tacacs_server.get_active_sessions()
@@ -381,12 +388,12 @@ class TacacsMonitoringAPI:
             logger.error(f"Error getting session stats: {e}")
             return {"error": str(e)}
     
-    def get_recent_logs(self, lines: int = 100) -> List[str]:
+    def get_recent_logs(self, lines: int = 100) -> list[str]:
         """Get recent log entries"""
         try:
             # Read from log file - this is a simple implementation
             log_file = "logs/tacacs.log"
-            with open(log_file, 'r') as f:
+            with open(log_file) as f:
                 all_lines = f.readlines()
                 return [line.strip() for line in all_lines[-lines:]]
         except Exception as e:
@@ -482,7 +489,7 @@ class TacacsMonitoringAPI:
             pass
         logger.info("Monitoring interface stopped")
 
-    def get_radius_stats(self) -> Dict[str, Any]:
+    def get_radius_stats(self) -> dict[str, Any]:
         """Get RADIUS server statistics"""
         if not self.radius_server:
             return {'enabled': False}

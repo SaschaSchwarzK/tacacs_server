@@ -2,9 +2,11 @@
 LDAP Authentication Backend
 """
 
-from typing import Dict, Any, Optional
-from .base import AuthenticationBackend
+from typing import Any
+
 from tacacs_server.utils.logger import get_logger
+
+from .base import AuthenticationBackend
 
 logger = get_logger(__name__)
 
@@ -19,7 +21,7 @@ class LDAPAuthBackend(AuthenticationBackend):
     """LDAP authentication backend"""
     
     def __init__(self, ldap_server: str, base_dn: str, user_attribute: str = 'uid',
-                 bind_dn: Optional[str] = None, bind_password: Optional[str] = None,
+                 bind_dn: str | None = None, bind_password: str | None = None,
                  use_tls: bool = False, timeout: int = 10):
         super().__init__("ldap")
         self.ldap_server = ldap_server
@@ -86,7 +88,7 @@ class LDAPAuthBackend(AuthenticationBackend):
             logger.error(f"Unexpected LDAP error for {username}: {e}")
             return False
     
-    def get_user_attributes(self, username: str) -> Dict[str, Any]:
+    def get_user_attributes(self, username: str) -> dict[str, Any]:
         """Get user attributes from LDAP"""
         if not LDAP_AVAILABLE:
             return {}
@@ -121,7 +123,7 @@ class LDAPAuthBackend(AuthenticationBackend):
             logger.error(f"Error getting LDAP attributes for {username}: {e}")
             return {}
     
-    def _find_user_dn(self, username: str) -> Optional[str]:
+    def _find_user_dn(self, username: str) -> str | None:
         """Find user DN using service account"""
         if not LDAP_AVAILABLE:
             return None
@@ -150,7 +152,7 @@ class LDAPAuthBackend(AuthenticationBackend):
         
         return None
     
-    def _get_ldap_user_info(self, username: str) -> Optional[Dict[str, Any]]:
+    def _get_ldap_user_info(self, username: str) -> dict[str, Any] | None:
         """Get detailed user information from LDAP"""
         if not LDAP_AVAILABLE:
             return None
@@ -199,7 +201,7 @@ class LDAPAuthBackend(AuthenticationBackend):
         
         return None
     
-    def _extract_groups(self, user_info: Dict[str, Any]) -> list:
+    def _extract_groups(self, user_info: dict[str, Any]) -> list:
         """Extract group memberships from user info"""
         groups = []
         
@@ -246,7 +248,7 @@ class LDAPAuthBackend(AuthenticationBackend):
         except Exception:
             return False
     
-    def test_connection(self) -> Dict[str, Any]:
+    def test_connection(self) -> dict[str, Any]:
         """Test LDAP connection and return status"""
         result = {
             'available': False,
@@ -282,17 +284,17 @@ class LDAPAuthBackend(AuthenticationBackend):
         
         return result
     
-    def set_group_privilege_mapping(self, group_mappings: Dict[str, int]):
+    def set_group_privilege_mapping(self, group_mappings: dict[str, int]):
         """Set custom group to privilege level mappings"""
         self.group_privilege_map.update(group_mappings)
         logger.info(f"Updated group privilege mappings: {group_mappings}")
     
-    def set_privilege_commands(self, privilege_mappings: Dict[int, list]):
+    def set_privilege_commands(self, privilege_mappings: dict[int, list]):
         """Set custom privilege level to commands mappings"""
         self.privilege_commands.update(privilege_mappings)
         logger.info(f"Updated privilege command mappings: {privilege_mappings}")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get backend statistics"""
         connection_test = self.test_connection()
         return {

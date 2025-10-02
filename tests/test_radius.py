@@ -2,13 +2,15 @@
 RADIUS Server Tests
 """
 import ipaddress
-import pytest
-import socket
 import time
 from types import SimpleNamespace
-from tacacs_server.radius.server import RADIUSServer, RADIUSPacket, RadiusClient
-from tacacs_server.devices.store import DeviceStore
+
+import pytest
+
 from tacacs_server.devices.service import DeviceService
+from tacacs_server.devices.store import DeviceStore
+from tacacs_server.radius.server import RadiusClient, RADIUSPacket, RADIUSServer
+
 
 def test_radius_packet_creation():
     """Test RADIUS packet creation"""
@@ -96,7 +98,7 @@ def test_radius_stats(radius_server):
     assert 'auth_accepts' in stats
     assert 'auth_rejects' in stats
     assert 'configured_clients' in stats
-    assert stats['running'] == True
+    assert stats['running']
 
 
 def test_radius_refresh_clients_on_change(tmp_path):
@@ -104,7 +106,9 @@ def test_radius_refresh_clients_on_change(tmp_path):
     service = DeviceService(store)
     radius = RADIUSServer()
 
-    service.add_change_listener(lambda: radius.refresh_clients(store.iter_radius_clients()))
+    service.add_change_listener(
+        lambda: radius.refresh_clients(store.iter_radius_clients())
+    )
 
     group = service.create_group("firewall", radius_secret="secret1")
     device = service.create_device(name="fw1", network="127.0.0.1/32", group="firewall")
@@ -141,8 +145,9 @@ def test_radius_ignores_device_specific_secret(tmp_path):
         group="firewall",
     )
 
-    # How Service stores device metadata secrets: update device with metadata containing radius_secret
-    # This simulates legacy data – should not produce a client because group lacks a secret.
+    # How Service stores device metadata secrets: update device with metadata
+    # containing radius_secret. This simulates legacy data – should not produce a
+    # client because group lacks a secret.
     store._conn.execute(
         "UPDATE devices SET radius_secret = ? WHERE id = ?",
         ("device-secret", device.id),

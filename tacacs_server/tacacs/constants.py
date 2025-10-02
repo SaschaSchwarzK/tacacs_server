@@ -5,6 +5,7 @@ Based on RFC 8907: The Terminal Access Controller Access-Control System Plus (TA
 
 from enum import IntEnum
 
+
 class TAC_PLUS_FLAGS(IntEnum):
     """TACACS+ packet flags"""
     TAC_PLUS_UNENCRYPTED_FLAG = 0x01

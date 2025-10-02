@@ -2,7 +2,6 @@
 """
 Legacy top-level entrypoint shim -> delegates to tacacs_server.main.main()
 """
-import sys
 
 from tacacs_server.utils.logger import configure, get_logger
 

@@ -5,14 +5,14 @@ import json
 import re
 import sqlite3
 import threading
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional
+
+from tacacs_server.utils.logger import get_logger
 
 from .local_models import LocalUserRecord
 from .local_store import LocalAuthStore
-from tacacs_server.utils.logger import get_logger
-
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -42,8 +42,8 @@ class LocalUserService:
         self,
         db_path: Path | str = "data/local_auth.db",
         *,
-        store: Optional[LocalAuthStore] = None,
-        seed_file: Optional[Path | str] = None,
+        store: LocalAuthStore | None = None,
+        seed_file: Path | str | None = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = store or LocalAuthStore(self.db_path)
@@ -80,7 +80,7 @@ class LocalUserService:
     # ------------------------------------------------------------------
     # Basic ops
     # ------------------------------------------------------------------
-    def list_users(self) -> List[LocalUserRecord]:
+    def list_users(self) -> list[LocalUserRecord]:
         return [self._clone(record) for record in self.store.list_users()]
 
     def get_user(self, username: str) -> LocalUserRecord:
@@ -93,14 +93,14 @@ class LocalUserService:
         self,
         username: str,
         *,
-        password: Optional[str] = None,
-        password_hash: Optional[str] = None,
+        password: str | None = None,
+        password_hash: str | None = None,
         privilege_level: int = 1,
         service: str = "exec",
-        shell_command: Optional[Iterable[str]] = None,
-        groups: Optional[Iterable[str]] = None,
+        shell_command: Iterable[str] | None = None,
+        groups: Iterable[str] | None = None,
         enabled: bool = True,
-        description: Optional[str] = None,
+        description: str | None = None,
     ) -> LocalUserRecord:
         username = username.strip()
         self._validate_username(username)
@@ -128,12 +128,12 @@ class LocalUserService:
         self,
         username: str,
         *,
-        privilege_level: Optional[int] = None,
-        service: Optional[str] = None,
-        shell_command: Optional[Iterable[str]] = None,
-        groups: Optional[Iterable[str]] = None,
-        enabled: Optional[bool] = None,
-        description: Optional[str] = None,
+        privilege_level: int | None = None,
+        service: str | None = None,
+        shell_command: Iterable[str] | None = None,
+        groups: Iterable[str] | None = None,
+        enabled: bool | None = None,
+        description: str | None = None,
     ) -> LocalUserRecord:
         existing = self.store.get_user(username)
         if not existing:
@@ -266,14 +266,14 @@ class LocalUserService:
         return service
 
     @staticmethod
-    def _validate_list(values: Optional[Iterable[str]], field: str) -> List[str]:
+    def _validate_list(values: Iterable[str] | None, field: str) -> list[str]:
         if values is None:
             if field == "shell_command":
                 return ["show"]
             if field == "groups":
                 return ["users"]
             return []
-        result: List[str] = []
+        result: list[str] = []
         for value in values:
             if not isinstance(value, str) or not value:
                 raise LocalUserValidationError(f"{field} entries must be non-empty strings")
@@ -282,9 +282,9 @@ class LocalUserService:
 
     @staticmethod
     def _resolve_password(
-        password: Optional[str],
-        password_hash: Optional[str],
-    ) -> tuple[Optional[str], Optional[str]]:
+        password: str | None,
+        password_hash: str | None,
+    ) -> tuple[str | None, str | None]:
         if password_hash and password:
             raise LocalUserValidationError("Provide only password or password_hash, not both")
         if password:

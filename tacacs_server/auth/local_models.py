@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -12,14 +12,14 @@ class LocalUserRecord:
     username: str
     privilege_level: int = 1
     service: str = "exec"
-    shell_command: List[str] = field(default_factory=lambda: ["show"])
-    groups: List[str] = field(default_factory=lambda: ["users"])
+    shell_command: list[str] = field(default_factory=lambda: ["show"])
+    groups: list[str] = field(default_factory=lambda: ["users"])
     enabled: bool = True
-    description: Optional[str] = None
-    password: Optional[str] = None
-    password_hash: Optional[str] = None
+    description: str | None = None
+    password: str | None = None
+    password_hash: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "password": self.password,
             "password_hash": self.password_hash,
@@ -32,7 +32,7 @@ class LocalUserRecord:
         }
 
     @classmethod
-    def from_dict(cls, username: str, payload: Dict[str, Any]) -> "LocalUserRecord":
+    def from_dict(cls, username: str, payload: dict[str, Any]) -> LocalUserRecord:
         return cls(
             username=username,
             privilege_level=int(payload.get("privilege_level", 1)),
@@ -51,14 +51,14 @@ class LocalUserGroupRecord:
     """In-memory representation of a local user group."""
 
     name: str
-    description: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    ldap_group: Optional[str] = None
-    okta_group: Optional[str] = None
+    description: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    ldap_group: str | None = None
+    okta_group: str | None = None
     privilege_level: int = 1
 
-    def to_dict(self) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "description": self.description,
             "metadata": self.metadata,
             "privilege_level": self.privilege_level,
@@ -70,7 +70,7 @@ class LocalUserGroupRecord:
         return payload
 
     @classmethod
-    def from_dict(cls, name: str, payload: Dict[str, Any]) -> "LocalUserGroupRecord":
+    def from_dict(cls, name: str, payload: dict[str, Any]) -> LocalUserGroupRecord:
         return cls(
             name=name,
             description=payload.get("description"),

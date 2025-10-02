@@ -1,18 +1,19 @@
 """
 Configuration Management for TACACS+ Server
 """
-import os
-import logging
 import configparser
-import json
+import logging
+import os
 from logging.handlers import RotatingFileHandler
-from typing import Dict, Any, List
+from typing import Any
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
-from tacacs_server.utils.logger import configure as configure_logging, get_logger
+from tacacs_server.auth.local import LocalAuthBackend
+from tacacs_server.utils.logger import configure as configure_logging
+from tacacs_server.utils.logger import get_logger
+
 from .schema import TacacsConfigSchema, validate_config_file
 
 logger = get_logger(__name__)
@@ -107,11 +108,11 @@ class TacacsConfig:
         except Exception as e:
             logger.exception('Failed to save configuration: %s', e)
 
-    def get_server_config(self) -> Dict[str, Any]:
+    def get_server_config(self) -> dict[str, Any]:
         """Get server configuration"""
         return {'host': self.config.get('server', 'host'), 'port': self.config.getint('server', 'port'), 'secret_key': self.config.get('server', 'secret_key'), 'max_connections': self.config.getint('server', 'max_connections'), 'socket_timeout': self.config.getint('server', 'socket_timeout')}
 
-    def get_auth_backends(self) -> List[str]:
+    def get_auth_backends(self) -> list[str]:
         """Get list of enabled authentication backends"""
         backends_str = self.config.get('auth', 'backends', fallback='local')
         return [backend.strip() for backend in backends_str.split(',') if backend.strip()]
@@ -121,7 +122,7 @@ class TacacsConfig:
             return self.config.get('auth', 'local_auth_db')
         return 'data/local_auth.db'
 
-    def create_auth_backends(self) -> List:
+    def create_auth_backends(self) -> list:
         """Create authentication backend instances"""
         backends = []
         backend_names = self.get_auth_backends()
@@ -144,18 +145,18 @@ class TacacsConfig:
                 logger.exception('Failed to initialize fallback local auth backend')
         return backends
 
-    def get_database_config(self) -> Dict[str, Any]:
+    def get_database_config(self) -> dict[str, Any]:
         """Get database configuration"""
         return {'accounting_db': self.config.get('database', 'accounting_db'), 'cleanup_days': self.config.getint('database', 'cleanup_days'), 'auto_cleanup': self.config.getboolean('database', 'auto_cleanup')}
 
-    def get_device_store_config(self) -> Dict[str, Any]:
+    def get_device_store_config(self) -> dict[str, Any]:
         """Get device inventory configuration"""
         return {
             'database': self.config.get('devices', 'database', fallback='data/devices.db'),
             'default_group': self.config.get('devices', 'default_group', fallback='default')
         }
 
-    def get_admin_auth_config(self) -> Dict[str, Any]:
+    def get_admin_auth_config(self) -> dict[str, Any]:
         """Get admin authentication configuration"""
         section = self.config['admin'] if 'admin' in self.config else {}
         return {
@@ -164,13 +165,13 @@ class TacacsConfig:
             'session_timeout_minutes': int(section.get('session_timeout_minutes', 60)),
         }
 
-    def get_security_config(self) -> Dict[str, Any]:
+    def get_security_config(self) -> dict[str, Any]:
         """Get security configuration"""
         allowed_clients = self.config.get('security', 'allowed_clients')
         denied_clients = self.config.get('security', 'denied_clients')
         return {'max_auth_attempts': self.config.getint('security', 'max_auth_attempts'), 'auth_timeout': self.config.getint('security', 'auth_timeout'), 'encryption_required': self.config.getboolean('security', 'encryption_required'), 'allowed_clients': [ip.strip() for ip in allowed_clients.split(',') if ip.strip()], 'denied_clients': [ip.strip() for ip in denied_clients.split(',') if ip.strip()]}
 
-    def get_logging_config(self) -> Dict[str, Any]:
+    def get_logging_config(self) -> dict[str, Any]:
         """Get logging configuration"""
         return {'log_file': self.config.get('logging', 'log_file'), 'log_format': self.config.get('logging', 'log_format'), 'log_rotation': self.config.getboolean('logging', 'log_rotation'), 'max_log_size': self.config.get('logging', 'max_log_size'), 'backup_count': self.config.getint('logging', 'backup_count'), 'log_level': self.config.get('server', 'log_level')}
 
@@ -192,11 +193,11 @@ class TacacsConfig:
             self.config['ldap'][key] = str(value)
         self.save_config()
 
-    def validate_config(self) -> List[str]:
+    def validate_config(self) -> list[str]:
         """Validate configuration and return list of issues."""
 
         try:
-            config_dict: Dict[str, Dict[str, str]] = {
+            config_dict: dict[str, dict[str, str]] = {
                 'server': dict(self.config['server']),
                 'auth': dict(self.config['auth']),
                 'security': dict(self.config['security']),
@@ -212,7 +213,7 @@ class TacacsConfig:
 
             auth_db_path = validated.auth.local_auth_db
             auth_db_dir = os.path.dirname(auth_db_path)
-            issues: List[str] = []
+            issues: list[str] = []
             if auth_db_dir and not os.path.exists(auth_db_dir):  # pragma: no cover - filesystem check
                 issues.append(f"Local auth database directory does not exist: {auth_db_dir}")
 
@@ -226,7 +227,7 @@ class TacacsConfig:
             logger.error("✗ Configuration validation failed: %s", exc)
             return [str(exc)]
 
-    def get_config_summary(self) -> Dict[str, Any]:
+    def get_config_summary(self) -> dict[str, Any]:
         """Get configuration summary for display"""
         summary = {
             'server': dict(self.config['server']),
@@ -244,7 +245,7 @@ class TacacsConfig:
             summary['radius'] = dict(self.config['radius'])
         return summary
 
-    def get_radius_config(self) -> Dict[str, Any]:
+    def get_radius_config(self) -> dict[str, Any]:
         """Get RADIUS server configuration"""
         return {
             'enabled': self.config.getboolean('radius', 'enabled'),
@@ -293,7 +294,7 @@ def setup_logging(config: TacacsConfig):
         if log_dir and (not os.path.exists(log_dir)):
             os.makedirs(log_dir, exist_ok=True)
     log_level = getattr(logging, log_config['log_level'].upper(), logging.INFO)
-    handlers: List[logging.Handler] = []
+    handlers: list[logging.Handler] = []
 
     console_handler = logging.StreamHandler()
     handlers.append(console_handler)

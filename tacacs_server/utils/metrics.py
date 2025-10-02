@@ -1,9 +1,10 @@
 """
 Metrics collection for TACACS+ server
 """
-from collections import Counter, deque
-from typing import Dict, Any
 import time
+from collections import Counter, deque
+from typing import Any
+
 
 class MetricsCollector:
     """Collect and analyze server metrics"""
@@ -32,7 +33,7 @@ class MetricsCollector:
         """Record authentication method usage"""
         self.auth_methods[method] += 1
     
-    def get_auth_stats(self) -> Dict[str, float]:
+    def get_auth_stats(self) -> dict[str, float]:
         """Get authentication statistics"""
         if not self.auth_latencies:
             return {}
@@ -49,7 +50,7 @@ class MetricsCollector:
             'p95_latency_ms': latencies[int(len(latencies) * 0.95)] if len(latencies) > 20 else max(latencies)
         }
     
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get complete metrics summary"""
         return {
             'uptime_seconds': time.time() - self.start_time,
