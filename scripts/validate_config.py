@@ -51,7 +51,7 @@ def validate_configuration(config_file: str = None) -> bool:
             
             # Display key configuration details
             server_config = config.get_server_config()
-            print(f"   Server: {server_config['host']}:{server_config['port']}")
+            print(f"   Server: {server_config.get('host', '[unknown]')}:{server_config.get('port', '[unknown]')}")
             
             auth_backends = config.get_auth_backends()
             print(f"   Auth backends: {', '.join(auth_backends)}")

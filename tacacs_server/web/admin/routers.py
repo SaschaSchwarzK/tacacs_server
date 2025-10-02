@@ -1301,7 +1301,12 @@ async def bulk_create_users(
             )
             results.append({"index": i, "username": record.username})
         except Exception as e:
-            errors.append({"index": i, "error": str(e), "data": user_data})
+            logger.warning("Failed to create user at index %d: %s | data: %s", i, e, user_data, exc_info=True)
+            errors.append({
+                "index": i,
+                "error": "Failed to create user",
+                "data": user_data
+            })
     
     logger.info(f"Bulk user creation: {len(results)} success, {len(errors)} errors")
     return {

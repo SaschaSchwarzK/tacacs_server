@@ -499,9 +499,10 @@ class TacacsServer:
                 'records_today': stats.get('total_records', 0)
             }
         except Exception as e:
+            logger.error("Database health check failed: %s", e)
             return {
                 'status': 'unhealthy',
-                'error': str(e)
+                'error': 'Database error'
             }
     
     def reload_configuration(self):
