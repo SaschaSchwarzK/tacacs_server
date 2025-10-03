@@ -126,7 +126,7 @@ class TacacsPacket:
             # MD5 required by TACACS+ RFC 8907 - not for general cryptographic use
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-                pad += hashlib.md5(md5_input).digest()
+                pad += hashlib.md5(md5_input, usedforsecurity=False).digest()
 
         return pad[:length]
 

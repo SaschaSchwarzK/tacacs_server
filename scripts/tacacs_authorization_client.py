@@ -40,7 +40,7 @@ def md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -
             md5_input = session_id_bytes + key_bytes + version_byte + seq_byte + pad
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            pad.extend(hashlib.md5(md5_input).digest())
+            pad.extend(hashlib.md5(md5_input, usedforsecurity=False).digest())
 
     return bytes(pad[:length])
 
@@ -74,14 +74,14 @@ def tacacs_authorization(
     privilege_level: int = 15,
 ) -> AuthorizationResult:
     """Perform TACACS+ authorization test."""
-    
+
     print("\n=== TACACS+ Authorization Test ===\n")
     print(f"Target        : {host}:{port}")
     print(f"Username      : {username}")
     print(f"Command       : {command}")
     print(f"Service       : {service}")
     print(f"Privilege Lvl : {privilege_level}")
-    print(f"Shared Secret : {key}\n")
+    # Do not print shared secrets to avoid leaking sensitive data
 
     sock: socket.socket | None = None
     try:
@@ -123,11 +123,11 @@ def tacacs_authorization(
         body += user_bytes
         body += port_bytes
         body += rem_addr_bytes
-        
+
         # Then add argument lengths
         for arg in args:
             body += struct.pack("!B", len(arg))
-        
+
         # Finally add arguments
         for arg in args:
             body += arg
@@ -155,7 +155,9 @@ def tacacs_authorization(
         if len(response_body) < r_length:
             return AuthorizationResult(False, -1, None, {}, "truncated response body")
 
-        decrypted = transform_body(response_body, r_session, key or "", r_version, r_seq)
+        decrypted = transform_body(
+            response_body, r_session, key or "", r_version, r_seq
+        )
         if len(decrypted) < 6:
             return AuthorizationResult(False, -1, None, {}, "response too short")
 

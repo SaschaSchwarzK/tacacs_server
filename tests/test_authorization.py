@@ -59,6 +59,7 @@ def mock_db_logger():
 def mock_user_group_service():
     """Mock user group service"""
     service = MagicMock()
+
     # Return different privilege levels based on group name
     def get_group_mock(group_name):
         if group_name == "admin":
@@ -67,6 +68,7 @@ def mock_user_group_service():
             return MagicMock(privilege_level=1)
         else:
             return MagicMock(privilege_level=1)
+
     service.get_group.side_effect = get_group_mock
     return service
 
@@ -117,11 +119,11 @@ def create_authorization_packet(
     body += user_bytes
     body += port_bytes
     body += rem_addr_bytes
-    
+
     # Then add argument lengths
     for arg in args:
         body += struct.pack("!B", len(arg))
-    
+
     # Finally add arguments
     for arg in args:
         body += arg
@@ -140,12 +142,12 @@ def create_authorization_packet(
 def test_authorization_success_admin_user(aaa_handlers):
     """Test successful authorization for admin user"""
     packet = create_authorization_packet("admin", "show version")
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     assert response.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR
     assert response.seq_no == 2
-    
+
     # Parse response body
     status, arg_cnt, msg_len, data_len = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD
@@ -154,9 +156,9 @@ def test_authorization_success_admin_user(aaa_handlers):
 def test_authorization_success_limited_user(aaa_handlers):
     """Test successful authorization for limited user with allowed command"""
     packet = create_authorization_packet("user", "show interfaces", privilege_level=1)
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD
 
@@ -166,9 +168,9 @@ def test_authorization_fail_command_not_allowed(aaa_handlers):
     packet = create_authorization_packet(
         "user", "configure terminal", privilege_level=1
     )
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL
 
@@ -176,9 +178,9 @@ def test_authorization_fail_command_not_allowed(aaa_handlers):
 def test_authorization_fail_insufficient_privilege(aaa_handlers):
     """Test authorization failure for insufficient privilege level"""
     packet = create_authorization_packet("user", "show version", privilege_level=15)
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL
 
@@ -186,9 +188,9 @@ def test_authorization_fail_insufficient_privilege(aaa_handlers):
 def test_authorization_fail_disabled_user(aaa_handlers):
     """Test authorization failure for disabled user"""
     packet = create_authorization_packet("disabled_user", "show version")
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL
 
@@ -196,9 +198,9 @@ def test_authorization_fail_disabled_user(aaa_handlers):
 def test_authorization_fail_user_not_found(aaa_handlers):
     """Test authorization failure for non-existent user"""
     packet = create_authorization_packet("nonexistent", "show version")
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL
 
@@ -210,11 +212,11 @@ def test_authorization_with_device_group_policy(aaa_handlers):
     device.group = MagicMock()
     device.group.name = "switches"
     device.group.allowed_user_groups = ["admin"]
-    
+
     packet = create_authorization_packet("admin", "show version")
-    
+
     response = aaa_handlers.handle_authorization(packet, device)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD
 
@@ -226,11 +228,11 @@ def test_authorization_fail_device_group_policy(aaa_handlers):
     device.group = MagicMock()
     device.group.name = "restricted"
     device.group.allowed_user_groups = ["operators"]  # admin not in allowed groups
-    
+
     packet = create_authorization_packet("admin", "show version")
-    
+
     response = aaa_handlers.handle_authorization(packet, device)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL
 
@@ -238,9 +240,9 @@ def test_authorization_fail_device_group_policy(aaa_handlers):
 def test_authorization_exec_service(aaa_handlers):
     """Test authorization for exec service"""
     packet = create_authorization_packet("admin", "", service="exec")
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD
 
@@ -256,9 +258,9 @@ def test_authorization_invalid_packet(aaa_handlers):
         length=4,
         body=b"test",  # Too short
     )
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_ERROR
 
@@ -266,13 +268,14 @@ def test_authorization_invalid_packet(aaa_handlers):
 def test_authorization_backend_exception(aaa_handlers):
     """Test authorization when backend raises exception"""
     with patch.object(
-        aaa_handlers.auth_backends[0], 'get_user_attributes', 
-        side_effect=Exception("Backend error")
+        aaa_handlers.auth_backends[0],
+        "get_user_attributes",
+        side_effect=Exception("Backend error"),
     ):
         packet = create_authorization_packet("admin", "show version")
-        
+
         response = aaa_handlers.handle_authorization(packet)
-        
+
         status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
         assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL
 
@@ -280,24 +283,24 @@ def test_authorization_backend_exception(aaa_handlers):
 def test_authorization_response_attributes(aaa_handlers):
     """Test that authorization response includes proper attributes"""
     packet = create_authorization_packet("admin", "show version")
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     # Parse response to check attributes
     status, arg_cnt, msg_len, data_len = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD
     assert arg_cnt > 0  # Should have attributes
-    
+
     # Parse attributes
     offset = 6
     arg_lengths = []
     for _ in range(arg_cnt):
         arg_lengths.append(response.body[offset])
         offset += 1
-    
+
     # Skip server message
     offset += msg_len
-    
+
     # Parse attributes
     attributes = {}
     for arg_len in arg_lengths:
@@ -306,7 +309,7 @@ def test_authorization_response_attributes(aaa_handlers):
             key, value = arg_str.split("=", 1)
             attributes[key] = value
         offset += arg_len
-    
+
     # Should include privilege level
     assert "priv-lvl" in attributes
     assert attributes["priv-lvl"] == "15"
@@ -316,8 +319,8 @@ def test_authorization_high_privilege_user_bypass(aaa_handlers):
     """Test that high privilege users (15) can bypass command restrictions"""
     # Admin user has privilege 15, should be able to run any command
     packet = create_authorization_packet("admin", "configure terminal")
-    
+
     response = aaa_handlers.handle_authorization(packet)
-    
+
     status, _, _, _ = struct.unpack("!BBHH", response.body[:6])
     assert status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD

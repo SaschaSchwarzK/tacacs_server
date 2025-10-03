@@ -72,12 +72,17 @@ def run_test_client():
 def pytest_sessionfinish(session, exitstatus):
     """Clean up test databases after all tests complete"""
     patterns = [
-        "data/test_*.db*", "data/*test*.db*", "data/tmp_*.db*",
+        "data/test_*.db*",
+        "data/*test*.db*",
+        "data/tmp_*.db*",
         "data/*_[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9].db*",
-        "data/change_users_*.db*", "data/reload_users_*.db*", "data/seed_users_*.db*",
-        "data/users_*.db*", "data/radius_auth_*.db*"
+        "data/change_users_*.db*",
+        "data/reload_users_*.db*",
+        "data/seed_users_*.db*",
+        "data/users_*.db*",
+        "data/radius_auth_*.db*",
     ]
-    
+
     for pattern in patterns:
         for file_path in glob.glob(pattern):
             try:

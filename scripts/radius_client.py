@@ -61,7 +61,7 @@ def create_access_request(
         # MD5 required by RADIUS RFC 2865 - not for general cryptographic use
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            key = hashlib.md5(hash_input).digest()
+            key = hashlib.md5(hash_input, usedforsecurity=False).digest()
         encrypted_chunk = bytes(a ^ b for a, b in zip(chunk, key))
         encrypted_password += encrypted_chunk
         prev = encrypted_chunk

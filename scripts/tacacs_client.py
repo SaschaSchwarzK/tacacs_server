@@ -56,7 +56,7 @@ def md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -
         # MD5 required by TACACS+ RFC 8907 - not for general cryptographic use
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            pad.extend(hashlib.md5(md5_input).digest())
+            pad.extend(hashlib.md5(md5_input, usedforsecurity=False).digest())
 
     return bytes(pad[:length])
 
