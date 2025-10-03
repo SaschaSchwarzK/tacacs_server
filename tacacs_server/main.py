@@ -463,7 +463,7 @@ def create_test_client_script():
                     md5_input = (
                         session_id_bytes + key_bytes + version_byte + seq_byte + pad
                     )
-                pad.extend(hashlib.md5(md5_input).digest())
+                pad.extend(hashlib.md5(md5_input, usedforsecurity=False).digest())
 
             return bytes(pad[:length])
 

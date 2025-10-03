@@ -178,7 +178,7 @@ class RADIUSPacket:
             data = header + request_auth + attrs_data + secret
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-                authenticator = hashlib.md5(data).digest()
+                authenticator = hashlib.md5(data, usedforsecurity=False).digest()
         else:
             authenticator = self.authenticator
 
@@ -252,7 +252,7 @@ class RADIUSPacket:
                     # MD5 required by RADIUS RFC 2865 - not for general crypto use
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore", DeprecationWarning)
-                        key = hashlib.md5(hash_input).digest()
+                        key = hashlib.md5(hash_input, usedforsecurity=False).digest()
                     decrypted_chunk = bytes(a ^ b for a, b in zip(chunk, key))
                     decrypted += decrypted_chunk
                     prev = chunk
