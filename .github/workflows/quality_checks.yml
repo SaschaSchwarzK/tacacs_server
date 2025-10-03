@@ -56,7 +56,7 @@ jobs:
 
       - name: Bandit (security lint)
         run: |
-          poetry run bandit -r . -x tests,.venv
+          poetry run bandit -r . -x ./tests,./.venv
 
       - name: Semgrep (CI rules)
         uses: semgrep/semgrep-action@v1
