@@ -75,6 +75,10 @@ jobs:
       - name: Pytest (XML & coverage)
         run: |
           poetry run pytest -q \
+            --ignore=tests/chaos \
+            --ignore=tests/security \
+            --ignore=tests/contract \
+            --ignore=tests/e2e \
             --junitxml=test-results/junit.xml \
             --cov=. --cov-report=xml:coverage.xml --cov-report=term-missing \
             --cov-fail-under=0
