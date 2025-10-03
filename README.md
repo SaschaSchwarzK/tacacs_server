@@ -1,5 +1,7 @@
 # TACACS+ Server
 
+[![Quality Checks](https://github.com/SaschaSchwarzK/tacacs_server/actions/workflows/quality_checks.yml/badge.svg)](https://github.com/SaschaSchwarzK/tacacs_server/actions/workflows/quality_checks.yml)
+
 A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Designed for network administrators who need reliable AAA services with comprehensive management capabilities, real-time monitoring, and enterprise integrations.
 
 ![Dashboard](docs/images/Dashbaord_page.png)
@@ -516,6 +518,38 @@ poetry run pytest tests/test_benchmark.py -v
 poetry run pytest tests/test_benchmark.py --benchmark-only
 ```
 
+### **Advanced Testing with Server Fixture**
+The test suite includes advanced tests that require a running server. These tests use an automatic server fixture that:
+- **Starts the server**: Automatically launches TACACS+ server before tests
+- **Waits for readiness**: Ensures server is fully operational
+- **Runs tests**: Executes tests against the live server
+- **Stops server**: Cleanly shuts down server after tests complete
+
+```bash
+# Run advanced test suites (server auto-managed)
+poetry run pytest tests/chaos/ -v          # Chaos engineering tests
+poetry run pytest tests/security/ -v       # Security penetration tests
+poetry run pytest tests/contract/ -v       # API contract tests
+poetry run pytest tests/e2e/ -v            # End-to-end integration tests
+
+# Run all advanced tests
+poetry run python scripts/run_advanced_tests.py
+
+# Run specific advanced test type
+poetry run python scripts/run_advanced_tests.py --test-type chaos
+poetry run python scripts/run_advanced_tests.py --test-type security
+
+# List available advanced test types
+poetry run python scripts/run_advanced_tests.py --list-tests
+```
+
+**Test Categories:**
+- **Core Tests** (143 tests): Unit tests that don't require a running server
+- **Chaos Tests**: Network resilience, resource exhaustion, cascade failures
+- **Security Tests**: OWASP Top 10, penetration testing, vulnerability scanning
+- **Contract Tests**: API schema validation, consumer-driven contracts
+- **E2E Tests**: Complete user workflows, integration testing
+
 ### **Batch Testing**
 ```bash
 # Test multiple TACACS+ credentials
@@ -549,6 +583,31 @@ python scripts/okta_check.py
 
 # Test LDAP connectivity
 python -c "from tacacs_server.auth.ldap_auth import LDAPAuthBackend; print('LDAP OK')"
+
+# Test server fixture functionality
+poetry run pytest tests/chaos/test_chaos.py::TestNetworkChaos::test_network_latency_resilience -v
+```
+
+### **Server Fixture Architecture**
+The server fixture (`tacacs_server`) provides:
+- **Session scope**: Server starts once per test session
+- **Automatic lifecycle**: Start → Wait for ready → Provide to tests → Stop
+- **Port availability**: Checks TACACS+ (49) and HTTP (8080) ports
+- **Clean shutdown**: Graceful termination with SIGTERM/SIGKILL fallback
+- **Error handling**: Robust error handling and timeout management
+
+```python
+# Using server fixture in tests
+class TestMyFeature:
+    @pytest.fixture(autouse=True)
+    def setup_server(self, tacacs_server):
+        """Use server fixture"""
+        self.server_info = tacacs_server
+    
+    def test_my_feature(self):
+        # Server is automatically running
+        response = requests.get("http://localhost:8080/api/health")
+        assert response.status_code == 200
 ```
 
 ## 🛠️ Development

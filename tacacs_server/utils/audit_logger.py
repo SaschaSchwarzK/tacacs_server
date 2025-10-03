@@ -93,12 +93,14 @@ class AuditLogger:
             # Also log to structured logger
             logger.info(
                 "audit_action",
-                user_id=user_id,
-                action=action,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                success=success,
-                client_ip=client_ip,
+                extra={
+                    "user_id": user_id,
+                    "action": action,
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "success": success,
+                    "client_ip": client_ip,
+                },
             )
 
             return True

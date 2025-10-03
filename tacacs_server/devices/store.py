@@ -255,7 +255,12 @@ class DeviceStore:
                     )
                     self._conn.execute(query_sql, params)
                     self._conn.commit()
-                    return self.get_group_by_name(name)  # refreshed row
+                    result = self.get_group_by_name(name)  # refreshed row
+                    if result is None:
+                        raise RuntimeError(
+                            f"Failed to retrieve group after update: {name}"
+                        )
+                    return result
                 return self._row_to_group(row)
 
             self._conn.execute(
@@ -273,7 +278,10 @@ class DeviceStore:
                 ),
             )
             self._conn.commit()
-            return self.get_group_by_name(name)
+            result = self.get_group_by_name(name)
+            if result is None:
+                raise RuntimeError(f"Failed to retrieve group after insert: {name}")
+            return result
 
     def get_group_by_name(self, name: str) -> DeviceGroup | None:
         with self._lock:
@@ -452,7 +460,9 @@ class DeviceStore:
             (name, str(network_obj)),
         )
         row = cur.fetchone()
-        return self._row_to_device(row, groups) if row else None  # type: ignore[arg-type]
+        if row is None:
+            raise RuntimeError(f"Failed to retrieve device after insert: {name}")
+        return self._row_to_device(row, groups)
 
     def update_device(
         self,

@@ -12,7 +12,6 @@ from time import monotonic
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
-from tacacs_server.utils.sql_security import ParameterizedQuery
 
 logger = get_logger(__name__)
 
@@ -73,6 +72,7 @@ class DatabaseLogger:
     ):
         self.db_path = db_path
         self.conn: sqlite3.Connection | None = None
+        self.pool: DatabasePool | None = None
         self._stats_cache: dict[int, tuple[float, dict[str, Any]]] = {}
         self.maintain_mv = maintain_mv
 
@@ -107,7 +107,7 @@ class DatabaseLogger:
                 except Exception:
                     pass
             self.conn = None
-            self.pool = None
+            self.pool = None  # type: ignore[assignment]
             self._stats_cache = {}
 
     def _now_utc_iso(self) -> str:
@@ -489,10 +489,10 @@ class DatabaseLogger:
                 placeholders = ["?" for _ in columns]
                 values = list(safe_data.values())
 
-                query = ParameterizedQuery(
+                query = (
                     f"INSERT INTO accounting_logs ({','.join(columns)}) "
                     f"VALUES ({','.join(placeholders)})"
-                ).sql
+                )
 
                 conn.execute(query, values)
                 # Connection is automatically committed by the context manager

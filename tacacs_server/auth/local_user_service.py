@@ -150,34 +150,34 @@ class LocalUserService:
         if not existing:
             raise LocalUserNotFound(f"User '{username}' not found")
 
-        updates = {
-            "privilege_level": (
-                self._validate_privilege(privilege_level)
-                if privilege_level is not None
-                else None
-            ),
-            "service": (
-                self._validate_service(service) if service is not None else None
-            ),
-            "shell_command": (
-                self._validate_list(shell_command, "shell_command")
-                if shell_command is not None
-                else None
-            ),
-            "groups": (
-                self._validate_list(groups, "groups") if groups is not None else None
-            ),
-            "enabled": (bool(enabled) if enabled is not None else None),
-            "description": (description if description is not None else None),
-        }
+        # Validate values directly
+        validated_privilege = (
+            self._validate_privilege(privilege_level)
+            if privilege_level is not None
+            else None
+        )
+        validated_service = (
+            self._validate_service(service) if service is not None else None
+        )
+        validated_shell_command = (
+            self._validate_list(shell_command, "shell_command")
+            if shell_command is not None
+            else None
+        )
+        validated_groups = (
+            self._validate_list(groups, "groups") if groups is not None else None
+        )
+        validated_enabled = bool(enabled) if enabled is not None else None
+
+        # Call update with validated values
         stored = self.store.update_user(
             username,
-            privilege_level=updates["privilege_level"],
-            service=updates["service"],
-            shell_command=updates["shell_command"],
-            groups=updates["groups"],
-            enabled=updates["enabled"],
-            description=updates["description"],
+            privilege_level=validated_privilege,
+            service=validated_service,
+            shell_command=validated_shell_command,
+            groups=validated_groups,
+            enabled=validated_enabled,
+            description=description,  # description doesn't need validation
         )
         if not stored:
             raise LocalUserNotFound(f"User '{username}' not found")

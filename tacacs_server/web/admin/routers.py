@@ -377,7 +377,7 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
         "connections": connections,
         "cpu_percent": cpu_percent,
         "memory_percent": mem_percent,
-        "memory_human": f"{_format_bytes(mem_used)} / { _format_bytes(mem_total)}"
+        "memory_human": f"{_format_bytes(mem_used)} / {_format_bytes(mem_total)}"
         if mem_total is not None
         else "N/A",
         "config_source": config_source,
@@ -502,8 +502,8 @@ async def list_devices(
     request: Request,
     service: DeviceService = Depends(get_device_service),
     _: None = Depends(admin_guard),
-    search: str = None,
-    group_filter: str = None,
+    search: str | None = None,
+    group_filter: str | None = None,
     limit: int = 100,
 ):
     # Get all devices
@@ -579,6 +579,7 @@ async def create_device(
     _: None = Depends(admin_guard),
 ):
     audit_logger = get_audit_logger()
+    payload = {}  # Initialize payload to avoid unbound variable errors
     try:
         # Parse and validate JSON payload
         try:
@@ -592,8 +593,8 @@ async def create_device(
         payload = FormValidator.validate_device_form(payload)
 
         record = service.create_device(
-            name=payload.get("name"),
-            network=payload.get("network"),
+            name=str(payload.get("name", "")),
+            network=str(payload.get("network", "")),
             group=payload.get("group"),
         )
 
@@ -604,7 +605,7 @@ async def create_device(
             resource_type="device",
             resource_id=str(record.id),
             details={"name": record.name, "network": str(record.network)},
-            client_ip=request.client.host,
+            client_ip=request.client.host if request.client else None,
             success=True,
         )
 
@@ -620,7 +621,7 @@ async def create_device(
             action="create_device",
             resource_type="device",
             details=payload if "payload" in locals() else {},
-            client_ip=request.client.host,
+            client_ip=request.client.host if request.client else None,
             success=False,
             error_message=str(exc),
         )
@@ -633,7 +634,7 @@ async def create_device(
             action="create_device",
             resource_type="device",
             details=payload if "payload" in locals() else {},
-            client_ip=request.client.host,
+            client_ip=request.client.host if request.client else None,
             success=False,
             error_message=str(exc),
         )
@@ -708,7 +709,7 @@ async def delete_device(
             action="delete_device",
             resource_type="device",
             resource_id=str(device_id),
-            client_ip=request.client.host,
+            client_ip=request.client.host if request.client else None,
             success=True,
         )
 
@@ -719,7 +720,7 @@ async def delete_device(
             action="delete_device",
             resource_type="device",
             resource_id=str(device_id),
-            client_ip=request.client.host,
+            client_ip=request.client.host if request.client else None,
             success=False,
             error_message=str(exc),
         )
@@ -1022,9 +1023,9 @@ async def list_users(
     service: LocalUserService = Depends(get_user_service),
     group_service: LocalUserGroupService = Depends(get_user_group_service),
     _: None = Depends(admin_guard),
-    search: str = None,
-    enabled_filter: bool = None,
-    group_filter: str = None,
+    search: str | None = None,
+    enabled_filter: bool | None = None,
+    group_filter: str | None = None,
     limit: int = 100,
 ):
     # Get all users
@@ -1277,8 +1278,8 @@ async def bulk_create_devices(
     for i, device_data in enumerate(devices):
         try:
             record = service.create_device(
-                name=device_data.get("name"),
-                network=device_data.get("network"),
+                name=str(device_data.get("name", "")),
+                network=str(device_data.get("network", "")),
                 group=device_data.get("group"),
             )
             results.append({"index": i, "id": record.id, "name": record.name})
@@ -1436,8 +1437,8 @@ async def export_users(
 @admin_router.get("/audit")
 async def get_audit_log(
     hours: int = 24,
-    user_id: str = None,
-    action: str = None,
+    user_id: str | None = None,
+    action: str | None = None,
     limit: int = 100,
     _: None = Depends(admin_guard),
 ):
@@ -1484,8 +1485,8 @@ async def admin_login(
     else:
         if username is None or password is None:
             form = await request.form()
-            username = form.get("username", "")
-            password = form.get("password", "")
+            username = str(form.get("username", ""))
+            password = str(form.get("password", ""))
 
     try:
         # Validate login inputs

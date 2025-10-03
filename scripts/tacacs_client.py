@@ -287,9 +287,9 @@ def test_batch_credentials(
     print(f"Total tests: {len(results)}")
     print(f"Successful: {successful}")
     print(f"Failed: {failed}")
-    print(f"Success rate: {successful/len(results)*100:.1f}%")
+    print(f"Success rate: {successful / len(results) * 100:.1f}%")
     print(f"Total time: {total_time:.2f}s")
-    print(f"Average time per test: {total_time/len(results):.2f}s")
+    print(f"Average time per test: {total_time / len(results):.2f}s")
 
     return failed == 0
 
