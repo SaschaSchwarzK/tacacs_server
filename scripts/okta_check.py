@@ -169,8 +169,7 @@ def main():
 
         if api_token and okta_sub:
             print(
-                f"\n-> Okta Groups API: users/{okta_sub}/groups "
-                "(requires SSWS token)"
+                f"\n-> Okta Groups API: users/{okta_sub}/groups (requires SSWS token)"
             )
             gr = okta_groups_api(org, api_token, okta_sub, verify=verify)
             print("Groups API response:", gr.status_code)

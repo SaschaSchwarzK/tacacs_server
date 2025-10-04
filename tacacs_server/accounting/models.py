@@ -39,7 +39,7 @@ class AccountingRecord:
     def from_dict(cls, data: dict[str, Any]) -> "AccountingRecord":
         """Create AccountingRecord from dictionary"""
         # Filter out keys that don't exist in the dataclass
-        valid_keys = {f.name for f in cls.__dataclasses_fields__.values()}
+        valid_keys = set(cls.__annotations__.keys())
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered_data)
 
@@ -78,11 +78,12 @@ class AccountingRecord:
         except (ValueError, TypeError):
             return "0 B"  # Safe fallback for invalid input
 
+        bytes_float = float(bytes_count)
         for unit in ["B", "KB", "MB", "GB"]:
-            if bytes_count < 1024.0:
-                return f"{bytes_count:.1f} {unit}"
-            bytes_count /= 1024.0
-        return f"{bytes_count:.1f} TB"
+            if bytes_float < 1024.0:
+                return f"{bytes_float:.1f} {unit}"
+            bytes_float /= 1024.0
+        return f"{bytes_float:.1f} TB"
 
     def format_bytes_in(self) -> str:
         """Format incoming bytes"""

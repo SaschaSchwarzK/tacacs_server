@@ -3,8 +3,12 @@ Test configuration and fixtures
 """
 
 import glob
+import os
 import shutil
+import signal
+import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -53,6 +57,63 @@ def test_user(user_service):
 def server_process():
     """Mock server process for integration tests."""
     return {"host": "127.0.0.1", "port": 49, "secret": "test123"}
+
+
+@pytest.fixture(scope="session")
+def tacacs_server():
+    """Start TACACS+ server for tests that need it"""
+    server_process = None
+    try:
+        # Start server in background
+        server_process = subprocess.Popen(
+            ["python", "-m", "tacacs_server.main", "--config", "config/tacacs.conf"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+        )
+
+        # Wait for server to be ready
+        import socket
+
+        for _ in range(30):  # 30 second timeout
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex(("localhost", 49))
+                sock.close()
+                if result == 0:
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+        else:
+            raise RuntimeError("Server failed to start within 30 seconds")
+
+        yield {"host": "localhost", "port": 49, "web_port": 8080}
+
+    finally:
+        # Stop server
+        if server_process:
+            try:
+                if hasattr(os, "killpg"):
+                    os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
+                else:
+                    server_process.terminate()
+                server_process.wait(timeout=10)
+            except Exception:
+                try:
+                    if hasattr(os, "killpg"):
+                        os.killpg(os.getpgid(server_process.pid), signal.SIGKILL)
+                    else:
+                        server_process.kill()
+                except Exception:
+                    pass
+
+
+@pytest.fixture
+def live_server(tacacs_server):
+    """Alias for tacacs_server fixture for backward compatibility"""
+    return tacacs_server
 
 
 @pytest.fixture

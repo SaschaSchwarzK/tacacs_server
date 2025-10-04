@@ -7,6 +7,7 @@ from typing import Any
 
 from .logging_config import (
     StructuredJSONFormatter,
+    StructuredLoggerAdapter,
     bind_context,
     clear_context,
     get_structured_logger,
@@ -33,6 +34,6 @@ def configure(
     _configure_logging(level=level, handlers=handlers)
 
 
-def get_logger(name: str, **context: Any) -> logging.Logger:
+def get_logger(name: str, **context: Any) -> StructuredLoggerAdapter:
     """Return a structured logger adapter for the provided name."""
     return get_structured_logger(name, **context)

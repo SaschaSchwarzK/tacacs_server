@@ -296,7 +296,7 @@ class SecureDatabase:
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._connection = None
+        self._connection: sqlite3.Connection | None = None
 
     def connect(self) -> sqlite3.Connection:
         """Get database connection with security settings."""
@@ -358,7 +358,7 @@ class SecureDatabase:
         cursor = self.execute_query(query, params)
         self.connect().commit()
 
-        return cursor.lastrowid
+        return cursor.lastrowid or 0
 
     def update(
         self, table: str, data: dict[str, Any], where_conditions: dict[str, Any]

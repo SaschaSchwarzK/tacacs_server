@@ -171,7 +171,12 @@ class LocalAuthStore:
                 ),
             )
             self._conn.commit()
-            return self.get_user(record.username)
+            result = self.get_user(record.username)
+            if result is None:
+                raise RuntimeError(
+                    f"Failed to retrieve user after insert: {record.username}"
+                )
+            return result
 
     def update_user(
         self,
@@ -297,7 +302,12 @@ class LocalAuthStore:
                 ),
             )
             self._conn.commit()
-            return self.get_group(record.name)
+            result = self.get_group(record.name)
+            if result is None:
+                raise RuntimeError(
+                    f"Failed to retrieve group after insert: {record.name}"
+                )
+            return result
 
     def update_group(
         self,

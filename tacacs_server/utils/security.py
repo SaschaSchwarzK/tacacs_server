@@ -31,7 +31,8 @@ def validate_username(username: str) -> bool:
     """Validate username format"""
     if not username or len(username) > 64:
         return False
-    return bool(re.match(r"^[a-zA-Z0-9._-]+$", username))
+    match = re.match(r"^[a-zA-Z0-9._-]+$", username)
+    return match is not None
 
 
 def sanitize_command(command: str) -> str:

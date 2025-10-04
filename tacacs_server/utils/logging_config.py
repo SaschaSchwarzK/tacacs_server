@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import traceback
-from collections.abc import Iterable
+from collections.abc import Iterable, MutableMapping
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from datetime import UTC, datetime
@@ -102,7 +102,9 @@ class StructuredJSONFormatter(logging.Formatter):
 class StructuredLoggerAdapter(logging.LoggerAdapter):
     """Logger adapter that merges thread-local context with static context."""
 
-    def process(self, msg: str, kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    def process(
+        self, msg: str, kwargs: MutableMapping[str, Any]
+    ) -> tuple[str, MutableMapping[str, Any]]:
         extra = kwargs.setdefault("extra", {})
 
         custom_fields = {
@@ -114,8 +116,9 @@ class StructuredLoggerAdapter(logging.LoggerAdapter):
             for key, value in custom_fields.items():
                 extra.setdefault(key, value)
 
-        merged_context = {**_context.get(), **self.extra}
-        if merged_context:
+        context_data = _context.get()
+        if context_data or self.extra:
+            merged_context = {**context_data, **self.extra}
             extra.setdefault("context", merged_context)
         return msg, kwargs
 

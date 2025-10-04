@@ -31,7 +31,7 @@ class AAAHandlers:
     def __init__(self, auth_backends: list[AuthenticationBackend], db_logger):
         self.auth_backends = auth_backends
         self.db_logger = db_logger
-        self.auth_sessions = {}
+        self.auth_sessions: dict[int, dict[str, Any]] = {}
         self.rate_limiter = AuthRateLimiter()
         self.session_device: dict[int, Any] = {}
         self.session_usernames: dict[int, str] = {}
@@ -53,7 +53,7 @@ class AAAHandlers:
         self.session_device.pop(session_id, None)
         self.session_usernames.pop(session_id, None)
         stale_keys = [
-            key for key in self.auth_sessions if key.startswith(f"{session_id}_")
+            key for key in self.auth_sessions if str(key).startswith(f"{session_id}_")
         ]
         for key in stale_keys:
             self.auth_sessions.pop(key, None)
@@ -324,7 +324,7 @@ class AAAHandlers:
                 self.cleanup_session(packet.session_id)
                 return response
         elif authen_type == TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII:
-            session_key = f"{packet.session_id}_{packet.seq_no}"
+            session_key = packet.session_id
             if not user:
                 self.auth_sessions[session_key] = {"step": "username"}
                 return self._create_auth_response(
@@ -377,7 +377,7 @@ class AAAHandlers:
         self, packet: TacacsPacket, user: str, data: bytes
     ) -> TacacsPacket:
         """Handle authentication continuation"""
-        session_key = f"{packet.session_id}_{packet.seq_no - 2}"
+        session_key = packet.session_id
         session_info = self.auth_sessions.get(session_key)
         if not session_info:
             return self._create_auth_response(

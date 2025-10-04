@@ -81,7 +81,7 @@ class AuthenticationBackend(ABC):
         """
         return False  # Not supported by default
 
-    def get_user_groups(self, username: str) -> list:
+    def get_user_groups(self, username: str) -> list[Any]:
         """
         Get user group memberships
 
@@ -92,7 +92,8 @@ class AuthenticationBackend(ABC):
             list: List of group names user belongs to
         """
         attrs = self.get_user_attributes(username)
-        return attrs.get("groups", [])
+        groups = attrs.get("groups", [])
+        return groups if isinstance(groups, list) else []
 
     def get_privilege_level(self, username: str) -> int:
         """
@@ -105,7 +106,8 @@ class AuthenticationBackend(ABC):
             int: Privilege level (0-15)
         """
         attrs = self.get_user_attributes(username)
-        return attrs.get("privilege_level", 1)
+        level = attrs.get("privilege_level", 1)
+        return int(level) if isinstance(level, (int, str)) else 1
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"

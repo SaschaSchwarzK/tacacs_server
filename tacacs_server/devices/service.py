@@ -171,13 +171,13 @@ class DeviceService:
                 )
             if tacacs_secret is not UNSET:
                 if tacacs_secret:
-                    self._validate_secret(tacacs_secret, "tacacs_secret")
+                    self._validate_secret(str(tacacs_secret), "tacacs_secret")
                     merged_metadata["tacacs_secret"] = tacacs_secret
                 else:
                     merged_metadata.pop("tacacs_secret", None)
             if radius_secret is not UNSET:
                 if radius_secret:
-                    self._validate_secret(radius_secret, "radius_secret")
+                    self._validate_secret(str(radius_secret), "radius_secret")
                     merged_metadata["radius_secret"] = radius_secret
                 else:
                     merged_metadata.pop("radius_secret", None)
@@ -192,7 +192,12 @@ class DeviceService:
                 if allowed_user_groups is None:
                     merged_metadata.pop("allowed_user_groups", None)
                 else:
-                    validated = self._validate_allowed_groups(allowed_user_groups)
+                    if isinstance(allowed_user_groups, (list, tuple)):
+                        validated = self._validate_allowed_groups(
+                            [str(g) for g in allowed_user_groups]
+                        )
+                    else:
+                        validated = None
                     if validated:
                         merged_metadata["allowed_user_groups"] = validated
                     else:
@@ -259,7 +264,7 @@ class DeviceService:
 
         device = self.store.ensure_device(
             name,
-            network_obj,
+            str(network_obj),
             group=group,
         )
         if not device:
@@ -296,7 +301,7 @@ class DeviceService:
         updated = self.store.update_device(
             device_id,
             name=stripped_name,
-            network=network_obj,
+            network=str(network_obj) if network_obj else None,
             group=group,
             clear_group=clear_group,
         )

@@ -126,9 +126,11 @@ class TacacsPacket:
             # MD5 required by TACACS+ RFC 8907 - not for general cryptographic use
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-                pad += hashlib.md5(md5_input, usedforsecurity=False).digest()
+                digest = hashlib.md5(md5_input, usedforsecurity=False).digest()
+                pad += digest
 
-        return pad[:length]
+        result = pad[:length]
+        return result
 
     def __str__(self) -> str:
         """String representation for debugging"""
