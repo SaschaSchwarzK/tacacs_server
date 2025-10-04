@@ -1,4 +1,5 @@
 """Service helpers for managing local users stored in SQLite."""
+
 from __future__ import annotations
 
 import json
@@ -9,7 +10,13 @@ from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 
+from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.password_hash import (
+    PasswordHasher,
+    verify_password,
+)
+from tacacs_server.utils.validation import InputValidator
 
 from .local_models import LocalUserRecord
 from .local_store import LocalAuthStore
@@ -45,12 +52,14 @@ class LocalUserService:
         store: LocalAuthStore | None = None,
         seed_file: Path | str | None = None,
     ) -> None:
-        self.db_path = Path(db_path)
+        self.db_path = self._validate_safe_path(db_path, "data")
         self.store = store or LocalAuthStore(self.db_path)
         self._listeners: list[Callable[[str, str], None]] = []
         self._listeners_lock = threading.RLock()
         if seed_file:
-            self._seed_from_json(Path(seed_file))
+            # Validate seed file path to prevent path traversal
+            safe_seed_path = self._validate_safe_path(seed_file, "data")
+            self._seed_from_json(safe_seed_path)
 
     # ------------------------------------------------------------------
     # Change listeners
@@ -77,9 +86,7 @@ class LocalUserService:
             try:
                 callback(event, username)
             except Exception:
-                logger.exception(
-                    "LocalUserService change listener failed"
-                )
+                logger.exception("LocalUserService change listener failed")
 
     # ------------------------------------------------------------------
     # Basic ops
@@ -143,38 +150,34 @@ class LocalUserService:
         if not existing:
             raise LocalUserNotFound(f"User '{username}' not found")
 
-        updates = {
-            "privilege_level": (
-                self._validate_privilege(privilege_level) 
-                if privilege_level is not None else None
-            ),
-            "service": (
-                self._validate_service(service) 
-                if service is not None else None
-            ),
-            "shell_command": (
-                self._validate_list(shell_command, "shell_command") 
-                if shell_command is not None else None
-            ),
-            "groups": (
-                self._validate_list(groups, "groups") 
-                if groups is not None else None
-            ),
-            "enabled": (
-                bool(enabled) if enabled is not None else None
-            ),
-            "description": (
-                description if description is not None else None
-            ),
-        }
+        # Validate values directly
+        validated_privilege = (
+            self._validate_privilege(privilege_level)
+            if privilege_level is not None
+            else None
+        )
+        validated_service = (
+            self._validate_service(service) if service is not None else None
+        )
+        validated_shell_command = (
+            self._validate_list(shell_command, "shell_command")
+            if shell_command is not None
+            else None
+        )
+        validated_groups = (
+            self._validate_list(groups, "groups") if groups is not None else None
+        )
+        validated_enabled = bool(enabled) if enabled is not None else None
+
+        # Call update with validated values
         stored = self.store.update_user(
             username,
-            privilege_level=updates["privilege_level"],
-            service=updates["service"],
-            shell_command=updates["shell_command"],
-            groups=updates["groups"],
-            enabled=updates["enabled"],
-            description=updates["description"],
+            privilege_level=validated_privilege,
+            service=validated_service,
+            shell_command=validated_shell_command,
+            groups=validated_groups,
+            enabled=validated_enabled,
+            description=description,  # description doesn't need validation
         )
         if not stored:
             raise LocalUserNotFound(f"User '{username}' not found")
@@ -188,17 +191,17 @@ class LocalUserService:
         *,
         store_hash: bool = True,
     ) -> LocalUserRecord:
-        password = password.strip()
-        if len(password) < 4:
-            raise LocalUserValidationError(
-                "Password must be at least 4 characters"
-            )
+        # Use centralized password validation
+        try:
+            password = InputValidator.validate_password(password, min_length=8)
+        except ValidationError as e:
+            raise LocalUserValidationError(str(e)) from e
 
         existing = self.store.get_user(username)
         if not existing:
             raise LocalUserNotFound(f"User '{username}' not found")
 
-        password_hash = self._hash_password(password) if store_hash else None
+        password_hash = PasswordHasher.hash_password(password) if store_hash else None
         stored = self.store.set_user_password(
             username,
             password=None,
@@ -228,31 +231,23 @@ class LocalUserService:
             if self.store.list_users():
                 return
         except Exception:
-            logger.exception(
-                "Failed to inspect local auth store before seeding"
-            )
+            logger.exception("Failed to inspect local auth store before seeding")
             return
 
         try:
             with seed_path.open("r", encoding="utf-8") as fh:
                 payload = json.load(fh)
         except Exception:
-            logger.exception(
-                "Failed to load legacy users seed from %s", seed_path
-            )
+            logger.exception("Failed to load legacy users seed from %s", seed_path)
             return
 
         if not isinstance(payload, dict):
-            logger.warning(
-                "Legacy users seed %s is not a JSON object", seed_path
-            )
+            logger.warning("Legacy users seed %s is not a JSON object", seed_path)
             return
 
         for username, data in payload.items():
             if not isinstance(data, dict):
-                logger.warning(
-                    "Skipping legacy user %s with invalid payload", username
-                )
+                logger.warning("Skipping legacy user %s with invalid payload", username)
                 continue
             try:
                 record = LocalUserRecord.from_dict(username, data)
@@ -262,9 +257,7 @@ class LocalUserService:
                     # Already present, skip
                     continue
             except Exception:
-                logger.exception(
-                    "Failed to import legacy user %s", username
-                )
+                logger.exception("Failed to import legacy user %s", username)
 
     @staticmethod
     def _clone(record: LocalUserRecord) -> LocalUserRecord:
@@ -326,10 +319,11 @@ class LocalUserService:
                 "Provide only password or password_hash, not both"
             )
         if password:
-            password = password.strip()
-            if len(password) < 4:
-                raise LocalUserValidationError("Password must be at least 4 characters")
-            return None, LocalUserService._hash_password(password)
+            try:
+                password = InputValidator.validate_password(password, min_length=8)
+            except ValidationError as e:
+                raise LocalUserValidationError(str(e)) from e
+            return None, PasswordHasher.hash_password(password)
         if password_hash:
             if len(password_hash) != 64:
                 raise LocalUserValidationError(
@@ -340,8 +334,51 @@ class LocalUserService:
             "Either password or password_hash must be provided"
         )
 
-    @staticmethod
-    def _hash_password(password: str) -> str:
-        import hashlib
+    def verify_user_password(self, username: str, password: str) -> bool:
+        """Verify user password with automatic migration from legacy hashes."""
+        user = self.store.get_user(username)
+        if not user or not user.password_hash:
+            return False
 
-        return hashlib.sha256(password.encode("utf-8")).hexdigest()
+        # Try verification with current hash
+        if verify_password(password, user.password_hash):
+            # Check if we need to migrate from legacy hash
+            if not PasswordHasher.is_bcrypt_hash(user.password_hash):
+                try:
+                    # Migrate to bcrypt
+                    new_hash = PasswordHasher.hash_password(password)
+                    self.store.set_user_password(
+                        username, password=None, password_hash=new_hash
+                    )
+                    logger.info(f"Migrated password hash for user {username} to bcrypt")
+                except Exception as e:
+                    logger.error(f"Failed to migrate password for user {username}: {e}")
+            return True
+
+        return False
+
+    @staticmethod
+    def _validate_safe_path(path: Path | str, allowed_base: str = "data") -> Path:
+        """Validate path to prevent directory traversal attacks."""
+        if not path:
+            raise LocalUserValidationError("Path cannot be empty")
+
+        try:
+            # Convert to Path and resolve to absolute path
+            path_obj = Path(path).resolve()
+            base_path = Path(allowed_base).resolve()
+
+            # Ensure path is within allowed base directory
+            try:
+                path_obj.relative_to(base_path)
+            except ValueError:
+                # Path is outside allowed base, create safe path
+                safe_name = Path(path).name  # Get just the filename
+                if not safe_name or safe_name in (".", ".."):
+                    raise LocalUserValidationError("Invalid filename")
+                path_obj = base_path / safe_name
+
+            return path_obj
+
+        except Exception as e:
+            raise LocalUserValidationError(f"Invalid path: {e}") from e

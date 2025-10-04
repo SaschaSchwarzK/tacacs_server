@@ -1,27 +1,28 @@
 """
 Enhanced authorization utilities
 """
+
 import re
 
 
 class CommandMatcher:
     """Enhanced command matching with regex support"""
-    
+
     def __init__(self):
         self.patterns: dict[int, list[re.Pattern]] = {}
-    
+
     def add_patterns(self, privilege_level: int, patterns: list[str]):
         """Add command patterns for privilege level"""
         compiled_patterns = []
         for pattern in patterns:
-            if pattern.startswith('regex:'):
+            if pattern.startswith("regex:"):
                 compiled_patterns.append(re.compile(pattern[6:]))
             else:
                 # Convert shell-style wildcards to regex
-                regex_pattern = pattern.replace('*', '.*').replace('?', '.')
-                compiled_patterns.append(re.compile(f'^{regex_pattern}$'))
+                regex_pattern = pattern.replace("*", ".*").replace("?", ".")
+                compiled_patterns.append(re.compile(f"^{regex_pattern}$"))
         self.patterns[privilege_level] = compiled_patterns
-    
+
     def is_authorized(self, command: str, user_privilege: int) -> bool:
         """Check if command is authorized for user privilege level"""
         # Check from user's privilege level up to 15
@@ -31,7 +32,7 @@ class CommandMatcher:
                     if pattern.match(command):
                         return True
         return False
-    
+
     def get_allowed_commands(self, user_privilege: int) -> list[str]:
         """Get list of allowed command patterns for user"""
         allowed = []

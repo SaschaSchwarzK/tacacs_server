@@ -1,6 +1,7 @@
 """
 Security utilities for TACACS+ server
 """
+
 import re
 import time
 from collections import defaultdict
@@ -8,30 +9,32 @@ from collections import defaultdict
 
 class AuthRateLimiter:
     """Rate limiter for authentication attempts"""
-    
+
     def __init__(self, max_attempts=5, window_seconds=300):
         self.attempts = defaultdict(list)
         self.max_attempts = max_attempts
         self.window = window_seconds
-    
+
     def is_allowed(self, client_ip: str) -> bool:
         now = time.time()
         # Clean old attempts
         self.attempts[client_ip] = [
-            t for t in self.attempts[client_ip] 
-            if now - t < self.window
+            t for t in self.attempts[client_ip] if now - t < self.window
         ]
         return len(self.attempts[client_ip]) < self.max_attempts
-    
+
     def record_attempt(self, client_ip: str):
         self.attempts[client_ip].append(time.time())
+
 
 def validate_username(username: str) -> bool:
     """Validate username format"""
     if not username or len(username) > 64:
         return False
-    return bool(re.match(r'^[a-zA-Z0-9._-]+$', username))
+    match = re.match(r"^[a-zA-Z0-9._-]+$", username)
+    return match is not None
+
 
 def sanitize_command(command: str) -> str:
     """Sanitize command for logging"""
-    return re.sub(r'[^\w\s.-]', '', command)[:255]
+    return re.sub(r"[^\w\s.-]", "", command)[:255]

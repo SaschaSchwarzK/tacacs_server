@@ -1,4 +1,5 @@
 """SQLite-backed persistence for local users and groups."""
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,13 @@ class LocalAuthStore:
     """Persistent storage helper for local authentication data."""
 
     def __init__(self, db_path: Path | str = "data/local_auth.db") -> None:
-        self.db_path = Path(db_path)
+        # Resolve and validate path to prevent path traversal
+        self.db_path = Path(db_path).resolve()
+        # Ensure path is within expected directory structure (allow pytest temp dirs)
+        cwd = str(Path.cwd().resolve())
+        db_str = str(self.db_path)
+        if not (db_str.startswith(cwd) or "/pytest-" in db_str):
+            raise ValueError(f"Database path outside allowed directory: {self.db_path}")
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -164,7 +171,12 @@ class LocalAuthStore:
                 ),
             )
             self._conn.commit()
-            return self.get_user(record.username)
+            result = self.get_user(record.username)
+            if result is None:
+                raise RuntimeError(
+                    f"Failed to retrieve user after insert: {record.username}"
+                )
+            return result
 
     def update_user(
         self,
@@ -290,7 +302,12 @@ class LocalAuthStore:
                 ),
             )
             self._conn.commit()
-            return self.get_group(record.name)
+            result = self.get_group(record.name)
+            if result is None:
+                raise RuntimeError(
+                    f"Failed to retrieve group after insert: {record.name}"
+                )
+            return result
 
     def update_group(
         self,

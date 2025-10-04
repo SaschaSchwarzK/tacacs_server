@@ -14,6 +14,7 @@ Beispiel:
   OKTA_ORG=https://dev-xxx.okta.com OKTA_CLIENT_ID=xxx OKTA_API_TOKEN=ssws-token \
     /path/to/python scripts/okta_check.py --username admin
 """
+
 import argparse
 import getpass
 import json
@@ -32,7 +33,7 @@ def pretty(o):
 
 
 def token_request(org, client_id, username, password, verify=True):
-    token_url = urljoin(org.rstrip('/') + '/', "oauth2/default/v1/token")
+    token_url = urljoin(org.rstrip("/") + "/", "oauth2/default/v1/token")
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/x-www-form-urlencoded",
@@ -50,7 +51,7 @@ def token_request(org, client_id, username, password, verify=True):
 
 def authn_request(org, username, password, verify=True):
     """Fallback: Okta Authn API (returns sessionToken on success)."""
-    url = urljoin(org.rstrip('/') + '/', "api/v1/authn")
+    url = urljoin(org.rstrip("/") + "/", "api/v1/authn")
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     payload = {"username": username, "password": password}
     r = requests.post(url, headers=headers, json=payload, verify=verify, timeout=15)
@@ -58,17 +59,19 @@ def authn_request(org, username, password, verify=True):
 
 
 def userinfo_request(org, access_token, verify=True):
-    url = urljoin(org.rstrip('/') + '/', "oauth2/default/v1/userinfo")
+    url = urljoin(org.rstrip("/") + "/", "oauth2/default/v1/userinfo")
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
     r = requests.get(url, headers=headers, verify=verify, timeout=10)
     return r
 
+
 def okta_groups_api(org, api_token, okta_sub, verify=True):
     # Requires Management API SSWS token
-    url = urljoin(org.rstrip('/') + '/', f"api/v1/users/{okta_sub}/groups")
+    url = urljoin(org.rstrip("/") + "/", f"api/v1/users/{okta_sub}/groups")
     headers = {"Authorization": f"SSWS {api_token}", "Accept": "application/json"}
     r = requests.get(url, headers=headers, verify=verify, timeout=10)
     return r
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -97,17 +100,29 @@ def main():
         )
         sys.exit(2)
 
-    username = args.username or input("Username: ").strip()
-    password = getpass.getpass("Password (will not be echoed): ")
+    username = (
+        args.username or os.getenv("OKTA_USERNAME") or input("Username: ").strip()
+    )
+    password = os.getenv("OKTA_PASSWORD") or getpass.getpass(
+        "Password (will not be echoed): "
+    )
 
     print(f"\n-> Token request to {org} (client_id={client_id}), verify_tls={verify}")
     r = token_request(org, client_id, username, password, verify=verify)
     print("Token endpoint response:", r.status_code)
     try:
         tr = r.json()
-        print(pretty(tr))
+        # Redact sensitive fields from output
+        safe_response = {
+            k: v
+            for k, v in tr.items()
+            if k not in ["access_token", "refresh_token", "id_token"]
+        }
+        if "access_token" in tr:
+            safe_response["access_token"] = "[REDACTED]"
+        print(pretty(safe_response))
     except Exception:
-        print(r.text)
+        print("[Response content redacted]")
 
     if r.status_code != 200:
         # If client not allowed to use password grant -> try Authn API fallback
@@ -132,11 +147,8 @@ def main():
             sys.exit(1)
 
     access_token = tr.get("access_token")
-    expires_in = tr.get("expires_in")
-    print(
-        f"\naccess_token present: {'yes' if access_token else 'no'}, "
-        f"expires_in: {expires_in}"
-    )
+    # expires_in = tr.get("expires_in")  # Unused variable
+    print(f"\nAuthentication: {'successful' if access_token else 'failed'}")
 
     if access_token:
         print("\n-> Userinfo request")
@@ -157,8 +169,7 @@ def main():
 
         if api_token and okta_sub:
             print(
-                f"\n-> Okta Groups API: users/{okta_sub}/groups "
-                "(requires SSWS token)"
+                f"\n-> Okta Groups API: users/{okta_sub}/groups (requires SSWS token)"
             )
             gr = okta_groups_api(org, api_token, okta_sub, verify=verify)
             print("Groups API response:", gr.status_code)

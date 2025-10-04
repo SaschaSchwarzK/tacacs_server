@@ -1,4 +1,5 @@
 """Higher-level service helpers for device and group management."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -13,6 +14,7 @@ UNSET = object()
 
 
 logger = get_logger(__name__)
+
 
 class DeviceServiceError(Exception):
     """Base error for device service operations."""
@@ -159,7 +161,8 @@ class DeviceService:
             or allowed_user_groups is not UNSET
         ):
             merged_metadata = (
-                _ensure_metadata(metadata) if metadata is not None 
+                _ensure_metadata(metadata)
+                if metadata is not None
                 else dict(group.metadata)
             )
             if metadata is None and getattr(group, "allowed_user_groups", None):
@@ -168,13 +171,13 @@ class DeviceService:
                 )
             if tacacs_secret is not UNSET:
                 if tacacs_secret:
-                    self._validate_secret(tacacs_secret, "tacacs_secret")
+                    self._validate_secret(str(tacacs_secret), "tacacs_secret")
                     merged_metadata["tacacs_secret"] = tacacs_secret
                 else:
                     merged_metadata.pop("tacacs_secret", None)
             if radius_secret is not UNSET:
                 if radius_secret:
-                    self._validate_secret(radius_secret, "radius_secret")
+                    self._validate_secret(str(radius_secret), "radius_secret")
                     merged_metadata["radius_secret"] = radius_secret
                 else:
                     merged_metadata.pop("radius_secret", None)
@@ -189,7 +192,12 @@ class DeviceService:
                 if allowed_user_groups is None:
                     merged_metadata.pop("allowed_user_groups", None)
                 else:
-                    validated = self._validate_allowed_groups(allowed_user_groups)
+                    if isinstance(allowed_user_groups, (list, tuple)):
+                        validated = self._validate_allowed_groups(
+                            [str(g) for g in allowed_user_groups]
+                        )
+                    else:
+                        validated = None
                     if validated:
                         merged_metadata["allowed_user_groups"] = validated
                     else:
@@ -200,12 +208,10 @@ class DeviceService:
             name=new_name,
             description=description,
             tacacs_profile=(
-                _ensure_metadata(tacacs_profile) 
-                if tacacs_profile is not None else None
+                _ensure_metadata(tacacs_profile) if tacacs_profile is not None else None
             ),
             radius_profile=(
-                _ensure_metadata(radius_profile) 
-                if radius_profile is not None else None
+                _ensure_metadata(radius_profile) if radius_profile is not None else None
             ),
             metadata=merged_metadata,
         )
@@ -258,7 +264,7 @@ class DeviceService:
 
         device = self.store.ensure_device(
             name,
-            network_obj,
+            str(network_obj),
             group=group,
         )
         if not device:
@@ -295,7 +301,7 @@ class DeviceService:
         updated = self.store.update_device(
             device_id,
             name=stripped_name,
-            network=network_obj,
+            network=str(network_obj) if network_obj else None,
             group=group,
             clear_group=clear_group,
         )

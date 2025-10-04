@@ -1,13 +1,12 @@
 """Pydantic schema for TACACS+ configuration validation."""
 
-
 from pydantic import BaseModel, Field, field_validator
 
 
 class ServerConfigSchema(BaseModel):
     host: str = Field(..., description="Server bind host")
     port: int = Field(..., ge=1, le=65535, description="Server TCP port")
-    secret_key: str = Field(..., min_length=8, description="Shared TACACS+ secret")
+    # secret_key removed - secrets are now per-device group
     log_level: str = Field(default="INFO")
     max_connections: int = Field(default=50, ge=1)
     socket_timeout: int = Field(default=30, ge=1)
@@ -50,11 +49,11 @@ class TacacsConfigSchema(BaseModel):
     ldap: LdapConfigSchema | None = None
     okta: OktaConfigSchema | None = None
 
-    @field_validator('auth')
+    @field_validator("auth")
     @classmethod
     def backends_not_empty(cls, value: AuthConfigSchema) -> AuthConfigSchema:
         backends = [
-            entry.strip() for entry in value.backends.split(',') if entry.strip()
+            entry.strip() for entry in value.backends.split(",") if entry.strip()
         ]
         if not backends:
             raise ValueError("At least one authentication backend must be configured")
