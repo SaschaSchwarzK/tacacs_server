@@ -5,6 +5,7 @@ Simple SQLite accounting database logger for TACACS+ server.
 import queue
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -820,4 +821,298 @@ class DatabaseLogger:
                     return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error("Failed to get hourly stats: %s", e)
+            return []
+
+    def get_active_sessions(self) -> list[dict[str, Any]]:
+        """
+        Get list of active sessions (sessions without stop_time).
+
+        Returns:
+            List of active session dictionaries
+        """
+        try:
+            with self.pool.get_connection() as conn:
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT 
+                        session_id,
+                        username,
+                        acct_type,
+                        start_time,
+                        attributes,
+                        created_at
+                    FROM accounting
+                    WHERE stop_time IS NULL
+                    AND start_time IS NOT NULL
+                    ORDER BY start_time DESC
+                """
+
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                sessions = []
+                for row in rows:
+                    # Parse attributes if it's JSON
+                    attributes = {}
+                    if row[4]:
+                        try:
+                            import json
+
+                            attributes = json.loads(row[4])
+                        except:
+                            attributes = {}
+
+                    sessions.append(
+                        {
+                            "session_id": row[0],
+                            "username": row[1],
+                            "acct_type": row[2],
+                            "start_time": row[3],
+                            "duration_seconds": int(time.time() - row[3])
+                            if row[3]
+                            else 0,
+                            "device_ip": attributes.get("device_ip", "unknown"),
+                            "created_at": row[5],
+                        }
+                    )
+
+                return sessions
+
+        except Exception as e:
+            logger.error(f"Error getting active sessions: {e}")
+            return []
+
+    def get_total_sessions(self, period_days: int = 30) -> int:
+        """
+        Get total number of sessions in the specified period.
+
+        Args:
+            period_days: Number of days to look back
+
+        Returns:
+            Total session count
+        """
+        try:
+            with self.pool.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Calculate timestamp for period_days ago
+                cutoff_timestamp = int(time.time()) - (period_days * 86400)
+
+                query = """
+                    SELECT COUNT(DISTINCT session_id)
+                    FROM accounting
+                    WHERE start_time >= ?
+                    AND start_time IS NOT NULL
+                """
+
+                cursor.execute(query, (cutoff_timestamp,))
+                result = cursor.fetchone()
+
+                return result[0] if result else 0
+
+        except Exception as e:
+            logger.error(f"Error getting total sessions: {e}")
+            return 0
+
+    def get_session_duration_stats(self, period_days: int = 30) -> dict[str, float]:
+        """
+        Get session duration statistics for completed sessions.
+
+        Args:
+            period_days: Number of days to look back
+
+        Returns:
+            Dictionary with avg, min, max duration statistics
+        """
+        try:
+            with self.pool.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cutoff_timestamp = int(time.time()) - (period_days * 86400)
+
+                query = """
+                    SELECT 
+                        AVG(stop_time - start_time) as avg_duration,
+                        MIN(stop_time - start_time) as min_duration,
+                        MAX(stop_time - start_time) as max_duration,
+                        COUNT(*) as completed_sessions
+                    FROM accounting
+                    WHERE start_time >= ?
+                    AND start_time IS NOT NULL
+                    AND stop_time IS NOT NULL
+                    AND stop_time > start_time
+                """
+
+                cursor.execute(query, (cutoff_timestamp,))
+                result = cursor.fetchone()
+
+                if result and result[0] is not None:
+                    return {
+                        "avg_duration_seconds": float(result[0]),
+                        "min_duration_seconds": float(result[1]),
+                        "max_duration_seconds": float(result[2]),
+                        "completed_sessions": result[3],
+                    }
+
+                return {
+                    "avg_duration_seconds": 0.0,
+                    "min_duration_seconds": 0.0,
+                    "max_duration_seconds": 0.0,
+                    "completed_sessions": 0,
+                }
+
+        except Exception as e:
+            logger.error(f"Error getting session duration stats: {e}")
+            return {
+                "avg_duration_seconds": 0.0,
+                "min_duration_seconds": 0.0,
+                "max_duration_seconds": 0.0,
+                "completed_sessions": 0,
+            }
+
+    def get_session_by_id(self, session_id: int) -> dict[str, Any] | None:
+        """
+        Get detailed information about a specific session.
+
+        Args:
+            session_id: The session ID to retrieve
+
+        Returns:
+            Session details dictionary or None if not found
+        """
+        try:
+            with self.pool.get_connection() as conn:
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT 
+                        session_id,
+                        username,
+                        acct_type,
+                        start_time,
+                        stop_time,
+                        bytes_in,
+                        bytes_out,
+                        attributes,
+                        created_at
+                    FROM accounting
+                    WHERE session_id = ?
+                    LIMIT 1
+                """
+
+                cursor.execute(query, (session_id,))
+                row = cursor.fetchone()
+
+                if row:
+                    attributes = {}
+                    if row[7]:
+                        try:
+                            import json
+
+                            attributes = json.loads(row[7])
+                        except:
+                            pass
+
+                    duration = None
+                    if row[3] and row[4]:
+                        duration = row[4] - row[3]
+                    elif row[3]:
+                        duration = int(time.time()) - row[3]
+
+                    return {
+                        "session_id": row[0],
+                        "username": row[1],
+                        "acct_type": row[2],
+                        "start_time": row[3],
+                        "stop_time": row[4],
+                        "duration_seconds": duration,
+                        "bytes_in": row[5],
+                        "bytes_out": row[6],
+                        "attributes": attributes,
+                        "created_at": row[8],
+                        "is_active": row[4] is None,
+                    }
+
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting session by ID: {e}")
+            return None
+
+    def get_user_session_history(
+        self, username: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """
+        Get session history for a specific user.
+
+        Args:
+            username: Username to query
+            limit: Maximum number of sessions to return
+
+        Returns:
+            List of session dictionaries
+        """
+        try:
+            with self.pool.get_connection() as conn:
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT 
+                        session_id,
+                        username,
+                        acct_type,
+                        start_time,
+                        stop_time,
+                        bytes_in,
+                        bytes_out,
+                        attributes,
+                        created_at
+                    FROM accounting
+                    WHERE username = ?
+                    ORDER BY start_time DESC
+                    LIMIT ?
+                """
+
+                cursor.execute(query, (username, limit))
+                rows = cursor.fetchall()
+
+                sessions = []
+                for row in rows:
+                    attributes = {}
+                    if row[7]:
+                        try:
+                            import json
+
+                            attributes = json.loads(row[7])
+                        except:
+                            pass
+
+                    duration = None
+                    if row[3] and row[4]:
+                        duration = row[4] - row[3]
+                    elif row[3]:
+                        duration = int(time.time()) - row[3]
+
+                    sessions.append(
+                        {
+                            "session_id": row[0],
+                            "username": row[1],
+                            "acct_type": row[2],
+                            "start_time": row[3],
+                            "stop_time": row[4],
+                            "duration_seconds": duration,
+                            "bytes_in": row[5],
+                            "bytes_out": row[6],
+                            "device_ip": attributes.get("device_ip", "unknown"),
+                            "created_at": row[8],
+                            "is_active": row[4] is None,
+                        }
+                    )
+
+                return sessions
+
+        except Exception as e:
+            logger.error(f"Error getting user session history: {e}")
             return []
