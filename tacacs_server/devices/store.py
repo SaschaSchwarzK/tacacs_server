@@ -628,5 +628,5 @@ class DeviceStore:
     def __enter__(self) -> DeviceStore:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:  # type: ignore[override]
+    def __exit__(self, exc_type, exc, tb) -> None:
         self.close()

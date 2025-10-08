@@ -281,7 +281,7 @@ class DeviceService:
         Wrapper around update_group() with simpler parameters.
         """
         # Build kwargs dynamically
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         if name is not None:
             kwargs["name"] = name
         if description is not None:
@@ -500,7 +500,7 @@ class DeviceService:
 
         Converts device_group_id to group name and calls update_device.
         """
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
 
         if name is not None:
             kwargs["name"] = name

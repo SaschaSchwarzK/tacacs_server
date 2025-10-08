@@ -22,7 +22,7 @@ class DatabasePool:
 
     def __init__(self, db_path: str, pool_size: int = 5):
         self.db_path = db_path
-        self.pool = queue.Queue(pool_size)
+        self.pool: queue.Queue[sqlite3.Connection] = queue.Queue(pool_size)
         self._lock = threading.Lock()
 
         # Ensure directory exists
@@ -108,7 +108,7 @@ class DatabaseLogger:
                 except Exception:
                     pass
             self.conn = None
-            self.pool = None  # type: ignore[assignment]
+            self.pool = None
             self._stats_cache = {}
 
     def _now_utc_iso(self) -> str:
@@ -831,6 +831,8 @@ class DatabaseLogger:
             List of active session dictionaries
         """
         try:
+            if self.pool is None:
+                return []
             with self.pool.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -894,6 +896,8 @@ class DatabaseLogger:
             Total session count
         """
         try:
+            if self.pool is None:
+                return 0
             with self.pool.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -927,6 +931,13 @@ class DatabaseLogger:
             Dictionary with avg, min, max duration statistics
         """
         try:
+            if self.pool is None:
+                return {
+                    "avg_duration_seconds": 0.0,
+                    "min_duration_seconds": 0.0,
+                    "max_duration_seconds": 0.0,
+                    "completed_sessions": 0,
+                }
             with self.pool.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -983,6 +994,8 @@ class DatabaseLogger:
             Session details dictionary or None if not found
         """
         try:
+            if self.pool is None:
+                return None
             with self.pool.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -1055,6 +1068,8 @@ class DatabaseLogger:
             List of session dictionaries
         """
         try:
+            if self.pool is None:
+                return []
             with self.pool.get_connection() as conn:
                 cursor = conn.cursor()
 

@@ -16,8 +16,8 @@ import threading
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from tacacs_server.auth.base import AuthenticationBackend
 
+from tacacs_server.auth.base import AuthenticationBackend
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 

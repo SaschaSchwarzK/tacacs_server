@@ -10,8 +10,8 @@ from typing import Any
 import psutil
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from starlette.responses import Response
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 from tacacs_server.auth.local_user_group_service import (
     LocalUserGroupExists,

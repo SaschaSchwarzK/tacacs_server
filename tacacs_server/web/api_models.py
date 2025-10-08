@@ -9,8 +9,22 @@ Complete model definitions for all API endpoints.
 from datetime import datetime
 from enum import Enum
 from typing import Any
+from typing import Any as _Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
+from pydantic import Field as _Field
+
+
+def Field(*args: _Any, **kwargs: _Any):  # shim to support example= with mypy
+    example = kwargs.pop("example", None)
+    if example is not None:
+        extra = kwargs.get("json_schema_extra")
+        if isinstance(extra, dict):
+            extra.setdefault("example", example)
+        else:
+            kwargs["json_schema_extra"] = {"example": example}
+    return _Field(*args, **kwargs)
+
 
 # ============================================================================
 # Enums
@@ -108,14 +122,14 @@ class UserCreate(UserBase):
     )
 
     @model_validator(mode="after")
-    def _validate_password_choice(cls, values: "UserCreate") -> "UserCreate":
-        password = values.password
-        password_hash = values.password_hash
+    def _validate_password_choice(self) -> "UserCreate":
+        password = self.password
+        password_hash = self.password_hash
         if not password and not password_hash:
             raise ValueError("Either password or password_hash must be provided")
         if password and password_hash:
             raise ValueError("Provide only password or password_hash, not both")
-        return values
+        return self
 
     class Config:
         json_schema_extra = {
@@ -821,64 +835,6 @@ class AuthBackendInfo(BaseModel):
 
 # Type alias for the response (List of backends)
 BackendsResponse = list[AuthBackendInfo]
-
-
-class SessionDurationStats(BaseModel):
-    """Session duration statistics"""
-
-    avg_duration_seconds: float = Field(
-        ..., description="Average session duration in seconds", example=3600.0
-    )
-    min_duration_seconds: float = Field(
-        ..., description="Minimum session duration in seconds", example=60.0
-    )
-    max_duration_seconds: float = Field(
-        ..., description="Maximum session duration in seconds", example=7200.0
-    )
-    completed_sessions: int = Field(
-        ..., description="Number of completed sessions", example=10
-    )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "avg_duration_seconds": 3600.0,
-                "min_duration_seconds": 60.0,
-                "max_duration_seconds": 7200.0,
-                "completed_sessions": 10,
-            }
-        }
-
-
-class ActiveSessionDetail(BaseModel):
-    """Active session details"""
-
-    session_id: int = Field(..., description="Session ID", example=12345)
-    username: str = Field(..., description="Username", example="jsmith")
-    acct_type: str | None = Field(None, description="Accounting type", example="start")
-    start_time: int = Field(
-        ..., description="Session start timestamp (Unix epoch)", example=1704374400
-    )
-    duration_seconds: int = Field(
-        ..., description="Current session duration in seconds", example=3600
-    )
-    device_ip: str = Field(..., description="Device IP address", example="192.168.1.1")
-    created_at: str = Field(
-        ..., description="Record creation timestamp", example="2024-01-01T12:00:00"
-    )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "session_id": 12345,
-                "username": "jsmith",
-                "acct_type": "start",
-                "start_time": 1704374400,
-                "duration_seconds": 3600,
-                "device_ip": "192.168.1.1",
-                "created_at": "2024-01-01T12:00:00",
-            }
-        }
 
 
 class SessionsResponse(BaseModel):
