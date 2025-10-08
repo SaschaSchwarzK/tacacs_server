@@ -860,7 +860,7 @@ class DatabaseLogger:
                             import json
 
                             attributes = json.loads(row[4])
-                        except:
+                        except (json.JSONDecodeError, TypeError):
                             attributes = {}
 
                     sessions.append(
@@ -1012,7 +1012,7 @@ class DatabaseLogger:
                             import json
 
                             attributes = json.loads(row[7])
-                        except:
+                        except (json.JSONDecodeError, TypeError):
                             pass
 
                     duration = None
@@ -1086,7 +1086,7 @@ class DatabaseLogger:
                             import json
 
                             attributes = json.loads(row[7])
-                        except:
+                        except (json.JSONDecodeError, TypeError):
                             pass
 
                     duration = None

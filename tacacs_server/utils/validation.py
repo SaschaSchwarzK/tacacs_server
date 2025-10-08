@@ -333,7 +333,7 @@ class FormValidator:
     @classmethod
     def validate_device_form(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Validate device creation/update form."""
-        validated = {}
+        validated: dict[str, Any] = {}
 
         if "name" in data:
             validated["name"] = InputValidator.validate_string_length(
@@ -353,7 +353,7 @@ class FormValidator:
     @classmethod
     def validate_user_form(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Validate user creation/update form."""
-        validated = {}
+        validated: dict[str, Any] = {}
 
         if "username" in data:
             validated["username"] = InputValidator.validate_username(data["username"])
@@ -394,7 +394,7 @@ class FormValidator:
     @classmethod
     def validate_group_form(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Validate device group creation/update form."""
-        validated = {}
+        validated: dict[str, Any] = {}
 
         if "name" in data:
             validated["name"] = InputValidator.validate_string_length(

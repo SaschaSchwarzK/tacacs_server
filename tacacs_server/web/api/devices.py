@@ -2,52 +2,56 @@
 
 """Device API endpoints."""
 
-from typing import List, Optional
-from fastapi import APIRouter, Query, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, Query, status
 from fastapi import Path as PathParam
 
 from ...devices.service import (
-    DeviceService,
     DeviceNotFound,
+    DeviceService,
+    DeviceValidationError,
     GroupNotFound,
-    DeviceValidationError
 )
 from ..api_models import (
-    DeviceResponse,
     DeviceCreate,
+    DeviceResponse,
     DeviceUpdate,
-    DeviceGroupResponse,
-    DeviceGroupCreate,
-    DeviceGroupUpdate
 )
 
 router = APIRouter(prefix="/api/devices", tags=["Devices"])
 
 
 def get_device_service() -> DeviceService:
-    """Get device service instance (you'll need to inject this properly)."""
-    # This needs to be injected from your main app
-    # For now, it's a placeholder
-    from tacacs_server.main import get_device_service
-    return get_device_service()
+    """Get device service instance (validated non-None)."""
+    from tacacs_server.web.monitoring import get_device_service as _get
+
+    service = _get()
+    if service is None:
+        from fastapi import HTTPException, status
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Device service unavailable",
+        )
+    return service
 
 
 # ============================================================================
 # Device Endpoints
 # ============================================================================
 
+
 @router.get(
     "",
-    response_model=List[DeviceResponse],
+    response_model=list[DeviceResponse],
     summary="List devices",
-    description="Get a list of all network devices with optional filtering"
+    description="Get a list of all network devices with optional filtering",
 )
 async def list_devices(
     limit: int = Query(50, ge=1, le=1000, description="Maximum number of devices"),
     offset: int = Query(0, ge=0, description="Number of devices to skip"),
-    search: Optional[str] = Query(None, description="Search by name or IP address"),
-    device_group_id: Optional[int] = Query(None, description="Filter by device group ID"),
-    enabled: Optional[bool] = Query(None, description="Filter by enabled status")
+    search: str | None = Query(None, description="Search by name or IP address"),
+    device_group_id: int | None = Query(None, description="Filter by device group ID"),
+    enabled: bool | None = Query(None, description="Filter by enabled status"),
 ):
     """List all network devices with filtering and pagination."""
     try:
@@ -57,7 +61,7 @@ async def list_devices(
             offset=offset,
             search=search,
             device_group_id=device_group_id,
-            enabled=enabled
+            enabled=enabled,
         )
         return devices
     except Exception as e:
@@ -68,17 +72,19 @@ async def list_devices(
     "/{device_id}",
     response_model=DeviceResponse,
     summary="Get device",
-    description="Get details of a specific device by ID"
+    description="Get details of a specific device by ID",
 )
 async def get_device(
-    device_id: int = PathParam(..., ge=1, description="Device ID", example=1)
+    device_id: int = PathParam(..., ge=1, description="Device ID"),
 ):
     """Get detailed information about a specific device."""
     try:
         service = get_device_service()
         device = service.get_device_by_id(device_id)
         if not device:
-            raise HTTPException(status_code=404, detail=f"Device with ID {device_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Device with ID {device_id} not found"
+            )
         return device
     except HTTPException:
         raise
@@ -91,7 +97,7 @@ async def get_device(
     response_model=DeviceResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create device",
-    description="Register a new network device"
+    description="Register a new network device",
 )
 async def create_device(device: DeviceCreate):
     """Create a new network device."""
@@ -102,60 +108,68 @@ async def create_device(device: DeviceCreate):
             ip_address=device.ip_address,
             device_group_id=device.device_group_id,
             enabled=device.enabled,
-            metadata=device.metadata
+            metadata=device.metadata,
         )
         return new_device
     except (GroupNotFound, DeviceValidationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create device: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create device: {str(e)}"
+        )
 
 
 @router.put(
     "/{device_id}",
     response_model=DeviceResponse,
     summary="Update device",
-    description="Update device details"
+    description="Update device details",
 )
 async def update_device(
     device_id: int = PathParam(..., ge=1, description="Device ID"),
-    device: DeviceUpdate = None
+    device: DeviceUpdate | None = Body(None),
 ):
     """Update device details."""
     try:
         service = get_device_service()
         updated_device = service.update_device_from_dict(
             device_id=device_id,
-            name=device.name,
-            ip_address=device.ip_address,
-            device_group_id=device.device_group_id,
-            enabled=device.enabled,
-            metadata=device.metadata
+            name=(device.name if device else None),
+            ip_address=(device.ip_address if device else None),
+            device_group_id=(device.device_group_id if device else None),
+            enabled=(device.enabled if device else None),
+            metadata=(device.metadata if device else None),
         )
         return updated_device
     except DeviceNotFound:
-        raise HTTPException(status_code=404, detail=f"Device with ID {device_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Device with ID {device_id} not found"
+        )
     except (GroupNotFound, DeviceValidationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update device: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update device: {str(e)}"
+        )
 
 
 @router.delete(
     "/{device_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete device",
-    description="Delete a network device"
+    description="Delete a network device",
 )
-async def delete_device(
-    device_id: int = PathParam(..., ge=1, description="Device ID")
-):
+async def delete_device(device_id: int = PathParam(..., ge=1, description="Device ID")):
     """Delete a device."""
     try:
         service = get_device_service()
         service.delete_device(device_id)
         return None
     except DeviceNotFound:
-        raise HTTPException(status_code=404, detail=f"Device with ID {device_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Device with ID {device_id} not found"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete device: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete device: {str(e)}"
+        )

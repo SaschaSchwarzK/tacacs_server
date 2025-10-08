@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, Field, model_validator
 
 # ============================================================================
 # Enums
@@ -47,105 +47,152 @@ class AuthBackendType(str, Enum):
 
 
 class UserBase(BaseModel):
-    """Base user model with common fields"""
+    """Base user model with common fields."""
 
     username: str = Field(
         ...,
-        min_length=3,
-        max_length=50,
+        min_length=1,
+        max_length=64,
         description="Unique username",
         example="jsmith",
     )
-    email: EmailStr = Field(
-        ..., description="User email address", example="jsmith@example.com"
-    )
     privilege_level: int = Field(
-        default=1, ge=0, le=15, description="TACACS+ privilege level", example=5
+        default=1,
+        ge=0,
+        le=15,
+        description="TACACS+ privilege level",
+        example=5,
+    )
+    service: str = Field(
+        default="exec",
+        description="Primary service profile",
+        example="exec",
+    )
+    shell_command: list[str] = Field(
+        default_factory=lambda: ["show"],
+        description="Allowed shell commands",
+        example=["show"],
+    )
+    groups: list[str] = Field(
+        default_factory=list,
+        description="Assigned user groups",
+        example=["admins"],
     )
     enabled: bool = Field(
-        default=True, description="Account enabled status", example=True
+        default=True,
+        description="Account enabled status",
+        example=True,
+    )
+    description: str | None = Field(
+        None,
+        description="User description",
+        example="Network administrator account",
     )
 
 
 class UserCreate(UserBase):
-    """Model for creating a new user"""
+    """Model for creating a new user."""
 
-    password: str = Field(
-        ..., min_length=8, description="User password", example="SecurePass123!"
+    password: str | None = Field(
+        None,
+        min_length=8,
+        description="Plaintext password for the user",
+        example="SecurePass123!",
     )
-    groups: list[int] | None = Field(
-        default=[], description="User group IDs", example=[1, 2]
+    password_hash: str | None = Field(
+        None,
+        min_length=64,
+        max_length=64,
+        description="Pre-hashed password (SHA-256 hex digest)",
+        example="2bb80d537b1da3e38bd30361aa855686bde0baa3f0e90a5c1a32736d39ae4b0d",
     )
 
-    @validator("password")
-    def validate_password_strength(cls, v):
-        if not any(c.isupper() for c in v):
-            raise ValueError("Password must contain uppercase letter")
-        if not any(c.islower() for c in v):
-            raise ValueError("Password must contain lowercase letter")
-        if not any(c.isdigit() for c in v):
-            raise ValueError("Password must contain digit")
-        if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in v):
-            raise ValueError("Password must contain special character")
-        return v
+    @model_validator(mode="after")
+    def _validate_password_choice(cls, values: "UserCreate") -> "UserCreate":
+        password = values.password
+        password_hash = values.password_hash
+        if not password and not password_hash:
+            raise ValueError("Either password or password_hash must be provided")
+        if password and password_hash:
+            raise ValueError("Provide only password or password_hash, not both")
+        return values
 
     class Config:
         json_schema_extra = {
             "example": {
                 "username": "jsmith",
                 "password": "SecurePass123!",
-                "email": "jsmith@example.com",
                 "privilege_level": 5,
+                "service": "exec",
+                "shell_command": ["show"],
+                "groups": ["admins"],
                 "enabled": True,
-                "groups": [1, 2],
+                "description": "Network administrator",
             }
         }
 
 
 class UserUpdate(BaseModel):
-    """Model for updating user details"""
+    """Model for updating user details."""
 
-    email: EmailStr | None = Field(
-        None, description="Updated email", example="new@example.com"
-    )
     privilege_level: int | None = Field(
-        None, ge=0, le=15, description="Updated privilege", example=10
+        None,
+        ge=0,
+        le=15,
+        description="Updated privilege level",
+        example=10,
+    )
+    service: str | None = Field(
+        None,
+        description="Updated primary service",
+        example="exec",
+    )
+    shell_command: list[str] | None = Field(
+        None,
+        description="Updated shell command list",
+        example=["show", "configure"],
+    )
+    groups: list[str] | None = Field(
+        None,
+        description="Updated group names",
+        example=["admins", "ops"],
     )
     enabled: bool | None = Field(
-        None, description="Enable/disable account", example=False
+        None,
+        description="Enable or disable the account",
+        example=False,
     )
-    groups: list[int] | None = Field(
-        None, description="Updated group IDs", example=[1, 3]
+    description: str | None = Field(
+        None,
+        description="Updated description",
+        example="Temporary suspension",
     )
     password: str | None = Field(
-        None, min_length=8, description="New password", example="NewPass456!"
+        None,
+        min_length=8,
+        description="New plaintext password",
+        example="NewPass456!",
     )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "email": "updated@example.com",
                 "privilege_level": 10,
                 "enabled": True,
+                "groups": ["admins"],
             }
         }
 
 
 class UserResponse(UserBase):
-    """Model for user responses"""
+    """Model for user responses."""
 
     id: int = Field(..., description="Unique user ID", example=1)
-    groups: list[str] = Field(
-        default=[], description="User group names", example=["admins"]
-    )
-    created_at: datetime = Field(
-        ..., description="Creation timestamp", example="2024-01-01T12:00:00Z"
+    created_at: datetime | None = Field(
+        None, description="Creation timestamp", example="2024-01-01T12:00:00Z"
     )
     updated_at: datetime | None = Field(
-        None, description="Last update", example="2024-01-15T14:30:00Z"
-    )
-    last_login: datetime | None = Field(
-        None, description="Last login", example="2024-01-20T09:15:00Z"
+        None, description="Last update timestamp", example="2024-01-15T14:30:00Z"
     )
 
     class Config:
@@ -154,13 +201,14 @@ class UserResponse(UserBase):
             "example": {
                 "id": 1,
                 "username": "jsmith",
-                "email": "jsmith@example.com",
                 "privilege_level": 5,
-                "enabled": True,
+                "service": "exec",
+                "shell_command": ["show"],
                 "groups": ["admins"],
+                "enabled": True,
+                "description": "Network administrator",
                 "created_at": "2024-01-01T12:00:00Z",
                 "updated_at": "2024-01-15T14:30:00Z",
-                "last_login": "2024-01-20T09:15:00Z",
             }
         }
 
@@ -236,8 +284,8 @@ class DeviceResponse(DeviceBase):
     device_group_name: str = Field(
         ..., description="Device group name", example="Core-Routers"
     )
-    created_at: datetime = Field(
-        ..., description="Creation timestamp", example="2024-01-01T12:00:00Z"
+    created_at: datetime | None = Field(
+        None, description="Creation timestamp", example="2024-01-01T12:00:00Z"
     )
     updated_at: datetime | None = Field(
         None, description="Last update", example="2024-01-15T14:30:00Z"
@@ -333,8 +381,8 @@ class DeviceGroupResponse(DeviceGroupBase):
         default=[], description="Allowed user groups", example=[1, 2]
     )
     device_count: int = Field(..., description="Number of devices", example=5)
-    created_at: datetime = Field(
-        ..., description="Creation timestamp", example="2024-01-01T12:00:00Z"
+    created_at: datetime | None = Field(
+        None, description="Creation timestamp", example="2024-01-01T12:00:00Z"
     )
 
     class Config:
@@ -464,7 +512,7 @@ class DetailedServerStatus(BaseModel):
     radius: RADIUSStats = Field(..., description="RADIUS server statistics")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "status": "running",
                 "uptime": 22.42,
@@ -663,7 +711,7 @@ class DetailedStats(BaseModel):
     sessions: SessionStats = Field(..., description="Active session statistics")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "server": {
                     "status": "running",
@@ -761,7 +809,7 @@ class AuthBackendInfo(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "name": "local",
                 "type": "LocalAuthBackend",
@@ -792,7 +840,7 @@ class SessionDurationStats(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "avg_duration_seconds": 3600.0,
                 "min_duration_seconds": 60.0,
@@ -820,7 +868,7 @@ class ActiveSessionDetail(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "session_id": 12345,
                 "username": "jsmith",
@@ -850,7 +898,7 @@ class SessionsResponse(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "active_sessions": 2,
                 "total_sessions": 100,
@@ -969,8 +1017,8 @@ class AccountingRecordDetail(BaseModel):
     )
 
     class Config:
-        orm_mode = True
-        schema_extra = {
+        from_attributes = True
+        json_schema_extra = {
             "example": {
                 "id": 1,
                 "session_id": 12345,
@@ -996,7 +1044,7 @@ class AccountingResponse(BaseModel):
     period_hours: int = Field(..., description="Time period in hours", example=24)
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "records": [
                     {
@@ -1079,7 +1127,7 @@ class ValidationError(BaseModel):
 
 
 class UserGroupBase(BaseModel):
-    """Base user group model"""
+    """Base user group model."""
 
     name: str = Field(
         ...,
@@ -1092,16 +1140,27 @@ class UserGroupBase(BaseModel):
         None, description="Group description", example="Network administrators"
     )
     privilege_level: int = Field(
-        default=1, ge=0, le=15, description="Default privilege", example=15
+        default=1,
+        ge=0,
+        le=15,
+        description="Default privilege level for members",
+        example=15,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata attached to the group",
+        example={"source": "local"},
+    )
+    ldap_group: str | None = Field(
+        None, description="Linked LDAP group", example="cn=admins,dc=example,dc=com"
+    )
+    okta_group: str | None = Field(
+        None, description="Linked Okta group", example="Network-Admins"
     )
 
 
 class UserGroupCreate(UserGroupBase):
-    """Model for creating user group"""
-
-    allowed_device_groups: list[int] | None = Field(
-        default=[], description="Allowed device groups", example=[1, 2]
-    )
+    """Model for creating a user group."""
 
     class Config:
         json_schema_extra = {
@@ -1109,21 +1168,54 @@ class UserGroupCreate(UserGroupBase):
                 "name": "network-admins",
                 "description": "Network administrators",
                 "privilege_level": 15,
-                "allowed_device_groups": [1, 2],
+                "metadata": {"source": "local"},
+            }
+        }
+
+
+class UserGroupUpdate(BaseModel):
+    """Model for updating user group details."""
+
+    description: str | None = Field(
+        None, description="Updated description", example="Core networking team"
+    )
+    privilege_level: int | None = Field(
+        None, ge=0, le=15, description="Updated privilege level", example=10
+    )
+    metadata: dict[str, Any] | None = Field(
+        None, description="Updated metadata payload", example={"source": "sync"}
+    )
+    ldap_group: str | None = Field(
+        None,
+        description="Updated LDAP group link",
+        example="cn=admins,dc=example,dc=com",
+    )
+    okta_group: str | None = Field(
+        None, description="Updated Okta group link", example="Network-Admins"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "description": "Updated description",
+                "privilege_level": 12,
+                "ldap_group": "cn=admins,dc=example,dc=com",
             }
         }
 
 
 class UserGroupResponse(UserGroupBase):
-    """Model for user group responses"""
+    """Model for user group responses."""
 
     id: int = Field(..., description="Group ID", example=1)
-    allowed_device_groups: list[int] = Field(
-        default=[], description="Allowed groups", example=[1, 2]
+    member_count: int = Field(
+        ..., description="Number of users in the group", example=10
     )
-    member_count: int = Field(..., description="Number of members", example=10)
-    created_at: datetime = Field(
-        ..., description="Creation timestamp", example="2024-01-01T12:00:00Z"
+    created_at: datetime | None = Field(
+        None, description="Creation timestamp", example="2024-01-01T12:00:00Z"
+    )
+    updated_at: datetime | None = Field(
+        None, description="Last update timestamp", example="2024-01-05T08:30:00Z"
     )
 
     class Config:
@@ -1134,9 +1226,10 @@ class UserGroupResponse(UserGroupBase):
                 "name": "network-admins",
                 "description": "Network administrators",
                 "privilege_level": 15,
-                "allowed_device_groups": [1, 2],
+                "metadata": {"source": "local"},
                 "member_count": 10,
                 "created_at": "2024-01-01T12:00:00Z",
+                "updated_at": "2024-01-05T08:30:00Z",
             }
         }
 
@@ -1191,6 +1284,7 @@ __all__ = [
     "ValidationError",
     "UserGroupBase",
     "UserGroupCreate",
+    "UserGroupUpdate",
     "UserGroupResponse",
     "ServerStatistics",
     "AuthBackendHealth",

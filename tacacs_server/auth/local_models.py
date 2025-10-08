@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 
@@ -19,6 +20,9 @@ class LocalUserRecord:
     description: str | None = None
     password: str | None = None
     password_hash: str | None = None
+    id: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +61,9 @@ class LocalUserGroupRecord:
     ldap_group: str | None = None
     okta_group: str | None = None
     privilege_level: int = 1
+    id: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {

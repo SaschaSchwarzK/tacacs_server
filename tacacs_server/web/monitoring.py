@@ -9,7 +9,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from pathlib import Path as FilePath
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import uvicorn
 from fastapi import (
@@ -33,6 +33,10 @@ from prometheus_client import (
 
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
+from tacacs_server.web.api.device_groups import router as device_groups_router
+from tacacs_server.web.api.devices import router as devices_router
+from tacacs_server.web.api.usergroups import router as user_groups_router
+from tacacs_server.web.api.users import router as users_router
 from tacacs_server.web.api_models import (
     AccountingResponse,
     AuthBackendInfo,
@@ -42,7 +46,6 @@ from tacacs_server.web.api_models import (
     SessionsResponse,
 )
 from tacacs_server.web.openapi_config import configure_openapi_ui, custom_openapi_schema
-from tacacs_server.web.api.devices import router as devices_router
 
 logger = get_logger(__name__)
 
@@ -167,15 +170,29 @@ class TacacsMonitoringAPI:
     def __init__(self, tacacs_server, host="127.0.0.1", port=8080, radius_server=None):
         # Define tags metadata
         tags_metadata = [
-            {"name": "Status & Monitoring", "description": "Server status, health checks, and statistics"},
+            {
+                "name": "Status & Monitoring",
+                "description": "Server status, health checks, and statistics",
+            },
             {"name": "Devices", "description": "Network device management operations"},
-            {"name": "Device Groups", "description": "Device group management and configuration"},
+            {
+                "name": "Device Groups",
+                "description": "Device group management and configuration",
+            },
             {"name": "Users", "description": "Local user account management"},
-            {"name": "User Groups", "description": "User group management and permissions"},
-            {"name": "Authentication", "description": "Authentication backend status and testing"},
-            {"name": "Sessions", "description": "Active session tracking and management"},
+            {
+                "name": "User Groups",
+                "description": "User group management and permissions",
+            },
+            {
+                "name": "Authentication",
+                "description": "Authentication backend status and testing",
+            },
+            {
+                "name": "Sessions",
+                "description": "Active session tracking and management",
+            },
             {"name": "Accounting", "description": "Accounting records and audit logs"},
-            {"name": "Admin", "description": "Administrative operations (config, logs, backups)"},
             {"name": "Monitoring", "description": "Prometheus metrics endpoint"},
             {"name": "RADIUS", "description": "RADIUS server status and configuration"},
         ]
@@ -190,11 +207,14 @@ class TacacsMonitoringAPI:
             version="1.0.0",
             docs_url=None,
             redoc_url=None,
-            openapi_tags=tags_metadata
+            openapi_tags=tags_metadata,
         )
 
-        # Include the device router from app_setup
+        # Include API routers
         self.app.include_router(devices_router)
+        self.app.include_router(device_groups_router)
+        self.app.include_router(users_router)
+        self.app.include_router(user_groups_router)
 
         # Configure docs and OpenAPI
         self.app.openapi = lambda: custom_openapi_schema(self.app)
@@ -212,14 +232,6 @@ class TacacsMonitoringAPI:
         self.server = None
         self.server_thread = None
 
-        # for testing only
-        try:
-            from .app_setup import device_router
-            self.app.include_router(device_router)
-            print("✅ Device router included")
-        except Exception as e:
-            print(f"❌ Failed to include device router: {e}")
-        
     def setup_routes(self):
         """Setup API routes"""
 
@@ -248,7 +260,7 @@ class TacacsMonitoringAPI:
                 await websocket.close()
 
         # HTML Dashboard
-        @self.app.get("/", response_class=HTMLResponse)
+        @self.app.get("/", response_class=HTMLResponse, include_in_schema=False)
         async def dashboard(request: Request):
             """Main monitoring dashboard"""
             try:
@@ -270,9 +282,12 @@ class TacacsMonitoringAPI:
         @self.app.get(
             "/api/status",
             response_model=DetailedServerStatus,
-            tags=["Status"],
+            tags=["Status & Health"],
             summary="Get server status",
-            description="Get comprehensive server status including TACACS+ and RADIUS statistics",
+            description=(
+                "Get comprehensive server status including TACACS+ and "
+                "RADIUS statistics"
+            ),
         )
         async def api_status():
             """
@@ -294,9 +309,12 @@ class TacacsMonitoringAPI:
         @self.app.get(
             "/api/health",
             response_model=DetailedHealthCheck,
-            tags=["Health"],
+            tags=["Status & Health"],
             summary="Detailed health check",
-            description="Get comprehensive server health status including backends, database, and memory",
+            description=(
+                "Get comprehensive server health status including backends, "
+                "database, and memory"
+            ),
         )
         async def api_health():
             """
@@ -319,9 +337,12 @@ class TacacsMonitoringAPI:
         @self.app.get(
             "/api/stats",
             response_model=DetailedStats,
-            tags=["Statistics"],
+            tags=["Status & Health"],
             summary="Get detailed statistics",
-            description="Get comprehensive server statistics including backends, database, and sessions",
+            description=(
+                "Get comprehensive server statistics including backends, "
+                "database, and sessions"
+            ),
         )
         async def api_stats():
             """
@@ -350,7 +371,9 @@ class TacacsMonitoringAPI:
             response_model=list[AuthBackendInfo],
             tags=["Authentication"],
             summary="Get authentication backends",
-            description="Get status and statistics for all configured authentication backends",
+            description=(
+                "Get status and statistics for all configured authentication backends"
+            ),
         )
         async def api_backends():
             """
@@ -371,9 +394,12 @@ class TacacsMonitoringAPI:
         @self.app.get(
             "/api/sessions",
             response_model=SessionsResponse,
-            tags=["Sessions"],
+            tags=["Status & Health"],
             summary="Get active sessions",
-            description="Get information about active and recent sessions including duration statistics",
+            description=(
+                "Get information about active and recent sessions including "
+                "duration statistics"
+            ),
         )
         async def api_sessions():
             """
@@ -397,7 +423,9 @@ class TacacsMonitoringAPI:
             response_model=AccountingResponse,
             tags=["Accounting"],
             summary="Get accounting records",
-            description="Retrieve recent accounting records for the specified time period",
+            description=(
+                "Retrieve recent accounting records for the specified time period"
+            ),
         )
         async def api_accounting(  # hours: int = 24, limit: int = 100):
             hours: int = Query(
@@ -448,27 +476,31 @@ class TacacsMonitoringAPI:
             response_class=PlainTextResponse,
             tags=["Monitoring"],
             summary="Prometheus metrics",
-            description="Prometheus-compatible metrics endpoint for monitoring and alerting",
+            description=(
+                "Prometheus-compatible metrics endpoint for monitoring and alerting"
+            ),
             responses={
                 200: {
                     "description": "Prometheus metrics in text format",
                     "content": {
                         "text/plain; version=0.0.4": {
-                            "example": """# HELP tacacs_auth_requests_total Total authentication requests
-        # TYPE tacacs_auth_requests_total counter
-        tacacs_auth_requests_total 0.0
-        
-        # HELP tacacs_active_connections Number of active connections
-        # TYPE tacacs_active_connections gauge
-        tacacs_active_connections 0.0
-        
-        # HELP tacacs_server_uptime_seconds Server uptime in seconds
-        # TYPE tacacs_server_uptime_seconds gauge
-        tacacs_server_uptime_seconds 123.45
-        
-        # HELP radius_auth_requests_total RADIUS authentication requests
-        # TYPE radius_auth_requests_total counter
-        radius_auth_requests_total 0.0"""
+                            "example": "\n".join(
+                                [
+                                    (
+                                        "# HELP tacacs_auth_requests_total "
+                                        "Total authentication requests"
+                                    ),
+                                    "# TYPE tacacs_auth_requests_total counter",
+                                    "tacacs_auth_requests_total 0.0",
+                                    "",
+                                    (
+                                        "# HELP tacacs_active_connections "
+                                        "Number of active connections"
+                                    ),
+                                    "# TYPE tacacs_active_connections gauge",
+                                    "tacacs_active_connections 0.0",
+                                ]
+                            )
                         }
                     },
                 },
@@ -481,50 +513,10 @@ class TacacsMonitoringAPI:
                     },
                 },
             },
-            include_in_schema=True,  # Make sure it appears in OpenAPI docs
+            include_in_schema=False,
         )
         async def metrics():
-            """
-            Prometheus metrics endpoint.
-
-            Returns metrics in Prometheus text exposition format for scraping by Prometheus server.
-
-            ## Available Metrics
-
-            ### TACACS+ Metrics
-            - `tacacs_auth_requests_total` - Total authentication requests (counter)
-            - `tacacs_auth_duration_seconds` - Authentication duration histogram
-            - `tacacs_active_connections` - Current active connections (gauge)
-            - `tacacs_server_uptime_seconds` - Server uptime (gauge)
-            - `tacacs_accounting_records_total` - Total accounting records (counter)
-
-            ### RADIUS Metrics
-            - `radius_auth_requests_total` - RADIUS authentication requests (counter)
-            - `radius_acct_requests_total` - RADIUS accounting requests (counter)
-            - `radius_active_clients` - Number of configured clients (gauge)
-
-            ### Python/System Metrics
-            - `python_gc_*` - Python garbage collection statistics
-            - `python_info` - Python platform information
-            - `process_*` - Process resource usage (CPU, memory, etc.)
-
-            ## Prometheus Configuration
-
-            Add to your `prometheus.yml`:
-            ```yaml
-                scrape_configs:
-                  - job_name: 'tacacs-server'
-                    static_configs:
-                      - targets: ['localhost:8080']
-                    metrics_path: '/metrics'
-                    scrape_interval: 15s
-            ```
-            ## Example Queries
-
-            - Authentication rate: `rate(tacacs_auth_requests_total[5m])`
-            - Success rate: `rate(tacacs_auth_requests_total{status="success"}[5m]) / rate(tacacs_auth_requests_total[5m])`
-            - 95th percentile latency: `histogram_quantile(0.95, rate(tacacs_auth_duration_seconds_bucket[5m]))`
-            """
+            """Prometheus metrics endpoint returning text exposition format."""
             try:
                 # Update metrics before serving
                 self.update_prometheus_metrics()
@@ -536,7 +528,7 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail="Metrics unavailable")
 
         # Control Endpoints (Admin)
-        @self.app.post("/api/admin/reload-config")
+        @self.app.post("/api/admin/reload-config", include_in_schema=False)
         async def reload_config():
             """Reload server configuration"""
             try:
@@ -546,7 +538,7 @@ class TacacsMonitoringAPI:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.post("/api/admin/reset-stats")
+        @self.app.post("/api/admin/reset-stats", include_in_schema=False)
         async def reset_stats():
             """Reset server statistics"""
             try:
@@ -555,7 +547,7 @@ class TacacsMonitoringAPI:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/api/admin/logs")
+        @self.app.get("/api/admin/logs", include_in_schema=False)
         async def get_logs(lines: int = 100):
             """Get recent log entries"""
             try:
@@ -569,18 +561,18 @@ class TacacsMonitoringAPI:
         try:
             from .admin import admin_router
 
-            self.app.include_router(admin_router)
+            self.app.include_router(admin_router, include_in_schema=False)
         except Exception as exc:
             logger.warning("Failed to include admin router: %s", exc)
 
         if self.radius_server:
 
-            @self.app.get("/api/radius/status")
+            @self.app.get("/api/radius/status", tags=["RADIUS"])
             async def radius_status():
                 """RADIUS server status"""
                 return self.get_radius_stats()
 
-            @self.app.get("/api/radius/clients")
+            @self.app.get("/api/radius/clients", tags=["RADIUS"])
             async def radius_clients():
                 """RADIUS clients"""
                 clients = []
@@ -665,7 +657,8 @@ class TacacsMonitoringAPI:
     def get_database_stats(self) -> dict[str, Any]:
         """Get database statistics"""
         try:
-            return self.tacacs_server.db_logger.get_statistics(days=30)
+            result = self.tacacs_server.db_logger.get_statistics(days=30)
+            return cast(dict[str, Any], result)
         except Exception as e:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}

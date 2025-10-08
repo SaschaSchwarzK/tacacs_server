@@ -10,6 +10,7 @@ from typing import Any
 import psutil
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 from fastapi.templating import Jinja2Templates
 
 from tacacs_server.auth.local_user_group_service import (
@@ -62,7 +63,11 @@ from ..monitoring import (
     get_tacacs_server as monitoring_get_tacacs_server,
 )
 
-admin_router = APIRouter(prefix="/admin", tags=["admin"])
+admin_router = APIRouter(
+    prefix="/admin",
+    tags=["Administration"],
+    include_in_schema=False,
+)
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent.parent / "templates")
 )
@@ -326,12 +331,12 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
     }
 
     device_samples = []
-    for record in devices[:5]:
-        group = record.group
+    for device_record in devices[:5]:
+        group = device_record.group
         device_samples.append(
             {
-                "name": record.name,
-                "network": str(record.network),
+                "name": device_record.name,
+                "network": str(device_record.network),
                 "group": getattr(group, "name", None),
                 "has_tacacs_secret": bool(getattr(group, "tacacs_secret", None))
                 if group
@@ -355,13 +360,13 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
         )
 
     user_samples = []
-    for record in users[:5]:
+    for user_record in users[:5]:
         user_samples.append(
             {
-                "username": record.username,
-                "privilege_level": record.privilege_level,
-                "enabled": record.enabled,
-                "groups": ", ".join(record.groups or []),
+                "username": user_record.username,
+                "privilege_level": user_record.privilege_level,
+                "enabled": user_record.enabled,
+                "groups": ", ".join(user_record.groups or []),
             }
         )
 
@@ -1071,7 +1076,10 @@ async def list_users(
     ]
 
     accept = request.headers.get("accept", "")
-    if "application/json" in accept or request.query_params.get("format") == "json":
+    wants_html = request.query_params.get("format") == "html" or (
+        "text/html" in accept and "application/json" not in accept
+    )
+    if not wants_html:
         return {
             "users": data,
             "total": len(all_users),
@@ -1512,6 +1520,7 @@ async def admin_login(
             status_code=exc.status_code,
         )
 
+    response: Response
     if is_json:
         response = JSONResponse({"success": True})
     else:
@@ -1535,6 +1544,7 @@ async def admin_logout(request: Request):
     if manager:
         manager.logout()
     accept = request.headers.get("accept", "")
+    response: Response
     if "application/json" in accept:
         response = JSONResponse({"success": True})
     else:

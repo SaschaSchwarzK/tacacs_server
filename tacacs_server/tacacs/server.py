@@ -343,12 +343,12 @@ class TacacsServer:
         if not group:
             return None
         if getattr(group, "tacacs_secret", None):
-            return group.tacacs_secret
+            return str(getattr(group, "tacacs_secret"))
         metadata = getattr(group, "metadata", {}) or {}
         if isinstance(metadata, dict):
-            secret = metadata.get("tacacs_secret")
-            if secret:
-                return str(secret)
+            secret_obj = metadata.get("tacacs_secret")
+            if secret_obj is not None:
+                return str(secret_obj)
         return None
 
     def _recv_exact(self, sock: socket.socket, length: int) -> bytes | None:
@@ -447,9 +447,9 @@ class TacacsServer:
                 self.stats["acct_failures"] += 1
             return None
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """Get server statistics"""
-        stats = self.stats.copy()
+        stats: dict[str, Any] = dict(self.stats)
         stats.update(
             {
                 "server_running": self.running,

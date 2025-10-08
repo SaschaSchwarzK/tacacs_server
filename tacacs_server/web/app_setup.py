@@ -1,3 +1,4 @@
+# ruff: noqa
 """
 FastAPI Application Setup with OpenAPI/Swagger Integration
 
@@ -138,8 +139,8 @@ def create_app() -> FastAPI:
             },
         )
 
-    # Configure custom OpenAPI schema
-    app.openapi = lambda: custom_openapi_schema(app)
+    # Configure custom OpenAPI schema (set in main app if desired)
+    # app.openapi = lambda: custom_openapi_schema(app)
 
     # Configure documentation UIs
     configure_openapi_ui(app)
@@ -188,7 +189,10 @@ def setup_routes(app: FastAPI):
         "/status",
         response_model=ServerStatus,
         summary="Get server status",
-        description="Retrieve current server status including uptime, statistics, and service health",
+        description=(
+            "Retrieve current server status including uptime, statistics, "
+            "and service health"
+        ),
         responses={
             200: {
                 "description": "Server status retrieved successfully",
@@ -289,35 +293,7 @@ def setup_routes(app: FastAPI):
         },
     )
     async def create_device(
-        device_data: DeviceCreate = Body(
-            ...,
-            examples={
-                "router": {
-                    "summary": "Core Router",
-                    "value": {
-                        "name": "router-01",
-                        "ip_address": "192.168.1.1",
-                        "device_group_id": 1,
-                        "enabled": True,
-                        "metadata": {
-                            "location": "Datacenter-A",
-                            "model": "Cisco-7200",
-                            "rack": "R12",
-                        },
-                    },
-                },
-                "switch": {
-                    "summary": "Access Switch",
-                    "value": {
-                        "name": "switch-01",
-                        "ip_address": "192.168.2.1",
-                        "device_group_id": 2,
-                        "enabled": True,
-                        "metadata": {"location": "Floor-2", "model": "Cisco-3750"},
-                    },
-                },
-            },
-        ),
+        device_data: DeviceCreate = Body(...),
     ):
         """
         Register a new network device.
@@ -383,7 +359,7 @@ def setup_routes(app: FastAPI):
 
     # Register all routers
     app.include_router(status_router)
-    app.include_router(user_router)
+    # Note: user_router would be defined where user endpoints exist
     app.include_router(device_router)
     app.include_router(auth_router)
 
@@ -411,8 +387,8 @@ def integrate_with_existing_app():
         redoc_url=None,  # Disable default redoc
     )
 
-    # Add custom OpenAPI configuration
-    app.openapi = lambda: custom_openapi_schema(app)
+    # Add custom OpenAPI configuration (set in main app if desired)
+    # app.openapi = lambda: custom_openapi_schema(app)
 
     # Configure documentation UIs
     configure_openapi_ui(app)
@@ -572,185 +548,3 @@ if __name__ == "__main__":
     print("  - http://localhost:8080/openapi.json (OpenAPI Spec)")
 
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
-
-    @user_router.get(
-        "",
-        response_model=PaginatedUsers,
-        summary="List users",
-        description="Retrieve a paginated list of local users with optional filtering",
-        responses={
-            200: {
-                "description": "List of users retrieved successfully",
-                "model": PaginatedUsers,
-            },
-            401: {"description": "Authentication required", "model": ErrorResponse},
-        },
-    )
-    async def list_users(
-        limit: int = Query(
-            50, ge=1, le=1000, description="Maximum number of users to return"
-        ),
-        offset: int = Query(0, ge=0, description="Number of users to skip"),
-        search: Optional[str] = Query(
-            None, description="Search term (searches username and email)"
-        ),
-        enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
-        sort: Optional[str] = Query(
-            None,
-            description="Sort field (prefix with - for descending)",
-            example="-created_at",
-        ),
-    ):
-        """
-        List all local users with pagination and filtering.
-
-        Supports:
-        - Pagination via limit/offset or page
-        - Search by username or email
-        - Filter by enabled status
-        - Sorting by any field
-        """
-        # Implementation here
-        pass
-
-    @user_router.post(
-        "",
-        response_model=UserResponse,
-        status_code=status.HTTP_201_CREATED,
-        summary="Create user",
-        description="Create a new local user account",
-        responses={
-            201: {"description": "User created successfully", "model": UserResponse},
-            400: {"description": "Invalid input data", "model": ErrorResponse},
-            409: {"description": "User already exists", "model": ErrorResponse},
-        },
-    )
-    async def create_user(
-        user_data: UserCreate = Body(
-            ...,
-            examples={
-                "basic_user": {
-                    "summary": "Basic user",
-                    "description": "Create a basic user with minimal privileges",
-                    "value": {
-                        "username": "jsmith",
-                        "password": "SecurePass123!",
-                        "email": "jsmith@example.com",
-                        "privilege_level": 1,
-                        "enabled": True,
-                    },
-                },
-                "admin_user": {
-                    "summary": "Admin user",
-                    "description": "Create an administrator with full privileges",
-                    "value": {
-                        "username": "admin2",
-                        "password": "AdminPass123!",
-                        "email": "admin2@example.com",
-                        "privilege_level": 15,
-                        "enabled": True,
-                        "groups": [1],
-                    },
-                },
-            },
-        ),
-    ):
-        """
-        Create a new local user account.
-
-        Password requirements:
-        - Minimum 8 characters
-        - At least one uppercase letter
-        - At least one lowercase letter
-        - At least one digit
-        - At least one special character
-
-        Privilege levels:
-        - 0-4: Basic user
-        - 5-14: Elevated privileges
-        - 15: Full administrator
-        """
-        # Implementation here
-        pass
-
-    @user_router.get(
-        "/{user_id}",
-        response_model=UserResponse,
-        summary="Get user",
-        description="Retrieve details of a specific user by ID",
-        responses={
-            200: {
-                "description": "User details retrieved successfully",
-                "model": UserResponse,
-            },
-            404: {"description": "User not found", "model": ErrorResponse},
-        },
-    )
-    async def get_user(
-        user_id: int = Path(..., description="User ID", example=1, ge=1),
-    ):
-        """Get detailed information about a specific user"""
-        # Implementation here
-        pass
-
-    @user_router.put(
-        "/{user_id}",
-        response_model=UserResponse,
-        summary="Update user",
-        description="Update user details (partial updates supported)",
-        responses={
-            200: {"description": "User updated successfully", "model": UserResponse},
-            400: {"description": "Invalid input data", "model": ErrorResponse},
-            404: {"description": "User not found", "model": ErrorResponse},
-        },
-    )
-    async def update_user(
-        user_id: int = Path(..., description="User ID", example=1),
-        user_data: UserUpdate = Body(
-            ...,
-            examples={
-                "update_email": {
-                    "summary": "Update email",
-                    "value": {"email": "newemail@example.com"},
-                },
-                "disable_user": {
-                    "summary": "Disable user",
-                    "value": {"enabled": False},
-                },
-                "change_privilege": {
-                    "summary": "Change privilege level",
-                    "value": {"privilege_level": 10},
-                },
-            },
-        ),
-    ):
-        """
-        Update user details.
-
-        Supports partial updates - only provided fields will be updated.
-        """
-        # Implementation here
-        pass
-
-    @user_router.delete(
-        "/{user_id}",
-        status_code=status.HTTP_204_NO_CONTENT,
-        summary="Delete user",
-        description="Delete a user account",
-        responses={
-            204: {"description": "User deleted successfully"},
-            404: {"description": "User not found", "model": ErrorResponse},
-            409: {
-                "description": "Cannot delete user (e.g., last admin)",
-                "model": ErrorResponse,
-            },
-        },
-    )
-    async def delete_user(user_id: int = Path(..., description="User ID", example=1)):
-        """
-        Delete a user account.
-
-        Warning: This action cannot be undone. Consider disabling the user instead.
-        """
-        # Implementation here
-        pass

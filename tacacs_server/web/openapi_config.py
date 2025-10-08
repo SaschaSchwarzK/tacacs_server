@@ -1,3 +1,4 @@
+# ruff: noqa
 """
 OpenAPI/Swagger Configuration for TACACS+ Server
 
@@ -122,10 +123,6 @@ Real-time updates available via WebSocket:
                 "description": "Authentication backend status and testing",
             },
             {"name": "Accounting", "description": "Accounting records and audit logs"},
-            {
-                "name": "Administration",
-                "description": "Administrative operations (config, logs, backups)",
-            },
             {"name": "RADIUS", "description": "RADIUS server status and configuration"},
         ],
     )
