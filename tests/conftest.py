@@ -271,9 +271,13 @@ def tacacs_server():
     server_process = None
     try:
         # Start server in background, capture logs for debugging in CI
-        log_path = Path(os.environ.get("TACACS_TEST_LOG", ""))
-        if not log_path:
+        env_log = os.environ.get("TACACS_TEST_LOG", "").strip()
+        if env_log:
+            candidate = Path(env_log)
+            log_path = candidate / "tacacs_server.log" if candidate.is_dir() else candidate
+        else:
             log_path = Path(tempfile.mkdtemp()) / "tacacs_server.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "w+")
         cmd = [
             "python",
