@@ -17,6 +17,7 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from tacacs_server.auth.base import AuthenticationBackend
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 
@@ -123,7 +124,7 @@ class RADIUSAttribute:
     def as_int(self) -> int:
         """Get value as integer"""
         if len(self.value) == 4:
-            return struct.unpack("!I", self.value)[0]
+            return int(struct.unpack("!I", self.value)[0])
         raise ValueError("Attribute is not an integer")
 
     def as_ipaddr(self) -> str:
@@ -357,7 +358,7 @@ class RADIUSServer:
             secret = os.getenv("RADIUS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK")
         self.secret = secret.encode("utf-8")
 
-        self.auth_backends = []
+        self.auth_backends: list[AuthenticationBackend] = []
         self.accounting_logger = None
         self.device_store = None
         self.local_user_group_service = None
@@ -752,7 +753,7 @@ class RADIUSServer:
                 7: "ACCOUNTING-ON",
                 8: "ACCOUNTING-OFF",
             }
-            status_name = status_names.get(status_type, f"UNKNOWN({status_type})")
+            status_name = status_names.get(status_type or -1, f"UNKNOWN({status_type})")
 
             logger.info(
                 "RADIUS accounting: %s session %s - %s (matched %s)",
@@ -893,9 +894,11 @@ class RADIUSServer:
                 response.code == RADIUS_ACCESS_ACCEPT
                 or response.code == RADIUS_ACCESS_REJECT
             ):
-                self.auth_socket.sendto(packet_data, addr)
+                if self.auth_socket is not None:
+                    self.auth_socket.sendto(packet_data, addr)
             else:
-                self.acct_socket.sendto(packet_data, addr)
+                if self.acct_socket is not None:
+                    self.acct_socket.sendto(packet_data, addr)
 
         except Exception as e:
             logger.error(f"Error sending RADIUS response to {addr}: {e}")
@@ -915,7 +918,7 @@ class RADIUSServer:
                 ACCT_STATUS_STOP: "STOP",
                 ACCT_STATUS_INTERIM_UPDATE: "UPDATE",
             }
-            status = status_map.get(status_type, "UNKNOWN")
+            status = status_map.get(int(status_type or -1), "UNKNOWN")
 
             # Try to parse session ID as integer
             try:
@@ -939,8 +942,8 @@ class RADIUSServer:
                 bytes_out=request.get_integer(ATTR_ACCT_OUTPUT_OCTETS) or 0,
                 elapsed_time=request.get_integer(ATTR_ACCT_SESSION_TIME) or 0,
             )
-
-            self.accounting_logger.log_accounting(record)
+            if self.accounting_logger is not None:
+                self.accounting_logger.log_accounting(record)
 
         except Exception as e:
             logger.error(f"Error logging RADIUS accounting: {e}")

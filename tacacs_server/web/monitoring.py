@@ -8,11 +8,18 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from pathlib import Path as FilePath
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,6 +33,19 @@ from prometheus_client import (
 
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
+from tacacs_server.web.api.device_groups import router as device_groups_router
+from tacacs_server.web.api.devices import router as devices_router
+from tacacs_server.web.api.usergroups import router as user_groups_router
+from tacacs_server.web.api.users import router as users_router
+from tacacs_server.web.api_models import (
+    AccountingResponse,
+    AuthBackendInfo,
+    DetailedHealthCheck,
+    DetailedServerStatus,
+    DetailedStats,
+    SessionsResponse,
+)
+from tacacs_server.web.openapi_config import configure_openapi_ui, custom_openapi_schema
 
 logger = get_logger(__name__)
 
@@ -148,16 +168,59 @@ class TacacsMonitoringAPI:
     """Web monitoring interface for TACACS+ server"""
 
     def __init__(self, tacacs_server, host="127.0.0.1", port=8080, radius_server=None):
+        # Define tags metadata
+        tags_metadata = [
+            {
+                "name": "Status & Monitoring",
+                "description": "Server status, health checks, and statistics",
+            },
+            {"name": "Devices", "description": "Network device management operations"},
+            {
+                "name": "Device Groups",
+                "description": "Device group management and configuration",
+            },
+            {"name": "Users", "description": "Local user account management"},
+            {
+                "name": "User Groups",
+                "description": "User group management and permissions",
+            },
+            {
+                "name": "Authentication",
+                "description": "Authentication backend status and testing",
+            },
+            {
+                "name": "Sessions",
+                "description": "Active session tracking and management",
+            },
+            {"name": "Accounting", "description": "Accounting records and audit logs"},
+            {"name": "Monitoring", "description": "Prometheus metrics endpoint"},
+            {"name": "RADIUS", "description": "RADIUS server status and configuration"},
+        ]
         self.tacacs_server = tacacs_server
         self.radius_server = radius_server
         set_tacacs_server(tacacs_server)
         set_radius_server(radius_server)
         self.host = host
         self.port = port
-        self.app = FastAPI(title="TACACS+ Server Monitor", version="1.0.0")
+        self.app = FastAPI(
+            title="TACACS+ Server Monitor",
+            version="1.0.0",
+            docs_url=None,
+            redoc_url=None,
+            openapi_tags=tags_metadata,
+        )
 
+        # Include API routers
+        self.app.include_router(devices_router)
+        self.app.include_router(device_groups_router)
+        self.app.include_router(users_router)
+        self.app.include_router(user_groups_router)
+
+        # Configure docs and OpenAPI
+        self.app.openapi = lambda: custom_openapi_schema(self.app)
+        configure_openapi_ui(self.app)
         # Use package-relative paths for templates/static so it works regardless of CWD
-        pkg_root = Path(__file__).resolve().parent.parent
+        pkg_root = FilePath(__file__).resolve().parent.parent
         templates_dir = pkg_root / "templates"
         static_dir = pkg_root / "static"
 
@@ -197,7 +260,7 @@ class TacacsMonitoringAPI:
                 await websocket.close()
 
         # HTML Dashboard
-        @self.app.get("/", response_class=HTMLResponse)
+        @self.app.get("/", response_class=HTMLResponse, include_in_schema=False)
         async def dashboard(request: Request):
             """Main monitoring dashboard"""
             try:
@@ -216,57 +279,185 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail=str(e))
 
         # API Endpoints
-        @self.app.get("/api/status")
+        @self.app.get(
+            "/api/status",
+            response_model=DetailedServerStatus,
+            tags=["Status & Health"],
+            summary="Get server status",
+            description=(
+                "Get comprehensive server status including TACACS+ and "
+                "RADIUS statistics"
+            ),
+        )
         async def api_status():
-            """Server status API"""
-            return self.get_server_stats()
+            """
+            Get detailed server status.
 
-        @self.app.get("/api/metrics/history")
-        async def api_metrics_history(hours: int = 24):
-            """Historical metrics data"""
+            Returns comprehensive statistics including:
+            - Server uptime and status
+            - Connection statistics
+            - Authentication/Authorization/Accounting metrics
+            - Memory usage
+            - RADIUS server statistics
+            """
             try:
-                history = get_metrics_history()
-                data = history.get_historical_data(hours)
-                summary = history.get_summary_stats(hours)
-                return {"data": data, "summary": summary, "period_hours": hours}
+                status = self.get_server_stats()
+                return status
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                raise HTTPException(status_code=500, detail=f"Status check failed: {e}")
 
-        @self.app.get("/api/health")
+        @self.app.get(
+            "/api/health",
+            response_model=DetailedHealthCheck,
+            tags=["Status & Health"],
+            summary="Detailed health check",
+            description=(
+                "Get comprehensive server health status including backends, "
+                "database, and memory"
+            ),
+        )
         async def api_health():
-            """Health check endpoint"""
+            """
+            Detailed health check endpoint.
+
+            Returns:
+            - Overall health status
+            - Server uptime
+            - Active connections
+            - Authentication backend status
+            - Database health
+            - Memory usage statistics
+            """
             try:
                 health = self.tacacs_server.get_health_status()
                 return health
             except Exception as e:
                 raise HTTPException(status_code=503, detail=f"Health check failed: {e}")
 
-        @self.app.get("/api/stats")
+        @self.app.get(
+            "/api/stats",
+            response_model=DetailedStats,
+            tags=["Status & Health"],
+            summary="Get detailed statistics",
+            description=(
+                "Get comprehensive server statistics including backends, "
+                "database, and sessions"
+            ),
+        )
         async def api_stats():
-            """Detailed server statistics"""
-            return {
-                "server": self.get_server_stats(),
-                "backends": self.get_backend_stats(),
-                "database": self.get_database_stats(),
-                "sessions": self.get_session_stats(),
-            }
+            """
+            Get detailed server statistics.
 
-        @self.app.get("/api/backends")
+            Returns comprehensive statistics including:
+            - Server status and metrics
+            - Authentication backend statistics
+            - Database statistics (records, users)
+            - Active session information
+            """
+            try:
+                return {
+                    "server": self.get_server_stats(),
+                    "backends": self.get_backend_stats(),
+                    "database": self.get_database_stats(),
+                    "sessions": self.get_session_stats(),
+                }
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500, detail=f"Stats retrieval failed: {e}"
+                )
+
+        @self.app.get(
+            "/api/backends",
+            response_model=list[AuthBackendInfo],
+            tags=["Authentication"],
+            summary="Get authentication backends",
+            description=(
+                "Get status and statistics for all configured authentication backends"
+            ),
+        )
         async def api_backends():
-            """Authentication backends status"""
-            return self.get_backend_stats()
+            """
+            Get authentication backends status.
 
-        @self.app.get("/api/sessions")
+            Returns information about all configured authentication backends including:
+            - Backend name and type
+            - Availability status
+            - Backend-specific statistics (users, connections, etc.)
+            """
+            try:
+                return self.get_backend_stats()
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to get backend stats: {e}"
+                )
+
+        @self.app.get(
+            "/api/sessions",
+            response_model=SessionsResponse,
+            tags=["Status & Health"],
+            summary="Get active sessions",
+            description=(
+                "Get information about active and recent sessions including "
+                "duration statistics"
+            ),
+        )
         async def api_sessions():
-            """Active sessions"""
-            return self.get_session_stats()
+            """
+            Get active sessions information.
 
-        @self.app.get("/api/accounting")
-        async def api_accounting(hours: int = 24, limit: int = 100):
-            """Recent accounting records"""
+            Returns:
+            - Number of active sessions
+            - Total sessions in the default period (30 days)
+            - Session duration statistics (avg, min, max)
+            - Details of recent active sessions
+            """
+            try:
+                return self.get_session_stats()
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to get session stats: {e}"
+                )
+
+        @self.app.get(
+            "/api/accounting",
+            response_model=AccountingResponse,
+            tags=["Accounting"],
+            summary="Get accounting records",
+            description=(
+                "Retrieve recent accounting records for the specified time period"
+            ),
+        )
+        async def api_accounting(  # hours: int = 24, limit: int = 100):
+            hours: int = Query(
+                24,
+                ge=1,
+                le=168,  # Max 1 week
+                description="Number of hours to look back",
+                example=24,
+            ),
+            limit: int = Query(
+                100,
+                ge=1,
+                le=1000,
+                description="Maximum number of records to return",
+                example=100,
+            ),
+        ):
+            """
+            Get recent accounting records.
+
+            Query Parameters:
+            - **hours**: Time period to query (1-168 hours, default: 24)
+            - **limit**: Maximum records to return (1-1000, default: 100)
+
+            Returns accounting records including:
+            - Session information
+            - User details
+            - Data transfer statistics
+            - Timestamps
+            """
             try:
                 since = datetime.now() - timedelta(hours=hours)
-                # This would need to be implemented in your database logger
                 records = self.tacacs_server.db_logger.get_recent_records(since, limit)
                 return {
                     "records": records,
@@ -274,12 +465,58 @@ class TacacsMonitoringAPI:
                     "period_hours": hours,
                 }
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to get accounting records: {str(e)}",
+                )
 
         # Prometheus Metrics Endpoint
-        @self.app.get("/metrics", response_class=PlainTextResponse)
+        @self.app.get(
+            "/metrics",
+            response_class=PlainTextResponse,
+            tags=["Monitoring"],
+            summary="Prometheus metrics",
+            description=(
+                "Prometheus-compatible metrics endpoint for monitoring and alerting"
+            ),
+            responses={
+                200: {
+                    "description": "Prometheus metrics in text format",
+                    "content": {
+                        "text/plain; version=0.0.4": {
+                            "example": "\n".join(
+                                [
+                                    (
+                                        "# HELP tacacs_auth_requests_total "
+                                        "Total authentication requests"
+                                    ),
+                                    "# TYPE tacacs_auth_requests_total counter",
+                                    "tacacs_auth_requests_total 0.0",
+                                    "",
+                                    (
+                                        "# HELP tacacs_active_connections "
+                                        "Number of active connections"
+                                    ),
+                                    "# TYPE tacacs_active_connections gauge",
+                                    "tacacs_active_connections 0.0",
+                                ]
+                            )
+                        }
+                    },
+                },
+                500: {
+                    "description": "Metrics unavailable",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": "Metrics unavailable"}
+                        }
+                    },
+                },
+            },
+            include_in_schema=False,
+        )
         async def metrics():
-            """Prometheus metrics endpoint"""
+            """Prometheus metrics endpoint returning text exposition format."""
             try:
                 # Update metrics before serving
                 self.update_prometheus_metrics()
@@ -291,7 +528,7 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail="Metrics unavailable")
 
         # Control Endpoints (Admin)
-        @self.app.post("/api/admin/reload-config")
+        @self.app.post("/api/admin/reload-config", include_in_schema=False)
         async def reload_config():
             """Reload server configuration"""
             try:
@@ -301,7 +538,7 @@ class TacacsMonitoringAPI:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.post("/api/admin/reset-stats")
+        @self.app.post("/api/admin/reset-stats", include_in_schema=False)
         async def reset_stats():
             """Reset server statistics"""
             try:
@@ -310,7 +547,7 @@ class TacacsMonitoringAPI:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.app.get("/api/admin/logs")
+        @self.app.get("/api/admin/logs", include_in_schema=False)
         async def get_logs(lines: int = 100):
             """Get recent log entries"""
             try:
@@ -324,18 +561,18 @@ class TacacsMonitoringAPI:
         try:
             from .admin import admin_router
 
-            self.app.include_router(admin_router)
+            self.app.include_router(admin_router, include_in_schema=False)
         except Exception as exc:
             logger.warning("Failed to include admin router: %s", exc)
 
         if self.radius_server:
 
-            @self.app.get("/api/radius/status")
+            @self.app.get("/api/radius/status", tags=["RADIUS"])
             async def radius_status():
                 """RADIUS server status"""
                 return self.get_radius_stats()
 
-            @self.app.get("/api/radius/clients")
+            @self.app.get("/api/radius/clients", tags=["RADIUS"])
             async def radius_clients():
                 """RADIUS clients"""
                 clients = []
@@ -420,23 +657,28 @@ class TacacsMonitoringAPI:
     def get_database_stats(self) -> dict[str, Any]:
         """Get database statistics"""
         try:
-            return self.tacacs_server.db_logger.get_statistics(days=30)
+            result = self.tacacs_server.db_logger.get_statistics(days=30)
+            return cast(dict[str, Any], result)
         except Exception as e:
             logger.error(f"Error getting database stats: {e}")
             return {"error": str(e)}
 
-    def get_session_stats(self) -> dict[str, Any]:
-        """Get active session statistics"""
+    def get_session_stats(self):
+        """Get comprehensive session statistics"""
         try:
-            active_sessions = self.tacacs_server.get_active_sessions()
+            active_sessions = self.tacacs_server.db_logger.get_active_sessions()
+            total_sessions = self.tacacs_server.db_logger.get_total_sessions()
+            duration_stats = self.tacacs_server.db_logger.get_session_duration_stats()
+
             return {
-                "active_count": len(active_sessions),
-                "sessions": active_sessions[:20],  # Limit to recent 20
-                "total_shown": min(len(active_sessions), 20),
+                "active_sessions": len(active_sessions),
+                "total_sessions": total_sessions,
+                "duration_stats": duration_stats,
+                "recent_active": active_sessions[:5],  # Top 5 active sessions
             }
         except Exception as e:
             logger.error(f"Error getting session stats: {e}")
-            return {"error": str(e)}
+            return {"active_sessions": 0, "total_sessions": 0, "error": str(e)}
 
     def get_recent_logs(self, lines: int = 100) -> list[str]:
         """Get recent log entries"""

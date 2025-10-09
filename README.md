@@ -114,6 +114,11 @@ poetry run python scripts/validate_config.py
 | **Health Check** | http://127.0.0.1:8080/api/health | Health monitoring |
 | **Metrics** | http://127.0.0.1:8080/metrics | Prometheus metrics |
 | **WebSocket** | ws://127.0.0.1:8080/ws/metrics | Real-time updates |
+| **OpenAPI (Swagger UI)** | http://127.0.0.1:8080/docs | Interactive API docs |
+| **OpenAPI (ReDoc)** | http://127.0.0.1:8080/redoc | ReDoc API documentation |
+| **OpenAPI (RapiDoc)** | http://127.0.0.1:8080/rapidoc | RapiDoc (dark mode) |
+| **Docs Index** | http://127.0.0.1:8080/api-docs | Links to all API docs |
+| **OpenAPI Spec** | http://127.0.0.1:8080/openapi.json | Raw OpenAPI schema |
 
 ### Testing the Installation
 
@@ -313,6 +318,20 @@ rate_limit_window = 60
 - **Error handling**: Consistent error responses with detailed messages
 - **Rate limiting**: API rate limiting to prevent abuse
 
+### **OpenAPI & Developer Experience**
+
+![Dashboard](docs/images/openapi-docs.png)
+
+- Three documentation UIs are available out of the box:
+  - `GET /docs` (Swagger UI) — Try-it-out support, filtering, operation IDs
+  - `GET /redoc` (ReDoc) — Clean, responsive docs with deep linking
+  - `GET /rapidoc` (RapiDoc) — Modern docs with dark mode and keyboard nav
+- `GET /api-docs` — Landing page linking to all documentation views
+- `GET /openapi.json` — Machine-readable OpenAPI schema (for client generation)
+- Endpoints are annotated with Pydantic v2 models and examples for clear contracts
+
+![Dashboard](docs/images/swagger_docs.png)
+
 ### **Prometheus Integration**
 
 Add to your `prometheus.yml`:
@@ -399,15 +418,23 @@ tacacs_server/
 ├── accounting/              # Accounting and logging
 │   ├── models.py           # Data models
 │   ├── database.py         # Database operations
-│   └── async_database.py   # High-performance async logging
+│   └── async_database.py   # High-performance async logging(not yet used)
 ├── config/                  # Configuration management
 │   ├── config.py           # Configuration loader
 │   └── schema.py           # Pydantic validation schemas
-├── web/                     # Web interface and APIs
-│   ├── monitoring.py       # Monitoring dashboard and APIs
+├── web/                     # Web interface and APIs (FastAPI)
+│   ├── monitoring.py       # Dashboard app + Prometheus + router composition
+│   ├── api_models.py       # Pydantic v2 models used by public API
+│   ├── openapi_config.py   # OpenAPI schema + Swagger/ReDoc/RapiDoc UIs
+│   ├── app_setup.py        # Example FastAPI app wiring with custom OpenAPI
+│   ├── api/                # REST API routers
+│   │   ├── devices.py      # /api/devices endpoints
+│   │   ├── device_groups.py# /api/device-groups endpoints
+│   │   ├── users.py        # /api/users endpoints
+│   │   └── usergroups.py   # /api/user-groups endpoints
 │   └── admin/              # Admin interface
 │       ├── auth.py         # Admin authentication
-│       └── routers.py      # Admin API routes
+│       └── routers.py      # Admin UI routes and handlers
 ├── utils/                   # Utility modules
 │   ├── logger.py           # Structured logging
 │   ├── metrics.py          # Metrics collection
@@ -417,21 +444,45 @@ tacacs_server/
 │   ├── crypto.py           # Cryptographic functions
 │   ├── rate_limiter.py     # Rate limiting
 │   └── audit_logger.py     # Audit trail logging
-├── static/                  # Web assets
+├── static/                  # Web assets (served by FastAPI StaticFiles)
 │   └── css/                # Stylesheets
-├── templates/               # HTML templates
+├── templates/               # HTML templates (Jinja2)
 │   ├── dashboard.html      # Main dashboard
 │   └── admin/              # Admin interface templates
 ├── cli.py                   # Command-line interface
 └── main.py                  # Application entry point
 
 tests/                       # Test suite
-├── conftest.py             # Test configuration
-├── test_auth.py            # Authentication tests
-├── test_server.py          # Server tests
-├── test_radius.py          # RADIUS tests
-├── test_api_*.py           # API tests
-└── test_benchmark.py       # Performance tests
+├── __init__.py             # Package marker
+├── conftest.py             # Pytest fixtures and server helpers
+├── test_admin_api.py       # Admin API endpoint tests
+├── test_api_functionality.py # REST API functionality tests
+├── test_api_simple.py      # Basic API sanity tests
+├── test_auth.py            # Authentication flow tests
+├── test_authorization.py   # Authorization and policy tests
+├── test_benchmark.py       # Benchmark/perf smoke tests
+├── test_client_script.py   # TACACS+/RADIUS client scripts
+├── test_config_env.py      # Env/config loading tests
+├── test_debug_syspath.py   # Dev env and sys.path checks
+├── test_device_service.py  # Device service unit tests
+├── test_input_validation.py # Pydantic/model input validation
+├── test_ldap.py            # LDAP backend tests
+├── test_local_user_group_service.py # Local user group service
+├── test_local_user_service.py # Local user service tests
+├── test_okta.py            # Okta backend tests
+├── test_radius.py          # RADIUS protocol tests
+├── test_server.py          # Server lifecycle and endpoints
+├── test_web_api_endpoints.py # Web API endpoint coverage
+├── chaos/                  # Chaos engineering tests
+│   └── test_chaos.py       # Network/resource chaos scenarios
+├── contract/               # API contract/schema tests
+│   └── test_api_contracts.py # OpenAPI schema and contracts
+├── e2e/                    # End-to-end integration tests
+│   └── test_e2e_integration.py # Full workflow tests
+├── performance/            # Load/performance suites
+│   └── locustfile.py       # Locust scenarios
+└── security/               # Security and pentest suites
+    └── test_security_pentest.py # Security checks
 
 scripts/                     # Utility scripts
 ├── setup_project.py        # Project setup
@@ -464,6 +515,9 @@ logs/                        # Log files
 | `mypy.ini` | Type checking configuration |
 | `pytest.ini` | Test configuration |
 | `.bandit` | Security scanning configuration |
+| `tacacs_server/web/openapi_config.py` | OpenAPI schema + docs UIs |
+| `tacacs_server/web/api_models.py` | API models for request/response contracts |
+| `tacacs_server/web/app_setup.py` | Example of wiring OpenAPI into a FastAPI app |
 
 ### **Scripts & Tools**
 

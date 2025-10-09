@@ -8,7 +8,7 @@ import threading
 import time
 from typing import Any
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from tacacs_server.utils.logger import get_logger
 

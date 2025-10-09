@@ -123,7 +123,7 @@ class AuditLogger:
                 SELECT * FROM audit_log 
                 WHERE timestamp >= ?
             """
-            params = [since_timestamp]
+            params: list[Any] = [since_timestamp]
 
             if user_id:
                 query += " AND user_id = ?"

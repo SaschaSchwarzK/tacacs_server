@@ -1,0 +1,1 @@
+{"status":"healthy","uptime_seconds":4.194872856140137,"active_connections":0,"auth_backends":[{"name":"local","available":true,"last_check":null}],"database_status":{"status":"healthy","records_today":0},"memory_usage":{"rss_mb":64.56,"vms_mb":401591.02,"percent":0.39}}
