@@ -5485,3 +5485,9 @@
 {"timestamp": "2025-10-09T11:54:24.254393+00:00", "level": "INFO", "logger": "__main__", "message": ""}
 {"timestamp": "2025-10-09T11:54:24.254486+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
 {"timestamp": "2025-10-09T11:54:24.254579+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-09T12:08:07.861905+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-09T12:08:07.862100+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-09T12:08:07.862289+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-09T12:08:07.862395+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-09T12:08:07.862519+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-09T12:08:07.862613+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}

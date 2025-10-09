@@ -40,4 +40,3 @@ if __name__ == "__main__":
     dest = os.environ.get("OUTPUT_PATH", "docs/openapi.json")
     path = export_schema(dest)
     print(f"✔ OpenAPI schema exported to: {path}")
-
