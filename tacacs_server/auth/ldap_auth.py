@@ -263,7 +263,7 @@ class LDAPAuthBackend(AuthenticationBackend):
         try:
             server = ldap3.Server(self.ldap_server, connect_timeout=5)
             with ldap3.Connection(server) as conn:
-                return conn.bind()
+                return bool(conn.bind())
         except Exception:
             return False
 

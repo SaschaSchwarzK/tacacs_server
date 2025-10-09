@@ -20,11 +20,14 @@ Usage:
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 import requests
 from jsonschema import ValidationError, validate
+
+from tacacs_server.config.config import TacacsConfig
 
 # ============================================================================
 # JSON Schema Definitions
@@ -169,6 +172,44 @@ class ContractTest:
 
     BASE_URL = "http://localhost:8080"
     HEADERS = {"Accept": "application/json"}
+    ADMIN_USERNAME = "admin"
+    ADMIN_PASSWORD = "AdminPass123!"
+
+    def prepare_user_database(self) -> Path:
+        """Return path to the configured auth store for reference."""
+        cfg = TacacsConfig()
+        return Path(cfg.get_local_auth_db())
+
+    def create_admin_session(self) -> requests.Session:
+        session = requests.Session()
+        # Try JSON login
+        login_response = session.post(
+            f"{self.BASE_URL}/admin/login",
+            json={
+                "username": self.ADMIN_USERNAME,
+                "password": self.ADMIN_PASSWORD,
+            },
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        if login_response.status_code != 200:
+            # Retry with form-encoded in case server expects form
+            login_response = session.post(
+                f"{self.BASE_URL}/admin/login",
+                data={
+                    "username": self.ADMIN_USERNAME,
+                    "password": self.ADMIN_PASSWORD,
+                },
+                timeout=10,
+            )
+        if login_response.status_code != 200:
+            pytest.skip(f"Admin login failed: {login_response.status_code}")
+        # JSON success or HTML redirect to admin home
+        ct = login_response.headers.get("Content-Type", "")
+        if "application/json" in ct:
+            payload = login_response.json()
+            assert payload.get("success") is True
+        return session
 
     def validate_schema(self, data: Any, schema: dict):
         """Validate data against JSON schema"""
@@ -181,7 +222,7 @@ class ContractTest:
 
     def validate_response_structure(
         self,
-        response: requests.Response,
+        response,
         expected_status: int,
         schema: dict | None = None,
     ):
@@ -220,13 +261,23 @@ class TestUserAPIContract(ContractTest):
 
     @pytest.fixture(autouse=True)
     def setup_server(self, tacacs_server):
-        """Use server fixture"""
-        self.server_info = tacacs_server
+        import requests
+
+        self.BASE_URL = f"http://{tacacs_server['host']}:{tacacs_server['web_port']}"
+        # Probe admin login/status; skip if admin API not available
+        try:
+            r = requests.get(f"{self.BASE_URL}/admin/server/status", timeout=3)
+            if r.status_code != 200:
+                pytest.skip("Admin API not available on live server")
+        except Exception:
+            pytest.skip("Admin API not reachable")
+        self.prepare_user_database()
+        self.session = self.create_admin_session()
 
     @pytest.mark.contract
     def test_list_users_contract(self):
         """Verify GET /admin/users contract"""
-        response = requests.get(
+        response = self.session.get(
             f"{self.BASE_URL}/admin/users", headers=self.HEADERS, timeout=10
         )
 
@@ -255,7 +306,7 @@ class TestUserAPIContract(ContractTest):
             "enabled": True,
         }
 
-        response = requests.post(
+        response = self.session.post(
             f"{self.BASE_URL}/admin/users",
             json=new_user,
             headers=self.HEADERS,

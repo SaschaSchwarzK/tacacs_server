@@ -57,15 +57,17 @@ def radius_server(tmp_path):
     import uuid
 
     from tacacs_server.auth.local import LocalAuthBackend
+    from tacacs_server.auth.local_store import LocalAuthStore
     from tacacs_server.auth.local_user_service import LocalUserService
 
     # Use unique database and username to avoid conflicts
     unique_id = str(uuid.uuid4())[:8]
     auth_db = tmp_path / f"radius_auth_{unique_id}.db"
-    service = LocalUserService(auth_db)
+    store = LocalAuthStore(auth_db)
+    service = LocalUserService(auth_db, store=store)
     service.create_user(
         f"testuser_{unique_id}",
-        password="TestPass123",
+        password_hash="e" * 64,
         privilege_level=15,
     )
 
@@ -212,3 +214,6 @@ def test_radius_group_policy_denies_without_membership():
     allowed, message = radius._apply_user_group_policy(client, user_attrs)
     assert allowed is False
     assert message.startswith("User not permitted")
+
+
+# (Duplicate tests removed to resolve redefinition and import-order issues.)

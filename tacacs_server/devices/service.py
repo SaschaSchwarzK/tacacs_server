@@ -81,6 +81,30 @@ class DeviceService:
             raise GroupNotFound(f"Group id {group_id} not found")
         return group
 
+    def get_device_groups(
+        self, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        """
+        Get device groups (API-friendly).
+
+        Wrapper around list_groups().
+        """
+        groups = self.list_groups()
+        group_dicts = [self._group_to_dict(g) for g in groups]
+        return group_dicts[offset : offset + limit]
+
+    def get_device_group_by_id(self, group_id: int) -> dict[str, Any] | None:
+        """
+        Get device group by ID (API-friendly).
+
+        Wrapper around get_group().
+        """
+        try:
+            group = self.get_group(group_id)
+            return self._group_to_dict(group)
+        except GroupNotFound:
+            return None
+
     def create_group(
         self,
         name: str,
@@ -125,6 +149,28 @@ class DeviceService:
         )
         self._notify_change()
         return group
+
+    def create_device_group(
+        self,
+        name: str,
+        description: str | None = None,
+        tacacs_secret: str | None = None,
+        radius_secret: str | None = None,
+        allowed_user_groups: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create device group (API-friendly).
+
+        Wrapper around create_group() with simpler parameters.
+        """
+        group = self.create_group(
+            name,
+            description=description,
+            tacacs_secret=tacacs_secret,
+            radius_secret=radius_secret,
+            allowed_user_groups=allowed_user_groups,
+        )
+        return self._group_to_dict(group)
 
     def update_group(
         self,
@@ -220,6 +266,36 @@ class DeviceService:
         self._notify_change()
         return updated
 
+    def update_device_group(
+        self,
+        group_id: int,
+        name: str | None = None,
+        description: str | None = None,
+        tacacs_secret: str | None = None,
+        radius_secret: str | None = None,
+        allowed_user_groups: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Update device group (API-friendly).
+
+        Wrapper around update_group() with simpler parameters.
+        """
+        # Build kwargs dynamically
+        kwargs: dict[str, Any] = {}
+        if name is not None:
+            kwargs["name"] = name
+        if description is not None:
+            kwargs["description"] = description
+        if tacacs_secret is not None:
+            kwargs["tacacs_secret"] = tacacs_secret if tacacs_secret else None
+        if radius_secret is not None:
+            kwargs["radius_secret"] = radius_secret if radius_secret else None
+        if allowed_user_groups is not None:
+            kwargs["allowed_user_groups"] = allowed_user_groups
+
+        group = self.update_group(group_id, **kwargs)
+        return self._group_to_dict(group)
+
     def delete_group(self, group_id: int, *, cascade: bool = False) -> bool:
         self.get_group(group_id)
         try:
@@ -229,6 +305,44 @@ class DeviceService:
         if deleted:
             self._notify_change()
         return deleted
+
+    def delete_device_group(self, group_id: int) -> None:
+        """
+        Delete device group (API-friendly).
+
+        Wrapper around delete_group().
+        """
+        self.delete_group(group_id, cascade=False)
+
+    def _group_to_dict(self, group: DeviceGroup) -> dict[str, Any]:
+        """Convert DeviceGroup to API-friendly dict."""
+        # Count devices in this group
+        devices = self.list_devices_by_group(group.id)
+        device_count = len(devices)
+
+        # Extract secrets status without exposing actual secrets
+        tacacs_secret_set = "tacacs_secret" in group.metadata
+        radius_secret_set = "radius_secret" in group.metadata
+
+        # Extract allowed user groups
+        allowed_groups = group.metadata.get("allowed_user_groups", [])
+
+        return {
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "tacacs_secret_set": tacacs_secret_set,
+            "radius_secret_set": radius_secret_set,
+            "allowed_user_groups": allowed_groups
+            if isinstance(allowed_groups, list)
+            else [],
+            "device_count": device_count,
+            "created_at": group.created_at.isoformat()
+            if hasattr(group, "created_at")
+            else None,
+            "tacacs_profile": group.tacacs_profile,
+            "radius_profile": group.radius_profile,
+        }
 
     # ------------------------------------------------------------------
     # Devices
@@ -245,6 +359,83 @@ class DeviceService:
         if not device:
             raise DeviceNotFound(f"Device id {device_id} not found")
         return device
+
+    def get_devices(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        search: str | None = None,
+        device_group_id: int | None = None,
+        enabled: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get devices with filtering (API-friendly).
+
+        Wrapper around list_devices() with filtering support.
+        """
+        devices = self.list_devices()
+
+        # Convert to dict format
+        device_dicts = [self._device_to_dict(d) for d in devices]
+
+        # Apply filters
+        if search:
+            search_lower = search.lower()
+            device_dicts = [
+                d
+                for d in device_dicts
+                if search_lower in d["name"].lower()
+                or search_lower in d["network"].lower()
+            ]
+
+        if device_group_id is not None:
+            # Filter by group name (since your store uses group names)
+            group = self.store.get_group_by_id(device_group_id)
+            if group:
+                device_dicts = [d for d in device_dicts if d.get("group") == group.name]
+
+        if enabled is not None:
+            # Your current model doesn't have 'enabled' field
+            # This would require adding it to the DeviceRecord model
+            pass
+
+        # Apply pagination
+        return device_dicts[offset : offset + limit]
+
+    def get_device_by_id(self, device_id: int) -> dict[str, Any] | None:
+        """
+        Get device by ID (API-friendly).
+
+        Wrapper around get_device().
+        """
+        try:
+            device = self.get_device(device_id)
+            return self._device_to_dict(device)
+        except DeviceNotFound:
+            return None
+
+    def _device_to_dict(self, device: DeviceRecord) -> dict[str, Any]:
+        """Convert DeviceRecord to API-friendly dict."""
+        group = device.group
+        group_id = group.id if group else None
+        group_name = group.name if group else None
+
+        return {
+            "id": device.id,
+            "name": device.name,
+            "ip_address": str(device.network),  # Your field is 'network'
+            "network": str(device.network),
+            "device_group_id": group_id if group_id is not None else 0,
+            "device_group_name": group_name or "",
+            "enabled": True,  # Default since not in your model yet
+            "metadata": device.metadata or {},
+            "created_at": device.created_at.isoformat()
+            if hasattr(device, "created_at")
+            else None,
+            "updated_at": device.updated_at.isoformat()
+            if hasattr(device, "updated_at")
+            else None,
+        }
 
     def create_device(
         self,
@@ -271,6 +462,63 @@ class DeviceService:
             raise DeviceServiceError("Failed to create device")
         self._notify_change()
         return device
+
+    def create_device_from_dict(
+        self,
+        name: str,
+        ip_address: str,
+        device_group_id: int,
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create device from API-style parameters.
+
+        Converts device_group_id to group name and calls create_device.
+        """
+        # Get group name from ID
+        group = self.store.get_group_by_id(device_group_id)
+        if not group:
+            raise GroupNotFound(f"Device group with ID {device_group_id} not found")
+
+        # Create device using existing method
+        device = self.create_device(name=name, network=ip_address, group=group.name)
+
+        return self._device_to_dict(device)
+
+    def update_device_from_dict(
+        self,
+        device_id: int,
+        name: str | None = None,
+        ip_address: str | None = None,
+        device_group_id: int | None = None,
+        enabled: bool | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Update device from API-style parameters.
+
+        Converts device_group_id to group name and calls update_device.
+        """
+        kwargs: dict[str, Any] = {}
+
+        if name is not None:
+            kwargs["name"] = name
+
+        if ip_address is not None:
+            kwargs["network"] = ip_address
+
+        if device_group_id is not None:
+            group = self.store.get_group_by_id(device_group_id)
+            if not group:
+                raise GroupNotFound(f"Device group with ID {device_group_id} not found")
+            kwargs["group"] = group.name
+
+        # enabled and metadata are not yet in your model
+        # They would need to be added to DeviceRecord
+
+        device = self.update_device(device_id, **kwargs)
+        return self._device_to_dict(device)
 
     def update_device(
         self,

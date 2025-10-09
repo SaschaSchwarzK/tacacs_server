@@ -10,6 +10,13 @@ from .constants import TAC_PLUS_FLAGS, TAC_PLUS_HEADER_SIZE, TAC_PLUS_VERSION
 
 
 class TacacsPacket:
+    version: int
+    packet_type: int
+    seq_no: int
+    flags: int
+    session_id: int
+    length: int
+    body: bytes
     """TACACS+ packet structure"""
 
     def __init__(

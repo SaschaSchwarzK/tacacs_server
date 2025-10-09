@@ -148,7 +148,7 @@ class TacacsServerManager:
         try:
             admin_auth_cfg = self.config.get_admin_auth_config()
             username = admin_auth_cfg.get("username", "admin")
-            password_hash = admin_auth_cfg.get("password", "")
+            password_hash = admin_auth_cfg.get("password_hash", "")
             if password_hash:
                 auth_config = AdminAuthConfig(
                     username=username,

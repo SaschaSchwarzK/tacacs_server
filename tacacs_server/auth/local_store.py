@@ -129,6 +129,15 @@ class LocalAuthStore:
     def _now() -> str:
         return datetime.now(UTC).replace(microsecond=0).isoformat()
 
+    @staticmethod
+    def _parse_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
     # ------------------------------------------------------------------
     # User operations
     # ------------------------------------------------------------------
@@ -384,6 +393,9 @@ class LocalAuthStore:
             description=row["description"],
             password=row["password"],
             password_hash=row["password_hash"],
+            id=row["id"],
+            created_at=self._parse_datetime(row["created_at"]),
+            updated_at=self._parse_datetime(row["updated_at"]),
         )
 
     def _row_to_group(self, row: sqlite3.Row) -> LocalUserGroupRecord:
@@ -400,4 +412,7 @@ class LocalAuthStore:
             ldap_group=row["ldap_group"],
             okta_group=row["okta_group"],
             privilege_level=privilege,
+            id=row["id"],
+            created_at=self._parse_datetime(row["created_at"]),
+            updated_at=self._parse_datetime(row["updated_at"]),
         )

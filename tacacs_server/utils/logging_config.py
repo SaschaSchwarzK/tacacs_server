@@ -118,7 +118,8 @@ class StructuredLoggerAdapter(logging.LoggerAdapter):
 
         context_data = _context.get()
         if context_data or self.extra:
-            merged_context = {**context_data, **self.extra}
+            extra_map: dict[str, Any] = dict(self.extra or {})
+            merged_context = {**dict(context_data), **extra_map}
             extra.setdefault("context", merged_context)
         return msg, kwargs
 
