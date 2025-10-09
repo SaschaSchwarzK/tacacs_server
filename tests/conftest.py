@@ -274,7 +274,9 @@ def tacacs_server():
         env_log = os.environ.get("TACACS_TEST_LOG", "").strip()
         if env_log:
             candidate = Path(env_log)
-            log_path = candidate / "tacacs_server.log" if candidate.is_dir() else candidate
+            log_path = (
+                candidate / "tacacs_server.log" if candidate.is_dir() else candidate
+            )
         else:
             log_path = Path(tempfile.mkdtemp()) / "tacacs_server.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
