@@ -8,6 +8,7 @@ import configparser
 import glob
 import hashlib
 import os
+import os as _os  # Ensure early env defaults for imported tests
 import shutil
 import signal
 import socket
@@ -16,11 +17,35 @@ import tempfile
 import time
 from pathlib import Path
 
+# Set test port defaults early so modules that read env at import time get them
+_os.environ.setdefault("TEST_TACACS_PORT", "5049")
+_os.environ.setdefault("TEST_WEB_PORT", "8080")
+
 import pytest
 import requests
 
 from tacacs_server.auth.local_store import LocalAuthStore
 from tacacs_server.auth.local_user_service import LocalUserService
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sync_security_test_config_with_server(tacacs_server):
+    """Set SecurityConfig.TACACS_PORT to the actual started server port.
+
+    This avoids mismatch when the server binds a random free port in tests.
+    """
+    try:
+        from tests.security.test_security_pentest import SecurityConfig as _SecCfg
+
+        # Update env and module constants to the actual started server
+        os.environ["TEST_TACACS_PORT"] = str(tacacs_server["port"])
+        os.environ["TACACS_WEB_BASE"] = (
+            f"http://{tacacs_server['host']}:{tacacs_server['web_port']}"
+        )
+        _SecCfg.TACACS_PORT = int(tacacs_server["port"])
+        _SecCfg.TACACS_HOST = tacacs_server["host"]
+    except Exception:
+        pass
 
 
 def _find_free_port() -> int:
@@ -128,6 +153,18 @@ def isolated_test_environment(tmp_path_factory):
 
     cfg = configparser.ConfigParser(interpolation=None)
     cfg.read(base_config)
+    # Use a non-privileged TACACS port in tests to avoid requiring root
+    if not cfg.has_section("server"):
+        cfg.add_section("server")
+    cfg.set("server", "port", "5049")
+    # Bind to localhost for tests
+    if not cfg["server"].get("host"):
+        cfg.set("server", "host", "127.0.0.1")
+
+    # Disable RADIUS in tests to avoid privileged ports (1812/1813)
+    if not cfg.has_section("radius"):
+        cfg.add_section("radius")
+    cfg.set("radius", "enabled", "false")
     path_mapping = _update_config_paths(cfg, base_config.parent, work_dir)
     _ensure_parent_dirs(list(path_mapping.values()))
 
