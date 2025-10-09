@@ -319,6 +319,9 @@ rate_limit_window = 60
 - **Rate limiting**: API rate limiting to prevent abuse
 
 ### **OpenAPI & Developer Experience**
+
+![Dashboard](docs/images/openapi-docs.png)
+
 - Three documentation UIs are available out of the box:
   - `GET /docs` (Swagger UI) — Try-it-out support, filtering, operation IDs
   - `GET /redoc` (ReDoc) — Clean, responsive docs with deep linking
@@ -326,6 +329,8 @@ rate_limit_window = 60
 - `GET /api-docs` — Landing page linking to all documentation views
 - `GET /openapi.json` — Machine-readable OpenAPI schema (for client generation)
 - Endpoints are annotated with Pydantic v2 models and examples for clear contracts
+
+![Dashboard](docs/images/swagger_docs.png)
 
 ### **Prometheus Integration**
 
@@ -448,12 +453,36 @@ tacacs_server/
 └── main.py                  # Application entry point
 
 tests/                       # Test suite
-├── conftest.py             # Test configuration
-├── test_auth.py            # Authentication tests
-├── test_server.py          # Server tests
-├── test_radius.py          # RADIUS tests
-├── test_api_*.py           # API tests
-└── test_benchmark.py       # Performance tests
+├── __init__.py             # Package marker
+├── conftest.py             # Pytest fixtures and server helpers
+├── test_admin_api.py       # Admin API endpoint tests
+├── test_api_functionality.py # REST API functionality tests
+├── test_api_simple.py      # Basic API sanity tests
+├── test_auth.py            # Authentication flow tests
+├── test_authorization.py   # Authorization and policy tests
+├── test_benchmark.py       # Benchmark/perf smoke tests
+├── test_client_script.py   # TACACS+/RADIUS client scripts
+├── test_config_env.py      # Env/config loading tests
+├── test_debug_syspath.py   # Dev env and sys.path checks
+├── test_device_service.py  # Device service unit tests
+├── test_input_validation.py # Pydantic/model input validation
+├── test_ldap.py            # LDAP backend tests
+├── test_local_user_group_service.py # Local user group service
+├── test_local_user_service.py # Local user service tests
+├── test_okta.py            # Okta backend tests
+├── test_radius.py          # RADIUS protocol tests
+├── test_server.py          # Server lifecycle and endpoints
+├── test_web_api_endpoints.py # Web API endpoint coverage
+├── chaos/                  # Chaos engineering tests
+│   └── test_chaos.py       # Network/resource chaos scenarios
+├── contract/               # API contract/schema tests
+│   └── test_api_contracts.py # OpenAPI schema and contracts
+├── e2e/                    # End-to-end integration tests
+│   └── test_e2e_integration.py # Full workflow tests
+├── performance/            # Load/performance suites
+│   └── locustfile.py       # Locust scenarios
+└── security/               # Security and pentest suites
+    └── test_security_pentest.py # Security checks
 
 scripts/                     # Utility scripts
 ├── setup_project.py        # Project setup
