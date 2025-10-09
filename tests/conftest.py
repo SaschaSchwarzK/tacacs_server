@@ -153,10 +153,13 @@ def isolated_test_environment(tmp_path_factory):
 
     cfg = configparser.ConfigParser(interpolation=None)
     cfg.read(base_config)
-    # Use a non-privileged TACACS port in tests to avoid requiring root
+    # Use non-privileged, random free ports in tests to avoid conflicts
     if not cfg.has_section("server"):
         cfg.add_section("server")
-    cfg.set("server", "port", "5049")
+    tacacs_port = _find_free_port()
+    cfg.set("server", "port", str(tacacs_port))
+    if not cfg["server"].get("host"):
+        cfg.set("server", "host", "127.0.0.1")
     # Bind to localhost for tests
     if not cfg["server"].get("host"):
         cfg.set("server", "host", "127.0.0.1")
@@ -178,6 +181,18 @@ def isolated_test_environment(tmp_path_factory):
 
     original_env = os.environ.get("TACACS_CONFIG")
     os.environ["TACACS_CONFIG"] = str(config_path)
+    # Propagate chosen ports for any tests that read env
+    os.environ["TEST_TACACS_PORT"] = str(tacacs_port)
+    # Pick a free web monitoring port as well to avoid collisions
+    try:
+        web_port = int(cfg["monitoring"].get("web_port", "0")) or _find_free_port()
+    except Exception:
+        web_port = _find_free_port()
+    cfg["monitoring"]["web_port"] = str(web_port)
+    os.environ["TEST_WEB_PORT"] = str(web_port)
+    # Update config file with selected web port
+    with config_path.open("w") as config_file:
+        cfg.write(config_file)
 
     # Ensure admin credentials also available via env so defaults pick them up
     _admin_user_prev = os.environ.get("ADMIN_USERNAME")
@@ -255,17 +270,22 @@ def tacacs_server():
     """Start TACACS+ server for tests that need it"""
     server_process = None
     try:
-        # Start server in background
+        # Start server in background, capture logs for debugging in CI
+        log_path = Path(os.environ.get("TACACS_TEST_LOG", ""))
+        if not log_path:
+            log_path = Path(tempfile.mkdtemp()) / "tacacs_server.log"
+        log_file = open(log_path, "w+")
+        cmd = [
+            "python",
+            "-m",
+            "tacacs_server.main",
+            "--config",
+            os.environ.get("TACACS_CONFIG", "config/tacacs.conf"),
+        ]
         server_process = subprocess.Popen(
-            [
-                "python",
-                "-m",
-                "tacacs_server.main",
-                "--config",
-                os.environ.get("TACACS_CONFIG", "config/tacacs.conf"),
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            cmd,
+            stdout=log_file,
+            stderr=log_file,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
         )
 
@@ -276,7 +296,7 @@ def tacacs_server():
         cfg_check.read(os.environ.get("TACACS_CONFIG", "config/tacacs.conf"))
         tacacs_port = int(cfg_check.get("server", "port", fallback="5049"))
 
-        for _ in range(60):
+        for _ in range(180):  # up to ~90s with 0.5s sleeps
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1)
@@ -286,29 +306,46 @@ def tacacs_server():
                     break
             except Exception:
                 pass
-            time.sleep(1)
+            # If the process died, stop waiting and surface logs
+            if server_process.poll() is not None:
+                log_file.seek(0)
+                contents = log_file.read()[-4000:]
+                raise RuntimeError(
+                    f"Server process exited early. Logs tail:\n{contents}"
+                )
+            time.sleep(0.5)
         else:
-            raise RuntimeError("Server failed to start within 60 seconds")
+            log_file.seek(0)
+            contents = log_file.read()[-4000:]
+            raise RuntimeError(
+                "Server failed to start within timeout. Logs tail:\n" + contents
+            )
 
         # Optionally probe web port
         try:
             import requests
 
-            for _ in range(30):
+            for _ in range(40):
                 try:
-                    r = requests.get("http://127.0.0.1:8080/api/health", timeout=1)
+                    r = requests.get(
+                        f"http://127.0.0.1:{os.environ.get('TEST_WEB_PORT', '8080')}/api/health",
+                        timeout=1,
+                    )
                     if r.status_code == 200:
                         break
                 except Exception:
                     pass
-                time.sleep(1)
+                time.sleep(0.5)
         except Exception:
             pass
 
         os.environ["TEST_TACACS_PORT"] = str(tacacs_port)
-        os.environ["TEST_WEB_PORT"] = "8080"
 
-        yield {"host": "127.0.0.1", "port": tacacs_port, "web_port": 8080}
+        yield {
+            "host": "127.0.0.1",
+            "port": tacacs_port,
+            "web_port": int(os.environ.get("TEST_WEB_PORT", "8080")),
+        }
 
     finally:
         # Stop server
