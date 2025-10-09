@@ -270,6 +270,36 @@ def tacacs_server():
     """Start TACACS+ server for tests that need it"""
     server_process = None
     try:
+        # Resolve and, if necessary, generate a safe config for CI
+        base_config = os.environ.get("TACACS_CONFIG", "config/tacacs.conf")
+        cfg_check = configparser.ConfigParser(interpolation=None)
+        cfg_check.read(base_config)
+        cfg_path = Path(base_config)
+        if (
+            not cfg_path.exists()
+            or cfg_check.getint("server", "port", fallback=49) < 1024
+        ):
+            # Create a temp config with non-privileged ports and radius disabled
+            tmp_dir = Path(tempfile.mkdtemp())
+            cfg_path = tmp_dir / "tacacs_test.conf"
+            if not cfg_check.has_section("server"):
+                cfg_check.add_section("server")
+            cfg_check.set(
+                "server", "host", cfg_check.get("server", "host", fallback="127.0.0.1")
+            )
+            cfg_check.set("server", "port", str(_find_free_port()))
+            if not cfg_check.has_section("radius"):
+                cfg_check.add_section("radius")
+            cfg_check.set("radius", "enabled", "false")
+            if not cfg_check.has_section("monitoring"):
+                cfg_check.add_section("monitoring")
+            mon_port = cfg_check.get("monitoring", "web_port", fallback="0")
+            if not mon_port or mon_port == "0":
+                cfg_check.set("monitoring", "web_port", str(_find_free_port()))
+            with cfg_path.open("w") as f:
+                cfg_check.write(f)
+            os.environ["TACACS_CONFIG"] = str(cfg_path)
+
         # Start server in background, capture logs for debugging in CI
         env_log = os.environ.get("TACACS_TEST_LOG", "").strip()
         if env_log:
@@ -286,7 +316,7 @@ def tacacs_server():
             "-m",
             "tacacs_server.main",
             "--config",
-            os.environ.get("TACACS_CONFIG", "config/tacacs.conf"),
+            str(cfg_path),
         ]
         server_process = subprocess.Popen(
             cmd,
@@ -299,8 +329,9 @@ def tacacs_server():
         import socket
 
         cfg_check = configparser.ConfigParser(interpolation=None)
-        cfg_check.read(os.environ.get("TACACS_CONFIG", "config/tacacs.conf"))
+        cfg_check.read(str(cfg_path))
         tacacs_port = int(cfg_check.get("server", "port", fallback="5049"))
+        web_port = int(cfg_check.get("monitoring", "web_port", fallback="8080"))
 
         for _ in range(180):  # up to ~90s with 0.5s sleeps
             try:
@@ -334,8 +365,7 @@ def tacacs_server():
             for _ in range(40):
                 try:
                     r = requests.get(
-                        f"http://127.0.0.1:{os.environ.get('TEST_WEB_PORT', '8080')}/api/health",
-                        timeout=1,
+                        f"http://127.0.0.1:{web_port}/api/health", timeout=1
                     )
                     if r.status_code == 200:
                         break
@@ -346,11 +376,12 @@ def tacacs_server():
             pass
 
         os.environ["TEST_TACACS_PORT"] = str(tacacs_port)
+        os.environ["TEST_WEB_PORT"] = str(web_port)
 
         yield {
             "host": "127.0.0.1",
             "port": tacacs_port,
-            "web_port": int(os.environ.get("TEST_WEB_PORT", "8080")),
+            "web_port": web_port,
         }
 
     finally:
