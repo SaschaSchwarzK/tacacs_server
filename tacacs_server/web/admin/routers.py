@@ -1527,13 +1527,18 @@ async def admin_login(
         response = RedirectResponse(
             url="/admin/", status_code=status.HTTP_303_SEE_OTHER
         )
+    # Determine if the request is over HTTPS (direct or via reverse proxy)
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
+    is_https = request.url.scheme == "https" or forwarded_proto == "https"
+    # Set session cookie with secure defaults
     response.set_cookie(
         "admin_session",
         token,
         httponly=True,
         samesite="strict",
-        secure=False,
+        secure=is_https or True,  # prefer Secure; reverse proxies should terminate TLS
         max_age=int(manager.config.session_timeout.total_seconds()),
+        path="/",
     )
     return response
 
@@ -1551,7 +1556,12 @@ async def admin_logout(request: Request):
         response = RedirectResponse(
             url="/admin/login", status_code=status.HTTP_303_SEE_OTHER
         )
-    response.delete_cookie("admin_session")
+    # Mirror cookie attributes on delete to ensure removal across browsers
+    response.delete_cookie(
+        "admin_session",
+        path="/",
+        samesite="strict",
+    )
     return response
 
 

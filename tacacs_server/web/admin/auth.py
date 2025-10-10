@@ -63,8 +63,29 @@ class AdminSessionManager:
         return True
 
     def _verify_password(self, password: str) -> bool:
-        password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(password_hash, self.config.password_hash)
+        """Verify admin password.
+
+        Supports bcrypt hashes (recommended) and legacy SHA-256 hex digests for
+        backward compatibility. Does not impact TACACS/RADIUS user auth.
+        """
+        cfg_hash = self.config.password_hash or ""
+        try:
+            # Prefer bcrypt when configured
+            if cfg_hash.startswith(("$2a$", "$2b$", "$2y$")):
+                try:
+                    import bcrypt  # type: ignore
+
+                    return bcrypt.checkpw(
+                        password.encode("utf-8"), cfg_hash.encode("utf-8")
+                    )
+                except Exception:
+                    return False
+
+            # Legacy SHA-256 hex digest
+            sha = hashlib.sha256(password.encode("utf-8")).hexdigest()
+            return hmac.compare_digest(sha, cfg_hash)
+        except Exception:
+            return False
 
 
 def get_admin_auth_dependency(session_manager: AdminSessionManager):
