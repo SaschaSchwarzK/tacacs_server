@@ -203,6 +203,8 @@ def isolated_test_environment(tmp_path_factory):
     auth_db_path = Path(cfg["auth"]["local_auth_db"])
 
     try:
+        # Expose for any external tooling that wants to collect artifacts
+        os.environ["TACACS_TEST_WORKDIR"] = str(work_dir)
         yield {
             "config_path": config_path,
             "work_dir": work_dir,
@@ -221,6 +223,11 @@ def isolated_test_environment(tmp_path_factory):
             os.environ.pop("ADMIN_PASSWORD_HASH", None)
         else:
             os.environ["ADMIN_PASSWORD_HASH"] = _admin_hash_prev
+        # Clean up the temporary working directory (databases, logs)
+        try:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 @pytest.fixture
@@ -280,7 +287,12 @@ def tacacs_server():
             or cfg_check.getint("server", "port", fallback=49) < 1024
         ):
             # Create a temp config with non-privileged ports and radius disabled
-            tmp_dir = Path(tempfile.mkdtemp())
+            # Place under project cwd (allowed by LocalAuthStore path guard)
+            base_tmp_root = Path(
+                os.environ.get("TACACS_TEST_WORKDIR", Path.cwd() / ".pytest-runtime")
+            )
+            base_tmp_root.mkdir(parents=True, exist_ok=True)
+            tmp_dir = Path(tempfile.mkdtemp(prefix="server_", dir=str(base_tmp_root)))
             cfg_path = tmp_dir / "tacacs_test.conf"
             if not cfg_check.has_section("server"):
                 cfg_check.add_section("server")
@@ -296,6 +308,20 @@ def tacacs_server():
             mon_port = cfg_check.get("monitoring", "web_port", fallback="0")
             if not mon_port or mon_port == "0":
                 cfg_check.set("monitoring", "web_port", str(_find_free_port()))
+            # Force isolated DB paths inside tmp_dir regardless of input
+            if not cfg_check.has_section("auth"):
+                cfg_check.add_section("auth")
+            iso_auth_db = tmp_dir / "local_auth.db"
+            cfg_check.set("auth", "local_auth_db", str(iso_auth_db))
+            if not cfg_check.has_section("devices"):
+                cfg_check.add_section("devices")
+            iso_dev_db = tmp_dir / "devices.db"
+            cfg_check.set("devices", "database", str(iso_dev_db))
+            if not cfg_check.has_section("database"):
+                cfg_check.add_section("database")
+            cfg_check.set(
+                "database", "accounting_db", str(tmp_dir / "tacacs_accounting.db")
+            )
             with cfg_path.open("w") as f:
                 cfg_check.write(f)
             os.environ["TACACS_CONFIG"] = str(cfg_path)

@@ -29,6 +29,7 @@ class InputValidator:
         r"(\'\s*(OR|AND)\s+\'\w+\'\s*=\s*\'\w+\')",
     ]
     LDAP_INJECTION_CHARS = ["*", "(", ")", "\\", "/", "\x00"]
+    SHELL_INJECTION_CHARS = ["`", "$", ";", "|", "&", "<", ">", "(", ")"]
 
     @classmethod
     def validate_username(cls, username: str) -> str:
@@ -115,6 +116,22 @@ class InputValidator:
             raise ValidationError("Invalid hostname format")
 
         return hostname
+
+    @classmethod
+    def validate_safe_text(
+        cls, value: str, field_name: str, *, min_len: int = 1, max_len: int = 64
+    ) -> str:
+        """Validate generic short text fields (e.g., names) against common injection.
+
+        - Enforces type and length
+        - Checks SQL/LDAP and shell metacharacters
+        """
+        value = cls.validate_string_length(value, field_name, min_len, max_len)
+        # Check for injection patterns
+        cls._check_sql_injection(value, field_name)
+        cls._check_ldap_injection(value, field_name)
+        cls._check_shell_injection(value, field_name)
+        return value
 
     @classmethod
     def validate_port(cls, port: str | int) -> int:
@@ -312,6 +329,15 @@ class InputValidator:
                 )
 
     @classmethod
+    def _check_shell_injection(cls, value: str, field_name: str) -> None:
+        """Reject common shell metacharacters that could be risky in names."""
+        for char in cls.SHELL_INJECTION_CHARS:
+            if char in value:
+                raise ValidationError(
+                    f"{field_name} contains invalid character: {char}"
+                )
+
+    @classmethod
     def _check_json_depth(
         cls, data: Any, field_name: str, max_depth: int = 10, current_depth: int = 0
     ) -> None:
@@ -336,7 +362,7 @@ class FormValidator:
         validated: dict[str, Any] = {}
 
         if "name" in data:
-            validated["name"] = InputValidator.validate_string_length(
+            validated["name"] = InputValidator.validate_safe_text(
                 data["name"].strip(), "device name", min_len=1, max_len=64
             )
 
@@ -344,7 +370,7 @@ class FormValidator:
             validated["network"] = str(InputValidator.validate_network(data["network"]))
 
         if "group" in data and data["group"]:
-            validated["group"] = InputValidator.validate_string_length(
+            validated["group"] = InputValidator.validate_safe_text(
                 data["group"].strip(), "group name", min_len=1, max_len=64
             )
 
@@ -385,9 +411,13 @@ class FormValidator:
             validated["enabled"] = bool(data["enabled"])
 
         if "description" in data:
-            validated["description"] = InputValidator.validate_string_length(
-                data["description"], "description", max_len=500
-            )
+            desc = data["description"]
+            if desc is None:
+                validated["description"] = ""
+            else:
+                validated["description"] = InputValidator.validate_string_length(
+                    desc, "description", max_len=500
+                )
 
         return validated
 
@@ -402,9 +432,13 @@ class FormValidator:
             )
 
         if "description" in data:
-            validated["description"] = InputValidator.validate_string_length(
-                data["description"], "description", max_len=500
-            )
+            desc = data["description"]
+            if desc is None:
+                validated["description"] = ""
+            else:
+                validated["description"] = InputValidator.validate_string_length(
+                    desc, "description", max_len=500
+                )
 
         if "tacacs_secret" in data and data["tacacs_secret"]:
             validated["tacacs_secret"] = InputValidator.validate_secret(
