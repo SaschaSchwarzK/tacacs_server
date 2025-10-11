@@ -73,7 +73,7 @@ class AdminSessionManager:
             # Prefer bcrypt when configured
             if cfg_hash.startswith(("$2a$", "$2b$", "$2y$")):
                 try:
-                    import bcrypt  # type: ignore
+                    import bcrypt
 
                     return bcrypt.checkpw(
                         password.encode("utf-8"), cfg_hash.encode("utf-8")
