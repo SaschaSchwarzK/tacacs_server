@@ -143,7 +143,9 @@ if TYPE_CHECKING:
 
 # Prometheus Metrics
 auth_requests_total = Counter(
-    "tacacs_auth_requests_total", "Total authentication requests", ["status", "backend"]
+    "tacacs_auth_requests_total",
+    "Total authentication requests",
+    ["status", "backend", "reason"],
 )
 auth_duration = Histogram(
     "tacacs_auth_duration_seconds", "Authentication request duration"
@@ -209,12 +211,56 @@ class TacacsMonitoringAPI:
             redoc_url=None,
             openapi_tags=tags_metadata,
         )
+        # Install shared security headers middleware
+        from .middleware import install_security_headers
+
+        install_security_headers(self.app)
 
         # Include API routers
         self.app.include_router(devices_router)
         self.app.include_router(device_groups_router)
         self.app.include_router(users_router)
         self.app.include_router(user_groups_router)
+
+        # Health and readiness simple endpoints (top-level convenience)
+        @self.app.get("/health", tags=["Status & Monitoring"], include_in_schema=False)
+        async def liveness():
+            return {"status": "ok"}
+
+        @self.app.get("/ready", tags=["Status & Monitoring"], include_in_schema=False)
+        async def readiness():
+            try:
+                srv = self.tacacs_server
+                if not srv or not getattr(srv, "running", False):
+                    return JSONResponse(
+                        {"ready": False, "reason": "server not running"},
+                        status_code=503,
+                    )
+                sock = getattr(srv, "server_socket", None)
+                if not sock:
+                    return JSONResponse(
+                        {"ready": False, "reason": "socket not bound"}, status_code=503
+                    )
+                _ = sock.getsockname()
+                if not getattr(srv, "auth_backends", []):
+                    return JSONResponse(
+                        {"ready": False, "reason": "no auth backends"}, status_code=503
+                    )
+                cfg = get_config()
+                if cfg is not None:
+                    issues = cfg.validate_config()
+                    if issues:
+                        return JSONResponse(
+                            {
+                                "ready": False,
+                                "reason": "config invalid",
+                                "issues": issues[:3],
+                            },
+                            status_code=503,
+                        )
+                return {"ready": True}
+            except Exception as e:
+                return JSONResponse({"ready": False, "reason": str(e)}, status_code=503)
 
         # Configure docs and OpenAPI
         self.app.openapi = lambda: custom_openapi_schema(self.app)
@@ -836,9 +882,13 @@ class PrometheusIntegration:
     """Integration helper for Prometheus metrics"""
 
     @staticmethod
-    def record_auth_request(status: str, backend: str, duration: float):
+    def record_auth_request(
+        status: str, backend: str, duration: float, reason: str = ""
+    ):
         """Record authentication request metrics"""
-        auth_requests_total.labels(status=status, backend=backend).inc()
+        auth_requests_total.labels(
+            status=status, backend=backend, reason=reason or ""
+        ).inc()
         auth_duration.observe(duration)
 
     @staticmethod

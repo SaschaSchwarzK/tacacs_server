@@ -1,38 +1,59 @@
-FROM python:3.13-slim
+############
+# Builder  #
+############
+FROM python:3.13-slim AS build
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
+COPY pyproject.toml poetry.lock ./
+RUN pip install --no-cache-dir poetry \
+ && poetry export -f requirements.txt -o req.txt --without-hashes
+
+# Create a slim virtualenv under /opt/venv
+RUN pip install --prefix=/opt/venv --no-cache-dir -r req.txt
+
+# Install the package into the venv
+COPY . .
+RUN PYTHONPATH=/app /opt/venv/bin/pip install --prefix=/opt/venv .
+
+###########
+# Runner  #
+###########
+FROM python:3.13-slim AS run
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH
+
+WORKDIR /app
+
+# Install tini and curl for healthchecks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tini curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-ENV PIP_NO_CACHE_DIR=1 \
-    PYTHONUNBUFFERED=1
-ARG POETRY_VERSION=2.0.0
-RUN pip install "poetry==${POETRY_VERSION}"
+# Create non-root user and runtime dirs
+RUN useradd -r -m app \
+ && mkdir -p /app/data /app/logs /app/config \
+ && chown -R app:app /app
 
-# Copy project files
-COPY pyproject.toml poetry.lock ./
-RUN poetry config virtualenvs.create false \
-    && poetry install --only main --no-interaction --no-ansi
+# Copy venv from builder
+COPY --from=build /opt/venv /opt/venv
 
-# Copy application
-COPY tacacs_server/ ./tacacs_server/
-COPY config/ ./config/
+# Provide container-friendly default config
+COPY config/tacacs.container.ini /app/config/tacacs.container.ini
 
-# Create directories
-RUN adduser --disabled-password --gecos "" appuser \
-    && mkdir -p data logs \
-    && chown -R appuser:appuser /app
+USER app
 
-# Expose ports
-EXPOSE 49/tcp 1812/udp 1813/udp 8080/tcp
+# Expose ports for both ACA (5049/8080) and ACI (49, 1812/udp, 1813/udp)
+EXPOSE 5049/tcp 8080/tcp 49/tcp 1812/udp 1813/udp
 
-# Run server
-USER appuser
-# Note: Binding to privileged ports (<1024) as non-root requires CAP_NET_BIND_SERVICE
-# Configure via docker run/compose: --cap-add NET_BIND_SERVICE
-CMD ["python", "-m", "tacacs_server.main", "--config", "config/tacacs.conf"]
+# Healthcheck against liveness endpoint
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+
+ENTRYPOINT ["tini","--"]
+CMD ["tacacs-server","--config","/app/config/tacacs.container.ini"]

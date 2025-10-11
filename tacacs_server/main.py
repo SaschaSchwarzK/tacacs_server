@@ -67,6 +67,14 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
+        # Apply security-related runtime limits
+        try:
+            sec_cfg = self.config.get_security_config()
+            per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
+            if per_ip_cap >= 1:
+                self.server.max_connections_per_ip = per_ip_cap
+        except Exception:
+            pass
 
         # Initialize device inventory
         try:

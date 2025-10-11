@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 from .api_models import ErrorResponse
 from .openapi_config import configure_openapi_ui, custom_openapi_schema
+from .middleware import install_security_headers
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,9 @@ def create_app() -> FastAPI:
 
     # Add GZip compression
     app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+    # Install security headers
+    install_security_headers(app)
 
     # Add request timing middleware
     @app.middleware("http")

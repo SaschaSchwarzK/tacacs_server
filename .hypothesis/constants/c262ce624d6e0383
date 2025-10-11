@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/accounting/models.py
+# hypothesis_version: 6.140.2
+
+[1024.0, 3600, '0 B', 'AccountingRecord', 'B', 'GB', 'KB', 'MB', 'SessionInfo', 'Unknown', 'unknown']

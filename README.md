@@ -72,37 +72,59 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.11+
+- Python 3.13+
 - Poetry (recommended) or pip
 
 ### Installation
+
+Always work in a Python virtual environment, then install with Poetry into that environment.
 
 ```bash
 # Clone the repository
 git clone https://github.com/SaschaSchwarzK/tacacs_server.git
 cd tacacs_server
 
-# Install dependencies
+# Create and activate a Python 3.13 virtual environment
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -V   # should show 3.13.x from .venv
+
+# Install Poetry inside the venv and configure it to use the active venv
+python -m pip install --upgrade pip
+pip install poetry
+poetry config virtualenvs.create false
+
+# Install project dependencies into the active venv
 poetry install
 
 # Set up runtime directories
 python scripts/setup_project.py --project-root "$(pwd)" --move-test-client
 
 # Run tests to verify installation
-poetry run pytest -q
+pytest -q
 ```
+
+Notes
+- Deactivate the venv when done: `deactivate`
+- Windows PowerShell equivalents:
+  - Create venv: `py -3.13 -m venv .venv`
+  - Activate: `.venv\\Scripts\\Activate.ps1`
+  - Install Poetry: `py -m pip install --upgrade pip; pip install poetry`
+  - Configure Poetry: `poetry config virtualenvs.create false`
+  - Install deps: `poetry install`
+  - Run tests: `pytest -q`
 
 ### Running the Server
 
 ```bash
 # Start the server
-poetry run python -m tacacs_server.main --config config/tacacs.conf
+python -m tacacs_server.main --config config/tacacs.conf
 
 # Or use the CLI entrypoint
-poetry run tacacs-server
+tacacs-server
 
 # Validate configuration before starting
-poetry run python scripts/validate_config.py
+python scripts/validate_config.py
 ```
 
 ### Web Interface Access
@@ -758,6 +780,67 @@ docker-compose logs -f tacacs-server
 # Scale for high availability
 docker-compose up -d --scale tacacs-server=3
 ```
+
+## 🔧 Admin CLI (tacacs-admin)
+
+Use the built-in admin CLI for common administrative tasks.
+
+Commands
+- `tacacs-admin check-config [-c config/tacacs.conf]`
+  - Validates configuration and prints issues; exits non-zero on failure.
+- `tacacs-admin generate-bcrypt [--password <pwd> | --stdin]`
+  - Generates a bcrypt hash for use in `ADMIN_PASSWORD_HASH` or config.
+- `tacacs-admin audit-hashes [-c config/tacacs.conf]`
+  - Audits local auth DB password hashes; exits non-zero if legacy hashes exist.
+- `tacacs-admin migrate-hashes --csv users.csv [-c config/tacacs.conf]`
+  - Migrates legacy SHA-256 user hashes to bcrypt using a CSV `username,password`.
+
+Examples
+```bash
+# Validate config
+poetry run tacacs-admin check-config -c config/tacacs.conf
+
+# Generate bcrypt hash (interactive prompt)
+poetry run tacacs-admin generate-bcrypt
+
+# Audit and migrate
+poetry run tacacs-admin audit-hashes -c config/tacacs.conf
+poetry run tacacs-admin migrate-hashes --csv scripts/example_credentials.csv -c config/tacacs.conf
+```
+
+## 🧪 Example Configurations
+
+Example configurations are provided under `config/examples/`:
+
+- `minimal.ini` — non-privileged TACACS (5049/TCP), RADIUS disabled, monitoring on 8080.
+- `standard.ini` — TACACS 49/TCP, RADIUS 1812/1813 UDP, moderate rate limits.
+- `enterprise.ini` — multi-backend (local+LDAP), environment interpolation for secrets, higher limits, monitoring enabled.
+
+Use them as starting points and adjust paths, ports, and secrets for your environment.
+
+## ☁️ Azure Container Instances (ACI)
+
+ACI supports both TCP and UDP, which makes it suitable for TACACS+ (49/TCP) and RADIUS (1812/1813 UDP). Deploy with a container image and a small Azure Files volume for persistence.
+
+- Image entrypoint uses `tini` and runs non-interactively.
+- Use the ACI profile config: `config/tacacs.aci.ini` (TACACS on 49/TCP, RADIUS enabled, web on 8080).
+- Pass secrets (e.g., `ADMIN_PASSWORD_HASH`) via environment variables or secret mounts. Do not bake secrets into images.
+
+Quick steps
+- Build and push the image to your registry (ACR or Docker Hub).
+- Prepare an Azure Files share and storage account.
+- Deploy using the provided template: `deploy/aci/aci-container.yaml`.
+
+Parameters to substitute
+- `${IMAGE}`: your image, e.g., `myregistry.azurecr.io/tacacs:latest`
+- `${AZ_LOCATION}`: Azure region, e.g., `westeurope`
+- `${AZURE_FILES_SHARE}`, `${AZURE_STORAGE_ACCOUNT}`, `${AZURE_STORAGE_KEY}`: for the Azure Files volume
+- `${ADMIN_PASSWORD_HASH}`: bcrypt hash for admin login (generate with python/bcrypt)
+
+Notes
+- ACI allows binding to privileged ports; the container should run as root for 49/1812/1813.
+- Health endpoint: `http://<aci-ip>:8080/health`, readiness: `http://<aci-ip>:8080/ready`.
+- RADIUS is enabled in the ACI config; for environments without UDP (e.g., ACA), use `config/tacacs.container.ini` with RADIUS disabled and TACACS on 5049/TCP.
 
 ## 📈 Performance
 

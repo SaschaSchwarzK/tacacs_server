@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/tacacs/handlers.py
+# hypothesis_version: 6.140.2
+
+[128, 1024, '!B', '!BBBBBBBB', '!BBBBBBBBB', '!BBHH', '!HHH', '<unknown>', '=', 'Invalid session', 'Password: ', 'START', 'STOP', 'UNKNOWN', 'UPDATE', 'Username: ', 'allowed_user_groups', 'authen_method', 'backend=unknown', 'bytes_in', 'bytes_out', 'cmd', 'elapsed_time', 'empty password', 'enabled', 'error', 'fail', 'group', 'groups', 'idle_timeout', 'idletime', 'name', 'nas-port', 'nas-port-type', 'no_backend_accepted', 'no_backends', 'none', 'ok', 'password', 'password too long', 'priv-lvl', 'privilege_level', 'replace', 'service', 'shell_command', 'start_time', 'step', 'stop_time', 'success', 'task_id', 'timeout', 'timezone', 'unknown', 'username', 'utf-8', '|']

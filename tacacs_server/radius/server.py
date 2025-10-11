@@ -20,6 +20,7 @@ from typing import Any, Optional
 from tacacs_server.auth.base import AuthenticationBackend
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
+from tacacs_server.utils.rate_limiter import get_rate_limiter
 
 logger = get_logger(__name__)
 
@@ -604,6 +605,12 @@ class RADIUSServer:
         """Handle authentication request"""
         client_ip, client_port = addr
 
+        # Per-IP rate limiting to mitigate floods
+        limiter = get_rate_limiter()
+        if not limiter.allow_request(client_ip):
+            logger.warning("RADIUS rate limit exceeded for %s", client_ip)
+            return
+
         try:
             client_config = self.lookup_client(client_ip)
             if not client_config:
@@ -719,6 +726,12 @@ class RADIUSServer:
             addr: Client address tuple (ip, port)
         """
         client_ip, client_port = addr
+
+        # Per-IP rate limiting for accounting path
+        limiter = get_rate_limiter()
+        if not limiter.allow_request(client_ip):
+            logger.warning("RADIUS acct rate limit exceeded for %s", client_ip)
+            return
 
         try:
             client_config = self.lookup_client(client_ip)

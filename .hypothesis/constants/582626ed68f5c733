@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/utils/logging_config.py
+# hypothesis_version: 6.140.2
+
+['_', 'args', 'bind_context', 'clear_context', 'configure_logging', 'context', 'created', 'exc_info', 'exc_text', 'extra', 'filename', 'funcName', 'get_logger', 'level', 'levelname', 'levelno', 'lineno', 'logger', 'logging_context', 'message', 'module', 'msecs', 'msg', 'name', 'pathname', 'process', 'processName', 'relativeCreated', 'stack', 'stack_info', 'taskName', 'thread', 'threadName', 'timestamp']

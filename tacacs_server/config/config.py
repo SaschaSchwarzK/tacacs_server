@@ -114,6 +114,7 @@ class TacacsConfig:
             "denied_clients": "",
             "rate_limit_requests": "60",
             "rate_limit_window": "60",
+            "max_connections_per_ip": "20",
         }
         self.config["logging"] = {
             "log_file": "logs/tacacs.log",
@@ -163,9 +164,15 @@ class TacacsConfig:
 
     def get_server_config(self) -> dict[str, Any]:
         """Get server configuration (excluding sensitive values)"""
+        host = os.environ.get("SERVER_HOST", self.config.get("server", "host"))
+        port_env = os.environ.get("SERVER_PORT")
+        try:
+            port = int(port_env) if port_env else self.config.getint("server", "port")
+        except Exception:
+            port = self.config.getint("server", "port")
         return {
-            "host": self.config.get("server", "host"),
-            "port": self.config.getint("server", "port"),
+            "host": host,
+            "port": port,
             # secret_key intentionally omitted to avoid accidental leakage
             "max_connections": self.config.getint("server", "max_connections"),
             "socket_timeout": self.config.getint("server", "socket_timeout"),
@@ -179,7 +186,9 @@ class TacacsConfig:
 
     def get_local_auth_db(self) -> str:
         if self.config.has_option("auth", "local_auth_db"):
-            return self.config.get("auth", "local_auth_db")
+            val = self.config.get("auth", "local_auth_db")
+            # Support ${ENV_VAR} interpolation in file paths
+            return os.path.expandvars(val)
         return "data/local_auth.db"
 
     def create_auth_backends(self) -> list:
@@ -294,6 +303,9 @@ class TacacsConfig:
                 "security", "rate_limit_requests"
             ),
             "rate_limit_window": self.config.getint("security", "rate_limit_window"),
+            "max_connections_per_ip": self.config.getint(
+                "security", "max_connections_per_ip", fallback=20
+            ),
         }
 
     def _parse_client_list(self, clients_str: str) -> list[str]:
@@ -457,6 +469,14 @@ class TacacsConfig:
         if timeout < 30 or timeout > 3600:
             issues.append(f"Invalid auth_timeout: {timeout} (must be 30-3600 seconds)")
 
+        # Per-IP connection cap validation
+        try:
+            cap = self.config.getint("security", "max_connections_per_ip")
+        except Exception:
+            cap = 20
+        if cap < 1 or cap > 1000:
+            issues.append(f"Invalid max_connections_per_ip: {cap} (must be 1-1000)")
+
         return issues
 
     def validate_and_backup_config(self) -> tuple[bool, list[str]]:
@@ -507,11 +527,39 @@ class TacacsConfig:
 
     def get_radius_config(self) -> dict[str, Any]:
         """Get RADIUS server configuration"""
+        enabled_env = os.environ.get("RADIUS_ENABLED")
+        host = os.environ.get("RADIUS_HOST", self.config.get("radius", "host"))
+        auth_port_env = os.environ.get("RADIUS_AUTH_PORT")
+        acct_port_env = os.environ.get("RADIUS_ACCT_PORT")
+        try:
+            enabled = (
+                bool(int(enabled_env))
+                if enabled_env is not None and enabled_env.strip() != ""
+                else self.config.getboolean("radius", "enabled")
+            )
+        except Exception:
+            enabled = self.config.getboolean("radius", "enabled")
+        try:
+            auth_port = (
+                int(auth_port_env)
+                if auth_port_env and auth_port_env.isdigit()
+                else self.config.getint("radius", "auth_port")
+            )
+        except Exception:
+            auth_port = self.config.getint("radius", "auth_port")
+        try:
+            acct_port = (
+                int(acct_port_env)
+                if acct_port_env and acct_port_env.isdigit()
+                else self.config.getint("radius", "acct_port")
+            )
+        except Exception:
+            acct_port = self.config.getint("radius", "acct_port")
         return {
-            "enabled": self.config.getboolean("radius", "enabled"),
-            "auth_port": self.config.getint("radius", "auth_port"),
-            "acct_port": self.config.getint("radius", "acct_port"),
-            "host": self.config.get("radius", "host"),
+            "enabled": enabled,
+            "auth_port": auth_port,
+            "acct_port": acct_port,
+            "host": host,
             "share_backends": self.config.getboolean("radius", "share_backends"),
             "share_accounting": self.config.getboolean("radius", "share_accounting"),
         }

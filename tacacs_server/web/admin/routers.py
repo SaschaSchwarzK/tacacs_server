@@ -1528,15 +1528,19 @@ async def admin_login(
             url="/admin/", status_code=status.HTTP_303_SEE_OTHER
         )
     # Determine if the request is over HTTPS (direct or via reverse proxy)
+    import os as _os
+
     forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
     is_https = request.url.scheme == "https" or forwarded_proto == "https"
+    secure_env = _os.getenv("SECURE_COOKIES", "true").strip().lower() != "false"
+    secure_flag = True if secure_env else is_https
     # Set session cookie with secure defaults
     response.set_cookie(
         "admin_session",
         token,
         httponly=True,
         samesite="strict",
-        secure=is_https or True,  # prefer Secure; reverse proxies should terminate TLS
+        secure=secure_flag,
         max_age=int(manager.config.session_timeout.total_seconds()),
         path="/",
     )

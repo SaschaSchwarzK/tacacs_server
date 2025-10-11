@@ -77,6 +77,10 @@ class TacacsServer:
         self.device_store: DeviceStore | None = None
         self._session_lock = threading.RLock()
         self.session_secrets: dict[int, str] = {}
+        # Abuse control: per-IP connection caps
+        self._ip_conn_lock = threading.RLock()
+        self._ip_connections: dict[str, int] = {}
+        self.max_connections_per_ip = 20
 
     def enable_web_monitoring(
         self, web_host="127.0.0.1", web_port=8080, radius_server=None
@@ -174,6 +178,30 @@ class TacacsServer:
                 try:
                     client_socket, address = self.server_socket.accept()
                     self.stats["connections_total"] += 1
+                    # Enforce per-IP concurrent connection cap
+                    over_limit = False
+                    with self._ip_conn_lock:
+                        ip = address[0]
+                        new_count = self._ip_connections.get(ip, 0) + 1
+                        self._ip_connections[ip] = new_count
+                        if new_count > self.max_connections_per_ip:
+                            over_limit = True
+                    if over_limit:
+                        logger.warning(
+                            "Per-IP connection cap exceeded for %s (count=%s)",
+                            ip,
+                            new_count,
+                        )
+                        try:
+                            client_socket.close()
+                        except Exception:
+                            pass
+                        with self._ip_conn_lock:
+                            # revert increment
+                            self._ip_connections[ip] = max(
+                                0, self._ip_connections.get(ip, 1) - 1
+                            )
+                        continue
                     self.stats["connections_active"] += 1
                     logger.debug("New connection from %s", address)
                     client_thread = threading.Thread(
@@ -182,6 +210,13 @@ class TacacsServer:
                         daemon=True,
                     )
                     client_thread.start()
+                    # Update active connections gauge if available
+                    try:
+                        from ..web.monitoring import PrometheusIntegration as _PM
+
+                        _PM.update_active_connections(self.stats["connections_active"])
+                    except Exception:
+                        pass
                 except OSError as e:
                     if self.running:
                         logger.error("Socket error: %s", e)
@@ -292,7 +327,19 @@ class TacacsServer:
         finally:
             self._safe_close_socket(client_socket)
             self._cleanup_client_session(session_ids)
-            self.stats["connections_active"] -= 1
+            # Decrement per-IP counter and active counter safely
+            with self._ip_conn_lock:
+                ip = address[0]
+                self._ip_connections[ip] = max(0, self._ip_connections.get(ip, 1) - 1)
+            self.stats["connections_active"] = max(
+                0, self.stats.get("connections_active", 1) - 1
+            )
+            try:
+                from ..web.monitoring import PrometheusIntegration as _PM
+
+                _PM.update_active_connections(self.stats["connections_active"])
+            except Exception:
+                pass
             logger.debug("Connection closed: %s", address)
 
     def _safe_close_socket(self, sock: socket.socket) -> None:
