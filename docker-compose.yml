@@ -1,18 +1,29 @@
 version: '3.8'
 
 services:
-  tacacs:
+  tacacs-server:
     build: .
+    user: "10001:10001"
+    cap_add:
+      - NET_BIND_SERVICE
     ports:
-      - "49:49"      # TACACS+
-      - "1812:1812/udp"  # RADIUS Auth
-      - "1813:1813/udp"  # RADIUS Acct
-      - "8080:8080"  # Web UI
+      - "49:49"            # TACACS+ (TCP)
+      - "1812:1812/udp"    # RADIUS Auth (UDP)
+      - "1813:1813/udp"    # RADIUS Acct (UDP)
+      - "8080:8080"        # Web UI (TCP)
     volumes:
-      - ./config:/app/config
+      - ./config:/app/config:ro
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
+      - TACACS_CONFIG=/app/config/tacacs.conf
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
       - TACACS_LDAP_BIND_PASSWORD=${LDAP_PASSWORD}
       - TACACS_OKTA_CLIENT_SECRET=${OKTA_SECRET}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
