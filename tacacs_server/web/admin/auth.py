@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import secrets
 from datetime import datetime, timedelta
 
@@ -81,9 +79,15 @@ class AdminSessionManager:
                 except Exception:
                     return False
 
-            # Legacy SHA-256 hex digest
-            sha = hashlib.sha256(password.encode("utf-8")).hexdigest()
-            return hmac.compare_digest(sha, cfg_hash)
+            # Reject unsupported hash formats (not bcrypt)
+            # Legacy SHA-256 hashes are no longer supported for security reasons.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "Legacy admin password hashes are not supported. "
+                    "Please migrate ADMIN_PASSWORD_HASH to bcrypt."
+                ),
+            )
         except Exception:
             return False
 
