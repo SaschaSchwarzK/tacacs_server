@@ -238,8 +238,18 @@ async def admin_guard(request: Request) -> None:
 async def admin_webhooks_page(request: Request, _: None = Depends(admin_guard)):
     cfg = get_webhook_config_dict()
     return templates.TemplateResponse(
+        request,
         "admin/webhooks.html",
-        {"request": request, "config": cfg},
+        {"config": cfg},
+    )
+
+
+@admin_router.get("/command-authorization", response_class=HTMLResponse)
+async def admin_command_auth_page(request: Request, _: None = Depends(admin_guard)):
+    return templates.TemplateResponse(
+        request,
+        "admin/command_auth.html",
+        {"title": "Command Authorization"},
     )
 
 
@@ -448,9 +458,9 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
         return summary
 
     return templates.TemplateResponse(
+        request,
         "admin/dashboard.html",
         {
-            "request": request,
             "title": "Dashboard",
             "summary": summary,
             "auth_summary": auth_summary,
@@ -497,9 +507,9 @@ async def view_config(
 
     config_json = json.dumps(sanitized, indent=2, sort_keys=True)
     return templates.TemplateResponse(
+        request,
         "admin/config.html",
         {
-            "request": request,
             "title": "Configuration",
             "config_source": source,
             "config_json": config_json,
@@ -546,7 +556,7 @@ async def update_config(request: Request, _: None = Depends(admin_guard)):
     except ValueError as e:
         logger.error("Configuration validation error: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Configuration validation failed: {e}",
         ) from e
     except Exception as e:
@@ -686,7 +696,7 @@ async def create_device(
             error_message=str(exc),
         )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except (DeviceValidationError, GroupNotFound) as exc:
         audit_logger.log_action(
@@ -1196,7 +1206,7 @@ async def create_user(
         return {"username": record.username}
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except LocalUserExists as exc:
         raise HTTPException(
@@ -1524,7 +1534,7 @@ async def get_audit_log(
 
 @admin_router.get("/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request):
-    return templates.TemplateResponse("admin/login.html", {"request": request})
+    return templates.TemplateResponse(request, "admin/login.html", {})
 
 
 @admin_router.post("/login")
@@ -1570,8 +1580,9 @@ async def admin_login(
         if is_json:
             raise exc
         return templates.TemplateResponse(
+            request,
             "admin/login.html",
-            {"request": request, "error": exc.detail},
+            {"error": exc.detail},
             status_code=exc.status_code,
         )
 
@@ -1587,8 +1598,11 @@ async def admin_login(
 
     forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
     is_https = request.url.scheme == "https" or forwarded_proto == "https"
-    secure_env = _os.getenv("SECURE_COOKIES", "true").strip().lower() != "false"
-    secure_flag = True if secure_env else is_https
+    secure_env = _os.getenv("SECURE_COOKIES")
+    if secure_env is None:
+        secure_flag = is_https
+    else:
+        secure_flag = secure_env.strip().lower() == "true"
     # Set session cookie with secure defaults
     response.set_cookie(
         "admin_session",

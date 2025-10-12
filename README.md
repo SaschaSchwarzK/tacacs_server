@@ -859,6 +859,12 @@ Notes
 - **Rate limiting**: DDoS protection
 - **Secure defaults**: Security-first configuration
 
+### API Token Protection
+- Set `API_TOKEN` to require a token for all HTTP endpoints under `/api/*`.
+- Send either `X-API-Token: <token>` or `Authorization: Bearer <token>`.
+- Admin endpoints under `/api/admin/*` also require an authenticated admin session; when no admin auth is configured, these return `401` by default.
+
+
 ## 🚀 What's New
 
 ### **Recent Features**
@@ -922,3 +928,37 @@ Events
 - Configure destination via `SYSLOG_ADDRESS`:
   - Unix socket path (e.g., `/dev/log`) or `host:port` (UDP).
 - Example UDP: `SYSLOG_ADDRESS=192.0.2.10:514`
+
+## 🛡️ Command Authorization
+
+Fine‑grained command authorization for TACACS+ authorization (AUTHOR) requests. Define ordered rules (permit/deny) that match commands by prefix, exact, regex, or wildcard; rules can also scope by user groups, device groups, and privilege levels. A default action applies when no rule matches.
+
+Config
+- `[command_authorization]`
+  - `default_action` = `permit` or `deny` (default: `deny`)
+  - `rules_json` = JSON array of rule objects
+    - Fields: `action`, `match_type` (`exact|prefix|regex|wildcard`), `pattern`, `min_privilege`, `max_privilege`, optional `description`, `user_groups`, `device_groups`.
+
+Examples
+- Permit read‑only on Cisco: `{ "action":"permit", "match_type":"prefix", "pattern":"show ", "min_privilege": 1 }`
+- Deny reload: `{ "action":"deny", "match_type":"wildcard", "pattern":"reload*", "min_privilege":0, "max_privilege":15 }`
+
+Admin UI
+- Navigate to `Admin → Command Auth` (`/admin/command-authorization`).
+  - Toggle Default Action (`permit/deny`).
+  - Manage rules (add/delete) and test commands with privilege, user groups, and device group context.
+
+API
+- Settings
+  - `GET /api/command-authorization/settings` → `{ "default_action": "deny|permit" }`
+  - `PUT /api/command-authorization/settings` with `{ "default_action": "deny|permit" }`
+- Rules
+  - `GET /api/command-authorization/rules` → list of persisted rules
+  - `POST /api/command-authorization/rules` → create a new rule
+  - `DELETE /api/command-authorization/rules/{rule_id}` → delete by ID
+  - `GET /api/command-authorization/templates` → available templates
+  - `POST /api/command-authorization/templates/{name}/apply` → apply a template
+
+Runtime behavior
+- The engine is initialized from config at startup; admin/API changes persist to the config file.
+- TACACS+ authorization consults the engine (in addition to existing prefix allow‑lists). Denials emit an `authorization_failure` webhook with a reason.

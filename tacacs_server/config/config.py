@@ -131,6 +131,13 @@ class TacacsConfig:
             "max_log_size": "10MB",
             "backup_count": "5",
         }
+        self.config["command_authorization"] = {
+            "default_action": "deny",
+            # Seed with a sensible read-only rule example
+            "rules_json": "[{'action':'permit','match_type':'prefix','pattern':'show ','min_privilege':1}]".replace(
+                "'", '"'
+            ),
+        }
         self.config["admin"] = {
             "username": os.environ.get("ADMIN_USERNAME", "admin"),
             "password_hash": os.environ.get("ADMIN_PASSWORD_HASH", ""),
@@ -290,6 +297,43 @@ class TacacsConfig:
             "password_hash": section.get("password_hash", ""),
             "session_timeout_minutes": int(section.get("session_timeout_minutes", 60)),
         }
+
+    def get_command_authorization_config(self) -> dict[str, Any]:
+        section = (
+            self.config["command_authorization"]
+            if "command_authorization" in self.config
+            else {}
+        )
+        default_action = (
+            str(section.get("default_action", "deny")).strip().lower() or "deny"
+        )
+        rules_json = section.get("rules_json", "[]")
+        try:
+            import json as _json
+
+            rules = _json.loads(rules_json) if rules_json else []
+            if not isinstance(rules, list):
+                rules = []
+        except Exception:
+            rules = []
+        return {"default_action": default_action, "rules": rules}
+
+    def update_command_authorization_config(
+        self, *, default_action: str | None = None, rules: list[dict] | None = None
+    ) -> None:
+        if "command_authorization" not in self.config:
+            self.config.add_section("command_authorization")
+        section = self.config["command_authorization"]
+        import json as _json
+
+        if default_action is not None:
+            section["default_action"] = str(default_action)
+        if rules is not None:
+            section["rules_json"] = _json.dumps(rules)
+        try:
+            self.save_config()
+        except Exception as e:
+            logger.warning("Failed to persist command authorization config: %s", e)
 
     def get_security_config(self) -> dict[str, Any]:
         """Get security configuration"""

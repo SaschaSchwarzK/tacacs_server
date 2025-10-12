@@ -4,6 +4,7 @@ Provides both HTML dashboard and Prometheus metrics endpoint
 """
 
 import asyncio
+import os
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -13,12 +14,14 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 import uvicorn
 from fastapi import (
+    Depends,
     FastAPI,
     HTTPException,
     Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
+    status,
 )
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -57,6 +60,8 @@ _tacacs_server_ref = None
 _radius_server_ref = None
 _admin_auth_dependency: Callable[[Request], Awaitable[None]] | None = None
 _admin_session_manager: Optional["AdminSessionManager"] = None
+_command_authorizer: Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None = None
+_command_engine: Optional["CommandAuthorizationEngine"] = None
 
 
 def get_device_service() -> Optional["DeviceService"]:
@@ -133,9 +138,37 @@ def get_admin_session_manager() -> Optional["AdminSessionManager"]:
     return _admin_session_manager
 
 
+def set_command_authorizer(
+    authorizer: Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None,
+) -> None:
+    """Register an optional command authorization callback.
+
+    The callable should accept (command, privilege_level, user_groups, device_group)
+    and return (allowed: bool, reason: str).
+    """
+    global _command_authorizer
+    _command_authorizer = authorizer
+
+
+def get_command_authorizer() -> Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None:
+    return _command_authorizer
+
+
+def set_command_engine(engine: Optional["CommandAuthorizationEngine"]) -> None:
+    global _command_engine
+    _command_engine = engine
+
+
+def get_command_engine():
+    return _command_engine
+
+
 if TYPE_CHECKING:
     from tacacs_server.auth.local_user_group_service import LocalUserGroupService
     from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.authorization.command_authorization import (
+        CommandAuthorizationEngine,
+    )
     from tacacs_server.config.config import TacacsConfig
     from tacacs_server.devices.service import DeviceService
 
@@ -216,11 +249,38 @@ class TacacsMonitoringAPI:
 
         install_security_headers(self.app)
 
+        # Optional API token protection for all /api routes
+        api_token = os.getenv("API_TOKEN")
+
+        @self.app.middleware("http")
+        async def api_token_guard(request: Request, call_next):
+            if api_token and request.url.path.startswith("/api/"):
+                token = request.headers.get("X-API-Token")
+                if not token:
+                    auth = request.headers.get("Authorization", "")
+                    if auth.startswith("Bearer "):
+                        token = auth.removeprefix("Bearer ").strip()
+                if token != api_token:
+                    return JSONResponse(
+                        {"error": "Unauthorized"},
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                    )
+            return await call_next(request)
+
         # Include API routers
         self.app.include_router(devices_router)
         self.app.include_router(device_groups_router)
         self.app.include_router(users_router)
         self.app.include_router(user_groups_router)
+        # Include command authorization API (protected by admin guard inside router)
+        try:
+            from tacacs_server.authorization.command_authorization import (
+                router as cmd_router,
+            )
+
+            self.app.include_router(cmd_router)
+        except Exception as exc:
+            logger.warning("Failed to include command authorization router: %s", exc)
 
         # Health and readiness simple endpoints (top-level convenience)
         @self.app.get("/health", tags=["Status & Monitoring"], include_in_schema=False)
@@ -312,9 +372,9 @@ class TacacsMonitoringAPI:
             try:
                 stats = self.get_server_stats()
                 return self.templates.TemplateResponse(
+                    request,
                     "dashboard.html",
                     {
-                        "request": request,
                         "stats": stats,
                         "timestamp": datetime.now().isoformat(),
                         "websocket_enabled": True,
@@ -325,6 +385,16 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail=str(e))
 
         # API Endpoints
+        # Admin guard dependency shared with admin endpoints
+        async def admin_guard(request: Request) -> None:
+            dependency = get_admin_auth_dependency_func()
+            if dependency is None:
+                # Unauthenticated environment: reject by default for admin API
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+            result = dependency(request)
+            if asyncio.iscoroutine(result):
+                await result
+
         @self.app.get(
             "/api/status",
             response_model=DetailedServerStatus,
@@ -575,7 +645,7 @@ class TacacsMonitoringAPI:
 
         # Control Endpoints (Admin)
         @self.app.post("/api/admin/reload-config", include_in_schema=False)
-        async def reload_config():
+        async def reload_config(_: None = Depends(admin_guard)):
             """Reload server configuration"""
             try:
                 success = self.tacacs_server.reload_configuration()
@@ -585,7 +655,7 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/api/admin/reset-stats", include_in_schema=False)
-        async def reset_stats():
+        async def reset_stats(_: None = Depends(admin_guard)):
             """Reset server statistics"""
             try:
                 self.tacacs_server.reset_stats()
@@ -594,7 +664,7 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.get("/api/admin/logs", include_in_schema=False)
-        async def get_logs(lines: int = 100):
+        async def get_logs(lines: int = 100, _: None = Depends(admin_guard)):
             """Get recent log entries"""
             try:
                 # This would read from your log file

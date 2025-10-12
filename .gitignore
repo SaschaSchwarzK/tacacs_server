@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .pytest-runtime/
 .pytest-tmpdirs/
+.hypothesis/
 .mypy_cache/
 .ruff_cache/
 *.pyc

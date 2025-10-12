@@ -588,6 +588,41 @@ class AAAHandlers:
                     TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
                     f"Command '{command}' not authorized",
                 )
+        # Optional enhanced command authorization hook
+        try:
+            from ..web.monitoring import get_command_authorizer
+
+            authorizer = get_command_authorizer()
+        except Exception:
+            authorizer = None
+
+        if command and authorizer is not None:
+            user_groups_list = user_attrs.get("groups") or []
+            device_group_name = getattr(getattr(device, "group", None), "name", None)
+            allowed, reason = authorizer(
+                command, user_priv, user_groups_list, device_group_name
+            )
+            if not allowed:
+                self.cleanup_session(packet.session_id)
+                try:
+                    from ..utils.webhook import notify
+
+                    notify(
+                        "authorization_failure",
+                        {
+                            "username": user,
+                            "client_ip": getattr(device, "ip", None),
+                            "reason": f"cmd_not_authorized:{command}:{reason}",
+                        },
+                    )
+                except Exception:
+                    pass
+                return self._create_author_response(
+                    packet,
+                    TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
+                    f"Command '{command}' not authorized",
+                )
+
         auth_attrs = self._build_authorization_attributes(user_attrs, args)
         self.cleanup_session(packet.session_id)
         return self._create_author_response(

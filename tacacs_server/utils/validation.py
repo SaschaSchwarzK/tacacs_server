@@ -485,7 +485,7 @@ def validate_api_input(validator_func):
                     from fastapi import HTTPException, status
 
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
                     )
             return await func(*args, **kwargs)
 
