@@ -256,22 +256,34 @@ class TacacsMonitoringAPI:
 
         # Optional API token protection for all /api routes
         api_token = os.getenv("API_TOKEN")
-        require_token = str(os.getenv("API_TOKEN_REQUIRED", "")).strip().lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        try:
+            enforced = bool(api_token)
+            logger.info(
+                "API token enforcement: %s (configured_token=%s)",
+                "enabled" if enforced else "disabled",
+                "set" if api_token else "not set",
+            )
+        except Exception:
+            pass
 
         @self.app.middleware("http")
         async def api_token_guard(request: Request, call_next):
-            if request.url.path.startswith("/api/") and (require_token or api_token):
+            if request.url.path.startswith("/api/"):
+                # If no API token configured, API is disabled by default
+                if not api_token:
+                    return JSONResponse(
+                        {"error": "API disabled: API_TOKEN not configured"},
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+                # If token configured, enforce token OR authenticated admin session
+                if request.cookies.get("admin_session"):
+                    return await call_next(request)
                 token = request.headers.get("X-API-Token")
                 if not token:
                     auth = request.headers.get("Authorization", "")
                     if auth.startswith("Bearer "):
                         token = auth.removeprefix("Bearer ").strip()
-                # If a token is required but none provided, or mismatch with configured token
-                if not token or (api_token and token != api_token):
+                if token != api_token:
                     return JSONResponse(
                         {"error": "Unauthorized"},
                         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -392,6 +404,7 @@ class TacacsMonitoringAPI:
                         "stats": stats,
                         "timestamp": datetime.now().isoformat(),
                         "websocket_enabled": True,
+                        "api_disabled": False if os.getenv("API_TOKEN") else True,
                     },
                 )
             except Exception as e:

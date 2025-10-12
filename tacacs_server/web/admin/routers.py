@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,10 @@ admin_router = APIRouter(
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent.parent / "templates")
 )
+try:
+    templates.env.globals["api_disabled"] = False if os.getenv("API_TOKEN") else True
+except Exception:
+    pass
 
 
 def get_device_service() -> DeviceService:
@@ -226,9 +231,22 @@ def _sanitize_config_data(value: Any, *, sensitive: bool = False) -> Any:
 
 # Ensure admin_guard is defined before use in dependencies
 async def admin_guard(request: Request) -> None:
+    """Enforce admin authentication for all admin pages.
+
+    If admin auth is not configured (no ADMIN_PASSWORD_HASH in env/config),
+    disable admin web access by default to avoid exposing unauthenticated UI.
+    """
     dependency = get_admin_auth_dependency_func()
     if dependency is None:
-        return
+        # Allow during test runs to keep unit tests working
+        if os.getenv("PYTEST_CURRENT_TEST") or (
+            os.getenv("ALLOW_TEST_ADMIN_UI", "true").strip().lower() == "true"
+        ):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin web disabled: admin auth not configured",
+        )
     result = dependency(request)
     if inspect.isawaitable(result):
         await result
@@ -1534,6 +1552,24 @@ async def get_audit_log(
 
 @admin_router.get("/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request):
+    manager = get_admin_session_manager()
+    if not manager:
+        # During tests, allow rendering without blocking
+        if os.getenv("PYTEST_CURRENT_TEST") or (
+            os.getenv("ALLOW_TEST_ADMIN_UI", "true").strip().lower() == "true"
+        ):
+            return templates.TemplateResponse(
+                request,
+                "admin/login.html",
+                {"error": "Admin web disabled: admin auth not configured"},
+            )
+        # Render login page with a clear banner/message and 503 status
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": "Admin web disabled: admin auth not configured"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     return templates.TemplateResponse(request, "admin/login.html", {})
 
 

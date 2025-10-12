@@ -35,7 +35,22 @@
 </head>
 <body>
 <header>
-    <div><strong>TACACS+ Admin</strong></div>
+    <div>
+        <strong>TACACS+ Admin</strong>
+        <span style="
+            display:inline-block;
+            margin-left:10px;
+            padding:2px 8px;
+            border-radius:999px;
+            font-size:12px;
+            background:{% if api_disabled %}#fee2e2{% else %}#dcfce7{% endif %};
+            color:{% if api_disabled %}#991b1b{% else %}#166534{% endif %};
+            border:1px solid {% if api_disabled %}#fecaca{% else %}#bbf7d0{% endif %};
+        "
+        title="{% if api_disabled %}API disabled (set API_TOKEN){% else %}API enabled (token required){% endif %}">
+            API: {% if api_disabled %}disabled{% else %}enabled{% endif %}
+        </span>
+    </div>
     <nav>
         <a href="/admin/">Dashboard</a>
         <a href="/admin/devices">Devices</a>
@@ -49,6 +64,9 @@
     </nav>
 </header>
 <main>
+    <div id="api-warning" style="{% if api_disabled %}display:block{% else %}display:none{% endif %};background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:10px;border-radius:6px;margin:10px 0;">
+        <strong>API disabled or unauthorized:</strong> Configure <code>API_TOKEN</code> and include the API token header for direct API calls. The admin UI remains functional.
+    </div>
     {% if message %}
     <div class="alert">{{ message }}</div>
     {% endif %}
@@ -60,6 +78,17 @@ async function logout(event) {
     await fetch('/admin/logout', {method: 'POST', headers: {'Accept': 'application/json'}});
     window.location.href = '/admin/login';
 }
+// Detect API availability and auth; show banner if disabled/unauthorized
+(async function(){
+    try {
+        const r = await fetch('/api/status');
+        if (!r.ok) {
+            document.getElementById('api-warning').style.display = 'block';
+        }
+    } catch(e){
+        document.getElementById('api-warning').style.display = 'block';
+    }
+})();
 </script>
 </body>
 </html>

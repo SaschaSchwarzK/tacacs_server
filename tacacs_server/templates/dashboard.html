@@ -21,6 +21,12 @@
       <button onclick="location.reload()">Refresh</button>
     </div>
 
+    {% if api_disabled %}
+    <div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:10px;border-radius:6px;margin:10px 0;">
+      <strong>API disabled:</strong> No API token configured. Set <code>API_TOKEN</code> to enable the REST API. The admin UI remains functional.
+    </div>
+    {% endif %}
+
     <div>
       <p>Uptime: {{ (stats.uptime // 3600) }}h {{ ((stats.uptime % 3600) // 60) }}m</p>
       <p>Active connections: {{ stats.connections.active }}</p>
@@ -50,7 +56,7 @@
       options: { responsive: true }
     });
 
-    // fetch backends
+    // fetch backends (may fail if API disabled)
     fetch('/api/backends').then(r => r.json()).then(backends => {
       const list = document.getElementById('backendList');
       backends.forEach(b => {
@@ -58,7 +64,12 @@
         li.textContent = `${b.name} (${b.type}) - ${b.available ? 'Available' : 'Unavailable'}`;
         list.appendChild(li);
       });
-    }).catch(()=>{});
+    }).catch(()=>{
+      const list = document.getElementById('backendList');
+      const li = document.createElement('li');
+      li.textContent = 'Backends unavailable (API disabled or unreachable).';
+      list.appendChild(li);
+    });
   </script>
 </body>
 </html>

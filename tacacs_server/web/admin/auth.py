@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
 
@@ -45,7 +45,7 @@ class AdminSessionManager:
             )
 
         self._session_token = secrets.token_urlsafe(32)
-        self._session_expiry = datetime.utcnow() + self.config.session_timeout
+        self._session_expiry = datetime.now(UTC) + self.config.session_timeout
         return self._session_token
 
     def logout(self) -> None:
@@ -55,7 +55,7 @@ class AdminSessionManager:
     def validate(self, token: str) -> bool:
         if not token or token != self._session_token:
             return False
-        if not self._session_expiry or datetime.utcnow() > self._session_expiry:
+        if not self._session_expiry or datetime.now(UTC) > self._session_expiry:
             self.logout()
             return False
         return True

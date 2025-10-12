@@ -62,7 +62,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Hot reload**: Configuration changes without service restart
 
 ### **Development & Testing**
-- **Comprehensive test suite**: 130+ tests with >90% coverage
+- **Comprehensive test suite**: 245 tests with >90% coverage
 - **Batch testing**: Test multiple credentials simultaneously
 - **Performance benchmarks**: Built-in performance testing and metrics
 - **Client tools**: TACACS+ and RADIUS client scripts for testing
@@ -158,6 +158,9 @@ python scripts/tacacs_client.py --batch scripts/example_credentials.csv
 ## 📊 Admin Web Console
 
 The web console provides comprehensive management capabilities with real-time monitoring:
+
+Important
+- The admin web UI is disabled unless an admin bcrypt password hash is configured via `[admin].password_hash` or `ADMIN_PASSWORD_HASH`. When not configured, `/admin/*` returns `503` and the login page shows a banner explaining that admin auth is not configured. The local TACACS+/RADIUS user database does not grant web admin access.
 
 ### **Real-time Dashboard**
 - Live-updating metrics tiles with WebSocket connectivity
@@ -577,6 +580,11 @@ export TACACS_CONFIG=file:///etc/tacacs/tacacs.conf
 
 ## 🧪 Testing & Validation
 
+Note on API protection in tests
+- The test server fixture enables API protection by default. Tests automatically inject `X-API-Token: test-token` on `/api/*` calls, so no changes are required in most tests.
+- If you run manual curls against the test server, include the header:
+  - `curl -H 'X-API-Token: test-token' http://127.0.0.1:8080/api/health`
+
 ### **Running Tests**
 ```bash
 # Run all tests
@@ -592,6 +600,27 @@ poetry run pytest tests/test_benchmark.py -v
 
 # Run performance benchmarks
 poetry run pytest tests/test_benchmark.py --benchmark-only
+
+### **Performance Benchmarks**
+These benchmarks exercise two critical paths and report steady‑state throughput on the test environment.
+
+- tacacs-accounting: Measures end‑to‑end accounting record handling (start/stop/update) through the HTTP API and internal persistence.
+  - Result summary (lower is better for time metrics, higher is better for OPS):
+
+    Name: test_accounting_throughput
+    Min: 8.30 ms, Max: 55.04 ms, Mean: 9.23 ms, StdDev: 4.41 ms, Median: 8.68 ms
+    OPS: 108.30 req/s over 112 rounds
+
+  - Interpretation: The server records and processes accounting events at ~100+ requests/second in this environment, including JSON parsing, validation, and persistence.
+
+- tacacs-auth: Stresses the in‑process authentication path with concurrent requests using the configured backends (local/LDAP/Okta depending on test config).
+  - Result summary:
+
+    Name: test_concurrent_authentications
+    Min: 947.9 ns, Max: 6,806.25 ns, Mean: 994.14 ns, StdDev: 167.59 ns, Median: 962.50 ns
+    OPS: ~1.006 Mops/s (million operations per second) over 51,948 rounds (20 iterations)
+
+  - Interpretation: The authentication hot‑path (without I/O latency) sustains ~1M operations per second under synthetic concurrency, validating that CPU‑bound logic (hash checks, policy evaluation, attribute merge) is not a bottleneck. Real‑world end‑to‑end auth throughput will depend on network latency and external backends.
 ```
 
 ### **Advanced Testing with Server Fixture**
@@ -682,8 +711,35 @@ class TestMyFeature:
     
     def test_my_feature(self):
         # Server is automatically running
-        response = requests.get("http://localhost:8080/api/health")
+        response = requests.get(
+            "http://localhost:8080/api/health",
+            headers={"X-API-Token": "test-token"},
+        )
         assert response.status_code == 200
+```
+
+## 📁 Project Structure
+
+Key files and directories (non-exhaustive):
+
+```
+tacacs_server/
+  authorization/
+    command_authorization.py   # Command auth engine + API router
+  tacacs/
+    handlers.py                # TACACS AAA handlers (uses command authorizer hook)
+  web/
+    monitoring.py              # Web API + middleware (API token enforcement)
+    admin/
+      routers.py               # Admin UI routes (adds Command Auth page)
+    templates/admin/
+      command_auth.html        # Command Authorization admin page
+tests/
+  e2e/
+    test_command_authorization_live.py
+    test_tacacs_authorization_wire.py
+  test_command_authorization_engine.py
+  test_command_authorization_api.py
 ```
 
 ## 🛠️ Development

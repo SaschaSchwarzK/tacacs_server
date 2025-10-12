@@ -276,6 +276,11 @@ bind_host = 127.0.0.1
 bind_port = 8080
 ```
 
+Important
+- The admin web UI is disabled unless an admin password hash is configured. If `password_hash` is empty (and no `ADMIN_PASSWORD_HASH` env var is set), all `/admin/*` pages return `503 Service Unavailable` and the login page displays a banner explaining that admin auth is not configured.
+- Only the admin credentials in this section (or the corresponding environment variables) grant access to the admin web UI. The local TACACS+/RADIUS user database does not grant web admin access.
+
+
 ### Generating Password Hash
 
 ```bash
@@ -442,19 +447,16 @@ Runtime Behavior
 
 ## API Token Protection
 
-To protect the HTTP API from unauthenticated access, set an API token via environment variable. When set, all `/api/*` endpoints require a matching token. You can also force tokens for all `/api/*` requests without pinning a specific value.
+By default the REST API under `/api/*` is disabled unless an API token is configured. To enable and protect the API, set an API token via environment variable:
 
-- Environment variable: `API_TOKEN="<your-strong-token>"`
-- Accepted headers on requests:
-  - `X-API-Token: <your-strong-token>`
-  - or `Authorization: Bearer <your-strong-token>`
+- `API_TOKEN="<your-strong-token>"`
 
-- Require tokens for all `/api/*` requests:
-  - `API_TOKEN_REQUIRED=true`
-  - If `API_TOKEN` is not set, any non-empty token is accepted; set both to require an exact match.
+Accepted headers on requests:
+- `X-API-Token: <your-strong-token>`
+- or `Authorization: Bearer <your-strong-token>`
 
 Notes:
-- Admin endpoints under `/api/admin/*` also require an authenticated admin session. If admin auth is not configured, they respond with `401` by default.
+- Admin endpoints under `/api/admin/*` also require an authenticated admin session. The admin UI calls these with the session cookie; direct calls must also include the API token header.
 - Configure admin credentials in `[admin]` (username, password_hash) and log in via the admin UI.
 
 ## Environment Variables

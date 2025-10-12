@@ -197,6 +197,8 @@ def isolated_test_environment(tmp_path_factory):
     _admin_user_prev = os.environ.get("ADMIN_USERNAME")
     _admin_hash_prev = os.environ.get("ADMIN_PASSWORD_HASH")
     _secure_prev = os.environ.get("SECURE_COOKIES")
+    _api_token_prev = os.environ.get("API_TOKEN")
+    _api_required_prev = os.environ.get("API_TOKEN_REQUIRED")
     os.environ["ADMIN_USERNAME"] = "admin"
     try:
         import bcrypt as _bcrypt
@@ -214,6 +216,8 @@ def isolated_test_environment(tmp_path_factory):
         os.environ["TACACS_TEST_WORKDIR"] = str(work_dir)
         # Ensure cookies are not marked secure in HTTP test env
         os.environ["SECURE_COOKIES"] = "false"
+        # Enable API and enforce token on all /api/* endpoints during tests
+        os.environ["API_TOKEN"] = os.environ.get("TEST_API_TOKEN", "test-token")
         yield {
             "config_path": config_path,
             "work_dir": work_dir,
@@ -236,6 +240,10 @@ def isolated_test_environment(tmp_path_factory):
             os.environ.pop("SECURE_COOKIES", None)
         else:
             os.environ["SECURE_COOKIES"] = _secure_prev
+        if _api_token_prev is None:
+            os.environ.pop("API_TOKEN", None)
+        else:
+            os.environ["API_TOKEN"] = _api_token_prev
         # Clean up the temporary working directory (databases, logs)
         try:
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -365,6 +373,10 @@ def tacacs_server():
             log_path = Path(tempfile.mkdtemp()) / "tacacs_server.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "w+")
+        # Ensure API token is available for subprocess (enables /api/*)
+        if not os.environ.get("API_TOKEN"):
+            os.environ["API_TOKEN"] = os.environ.get("TEST_API_TOKEN", "test-token")
+
         cmd = [
             "python",
             "-m",
@@ -372,11 +384,13 @@ def tacacs_server():
             "--config",
             str(cfg_path),
         ]
+        # Pass current environment to subprocess explicitly
         server_process = subprocess.Popen(
             cmd,
             stdout=log_file,
             stderr=log_file,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+            env=dict(os.environ),
         )
 
         # Wait for server to be ready (use configured TACACS port)
@@ -519,6 +533,20 @@ def _default_requests_timeout(monkeypatch):
     def _timed_request(self, method, url, **kwargs):
         if "timeout" not in kwargs or kwargs["timeout"] is None:
             kwargs["timeout"] = 5
+        # Inject API token header for /api/* requests unless explicitly provided
+        try:
+            if "/api/" in url:
+                headers = kwargs.get("headers") or {}
+                if (
+                    "X-API-Token" not in {k.title(): v for k, v in headers.items()}
+                    and "Authorization" not in headers
+                ):
+                    headers["X-API-Token"] = os.environ.get(
+                        "TEST_API_TOKEN", "test-token"
+                    )
+                    kwargs["headers"] = headers
+        except Exception:
+            pass
         return _ORIG_REQUEST(self, method, url, **kwargs)
 
     monkeypatch.setattr(requests.Session, "request", _timed_request, raising=True)
