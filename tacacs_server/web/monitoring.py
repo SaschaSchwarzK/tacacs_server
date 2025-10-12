@@ -320,7 +320,8 @@ class TacacsMonitoringAPI:
                         )
                 return {"ready": True}
             except Exception as e:
-                return JSONResponse({"ready": False, "reason": str(e)}, status_code=503)
+                logger.exception("Exception while checking readiness")
+                return JSONResponse({"ready": False, "reason": "internal error"}, status_code=503)
 
         # Configure docs and OpenAPI
         self.app.openapi = lambda: custom_openapi_schema(self.app)
