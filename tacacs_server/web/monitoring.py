@@ -60,7 +60,9 @@ _tacacs_server_ref = None
 _radius_server_ref = None
 _admin_auth_dependency: Callable[[Request], Awaitable[None]] | None = None
 _admin_session_manager: Optional["AdminSessionManager"] = None
-_command_authorizer: Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None = None
+_command_authorizer: (
+    Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None
+) = None
 _command_engine: Optional["CommandAuthorizationEngine"] = None
 
 
@@ -139,7 +141,8 @@ def get_admin_session_manager() -> Optional["AdminSessionManager"]:
 
 
 def set_command_authorizer(
-    authorizer: Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None,
+    authorizer: Callable[[str, int, list[str] | None, str | None], tuple[bool, str]]
+    | None,
 ) -> None:
     """Register an optional command authorization callback.
 
@@ -150,7 +153,9 @@ def set_command_authorizer(
     _command_authorizer = authorizer
 
 
-def get_command_authorizer() -> Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None:
+def get_command_authorizer() -> (
+    Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None
+):
     return _command_authorizer
 
 
@@ -251,16 +256,22 @@ class TacacsMonitoringAPI:
 
         # Optional API token protection for all /api routes
         api_token = os.getenv("API_TOKEN")
+        require_token = str(os.getenv("API_TOKEN_REQUIRED", "")).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
 
         @self.app.middleware("http")
         async def api_token_guard(request: Request, call_next):
-            if api_token and request.url.path.startswith("/api/"):
+            if request.url.path.startswith("/api/") and (require_token or api_token):
                 token = request.headers.get("X-API-Token")
                 if not token:
                     auth = request.headers.get("Authorization", "")
                     if auth.startswith("Bearer "):
                         token = auth.removeprefix("Bearer ").strip()
-                if token != api_token:
+                # If a token is required but none provided, or mismatch with configured token
+                if not token or (api_token and token != api_token):
                     return JSONResponse(
                         {"error": "Unauthorized"},
                         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -319,9 +330,11 @@ class TacacsMonitoringAPI:
                             status_code=503,
                         )
                 return {"ready": True}
-            except Exception as e:
+            except Exception:
                 logger.exception("Exception while checking readiness")
-                return JSONResponse({"ready": False, "reason": "internal error"}, status_code=503)
+                return JSONResponse(
+                    {"ready": False, "reason": "internal error"}, status_code=503
+                )
 
         # Configure docs and OpenAPI
         self.app.openapi = lambda: custom_openapi_schema(self.app)

@@ -442,12 +442,16 @@ Runtime Behavior
 
 ## API Token Protection
 
-To protect the HTTP API from unauthenticated access, set an API token via environment variable. When set, all `/api/*` endpoints require a matching token.
+To protect the HTTP API from unauthenticated access, set an API token via environment variable. When set, all `/api/*` endpoints require a matching token. You can also force tokens for all `/api/*` requests without pinning a specific value.
 
 - Environment variable: `API_TOKEN="<your-strong-token>"`
 - Accepted headers on requests:
   - `X-API-Token: <your-strong-token>`
   - or `Authorization: Bearer <your-strong-token>`
+
+- Require tokens for all `/api/*` requests:
+  - `API_TOKEN_REQUIRED=true`
+  - If `API_TOKEN` is not set, any non-empty token is accepted; set both to require an exact match.
 
 Notes:
 - Admin endpoints under `/api/admin/*` also require an authenticated admin session. If admin auth is not configured, they respond with `401` by default.

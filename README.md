@@ -860,8 +860,9 @@ Notes
 - **Secure defaults**: Security-first configuration
 
 ### API Token Protection
-- Set `API_TOKEN` to require a token for all HTTP endpoints under `/api/*`.
+- Set `API_TOKEN` to require a specific token for all HTTP endpoints under `/api/*`.
 - Send either `X-API-Token: <token>` or `Authorization: Bearer <token>`.
+- To force a token on all `/api/*` requests even without pinning a specific value, set `API_TOKEN_REQUIRED=true`. If `API_TOKEN` is not set, any non-empty token is accepted; set both to require an exact match.
 - Admin endpoints under `/api/admin/*` also require an authenticated admin session; when no admin auth is configured, these return `401` by default.
 
 
