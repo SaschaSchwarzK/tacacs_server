@@ -269,3 +269,409 @@
 {"timestamp": "2025-10-11T18:25:55.500829+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
 {"timestamp": "2025-10-11T18:25:55.500892+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
 {"timestamp": "2025-10-11T18:25:55.500923+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T05:43:26.545063+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T05:43:26.548694+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T05:43:26.549380+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T05:43:26.571438+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T05:43:26.579129+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T05:43:26.579174+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T05:43:26.579205+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T05:43:26.593190+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T05:43:26.799309+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T05:43:26.905176+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T05:43:26.905526+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T05:43:26.905894+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T05:43:26.906091+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T05:43:26.906277+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T05:43:26.906698+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:60458"}
+{"timestamp": "2025-10-12T05:43:26.906891+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T05:43:26.907068+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T05:43:26.907260+00:00", "level": "INFO", "logger": "__main__", "message": "Database: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_90qwtn7b/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T05:43:26.907443+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_90qwtn7b/tacacs_test.conf"}
+{"timestamp": "2025-10-12T05:43:26.907638+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T05:43:26.907826+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T05:43:26.908018+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T05:43:26.908205+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T05:43:26.908384+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T05:43:26.908627+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T05:45:18.283553+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Invalid packet from ('127.0.0.1', 60686): Packet length too large: 100000"}
+{"timestamp": "2025-10-12T05:45:37.202971+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 15"}
+{"timestamp": "2025-10-12T05:45:37.206452+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T05:45:37.206491+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T05:45:37.206555+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T05:45:37.206587+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T06:40:50.268415+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T06:40:50.269511+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T06:40:50.269692+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T06:40:50.291536+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:40:50.296943+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T06:40:50.296989+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:40:50.297021+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:40:50.309948+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:40:50.516111+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:40:50.621301+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:40:50.621527+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:40:50.621748+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:40:50.621848+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T06:40:50.621942+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:40:50.622200+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:62130"}
+{"timestamp": "2025-10-12T06:40:50.622295+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T06:40:50.622392+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T06:40:50.622495+00:00", "level": "INFO", "logger": "__main__", "message": "Database: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_w5_is_0c/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:40:50.622680+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_w5_is_0c/tacacs_test.conf"}
+{"timestamp": "2025-10-12T06:40:50.622767+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:40:50.622853+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T06:40:50.622947+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T06:40:50.623039+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:40:50.623122+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T06:40:50.623203+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T06:42:41.821914+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Invalid packet from ('127.0.0.1', 62236): Packet length too large: 100000"}
+{"timestamp": "2025-10-12T06:42:59.805283+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 15"}
+{"timestamp": "2025-10-12T06:42:59.808658+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T06:42:59.808698+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T06:42:59.808771+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T06:42:59.808803+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T06:46:48.742640+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T06:46:48.742898+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T06:46:48.743051+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T06:46:48.764024+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:46:48.784691+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T06:46:48.784740+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T06:46:48.784782+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T06:46:48.784815+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T06:46:48.784924+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T06:46:48.785211+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T06:46:48.785248+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T06:46:48.785287+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T06:46:48.785329+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:46:48.785361+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:46:48.797526+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:46:49.003498+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:46:49.107200+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:46:49.107477+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:46:49.107703+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:46:49.107812+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T06:46:49.107905+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:46:49.108190+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T06:46:49.108286+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T06:46:49.108379+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T06:46:49.108531+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:46:49.108651+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T06:46:49.108745+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:46:49.108835+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T06:46:49.108926+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T06:46:49.109008+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:46:49.109081+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T06:46:49.109165+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T06:46:49.109242+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T06:46:49.109323+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T06:46:49.109805+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T06:46:49.109880+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:46:49.109955+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T06:46:49.110026+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T06:47:03.031445+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T06:47:03.031701+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T06:47:03.031944+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T06:47:03.032066+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T06:47:03.032241+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T06:47:03.032392+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T06:53:10.509648+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T06:53:10.510014+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T06:53:10.510184+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T06:53:10.514832+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:53:10.534915+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T06:53:10.534960+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T06:53:10.535009+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T06:53:10.535045+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T06:53:10.535147+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T06:53:10.535430+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T06:53:10.535465+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T06:53:10.535503+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T06:53:10.535543+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:53:10.535574+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:53:10.549210+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:53:10.755237+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:53:10.861159+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:53:10.861567+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:53:10.861960+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:53:10.862162+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T06:53:10.862345+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:53:10.862865+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T06:53:10.863174+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T06:53:10.863323+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T06:53:10.863431+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:53:10.863602+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T06:53:10.863705+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:53:10.863798+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T06:53:10.863902+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T06:53:10.864000+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:53:10.864092+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T06:53:10.864187+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T06:53:10.864285+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T06:53:10.864381+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T06:53:10.865003+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T06:53:10.865103+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:53:10.865215+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T06:53:10.865313+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T06:55:51.893640+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T06:55:51.893900+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T06:55:51.894140+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T06:55:51.894264+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T06:55:51.894464+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T06:55:51.894570+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T06:56:33.324142+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T06:56:33.324593+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T06:56:33.325104+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T06:56:33.334388+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:56:33.355510+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T06:56:33.355553+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T06:56:33.355589+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T06:56:33.355621+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T06:56:33.355740+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T06:56:33.356049+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T06:56:33.356094+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T06:56:33.356129+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T06:56:33.356174+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:56:33.356207+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:56:33.370025+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:56:33.575544+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:56:33.679844+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:56:33.680012+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T06:56:33.680156+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:56:33.680236+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T06:56:33.680304+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T06:56:33.680458+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T06:56:33.680527+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T06:56:33.680593+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T06:56:33.680660+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T06:56:33.680731+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T06:56:33.680813+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:56:33.680878+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T06:56:33.680949+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T06:56:33.681016+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:56:33.681087+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T06:56:33.681159+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T06:56:33.681226+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T06:56:33.681300+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T06:56:33.681654+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T06:56:33.681732+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T06:56:33.681800+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T06:56:33.681864+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T06:56:52.752043+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T06:57:36.705864+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T06:57:36.706020+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T06:57:36.706161+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T06:57:36.706258+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T06:57:36.706368+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T06:57:36.706463+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T07:20:29.866703+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T07:20:29.867267+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T07:20:29.867432+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:20:29.876868+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:20:29.899603+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:20:29.899649+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T07:20:29.899691+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T07:20:29.899725+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T07:20:29.899834+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:20:29.900114+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T07:20:29.900151+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T07:20:29.900190+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T07:20:29.900231+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:20:29.900262+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:20:29.913564+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:20:30.119407+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:20:30.223178+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:20:30.223572+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:20:30.223915+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:20:30.224174+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T07:20:30.224360+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:20:30.224812+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T07:20:30.224999+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T07:20:30.225181+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T07:20:30.225303+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:20:30.225398+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T07:20:30.225504+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:20:30.225601+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T07:20:30.225704+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T07:20:30.225807+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:20:30.225898+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T07:20:30.225999+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T07:20:30.226099+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T07:20:30.226195+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T07:20:30.226637+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T07:20:30.226740+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:20:30.226838+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T07:20:30.226934+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T07:20:43.486744+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:20:57.135171+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:21:09.028863+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:22:42.386098+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T07:22:42.389925+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T07:22:42.390141+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T07:22:42.390387+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T07:22:42.390571+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T07:22:42.390688+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T07:23:24.342472+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T07:23:24.342742+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T07:23:24.342904+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:23:24.351225+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:23:24.371699+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:23:24.371741+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T07:23:24.371775+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T07:23:24.371805+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T07:23:24.371915+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:23:24.372244+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T07:23:24.372277+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T07:23:24.372330+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T07:23:24.372390+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:23:24.372459+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:23:24.386719+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:23:24.592274+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:23:24.695866+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:23:24.696098+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:23:24.696346+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:23:24.696467+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T07:23:24.696565+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:23:24.696784+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T07:23:24.696878+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T07:23:24.696968+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T07:23:24.697057+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:23:24.697147+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T07:23:24.697239+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:23:24.697327+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T07:23:24.697418+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T07:23:24.697514+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:23:24.697601+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T07:23:24.697690+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T07:23:24.697779+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T07:23:24.697867+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T07:23:24.698154+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T07:23:24.698246+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:23:24.698336+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T07:23:24.698423+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T07:24:05.103437+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:24:40.272178+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T07:24:40.277018+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T07:24:40.277203+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T07:24:40.277289+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T07:24:40.277449+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T07:24:40.277533+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T07:27:27.297125+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T07:27:27.297437+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T07:27:27.297601+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:27:27.305262+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:27:27.324645+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:27:27.324690+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T07:27:27.324728+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T07:27:27.324761+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T07:27:27.324867+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:27:27.325143+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T07:27:27.325179+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T07:27:27.325216+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T07:27:27.325255+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:27:27.325287+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:27:27.339172+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:27:27.545268+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:27:27.648482+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:27:27.648929+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:27:27.649343+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:27:27.649520+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T07:27:27.649666+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:27:27.650107+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T07:27:27.650245+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T07:27:27.650381+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T07:27:27.650513+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:27:27.650637+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T07:27:27.650765+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:27:27.650883+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T07:27:27.650979+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T07:27:27.651085+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:27:27.651175+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T07:27:27.651274+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T07:27:27.651378+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T07:27:27.651480+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T07:27:27.652044+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T07:27:27.652141+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:27:27.652242+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T07:27:27.652334+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T07:40:11.391863+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T07:40:11.396773+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T07:40:11.396985+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T07:40:11.397105+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T07:40:11.397228+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T07:40:11.397417+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T07:40:13.136794+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T07:40:13.136871+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T07:40:13.136985+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:40:13.144337+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:40:13.153438+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:40:13.153480+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T07:40:13.153511+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T07:40:13.153540+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T07:40:13.153642+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T07:40:13.153945+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T07:40:13.153975+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T07:40:13.154008+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T07:40:13.154044+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:13.154072+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:13.166831+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:13.372012+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:13.477766+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:13.478180+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:13.478558+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:40:13.478779+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T07:40:13.479017+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:40:13.479417+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T07:40:13.479531+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T07:40:13.479635+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T07:40:13.479740+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:40:13.479842+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T07:40:13.479947+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:40:13.480047+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T07:40:13.480151+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T07:40:13.480267+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:40:13.480365+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T07:40:13.480463+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T07:40:13.480567+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T07:40:13.480672+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T07:40:13.481160+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T07:40:13.481251+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:40:13.481344+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T07:40:13.481428+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T07:40:39.384616+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T07:40:39.384877+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T07:40:39.385314+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T07:40:39.385470+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T07:40:39.385640+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T07:40:39.385735+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T07:40:58.754628+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T07:40:58.754956+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T07:40:58.755110+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T07:40:58.766641+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:40:58.772323+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T07:40:58.772374+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:58.772408+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:58.785058+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:58.990709+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:59.096350+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:59.096665+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T07:40:59.096988+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:40:59.097196+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T07:40:59.097380+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T07:40:59.097796+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:63626"}
+{"timestamp": "2025-10-12T07:40:59.097990+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T07:40:59.098170+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T07:40:59.098352+00:00", "level": "INFO", "logger": "__main__", "message": "Database: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_sxds4n9t/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T07:40:59.098539+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_sxds4n9t/tacacs_test.conf"}
+{"timestamp": "2025-10-12T07:40:59.098719+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:40:59.098895+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T07:40:59.099083+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T07:40:59.099267+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T07:40:59.099394+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T07:40:59.099487+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T07:42:51.219669+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Invalid packet from ('127.0.0.1', 63721): Packet length too large: 100000"}
+{"timestamp": "2025-10-12T07:43:13.533756+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 15"}
+{"timestamp": "2025-10-12T07:43:13.534019+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T07:43:13.534062+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T07:43:13.534128+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T07:43:13.534161+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}

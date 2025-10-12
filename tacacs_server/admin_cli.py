@@ -6,6 +6,7 @@ import getpass
 import os
 import sys
 from pathlib import Path
+from typing import Protocol, cast
 
 from tacacs_server.auth.local_store import LocalAuthStore
 from tacacs_server.config.config import TacacsConfig
@@ -126,7 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="tacacs-admin", description="Admin CLI for TACACS+ server"
     )
-    p.add_argument(
+    # Parent parser so global options work before or after the subcommand
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
         "--config",
         "-c",
         default=os.environ.get("TACACS_CONFIG", "config/tacacs.conf"),
@@ -135,12 +138,18 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub_check = sub.add_parser(
-        "check-config", help="Validate configuration and report issues"
+        "check-config",
+        parents=[parent],
+        add_help=True,
+        help="Validate configuration and report issues",
     )
     sub_check.set_defaults(func=cmd_check_config)
 
     sub_bcrypt = sub.add_parser(
-        "generate-bcrypt", help="Generate a bcrypt hash for a password"
+        "generate-bcrypt",
+        parents=[parent],
+        add_help=True,
+        help="Generate a bcrypt hash for a password",
     )
     sub_bcrypt.add_argument(
         "--password", help="Password (use stdin or prompt if omitted)"
@@ -151,12 +160,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub_bcrypt.set_defaults(func=cmd_generate_bcrypt)
 
     sub_audit = sub.add_parser(
-        "audit-hashes", help="Audit password hashes in local auth DB"
+        "audit-hashes",
+        parents=[parent],
+        add_help=True,
+        help="Audit password hashes in local auth DB",
     )
     sub_audit.set_defaults(func=cmd_audit_hashes)
 
     sub_mig = sub.add_parser(
         "migrate-hashes",
+        parents=[parent],
+        add_help=True,
         help="Migrate legacy hashes to bcrypt using a CSV of username,password",
     )
     sub_mig.add_argument(
@@ -165,9 +179,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub_mig.set_defaults(func=cmd_migrate_hashes)
 
     return p
-
-
-from typing import Any, Callable, Protocol, cast
 
 
 class _Cmd(Protocol):

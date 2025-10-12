@@ -8,10 +8,10 @@ import re
 class CommandMatcher:
     """Enhanced command matching with regex support"""
 
-    def __init__(self):
-        self.patterns: dict[int, list[re.Pattern]] = {}
+    def __init__(self) -> None:
+        self.patterns: dict[int, list[re.Pattern[str]]] = {}
 
-    def add_patterns(self, privilege_level: int, patterns: list[str]):
+    def add_patterns(self, privilege_level: int, patterns: list[str]) -> None:
         """Add command patterns for privilege level"""
         compiled_patterns = []
         for pattern in patterns:

@@ -39,6 +39,7 @@ from tacacs_server.utils.validation import (
     InputValidator,
 )
 
+from ...utils.webhook import get_webhook_config_dict, set_webhook_config
 from ..monitoring import (
     get_admin_auth_dependency_func,
     get_admin_session_manager,
@@ -223,6 +224,7 @@ def _sanitize_config_data(value: Any, *, sensitive: bool = False) -> Any:
     return value
 
 
+# Ensure admin_guard is defined before use in dependencies
 async def admin_guard(request: Request) -> None:
     dependency = get_admin_auth_dependency_func()
     if dependency is None:
@@ -230,6 +232,59 @@ async def admin_guard(request: Request) -> None:
     result = dependency(request)
     if inspect.isawaitable(result):
         await result
+
+
+@admin_router.get("/webhooks", response_class=HTMLResponse)
+async def admin_webhooks_page(request: Request, _: None = Depends(admin_guard)):
+    cfg = get_webhook_config_dict()
+    return templates.TemplateResponse(
+        "admin/webhooks.html",
+        {"request": request, "config": cfg},
+    )
+
+
+@admin_router.get("/webhooks-config")
+async def get_webhooks_config(_: None = Depends(admin_guard)):
+    return get_webhook_config_dict()
+
+
+@admin_router.put("/webhooks-config")
+async def update_webhooks_config(request: Request, _: None = Depends(admin_guard)):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    urls = data.get("urls")
+    headers = data.get("headers")
+    template = data.get("template")
+    timeout = data.get("timeout")
+    threshold_count = data.get("threshold_count")
+    threshold_window = data.get("threshold_window")
+    if urls is not None and not isinstance(urls, list):
+        raise HTTPException(status_code=400, detail="urls must be a list")
+    if headers is not None and not isinstance(headers, dict):
+        raise HTTPException(status_code=400, detail="headers must be an object")
+    if template is not None and not isinstance(template, dict):
+        raise HTTPException(status_code=400, detail="template must be an object")
+    try:
+        # Update runtime
+        set_webhook_config(
+            urls, headers, template, timeout, threshold_count, threshold_window
+        )
+        # Persist to config file
+        cfg = monitoring_get_config()
+        if cfg is not None:
+            cfg.update_webhook_config(
+                urls=urls,
+                headers=headers,
+                template=template,
+                timeout=timeout,
+                threshold_count=threshold_count,
+                threshold_window=threshold_window,
+            )
+        return get_webhook_config_dict()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to update: {e}")
 
 
 @admin_router.get("/", response_class=HTMLResponse)

@@ -2,12 +2,15 @@
 Simple SQLite accounting database logger for TACACS+ server.
 """
 
+import logging
+import os
 import queue
 import sqlite3
 import threading
 import time
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from logging.handlers import SysLogHandler
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -77,6 +80,8 @@ class DatabaseLogger:
         self._stats_cache: dict[int, tuple[float, dict[str, Any]]] = {}
         self.maintain_mv = maintain_mv
 
+        # Initialize syslog handler for audit trail (configurable via SYSLOG_ADDRESS)
+        self._syslog: logging.Logger | None = None
         try:
             # Resolve and validate path to prevent path traversal
             db_file = Path(self.db_path).resolve()
@@ -110,6 +115,28 @@ class DatabaseLogger:
             self.conn = None
             self.pool = None
             self._stats_cache = {}
+        try:
+            self._syslog = logging.getLogger("tacacs.accounting")
+            if not any(isinstance(h, SysLogHandler) for h in self._syslog.handlers):
+                addr_env = os.getenv("SYSLOG_ADDRESS", "")
+                address: Any
+                if addr_env:
+                    if ":" in addr_env and not addr_env.startswith("/"):
+                        host, port = addr_env.split(":", 1)
+                        address = (host.strip(), int(port.strip()))
+                    else:
+                        address = addr_env
+                elif os.path.exists("/dev/log"):
+                    address = "/dev/log"
+                else:
+                    address = ("127.0.0.1", 514)
+                handler = SysLogHandler(address=address)
+                formatter = logging.Formatter("tacacs_accounting: %(message)s")
+                handler.setFormatter(formatter)
+                self._syslog.addHandler(handler)
+                self._syslog.setLevel(logging.INFO)
+        except Exception:
+            self._syslog = None
 
     def _now_utc_iso(self) -> str:
         """Return current UTC timestamp as ISO string."""
@@ -502,6 +529,19 @@ class DatabaseLogger:
                     f"Accounting logged: {record.username}@{record.session_id} - "
                     f"{record.command} [{record.status}]"
                 )
+                # Emit syslog audit line if configured
+                try:
+                    syslog = self._syslog
+                    if syslog is not None:
+                        msg = (
+                            f"user={data.get('username')} session={data.get('session_id')} "
+                            f"status={data.get('status')} service={data.get('service', '')} "
+                            f"cmd={data.get('command', '')} ip={data.get('client_ip', '')} "
+                            f"bytes_in={int(data.get('bytes_in', 0))} bytes_out={int(data.get('bytes_out', 0))}"
+                        )
+                        syslog.info(msg)
+                except Exception:
+                    pass
 
             # Update active sessions once the write transaction has closed
             if status == "START":
@@ -664,6 +704,19 @@ class DatabaseLogger:
             )
 
             self.conn.commit()
+            # Syslog mirror for audit trail (fallback path)
+            try:
+                syslog = self._syslog
+                if syslog is not None:
+                    msg = (
+                        f"user={data.get('username')} session={data.get('session_id')} "
+                        f"status={data.get('acct_type', data.get('status'))} service={data.get('service', '')} "
+                        f"cmd={data.get('command', '')} ip={data.get('client_ip', '')} "
+                        f"bytes_in={int(data.get('bytes_in', 0))} bytes_out={int(data.get('bytes_out', 0))}"
+                    )
+                    syslog.info(msg)
+            except Exception:
+                pass
             self._invalidate_stats_cache_for_timestamp(timestamp_value)
             return True
         except Exception:

@@ -67,6 +67,21 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
+        # Initialize webhook runtime config from file
+        try:
+            from tacacs_server.utils.webhook import set_webhook_config as _set_wh
+
+            wh = self.config.get_webhook_config()
+            _set_wh(
+                urls=wh.get("urls"),
+                headers=wh.get("headers"),
+                template=wh.get("template"),
+                timeout=wh.get("timeout"),
+                threshold_count=wh.get("threshold_count"),
+                threshold_window=wh.get("threshold_window"),
+            )
+        except Exception:
+            pass
         # Apply security-related runtime limits
         try:
             sec_cfg = self.config.get_security_config()

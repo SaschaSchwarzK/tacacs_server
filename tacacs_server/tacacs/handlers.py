@@ -454,6 +454,19 @@ class AAAHandlers:
                 continue
         if not user_attrs:
             self.cleanup_session(packet.session_id)
+            try:
+                from ..utils.webhook import notify
+
+                notify(
+                    "authorization_failure",
+                    {
+                        "username": user,
+                        "client_ip": getattr(device, "ip", None),
+                        "reason": "no_attrs",
+                    },
+                )
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -461,6 +474,19 @@ class AAAHandlers:
             )
         if not user_attrs.get("enabled", True):
             self.cleanup_session(packet.session_id)
+            try:
+                from ..utils.webhook import notify
+
+                notify(
+                    "authorization_failure",
+                    {
+                        "username": user,
+                        "client_ip": getattr(device, "ip", None),
+                        "reason": "disabled",
+                    },
+                )
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -494,6 +520,19 @@ class AAAHandlers:
         user_attrs["privilege_level"] = user_priv
         if not result.allowed:
             self.cleanup_session(packet.session_id)
+            try:
+                from ..utils.webhook import notify
+
+                notify(
+                    "authorization_failure",
+                    {
+                        "username": user,
+                        "client_ip": getattr(device, "ip", None),
+                        "reason": result.denial_message or "policy_denied",
+                    },
+                )
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -503,6 +542,19 @@ class AAAHandlers:
         command = args.get("cmd", args.get("service", ""))
         if priv_lvl > user_priv:
             self.cleanup_session(packet.session_id)
+            try:
+                from ..utils.webhook import notify
+
+                notify(
+                    "authorization_failure",
+                    {
+                        "username": user,
+                        "client_ip": getattr(device, "ip", None),
+                        "reason": "insufficient_privilege",
+                    },
+                )
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -518,6 +570,19 @@ class AAAHandlers:
                     break
             if not command_authorized and user_priv < 15:
                 self.cleanup_session(packet.session_id)
+                try:
+                    from ..utils.webhook import notify
+
+                    notify(
+                        "authorization_failure",
+                        {
+                            "username": user,
+                            "client_ip": getattr(device, "ip", None),
+                            "reason": f"cmd_not_authorized:{command}",
+                        },
+                    )
+                except Exception:
+                    pass
                 return self._create_author_response(
                     packet,
                     TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -653,12 +718,41 @@ class AAAHandlers:
                 _time.time() - start_ts,
                 last_error.split(" ")[0],
             )
+            # Webhook on authentication failure
+            try:
+                from ..utils.webhook import notify, record_event
+
+                notify(
+                    "auth_failure",
+                    {
+                        "username": username,
+                        "client_ip": client_ip,
+                        "detail": last_error,
+                    },
+                )
+                record_event("auth_failure", username or (client_ip or "unknown"))
+            except Exception:
+                pass
             return False, last_error
 
         if not self.auth_backends:
             _PM.record_auth_request(
                 "fail", "none", _time.time() - start_ts, "no_backends"
             )
+            try:
+                from ..utils.webhook import notify, record_event
+
+                notify(
+                    "auth_failure",
+                    {
+                        "username": username,
+                        "client_ip": client_ip,
+                        "detail": "no_backends",
+                    },
+                )
+                record_event("auth_failure", username or (client_ip or "unknown"))
+            except Exception:
+                pass
             return False, "no authentication backends configured"
 
         _PM.record_auth_request(
@@ -667,6 +761,20 @@ class AAAHandlers:
             _time.time() - start_ts,
             "no_backend_accepted",
         )
+        try:
+            from ..utils.webhook import notify, record_event
+
+            notify(
+                "auth_failure",
+                {
+                    "username": username,
+                    "client_ip": client_ip,
+                    "detail": "no_backend_accepted",
+                },
+            )
+            record_event("auth_failure", username or (client_ip or "unknown"))
+        except Exception:
+            pass
         return False, "no backend accepted credentials"
 
     def _build_authorization_attributes(

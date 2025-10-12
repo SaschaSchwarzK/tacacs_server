@@ -900,3 +900,25 @@ See the [LICENSE](LICENSE) file for full terms.
 **Enterprise Support**: For enterprise support, custom integrations, or professional services, please contact the maintainers.
 
 **Community**: Join our community for discussions, questions, and contributions.
+## 🔔 Webhooks & Syslog Auditing
+
+### Webhooks
+- Enable by setting `WEBHOOK_URL` (single) or `WEBHOOK_URLS` (comma-separated list).
+- Optional headers (e.g., authentication): set `WEBHOOK_HEADERS` to a JSON object, e.g.:
+  - `WEBHOOK_HEADERS='{"Authorization":"Bearer <token>","X-App":"TACACS"}'`
+- Optional payload template: set `WEBHOOK_TEMPLATE` to a JSON object where `{{placeholder}}` values will be replaced from the event payload.
+  - Example: `WEBHOOK_TEMPLATE='{"event":"{{event}}","user":"{{username}}","ip":"{{client_ip}}","detail":"{{detail}}"}'`
+- Timeout: `WEBHOOK_TIMEOUT` (seconds, default 3)
+- Threshold notifications: trigger `threshold_exceeded` when `THRESHOLD_AUTH_FAIL_COUNT` failures occur within `THRESHOLD_WINDOW_SEC` seconds.
+  - Example: `THRESHOLD_AUTH_FAIL_COUNT=5`, `THRESHOLD_WINDOW_SEC=60`
+
+Events
+- `auth_failure` — authentication failed; payload contains `username`, `client_ip`, `detail`.
+- `authorization_failure` — authorization failed; payload contains `username`, `client_ip`, `reason`.
+- `threshold_exceeded` — failure threshold reached; payload contains `event`, `key`, `count`, `window_sec`.
+
+### Syslog Auditing
+- Accounting logs are mirrored to syslog for audit trails.
+- Configure destination via `SYSLOG_ADDRESS`:
+  - Unix socket path (e.g., `/dev/log`) or `host:port` (UDP).
+- Example UDP: `SYSLOG_ADDRESS=192.0.2.10:514`

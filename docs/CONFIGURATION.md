@@ -17,6 +17,7 @@ The TACACS+ server uses INI-style configuration files with the following section
 - `[devices]` - Device inventory settings
 - `[radius]` - RADIUS server configuration
 - `[monitoring]` - Monitoring and metrics
+- `[webhooks]` - Webhook notifications and thresholds
 
 ## Server Configuration
 
@@ -353,6 +354,50 @@ dashboard_refresh_seconds = 30
 # Enable WebSocket real-time updates
 websocket_enabled = true
 ```
+
+## Webhook Configuration
+
+```ini
+[webhooks]
+# Comma-separated list of webhook endpoints. Leave empty to disable.
+urls = https://hooks.example.com/a,https://hooks.example.com/b
+
+# Optional HTTP headers as JSON (for auth or metadata)
+headers_json = {"Authorization": "Bearer <token>", "X-App": "TACACS"}
+
+# Optional payload template as JSON. Use {{placeholders}} to pull values
+# from the event payload (e.g., username, client_ip, event, detail).
+template_json = {"event": "{{event}}", "user": "{{username}}", "ip": "{{client_ip}}"}
+
+# Request timeout in seconds
+timeout = 3
+
+# Failure thresholding: when set (>0), triggers an aggregated webhook event
+# once "threshold_count" failures occur within "threshold_window" seconds.
+threshold_count = 0
+threshold_window = 60
+```
+
+- URLs: Provide one or more endpoints; the server sends JSON POST payloads.
+- Headers: JSON object applied to each POST (commonly Authorization).
+- Template: If provided, shapes the JSON payload using {{placeholders}}.
+- Timeout: Per-request timeout in seconds.
+- Thresholds: When enabled, the server records failures and emits a consolidated
+  alert when the count/window criteria are met.
+
+Admin UI mapping (Admin → Webhooks):
+- Webhook URLs → `urls`
+- Headers (JSON) → `headers_json`
+- Template (JSON) → `template_json`
+- Timeout (seconds) → `timeout`
+- Failure Threshold Count → `threshold_count`
+- Threshold Window (seconds) → `threshold_window`
+
+Notes:
+- The admin UI at `/admin/webhooks` edits the live runtime configuration and
+  persists changes back to the configuration file via the `/admin/webhooks-config` API.
+- Environment variables are also supported for quick setup: `WEBHOOK_URL`,
+  `WEBHOOK_URLS`, `WEBHOOK_HEADERS`, `WEBHOOK_TEMPLATE`, `WEBHOOK_TIMEOUT`.
 
 ## Environment Variables
 

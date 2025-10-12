@@ -116,6 +116,14 @@ class TacacsConfig:
             "rate_limit_window": "60",
             "max_connections_per_ip": "20",
         }
+        self.config["webhooks"] = {
+            "urls": "",
+            "headers_json": "{}",
+            "template_json": "{}",
+            "timeout": "3",
+            "threshold_count": "0",
+            "threshold_window": "60",
+        }
         self.config["logging"] = {
             "log_file": "logs/tacacs.log",
             "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -325,6 +333,69 @@ class TacacsConfig:
             "backup_count": self.config.getint("logging", "backup_count"),
             "log_level": self.config.get("server", "log_level"),
         }
+
+    def get_webhook_config(self) -> dict[str, Any]:
+        """Get webhook configuration (parsed)."""
+        section = self.config["webhooks"] if "webhooks" in self.config else {}
+        urls_raw = section.get("urls", "")
+        urls = [
+            u.strip() for u in str(urls_raw).replace("\n", ",").split(",") if u.strip()
+        ]
+        headers_json = section.get("headers_json", "{}")
+        template_json = section.get("template_json", "{}")
+        import json as _json
+
+        try:
+            headers = _json.loads(headers_json) if headers_json else {}
+        except Exception:
+            headers = {}
+        try:
+            template = _json.loads(template_json) if template_json else {}
+        except Exception:
+            template = {}
+        timeout = float(section.get("timeout", "3") or 3)
+        threshold_count = int(section.get("threshold_count", "0") or 0)
+        threshold_window = int(section.get("threshold_window", "60") or 60)
+        return {
+            "urls": urls,
+            "headers": headers,
+            "template": template,
+            "timeout": timeout,
+            "threshold_count": threshold_count,
+            "threshold_window": threshold_window,
+        }
+
+    def update_webhook_config(self, **kwargs: Any) -> None:
+        """Update webhook configuration and persist."""
+        if "webhooks" not in self.config:
+            self.config.add_section("webhooks")
+        section = self.config["webhooks"]
+        import json as _json
+
+        urls = kwargs.get("urls")
+        if isinstance(urls, list):
+            section["urls"] = ",".join(urls)
+        headers = kwargs.get("headers")
+        if isinstance(headers, dict):
+            section["headers_json"] = _json.dumps(headers)
+        template = kwargs.get("template")
+        if isinstance(template, dict):
+            section["template_json"] = _json.dumps(template)
+        if "timeout" in kwargs and kwargs.get("timeout") is not None:
+            section["timeout"] = str(kwargs.get("timeout"))
+        if "threshold_count" in kwargs and kwargs.get("threshold_count") is not None:
+            tc = kwargs.get("threshold_count")
+            if isinstance(tc, (int, float, str)):
+                section["threshold_count"] = str(int(float(tc)))
+        if "threshold_window" in kwargs and kwargs.get("threshold_window") is not None:
+            tw = kwargs.get("threshold_window")
+            if isinstance(tw, (int, float, str)):
+                section["threshold_window"] = str(int(float(tw)))
+        # Persist
+        try:
+            self.save_config()
+        except Exception as e:
+            logger.warning("Failed to persist webhook config: %s", e)
 
     def update_server_config(self, **kwargs):
         """Update server configuration with validation"""
