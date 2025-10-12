@@ -13854,3 +13854,577 @@
 {"timestamp": "2025-10-12T12:56:09.306372+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
 {"timestamp": "2025-10-12T12:56:09.306484+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
 {"timestamp": "2025-10-12T12:56:35.435283+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T12:59:30.486138+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T12:59:30.491032+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T12:59:30.491410+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T12:59:30.491699+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T12:59:30.491878+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T12:59:30.491982+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T13:00:34.500814+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T13:00:34.501877+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T13:00:34.502100+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T13:00:34.513453+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:00:34.539630+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T13:00:34.539683+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T13:00:34.539717+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T13:00:34.539747+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T13:00:34.539851+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T13:00:34.540178+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T13:00:34.540286+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T13:00:34.540330+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T13:00:34.540372+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:00:34.544886+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:00:34.545656+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "API token enforcement: disabled (configured_token=not set)"}
+{"timestamp": "2025-10-12T13:00:34.559296+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:00:34.765431+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:00:34.866660+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:00:34.866850+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:00:34.867074+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:00:34.867220+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T13:00:34.867370+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:00:34.867706+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T13:00:34.867808+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T13:00:34.867907+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T13:00:34.868003+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:00:34.868100+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T13:00:34.868195+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:00:34.868287+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T13:00:34.868387+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T13:00:34.868481+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:00:34.868569+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T13:00:34.868660+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T13:00:34.868769+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T13:00:34.868862+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T13:00:34.869251+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T13:00:34.869346+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:00:34.869435+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T13:00:34.869523+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T13:01:59.349550+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T13:01:59.354630+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T13:01:59.354844+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T13:01:59.354949+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T13:01:59.355075+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T13:01:59.355160+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T13:08:05.378273+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T13:08:05.379129+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T13:08:05.379309+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T13:08:05.389653+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:08:05.411472+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T13:08:05.411516+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T13:08:05.411548+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T13:08:05.411577+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T13:08:05.411679+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T13:08:05.411981+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T13:08:05.412011+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T13:08:05.412043+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T13:08:05.412083+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:08:05.416233+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:08:05.417108+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "API token enforcement: disabled (configured_token=not set)"}
+{"timestamp": "2025-10-12T13:08:05.432026+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:08:05.638202+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:08:05.739298+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:08:05.739619+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:08:05.739959+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:08:05.740184+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T13:08:05.740286+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:08:05.740842+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T13:08:05.741006+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T13:08:05.741096+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T13:08:05.741410+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:08:05.741498+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T13:08:05.741567+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:08:05.741634+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T13:08:05.741714+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T13:08:05.741783+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:08:05.742104+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T13:08:05.742250+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T13:08:05.742456+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T13:08:05.742537+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T13:08:05.742863+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T13:08:05.742945+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:08:05.743064+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T13:08:05.743161+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T13:09:51.410003+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T13:09:51.414898+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T13:09:51.415018+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T13:09:51.415090+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T13:09:51.415144+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T13:09:51.415196+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T13:10:49.881007+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T13:10:49.882151+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T13:10:49.882324+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T13:10:49.892989+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:10:49.915473+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T13:10:49.915544+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Accounting logger configured"}
+{"timestamp": "2025-10-12T13:10:49.915584+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing accounting database with TACACS+"}
+{"timestamp": "2025-10-12T13:10:49.915618+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS server configured with 3 clients"}
+{"timestamp": "2025-10-12T13:10:49.915761+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Refreshed 3 client definitions"}
+{"timestamp": "2025-10-12T13:10:49.916137+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T13:10:49.916168+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS: Added authentication backend: local"}
+{"timestamp": "2025-10-12T13:10:49.916200+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS: Sharing 1 auth backends with TACACS+"}
+{"timestamp": "2025-10-12T13:10:49.916236+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:10:49.920364+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:10:49.921150+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "API token enforcement: disabled (configured_token=not set)"}
+{"timestamp": "2025-10-12T13:10:49.935043+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:10:50.140402+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:10:50.245989+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:10:50.246349+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:10:50.246656+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:10:50.246834+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T13:10:50.246981+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:10:50.247269+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:49"}
+{"timestamp": "2025-10-12T13:10:50.247375+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T13:10:50.247500+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T13:10:50.247660+00:00", "level": "INFO", "logger": "__main__", "message": "Database: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:10:50.247772+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: config/tacacs.conf"}
+{"timestamp": "2025-10-12T13:10:50.247849+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:10:50.247973+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T13:10:50.248078+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T13:10:50.248168+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:10:50.248250+00:00", "level": "INFO", "logger": "__main__", "message": "RADIUS Server:"}
+{"timestamp": "2025-10-12T13:10:50.248337+00:00", "level": "INFO", "logger": "__main__", "message": "  Authentication Port: 1812"}
+{"timestamp": "2025-10-12T13:10:50.248423+00:00", "level": "INFO", "logger": "__main__", "message": "  Accounting Port: 1813"}
+{"timestamp": "2025-10-12T13:10:50.248509+00:00", "level": "INFO", "logger": "__main__", "message": "  Configured Clients: 3"}
+{"timestamp": "2025-10-12T13:10:50.249046+00:00", "level": "INFO", "logger": "__main__", "message": "  Client Groups: firewall(1), router1(1), switch1(1)"}
+{"timestamp": "2025-10-12T13:10:50.249184+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:10:50.249257+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T13:10:50.249327+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T13:11:38.526252+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 2"}
+{"timestamp": "2025-10-12T13:11:38.530874+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T13:11:38.531059+00:00", "level": "INFO", "logger": "tacacs_server.radius.server", "message": "RADIUS server stopped"}
+{"timestamp": "2025-10-12T13:11:38.531140+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T13:11:38.531237+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T13:11:38.531313+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
+{"timestamp": "2025-10-12T13:11:53.192366+00:00", "level": "WARNING", "logger": "tacacs_server.config.config", "message": "Ignoring configured log_format in favour of structured JSON output"}
+{"timestamp": "2025-10-12T13:11:53.192697+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "Logging configured: level=INFO, file=logs/tacacs.log"}
+{"timestamp": "2025-10-12T13:11:53.192880+00:00", "level": "INFO", "logger": "tacacs_server.config.config", "message": "\u2713 Configuration validation passed"}
+{"timestamp": "2025-10-12T13:11:53.208656+00:00", "level": "INFO", "logger": "tacacs_server.accounting.database", "message": "Database initialized: data/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:11:53.219885+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Added authentication backend: LocalAuthBackend(local)"}
+{"timestamp": "2025-10-12T13:11:53.219944+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring configured -> attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:11:53.224047+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Attempting to enable web monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:11:53.224870+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "API token enforcement: enabled (configured_token=set)"}
+{"timestamp": "2025-10-12T13:11:53.238657+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Starting uvicorn for monitoring on 127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:11:53.444570+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Monitoring interface started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:11:53.548432+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Web monitoring enabled at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:11:53.548570+00:00", "level": "INFO", "logger": "__main__", "message": "Monitoring successfully started at http://127.0.0.1:8080"}
+{"timestamp": "2025-10-12T13:11:53.548845+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:11:53.549147+00:00", "level": "INFO", "logger": "__main__", "message": "TACACS+ & RADIUS Server Starting"}
+{"timestamp": "2025-10-12T13:11:53.549453+00:00", "level": "INFO", "logger": "__main__", "message": "=================================================="}
+{"timestamp": "2025-10-12T13:11:53.549648+00:00", "level": "INFO", "logger": "__main__", "message": "Server Address: 0.0.0.0:65412"}
+{"timestamp": "2025-10-12T13:11:53.549730+00:00", "level": "INFO", "logger": "__main__", "message": "Secrets: Per-device group configuration"}
+{"timestamp": "2025-10-12T13:11:53.549807+00:00", "level": "INFO", "logger": "__main__", "message": "Authentication Backends: local"}
+{"timestamp": "2025-10-12T13:11:53.549880+00:00", "level": "INFO", "logger": "__main__", "message": "Database: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_9t2vcurt/tacacs_accounting.db"}
+{"timestamp": "2025-10-12T13:11:53.549956+00:00", "level": "INFO", "logger": "__main__", "message": "Configuration: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/.pytest-runtime/server_9t2vcurt/tacacs_test.conf"}
+{"timestamp": "2025-10-12T13:11:53.550034+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:11:53.550100+00:00", "level": "INFO", "logger": "__main__", "message": "Testing authentication backends:"}
+{"timestamp": "2025-10-12T13:11:53.550175+00:00", "level": "INFO", "logger": "__main__", "message": "  local: \u2713 Available"}
+{"timestamp": "2025-10-12T13:11:53.550252+00:00", "level": "INFO", "logger": "__main__", "message": ""}
+{"timestamp": "2025-10-12T13:11:53.550326+00:00", "level": "INFO", "logger": "__main__", "message": "Server ready - waiting for connections..."}
+{"timestamp": "2025-10-12T13:11:53.550432+00:00", "level": "INFO", "logger": "__main__", "message": "Press Ctrl+C to stop"}
+{"timestamp": "2025-10-12T13:13:34.525928+00:00", "level": "INFO", "logger": "tacacs_server.web.monitoring", "message": "Admin UI: created user contract_test_user_1760274814.301897"}
+{"timestamp": "2025-10-12T13:14:04.573086+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.handlers", "message": "Authorization request: user=<unknown>, service=205, args={}"}
+{"timestamp": "2025-10-12T13:14:06.579225+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Invalid packet from ('127.0.0.1', 49183): Packet length too large: 100000"}
+{"timestamp": "2025-10-12T13:14:06.890360+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.890662+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.890861+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.989746+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.990022+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.990977+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.991225+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.991528+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.991759+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.991963+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.992234+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.992579+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.992838+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.993234+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.993338+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.993413+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:06.993503+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:07.091863+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:07.092067+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:07.092354+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Rate limit exceeded for 127.0.0.1"}
+{"timestamp": "2025-10-12T13:14:07.092550+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.092715+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.092821+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.092943+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.093055+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.093151+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.093240+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.093341+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.093429+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.093515+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192049+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192305+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192469+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192583+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192689+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192790+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192885+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.192995+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.193082+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.193198+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.193409+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.193535+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.193637+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.193766+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.193925+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.194046+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.194181+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.194280+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.194369+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.194467+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.194554+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.194653+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.294286+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.294475+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.294630+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.294778+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.294929+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295061+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295165+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295260+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295348+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295434+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295536+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295622+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295705+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295788+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295907+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.295992+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.296091+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.296226+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.296326+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.396170+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.396584+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.397018+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.397296+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.397543+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.397815+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.398139+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.398550+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.398831+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.399134+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.399477+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.399606+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.399718+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.399900+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.400013+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.400109+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.400455+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.400670+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.400842+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.401062+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.401180+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.401327+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.401443+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.401589+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.500814+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501112+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501304+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501435+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501543+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501639+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501731+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501819+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501906+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.501992+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502092+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502176+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502265+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502417+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502499+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502586+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502672+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502781+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502865+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.502951+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503034+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503120+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503203+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503285+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503368+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503448+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503530+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503614+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503696+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.503782+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.603754+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.604055+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.604229+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.604343+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.604527+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.604696+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.604807+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.604911+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605005+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605138+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605272+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605392+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605486+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605591+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605679+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605773+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605864+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.605952+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.606048+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.606135+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.606218+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.706381+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.706666+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.706854+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.706984+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707084+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707182+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707275+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707365+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707457+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707546+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707697+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.707917+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708028+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708156+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708249+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708338+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708426+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708511+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708665+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708784+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708885+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.708982+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.709091+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.808517+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.808812+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.808947+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.809052+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.809152+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.809544+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.809844+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810093+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810212+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810308+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810408+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810593+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810705+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810804+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810895+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.810986+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.811079+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.811183+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.811318+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.811404+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.811487+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.811569+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.911686+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.911993+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.912407+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.912788+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.913212+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.913592+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.913891+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.914145+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.914507+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.914776+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.915027+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.915329+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.915561+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.915806+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.916058+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.916290+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.916480+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.916570+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.916652+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.916734+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:07.916829+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.014949+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.015143+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.015348+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.015514+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.015659+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.015763+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.015857+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.015945+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016034+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016119+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016203+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016298+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016440+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016563+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016665+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016755+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016885+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.016997+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.017094+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.017189+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.017276+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.017366+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.017488+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.017592+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.017680+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.116819+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117080+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117232+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117342+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117439+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117554+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117690+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117867+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.117997+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118101+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118196+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118371+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118465+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118553+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118641+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118731+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118814+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118895+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.118980+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.119061+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.119142+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.119238+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.119385+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.218463+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.218735+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.218927+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.219033+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.219135+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.219229+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.219374+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.219680+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.219858+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.219969+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220089+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220205+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220297+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220422+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220540+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220640+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220736+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220826+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.220918+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.221073+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.221187+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.221284+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.221374+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.221468+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.320720+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.321104+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.321344+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.321647+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.322075+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.322358+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.322611+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.322887+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.323336+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.323688+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.324007+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.324614+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.325034+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.325694+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.326132+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.326456+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.326753+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.327063+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.327169+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.327259+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.327446+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.327562+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.327658+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.426309+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.426568+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.426689+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.426784+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.426875+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.426967+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427133+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427250+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427367+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427494+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427603+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427690+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427797+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.427950+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.428062+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.428314+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.428585+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.428821+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.429022+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.429206+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.429583+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.429787+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.429962+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.430172+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.528147+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.528321+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.528464+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.528598+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.528714+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.528815+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.528966+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529134+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529280+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529410+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529508+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529598+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529686+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529810+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.529922+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.530025+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.530124+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.530255+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.530353+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.530454+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.530882+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.531143+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.531396+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.531623+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:08.631706+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:09.016040+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:09.029848+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:09.038575+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:09.047352+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:09.058680+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:10.740004+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:10.761137+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:10.986556+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.210834+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.218691+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.223269+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.226834+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.230259+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.233938+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.237760+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.246482+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.250184+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.258301+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.268236+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.275826+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.283328+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.294183+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.297920+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.308001+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.314169+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.318337+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.323053+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.332786+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.338090+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.338362+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.338576+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.341290+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.341489+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.341597+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.344058+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.346848+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.349655+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.352049+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.582175+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.596126+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.598632+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.603038+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:11.614090+00:00", "level": "WARNING", "logger": "tacacs_server.tacacs.server", "message": "Per-IP connection cap exceeded for 127.0.0.1 (count=21)"}
+{"timestamp": "2025-10-12T13:14:19.306243+00:00", "level": "INFO", "logger": "__main__", "message": "Received signal 15"}
+{"timestamp": "2025-10-12T13:14:19.306535+00:00", "level": "INFO", "logger": "__main__", "message": "Shutting down down servers..."}
+{"timestamp": "2025-10-12T13:14:19.306582+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "Stopping TACACS+ server..."}
+{"timestamp": "2025-10-12T13:14:19.306649+00:00", "level": "INFO", "logger": "__main__", "message": "Servers stopped successfully"}
+{"timestamp": "2025-10-12T13:14:19.306683+00:00", "level": "INFO", "logger": "tacacs_server.tacacs.server", "message": "TACACS+ server stopped"}
