@@ -72,7 +72,12 @@ class LocalAuthBackend(AuthenticationBackend):
             return False
 
         if user.password_hash:
-            return self._verify_password_hash(password, user.password_hash)
+            try:
+                # Delegate to service which supports bcrypt and legacy migration
+                return self.user_service.verify_user_password(username, password)
+            except Exception:
+                logger.exception("Password verification failed for %s", username)
+                return False
 
         if user.password is None:
             logger.debug("User %s has no password configured", username)
@@ -173,25 +178,9 @@ class LocalAuthBackend(AuthenticationBackend):
             groups=list(record.groups),
         )
 
-    def _hash_password(self, password: str) -> str:
-        import hashlib
-
-        return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-    def _verify_password_hash(self, password: str, password_hash: str) -> bool:
-        # Check if it's a bcrypt hash (starts with $2b$)
-        if password_hash.startswith("$2b$"):
-            try:
-                import bcrypt
-
-                return bcrypt.checkpw(
-                    password.encode("utf-8"), password_hash.encode("utf-8")
-                )
-            except ImportError:
-                logger.error("bcrypt not available for password verification")
-                return False
-        # Fallback to SHA-256 for legacy hashes
-        return self._hash_password(password) == password_hash
+    # Password hashing and verification are handled by LocalUserService
+    # (bcrypt by default, with legacy SHA-256 migration). Keep no local
+    # hashing logic here to avoid weak fallbacks.
 
     def is_available(self) -> bool:
         return True
