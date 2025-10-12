@@ -114,6 +114,15 @@ class TacacsConfig:
             "denied_clients": "",
             "rate_limit_requests": "60",
             "rate_limit_window": "60",
+            "max_connections_per_ip": "20",
+        }
+        self.config["webhooks"] = {
+            "urls": "",
+            "headers_json": "{}",
+            "template_json": "{}",
+            "timeout": "3",
+            "threshold_count": "0",
+            "threshold_window": "60",
         }
         self.config["logging"] = {
             "log_file": "logs/tacacs.log",
@@ -121,6 +130,13 @@ class TacacsConfig:
             "log_rotation": "true",
             "max_log_size": "10MB",
             "backup_count": "5",
+        }
+        self.config["command_authorization"] = {
+            "default_action": "deny",
+            # Seed with a sensible read-only rule example
+            "rules_json": "[{'action':'permit','match_type':'prefix','pattern':'show ','min_privilege':1}]".replace(
+                "'", '"'
+            ),
         }
         self.config["admin"] = {
             "username": os.environ.get("ADMIN_USERNAME", "admin"),
@@ -163,9 +179,15 @@ class TacacsConfig:
 
     def get_server_config(self) -> dict[str, Any]:
         """Get server configuration (excluding sensitive values)"""
+        host = os.environ.get("SERVER_HOST", self.config.get("server", "host"))
+        port_env = os.environ.get("SERVER_PORT")
+        try:
+            port = int(port_env) if port_env else self.config.getint("server", "port")
+        except Exception:
+            port = self.config.getint("server", "port")
         return {
-            "host": self.config.get("server", "host"),
-            "port": self.config.getint("server", "port"),
+            "host": host,
+            "port": port,
             # secret_key intentionally omitted to avoid accidental leakage
             "max_connections": self.config.getint("server", "max_connections"),
             "socket_timeout": self.config.getint("server", "socket_timeout"),
@@ -179,7 +201,9 @@ class TacacsConfig:
 
     def get_local_auth_db(self) -> str:
         if self.config.has_option("auth", "local_auth_db"):
-            return self.config.get("auth", "local_auth_db")
+            val = self.config.get("auth", "local_auth_db")
+            # Support ${ENV_VAR} interpolation in file paths
+            return os.path.expandvars(val)
         return "data/local_auth.db"
 
     def create_auth_backends(self) -> list:
@@ -274,6 +298,43 @@ class TacacsConfig:
             "session_timeout_minutes": int(section.get("session_timeout_minutes", 60)),
         }
 
+    def get_command_authorization_config(self) -> dict[str, Any]:
+        section = (
+            self.config["command_authorization"]
+            if "command_authorization" in self.config
+            else {}
+        )
+        default_action = (
+            str(section.get("default_action", "deny")).strip().lower() or "deny"
+        )
+        rules_json = section.get("rules_json", "[]")
+        try:
+            import json as _json
+
+            rules = _json.loads(rules_json) if rules_json else []
+            if not isinstance(rules, list):
+                rules = []
+        except Exception:
+            rules = []
+        return {"default_action": default_action, "rules": rules}
+
+    def update_command_authorization_config(
+        self, *, default_action: str | None = None, rules: list[dict] | None = None
+    ) -> None:
+        if "command_authorization" not in self.config:
+            self.config.add_section("command_authorization")
+        section = self.config["command_authorization"]
+        import json as _json
+
+        if default_action is not None:
+            section["default_action"] = str(default_action)
+        if rules is not None:
+            section["rules_json"] = _json.dumps(rules)
+        try:
+            self.save_config()
+        except Exception as e:
+            logger.warning("Failed to persist command authorization config: %s", e)
+
     def get_security_config(self) -> dict[str, Any]:
         """Get security configuration"""
         allowed_clients_str = self.config.get("security", "allowed_clients")
@@ -294,6 +355,9 @@ class TacacsConfig:
                 "security", "rate_limit_requests"
             ),
             "rate_limit_window": self.config.getint("security", "rate_limit_window"),
+            "max_connections_per_ip": self.config.getint(
+                "security", "max_connections_per_ip", fallback=20
+            ),
         }
 
     def _parse_client_list(self, clients_str: str) -> list[str]:
@@ -313,6 +377,69 @@ class TacacsConfig:
             "backup_count": self.config.getint("logging", "backup_count"),
             "log_level": self.config.get("server", "log_level"),
         }
+
+    def get_webhook_config(self) -> dict[str, Any]:
+        """Get webhook configuration (parsed)."""
+        section = self.config["webhooks"] if "webhooks" in self.config else {}
+        urls_raw = section.get("urls", "")
+        urls = [
+            u.strip() for u in str(urls_raw).replace("\n", ",").split(",") if u.strip()
+        ]
+        headers_json = section.get("headers_json", "{}")
+        template_json = section.get("template_json", "{}")
+        import json as _json
+
+        try:
+            headers = _json.loads(headers_json) if headers_json else {}
+        except Exception:
+            headers = {}
+        try:
+            template = _json.loads(template_json) if template_json else {}
+        except Exception:
+            template = {}
+        timeout = float(section.get("timeout", "3") or 3)
+        threshold_count = int(section.get("threshold_count", "0") or 0)
+        threshold_window = int(section.get("threshold_window", "60") or 60)
+        return {
+            "urls": urls,
+            "headers": headers,
+            "template": template,
+            "timeout": timeout,
+            "threshold_count": threshold_count,
+            "threshold_window": threshold_window,
+        }
+
+    def update_webhook_config(self, **kwargs: Any) -> None:
+        """Update webhook configuration and persist."""
+        if "webhooks" not in self.config:
+            self.config.add_section("webhooks")
+        section = self.config["webhooks"]
+        import json as _json
+
+        urls = kwargs.get("urls")
+        if isinstance(urls, list):
+            section["urls"] = ",".join(urls)
+        headers = kwargs.get("headers")
+        if isinstance(headers, dict):
+            section["headers_json"] = _json.dumps(headers)
+        template = kwargs.get("template")
+        if isinstance(template, dict):
+            section["template_json"] = _json.dumps(template)
+        if "timeout" in kwargs and kwargs.get("timeout") is not None:
+            section["timeout"] = str(kwargs.get("timeout"))
+        if "threshold_count" in kwargs and kwargs.get("threshold_count") is not None:
+            tc = kwargs.get("threshold_count")
+            if isinstance(tc, (int, float, str)):
+                section["threshold_count"] = str(int(float(tc)))
+        if "threshold_window" in kwargs and kwargs.get("threshold_window") is not None:
+            tw = kwargs.get("threshold_window")
+            if isinstance(tw, (int, float, str)):
+                section["threshold_window"] = str(int(float(tw)))
+        # Persist
+        try:
+            self.save_config()
+        except Exception as e:
+            logger.warning("Failed to persist webhook config: %s", e)
 
     def update_server_config(self, **kwargs):
         """Update server configuration with validation"""
@@ -457,6 +584,14 @@ class TacacsConfig:
         if timeout < 30 or timeout > 3600:
             issues.append(f"Invalid auth_timeout: {timeout} (must be 30-3600 seconds)")
 
+        # Per-IP connection cap validation
+        try:
+            cap = self.config.getint("security", "max_connections_per_ip")
+        except Exception:
+            cap = 20
+        if cap < 1 or cap > 1000:
+            issues.append(f"Invalid max_connections_per_ip: {cap} (must be 1-1000)")
+
         return issues
 
     def validate_and_backup_config(self) -> tuple[bool, list[str]]:
@@ -507,11 +642,39 @@ class TacacsConfig:
 
     def get_radius_config(self) -> dict[str, Any]:
         """Get RADIUS server configuration"""
+        enabled_env = os.environ.get("RADIUS_ENABLED")
+        host = os.environ.get("RADIUS_HOST", self.config.get("radius", "host"))
+        auth_port_env = os.environ.get("RADIUS_AUTH_PORT")
+        acct_port_env = os.environ.get("RADIUS_ACCT_PORT")
+        try:
+            enabled = (
+                bool(int(enabled_env))
+                if enabled_env is not None and enabled_env.strip() != ""
+                else self.config.getboolean("radius", "enabled")
+            )
+        except Exception:
+            enabled = self.config.getboolean("radius", "enabled")
+        try:
+            auth_port = (
+                int(auth_port_env)
+                if auth_port_env and auth_port_env.isdigit()
+                else self.config.getint("radius", "auth_port")
+            )
+        except Exception:
+            auth_port = self.config.getint("radius", "auth_port")
+        try:
+            acct_port = (
+                int(acct_port_env)
+                if acct_port_env and acct_port_env.isdigit()
+                else self.config.getint("radius", "acct_port")
+            )
+        except Exception:
+            acct_port = self.config.getint("radius", "acct_port")
         return {
-            "enabled": self.config.getboolean("radius", "enabled"),
-            "auth_port": self.config.getint("radius", "auth_port"),
-            "acct_port": self.config.getint("radius", "acct_port"),
-            "host": self.config.get("radius", "host"),
+            "enabled": enabled,
+            "auth_port": auth_port,
+            "acct_port": acct_port,
+            "host": host,
             "share_backends": self.config.getboolean("radius", "share_backends"),
             "share_accounting": self.config.getboolean("radius", "share_accounting"),
         }

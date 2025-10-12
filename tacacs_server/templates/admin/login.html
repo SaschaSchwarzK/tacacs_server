@@ -15,6 +15,7 @@
     </style>
 </head>
 <body>
+<div id="api-warning" style="{% if api_disabled %}display:block{% else %}display:none{% endif %};background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:10px;border-radius:6px;position:fixed;top:10px;left:50%;transform:translateX(-50%);max-width:90%;"></div>
 <div class="card">
     <h1>Admin Login</h1>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
@@ -26,5 +27,6 @@
         <button type="submit">Sign In</button>
     </form>
 </div>
+<script></script>
 </body>
 </html>

@@ -265,7 +265,7 @@ def configure_openapi_ui(app: FastAPI):
     # Override default Swagger UI with custom configuration
     @app.get("/docs", include_in_schema=False)
     async def custom_swagger_ui_html():
-        return get_swagger_ui_html(
+        resp = get_swagger_ui_html(
             openapi_url=app.openapi_url,
             title=f"{app.title} - Swagger UI",
             oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
@@ -286,17 +286,34 @@ def configure_openapi_ui(app: FastAPI):
                 "syntaxHighlight.theme": "monokai",
             },
         )
+        # Relax CSP for docs to allow required CDN assets
+        # Swagger UI requires permissive CSP for inline styles and certain evals in some browsers
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data: https:; connect-src 'self' data:; "
+            "font-src 'self' data: https:;"
+        )
+        return resp
 
     # Override default ReDoc with custom configuration
     @app.get("/redoc", include_in_schema=False)
     async def custom_redoc_html():
-        return get_redoc_html(
+        resp = get_redoc_html(
             openapi_url=app.openapi_url,
             title=f"{app.title} - ReDoc",
             redoc_js_url="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js",
             redoc_favicon_url="https://fastapi.tiangolo.com/img/favicon.png",
             with_google_fonts=True,
         )
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+            "img-src 'self' data:; connect-src 'self'"
+        )
+        return resp
 
     # Add RapiDoc (modern alternative)
     from fastapi.responses import HTMLResponse
@@ -341,7 +358,14 @@ def configure_openapi_ui(app: FastAPI):
         </body>
         </html>
         """
-        return HTMLResponse(content=html_content)
+        resp = HTMLResponse(content=html_content)
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; connect-src 'self'"
+        )
+        return resp
 
     # Add API documentation index page
     @app.get("/api-docs", include_in_schema=False)

@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/auth/local_store.py
+# hypothesis_version: 6.140.2
+
+['/pytest-', 'created_at', 'data/local_auth.db', 'description', 'description = ?', 'enabled', 'enabled = ?', 'groups', 'groups = ?', 'id', 'ldap_group', 'ldap_group = ?', 'metadata', 'metadata = ?', 'name', 'okta_group', 'okta_group = ?', 'password', 'password_hash', 'privilege_level', 'privilege_level = ?', 'service', 'service = ?', 'shell_command', 'shell_command = ?', 'updated_at', 'updated_at = ?', 'username', '{}']

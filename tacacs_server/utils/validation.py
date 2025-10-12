@@ -29,7 +29,7 @@ class InputValidator:
         r"(\'\s*(OR|AND)\s+\'\w+\'\s*=\s*\'\w+\')",
     ]
     LDAP_INJECTION_CHARS = ["*", "(", ")", "\\", "/", "\x00"]
-    SHELL_INJECTION_CHARS = ["`", "$", ";", "|", "&", "<", ">", "(", ")"]
+    SHELL_INJECTION_CHARS = ["`", "$", ";", "|", "&", "<", ">", "(", ")", "#"]
 
     @classmethod
     def validate_username(cls, username: str) -> str:
@@ -124,11 +124,10 @@ class InputValidator:
         """Validate generic short text fields (e.g., names) against common injection.
 
         - Enforces type and length
-        - Checks SQL/LDAP and shell metacharacters
+        - Checks LDAP and shell metacharacters (allow benign words like 'select')
         """
         value = cls.validate_string_length(value, field_name, min_len, max_len)
         # Check for injection patterns
-        cls._check_sql_injection(value, field_name)
         cls._check_ldap_injection(value, field_name)
         cls._check_shell_injection(value, field_name)
         return value
@@ -486,7 +485,7 @@ def validate_api_input(validator_func):
                     from fastapi import HTTPException, status
 
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
                     )
             return await func(*args, **kwargs)
 

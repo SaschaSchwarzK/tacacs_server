@@ -49,6 +49,7 @@ schemathesis = "^4.1.4"
 
 [tool.poetry.scripts]
 tacacs-server = "tacacs_server.cli:main"
+tacacs-admin = "tacacs_server.admin_cli:main"
 
 [build-system]
 requires = ["poetry-core>=1.5.0"]

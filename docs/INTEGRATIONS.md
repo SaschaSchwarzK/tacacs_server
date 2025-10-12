@@ -548,7 +548,7 @@ fi
     - name: Install dependencies
       package:
         name:
-          - python3.11
+          - python3.13
           - python3-pip
           - git
         state: present
@@ -564,7 +564,7 @@ fi
       pip:
         requirements: /opt/tacacs_server/requirements.txt
         virtualenv: /opt/tacacs_server/.venv
-        virtualenv_python: python3.11
+        virtualenv_python: python3.13
       become_user: tacacs
 
     - name: Generate configuration

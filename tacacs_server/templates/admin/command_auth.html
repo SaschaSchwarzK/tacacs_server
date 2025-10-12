@@ -1,0 +1,100 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0">Command Authorization</h2>
+  <div id="status" class="modal-hint"></div>
+  <div class="modal-field">
+    <label>Default Action</label>
+    <select id="default_action">
+      <option value="deny">deny</option>
+      <option value="permit">permit</option>
+    </select>
+    <button class="btn btn-secondary" onclick="saveSettings()">Save</button>
+  </div>
+  <h3>Rules</h3>
+  <table id="rules-table">
+    <thead>
+      <tr><th>ID</th><th>Action</th><th>Match</th><th>Pattern</th><th>Priv</th><th>Groups</th><th>Device Groups</th><th></th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <h3>Add Rule</h3>
+  <div class="modal-form">
+    <div class="modal-field"><label>Action</label><select id="action"><option>permit</option><option>deny</option></select></div>
+    <div class="modal-field"><label>Match Type</label><select id="match_type"><option>prefix</option><option>exact</option><option>regex</option><option>wildcard</option></select></div>
+    <div class="modal-field"><label>Pattern</label><input id="pattern"></div>
+    <div class="modal-field"><label>Min Priv</label><input id="min_priv" type="number" value="0"></div>
+    <div class="modal-field"><label>Max Priv</label><input id="max_priv" type="number" value="15"></div>
+    <div class="modal-field"><label>User Groups (comma)</label><input id="user_groups"></div>
+    <div class="modal-field"><label>Device Groups (comma)</label><input id="device_groups"></div>
+    <div class="modal-actions"><button class="btn" onclick="addRule()">Add</button></div>
+  </div>
+  <h3>Test Command</h3>
+  <div class="modal-form">
+    <div class="modal-field"><label>Command</label><input id="test_cmd"></div>
+    <div class="modal-field"><label>Privilege</label><input id="test_priv" type="number" value="15"></div>
+    <div class="modal-field"><label>User Groups (comma)</label><input id="test_groups"></div>
+    <div class="modal-field"><label>Device Group</label><input id="test_dg"></div>
+    <div class="modal-actions"><button class="btn" onclick="checkCmd()">Check</button></div>
+    <pre id="test_result"></pre>
+  </div>
+</div>
+<script>
+async function loadRules(){
+  const r = await fetch('/api/command-authorization/rules');
+  if(!r.ok){ document.getElementById('status').textContent = 'Failed to load rules'; return; }
+  const data = await r.json();
+  const tbody = document.querySelector('#rules-table tbody');
+  tbody.innerHTML = '';
+  (data.rules||[]).forEach(rule=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${rule.id||''}</td><td>${rule.action}</td><td>${rule.match_type}</td><td>${rule.pattern}</td><td>${rule.min_privilege}-${rule.max_privilege}</td><td>${(rule.user_groups||[]).join(',')}</td><td>${(rule.device_groups||[]).join(',')}</td><td><button class="btn btn-secondary" onclick="delRule(${rule.id})">Delete</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+async function loadSettings(){
+  try{
+    const r = await fetch('/api/command-authorization/settings');
+    if(r.ok){ const s = await r.json(); document.getElementById('default_action').value = s.default_action || 'deny'; }
+  }catch(e){}
+}
+async function saveSettings(){
+  const payload = { default_action: document.getElementById('default_action').value };
+  const r = await fetch('/api/command-authorization/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if(r.ok){ document.getElementById('status').textContent = 'Settings saved'; }
+  else { document.getElementById('status').textContent = 'Save failed'; }
+}
+async function addRule(){
+  const payload = {
+    action: document.getElementById('action').value,
+    match_type: document.getElementById('match_type').value,
+    pattern: document.getElementById('pattern').value,
+    min_privilege: parseInt(document.getElementById('min_priv').value||'0'),
+    max_privilege: parseInt(document.getElementById('max_priv').value||'15'),
+    user_groups: (document.getElementById('user_groups').value||'').split(',').map(s=>s.trim()).filter(Boolean),
+    device_groups: (document.getElementById('device_groups').value||'').split(',').map(s=>s.trim()).filter(Boolean)
+  };
+  const r = await fetch('/api/command-authorization/rules', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if(r.ok){ loadRules(); document.getElementById('status').textContent='Rule added'; }
+  else { document.getElementById('status').textContent='Add failed'; }
+}
+async function delRule(id){
+  const r = await fetch(`/api/command-authorization/rules/${id}`, {method:'DELETE'});
+  if(r.ok){ loadRules(); }
+}
+async function checkCmd(){
+  const payload = {
+    command: document.getElementById('test_cmd').value,
+    privilege_level: parseInt(document.getElementById('test_priv').value||'15'),
+    user_groups: (document.getElementById('test_groups').value||'').split(',').map(s=>s.trim()).filter(Boolean),
+    device_group: document.getElementById('test_dg').value||null
+  };
+  const r = await fetch('/api/command-authorization/check', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  const t = document.getElementById('test_result');
+  if(r.ok){ t.textContent = JSON.stringify(await r.json(), null, 2); }
+  else { t.textContent = 'Check failed'; }
+}
+loadRules();
+loadSettings();
+</script>
+{% endblock %}

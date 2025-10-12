@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/web/api/devices.py
+# hypothesis_version: 6.140.2
+
+[400, 404, 500, 1000, '/api/devices', '/{device_id}', 'Create device', 'Delete device', 'Device ID', 'Devices', 'Get device', 'List devices', 'Update device']

@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/utils/security.py
+# hypothesis_version: 6.140.2
+
+[255, 300, '[^\\w\\s.-]', '^[a-zA-Z0-9._-]+$']

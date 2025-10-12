@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/auth/local_models.py
+# hypothesis_version: 6.140.2
+
+['description', 'enabled', 'exec', 'groups', 'ldap_group', 'metadata', 'okta_group', 'password', 'password_hash', 'privilege_level', 'service', 'shell_command', 'show', 'users']

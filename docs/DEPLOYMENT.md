@@ -22,7 +22,7 @@ poetry run python -m tacacs_server.main
 ```bash
 # Install system dependencies
 sudo apt-get update
-sudo apt-get install python3.11 python3.11-venv python3-pip
+sudo apt-get install python3.13 python3.13-venv python3-pip
 
 # Create service user
 sudo useradd -r -s /bin/false tacacs
@@ -32,7 +32,7 @@ sudo chown tacacs:tacacs /opt/tacacs_server
 # Install application
 cd /opt/tacacs_server
 sudo -u tacacs git clone https://github.com/SaschaSchwarzK/tacacs_server.git .
-sudo -u tacacs python3.11 -m pip install poetry
+sudo -u tacacs python3.13 -m pip install poetry
 sudo -u tacacs poetry install --only=main
 sudo -u tacacs python scripts/setup_project.py --project-root /opt/tacacs_server
 ```

@@ -62,7 +62,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Hot reload**: Configuration changes without service restart
 
 ### **Development & Testing**
-- **Comprehensive test suite**: 130+ tests with >90% coverage
+- **Comprehensive test suite**: 245 tests with >90% coverage
 - **Batch testing**: Test multiple credentials simultaneously
 - **Performance benchmarks**: Built-in performance testing and metrics
 - **Client tools**: TACACS+ and RADIUS client scripts for testing
@@ -72,37 +72,59 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.11+
+- Python 3.13+
 - Poetry (recommended) or pip
 
 ### Installation
+
+Always work in a Python virtual environment, then install with Poetry into that environment.
 
 ```bash
 # Clone the repository
 git clone https://github.com/SaschaSchwarzK/tacacs_server.git
 cd tacacs_server
 
-# Install dependencies
+# Create and activate a Python 3.13 virtual environment
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -V   # should show 3.13.x from .venv
+
+# Install Poetry inside the venv and configure it to use the active venv
+python -m pip install --upgrade pip
+pip install poetry
+poetry config virtualenvs.create false
+
+# Install project dependencies into the active venv
 poetry install
 
 # Set up runtime directories
 python scripts/setup_project.py --project-root "$(pwd)" --move-test-client
 
 # Run tests to verify installation
-poetry run pytest -q
+pytest -q
 ```
+
+Notes
+- Deactivate the venv when done: `deactivate`
+- Windows PowerShell equivalents:
+  - Create venv: `py -3.13 -m venv .venv`
+  - Activate: `.venv\\Scripts\\Activate.ps1`
+  - Install Poetry: `py -m pip install --upgrade pip; pip install poetry`
+  - Configure Poetry: `poetry config virtualenvs.create false`
+  - Install deps: `poetry install`
+  - Run tests: `pytest -q`
 
 ### Running the Server
 
 ```bash
 # Start the server
-poetry run python -m tacacs_server.main --config config/tacacs.conf
+python -m tacacs_server.main --config config/tacacs.conf
 
 # Or use the CLI entrypoint
-poetry run tacacs-server
+tacacs-server
 
 # Validate configuration before starting
-poetry run python scripts/validate_config.py
+python scripts/validate_config.py
 ```
 
 ### Web Interface Access
@@ -136,6 +158,9 @@ python scripts/tacacs_client.py --batch scripts/example_credentials.csv
 ## 📊 Admin Web Console
 
 The web console provides comprehensive management capabilities with real-time monitoring:
+
+Important
+- The admin web UI is disabled unless an admin bcrypt password hash is configured via `[admin].password_hash` or `ADMIN_PASSWORD_HASH`. When not configured, `/admin/*` returns `503` and the login page shows a banner explaining that admin auth is not configured. The local TACACS+/RADIUS user database does not grant web admin access.
 
 ### **Real-time Dashboard**
 - Live-updating metrics tiles with WebSocket connectivity
@@ -555,6 +580,11 @@ export TACACS_CONFIG=file:///etc/tacacs/tacacs.conf
 
 ## 🧪 Testing & Validation
 
+Note on API protection in tests
+- The test server fixture enables API protection by default. Tests automatically inject `X-API-Token: test-token` on `/api/*` calls, so no changes are required in most tests.
+- If you run manual curls against the test server, include the header:
+  - `curl -H 'X-API-Token: test-token' http://127.0.0.1:8080/api/health`
+
 ### **Running Tests**
 ```bash
 # Run all tests
@@ -570,6 +600,27 @@ poetry run pytest tests/test_benchmark.py -v
 
 # Run performance benchmarks
 poetry run pytest tests/test_benchmark.py --benchmark-only
+
+### **Performance Benchmarks**
+These benchmarks exercise two critical paths and report steady‑state throughput on the test environment.
+
+- tacacs-accounting: Measures end‑to‑end accounting record handling (start/stop/update) through the HTTP API and internal persistence.
+  - Result summary (lower is better for time metrics, higher is better for OPS):
+
+    Name: test_accounting_throughput
+    Min: 8.30 ms, Max: 55.04 ms, Mean: 9.23 ms, StdDev: 4.41 ms, Median: 8.68 ms
+    OPS: 108.30 req/s over 112 rounds
+
+  - Interpretation: The server records and processes accounting events at ~100+ requests/second in this environment, including JSON parsing, validation, and persistence.
+
+- tacacs-auth: Stresses the in‑process authentication path with concurrent requests using the configured backends (local/LDAP/Okta depending on test config).
+  - Result summary:
+
+    Name: test_concurrent_authentications
+    Min: 947.9 ns, Max: 6,806.25 ns, Mean: 994.14 ns, StdDev: 167.59 ns, Median: 962.50 ns
+    OPS: ~1.006 Mops/s (million operations per second) over 51,948 rounds (20 iterations)
+
+  - Interpretation: The authentication hot‑path (without I/O latency) sustains ~1M operations per second under synthetic concurrency, validating that CPU‑bound logic (hash checks, policy evaluation, attribute merge) is not a bottleneck. Real‑world end‑to‑end auth throughput will depend on network latency and external backends.
 ```
 
 ### **Advanced Testing with Server Fixture**
@@ -660,8 +711,35 @@ class TestMyFeature:
     
     def test_my_feature(self):
         # Server is automatically running
-        response = requests.get("http://localhost:8080/api/health")
+        response = requests.get(
+            "http://localhost:8080/api/health",
+            headers={"X-API-Token": "test-token"},
+        )
         assert response.status_code == 200
+```
+
+## 📁 Project Structure
+
+Key files and directories (non-exhaustive):
+
+```
+tacacs_server/
+  authorization/
+    command_authorization.py   # Command auth engine + API router
+  tacacs/
+    handlers.py                # TACACS AAA handlers (uses command authorizer hook)
+  web/
+    monitoring.py              # Web API + middleware (API token enforcement)
+    admin/
+      routers.py               # Admin UI routes (adds Command Auth page)
+    templates/admin/
+      command_auth.html        # Command Authorization admin page
+tests/
+  e2e/
+    test_command_authorization_live.py
+    test_tacacs_authorization_wire.py
+  test_command_authorization_engine.py
+  test_command_authorization_api.py
 ```
 
 ## 🛠️ Development
@@ -759,6 +837,67 @@ docker-compose logs -f tacacs-server
 docker-compose up -d --scale tacacs-server=3
 ```
 
+## 🔧 Admin CLI (tacacs-admin)
+
+Use the built-in admin CLI for common administrative tasks.
+
+Commands
+- `tacacs-admin check-config [-c config/tacacs.conf]`
+  - Validates configuration and prints issues; exits non-zero on failure.
+- `tacacs-admin generate-bcrypt [--password <pwd> | --stdin]`
+  - Generates a bcrypt hash for use in `ADMIN_PASSWORD_HASH` or config.
+- `tacacs-admin audit-hashes [-c config/tacacs.conf]`
+  - Audits local auth DB password hashes; exits non-zero if legacy hashes exist.
+- `tacacs-admin migrate-hashes --csv users.csv [-c config/tacacs.conf]`
+  - Migrates legacy SHA-256 user hashes to bcrypt using a CSV `username,password`.
+
+Examples
+```bash
+# Validate config
+poetry run tacacs-admin check-config -c config/tacacs.conf
+
+# Generate bcrypt hash (interactive prompt)
+poetry run tacacs-admin generate-bcrypt
+
+# Audit and migrate
+poetry run tacacs-admin audit-hashes -c config/tacacs.conf
+poetry run tacacs-admin migrate-hashes --csv scripts/example_credentials.csv -c config/tacacs.conf
+```
+
+## 🧪 Example Configurations
+
+Example configurations are provided under `config/examples/`:
+
+- `minimal.ini` — non-privileged TACACS (5049/TCP), RADIUS disabled, monitoring on 8080.
+- `standard.ini` — TACACS 49/TCP, RADIUS 1812/1813 UDP, moderate rate limits.
+- `enterprise.ini` — multi-backend (local+LDAP), environment interpolation for secrets, higher limits, monitoring enabled.
+
+Use them as starting points and adjust paths, ports, and secrets for your environment.
+
+## ☁️ Azure Container Instances (ACI)
+
+ACI supports both TCP and UDP, which makes it suitable for TACACS+ (49/TCP) and RADIUS (1812/1813 UDP). Deploy with a container image and a small Azure Files volume for persistence.
+
+- Image entrypoint uses `tini` and runs non-interactively.
+- Use the ACI profile config: `config/tacacs.aci.ini` (TACACS on 49/TCP, RADIUS enabled, web on 8080).
+- Pass secrets (e.g., `ADMIN_PASSWORD_HASH`) via environment variables or secret mounts. Do not bake secrets into images.
+
+Quick steps
+- Build and push the image to your registry (ACR or Docker Hub).
+- Prepare an Azure Files share and storage account.
+- Deploy using the provided template: `deploy/aci/aci-container.yaml`.
+
+Parameters to substitute
+- `${IMAGE}`: your image, e.g., `myregistry.azurecr.io/tacacs:latest`
+- `${AZ_LOCATION}`: Azure region, e.g., `westeurope`
+- `${AZURE_FILES_SHARE}`, `${AZURE_STORAGE_ACCOUNT}`, `${AZURE_STORAGE_KEY}`: for the Azure Files volume
+- `${ADMIN_PASSWORD_HASH}`: bcrypt hash for admin login (generate with python/bcrypt)
+
+Notes
+- ACI allows binding to privileged ports; the container should run as root for 49/1812/1813.
+- Health endpoint: `http://<aci-ip>:8080/health`, readiness: `http://<aci-ip>:8080/ready`.
+- RADIUS is enabled in the ACI config; for environments without UDP (e.g., ACA), use `config/tacacs.container.ini` with RADIUS disabled and TACACS on 5049/TCP.
+
 ## 📈 Performance
 
 - **Concurrent connections**: 1000+ simultaneous connections
@@ -775,6 +914,13 @@ docker-compose up -d --scale tacacs-server=3
 - **Audit logging**: Complete audit trail
 - **Rate limiting**: DDoS protection
 - **Secure defaults**: Security-first configuration
+
+### API Token Protection
+- Set `API_TOKEN` to require a specific token for all HTTP endpoints under `/api/*`.
+- Send either `X-API-Token: <token>` or `Authorization: Bearer <token>`.
+- To force a token on all `/api/*` requests even without pinning a specific value, set `API_TOKEN_REQUIRED=true`. If `API_TOKEN` is not set, any non-empty token is accepted; set both to require an exact match.
+- Admin endpoints under `/api/admin/*` also require an authenticated admin session; when no admin auth is configured, these return `401` by default.
+
 
 ## 🚀 What's New
 
@@ -817,3 +963,59 @@ See the [LICENSE](LICENSE) file for full terms.
 **Enterprise Support**: For enterprise support, custom integrations, or professional services, please contact the maintainers.
 
 **Community**: Join our community for discussions, questions, and contributions.
+## 🔔 Webhooks & Syslog Auditing
+
+### Webhooks
+- Enable by setting `WEBHOOK_URL` (single) or `WEBHOOK_URLS` (comma-separated list).
+- Optional headers (e.g., authentication): set `WEBHOOK_HEADERS` to a JSON object, e.g.:
+  - `WEBHOOK_HEADERS='{"Authorization":"Bearer <token>","X-App":"TACACS"}'`
+- Optional payload template: set `WEBHOOK_TEMPLATE` to a JSON object where `{{placeholder}}` values will be replaced from the event payload.
+  - Example: `WEBHOOK_TEMPLATE='{"event":"{{event}}","user":"{{username}}","ip":"{{client_ip}}","detail":"{{detail}}"}'`
+- Timeout: `WEBHOOK_TIMEOUT` (seconds, default 3)
+- Threshold notifications: trigger `threshold_exceeded` when `THRESHOLD_AUTH_FAIL_COUNT` failures occur within `THRESHOLD_WINDOW_SEC` seconds.
+  - Example: `THRESHOLD_AUTH_FAIL_COUNT=5`, `THRESHOLD_WINDOW_SEC=60`
+
+Events
+- `auth_failure` — authentication failed; payload contains `username`, `client_ip`, `detail`.
+- `authorization_failure` — authorization failed; payload contains `username`, `client_ip`, `reason`.
+- `threshold_exceeded` — failure threshold reached; payload contains `event`, `key`, `count`, `window_sec`.
+
+### Syslog Auditing
+- Accounting logs are mirrored to syslog for audit trails.
+- Configure destination via `SYSLOG_ADDRESS`:
+  - Unix socket path (e.g., `/dev/log`) or `host:port` (UDP).
+- Example UDP: `SYSLOG_ADDRESS=192.0.2.10:514`
+
+## 🛡️ Command Authorization
+
+Fine‑grained command authorization for TACACS+ authorization (AUTHOR) requests. Define ordered rules (permit/deny) that match commands by prefix, exact, regex, or wildcard; rules can also scope by user groups, device groups, and privilege levels. A default action applies when no rule matches.
+
+Config
+- `[command_authorization]`
+  - `default_action` = `permit` or `deny` (default: `deny`)
+  - `rules_json` = JSON array of rule objects
+    - Fields: `action`, `match_type` (`exact|prefix|regex|wildcard`), `pattern`, `min_privilege`, `max_privilege`, optional `description`, `user_groups`, `device_groups`.
+
+Examples
+- Permit read‑only on Cisco: `{ "action":"permit", "match_type":"prefix", "pattern":"show ", "min_privilege": 1 }`
+- Deny reload: `{ "action":"deny", "match_type":"wildcard", "pattern":"reload*", "min_privilege":0, "max_privilege":15 }`
+
+Admin UI
+- Navigate to `Admin → Command Auth` (`/admin/command-authorization`).
+  - Toggle Default Action (`permit/deny`).
+  - Manage rules (add/delete) and test commands with privilege, user groups, and device group context.
+
+API
+- Settings
+  - `GET /api/command-authorization/settings` → `{ "default_action": "deny|permit" }`
+  - `PUT /api/command-authorization/settings` with `{ "default_action": "deny|permit" }`
+- Rules
+  - `GET /api/command-authorization/rules` → list of persisted rules
+  - `POST /api/command-authorization/rules` → create a new rule
+  - `DELETE /api/command-authorization/rules/{rule_id}` → delete by ID
+  - `GET /api/command-authorization/templates` → available templates
+  - `POST /api/command-authorization/templates/{name}/apply` → apply a template
+
+Runtime behavior
+- The engine is initialized from config at startup; admin/API changes persist to the config file.
+- TACACS+ authorization consults the engine (in addition to existing prefix allow‑lists). Denials emit an `authorization_failure` webhook with a reason.

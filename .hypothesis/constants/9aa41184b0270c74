@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/config/schema.py
+# hypothesis_version: 6.140.2
+
+[300, 65535, ',', 'INFO', 'SQLite DB path', 'Server TCP port', 'Server bind host', 'auth', 'uid']

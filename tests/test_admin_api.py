@@ -508,6 +508,22 @@ class TestAuthenticationEndpoints:
         assert data["success"] is True
 
 
+class TestAdminAuthIsolation:
+    """Ensure local TACACS/RADIUS users cannot access admin web."""
+
+    def test_admin_login_rejects_local_user(self, tacacs_server):
+        import requests
+
+        base = f"http://{tacacs_server['host']}:{tacacs_server['web_port']}"
+        s = requests.Session()
+        r = s.post(
+            f"{base}/admin/login",
+            json={"username": "user", "password": "not_admin"},
+            timeout=5,
+        )
+        assert r.status_code in (400, 401)
+
+
 class TestValidationErrors:
     """Test API validation and error handling"""
 

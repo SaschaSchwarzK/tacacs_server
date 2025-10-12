@@ -77,7 +77,6 @@ def _update_config_paths(
 
     # Ensure admin credentials in file config so AdminSessionManager picks them up
     cfg.setdefault("admin", {})
-    import hashlib
 
     cfg["admin"]["username"] = "admin"
     cfg["admin"]["password_hash"] = hashlib.sha256(b"AdminPass123!").hexdigest()
@@ -197,14 +196,28 @@ def isolated_test_environment(tmp_path_factory):
     # Ensure admin credentials also available via env so defaults pick them up
     _admin_user_prev = os.environ.get("ADMIN_USERNAME")
     _admin_hash_prev = os.environ.get("ADMIN_PASSWORD_HASH")
+    _secure_prev = os.environ.get("SECURE_COOKIES")
+    _api_token_prev = os.environ.get("API_TOKEN")
+    _api_required_prev = os.environ.get("API_TOKEN_REQUIRED")
     os.environ["ADMIN_USERNAME"] = "admin"
-    os.environ["ADMIN_PASSWORD_HASH"] = hashlib.sha256(b"AdminPass123!").hexdigest()
+    try:
+        import bcrypt as _bcrypt
+
+        _hash = _bcrypt.hashpw(b"AdminPass123!", _bcrypt.gensalt()).decode()
+    except Exception:
+        # Fallback to a precomputed bcrypt hash for "AdminPass123!" (cost 12)
+        _hash = "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
+    os.environ["ADMIN_PASSWORD_HASH"] = _hash
 
     auth_db_path = Path(cfg["auth"]["local_auth_db"])
 
     try:
         # Expose for any external tooling that wants to collect artifacts
         os.environ["TACACS_TEST_WORKDIR"] = str(work_dir)
+        # Ensure cookies are not marked secure in HTTP test env
+        os.environ["SECURE_COOKIES"] = "false"
+        # Enable API and enforce token on all /api/* endpoints during tests
+        os.environ["API_TOKEN"] = os.environ.get("TEST_API_TOKEN", "test-token")
         yield {
             "config_path": config_path,
             "work_dir": work_dir,
@@ -223,6 +236,14 @@ def isolated_test_environment(tmp_path_factory):
             os.environ.pop("ADMIN_PASSWORD_HASH", None)
         else:
             os.environ["ADMIN_PASSWORD_HASH"] = _admin_hash_prev
+        if _secure_prev is None:
+            os.environ.pop("SECURE_COOKIES", None)
+        else:
+            os.environ["SECURE_COOKIES"] = _secure_prev
+        if _api_token_prev is None:
+            os.environ.pop("API_TOKEN", None)
+        else:
+            os.environ["API_TOKEN"] = _api_token_prev
         # Clean up the temporary working directory (databases, logs)
         try:
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -308,6 +329,21 @@ def tacacs_server():
             mon_port = cfg_check.get("monitoring", "web_port", fallback="0")
             if not mon_port or mon_port == "0":
                 cfg_check.set("monitoring", "web_port", str(_find_free_port()))
+            # Ensure admin auth is configured so admin login works in tests
+            if not cfg_check.has_section("admin"):
+                cfg_check.add_section("admin")
+            cfg_check.set("admin", "username", "admin")
+            try:
+                import bcrypt as _bcrypt
+
+                _file_hash = _bcrypt.hashpw(
+                    b"AdminPass123!", _bcrypt.gensalt()
+                ).decode()
+            except Exception:
+                _file_hash = (
+                    "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
+                )
+            cfg_check.set("admin", "password_hash", _file_hash)
             # Force isolated DB paths inside tmp_dir regardless of input
             if not cfg_check.has_section("auth"):
                 cfg_check.add_section("auth")
@@ -337,6 +373,10 @@ def tacacs_server():
             log_path = Path(tempfile.mkdtemp()) / "tacacs_server.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "w+")
+        # Ensure API token is available for subprocess (enables /api/*)
+        if not os.environ.get("API_TOKEN"):
+            os.environ["API_TOKEN"] = os.environ.get("TEST_API_TOKEN", "test-token")
+
         cmd = [
             "python",
             "-m",
@@ -344,11 +384,13 @@ def tacacs_server():
             "--config",
             str(cfg_path),
         ]
+        # Pass current environment to subprocess explicitly
         server_process = subprocess.Popen(
             cmd,
             stdout=log_file,
             stderr=log_file,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+            env=dict(os.environ),
         )
 
         # Wait for server to be ready (use configured TACACS port)
@@ -408,6 +450,8 @@ def tacacs_server():
             "host": "127.0.0.1",
             "port": tacacs_port,
             "web_port": web_port,
+            "pid": server_process.pid if server_process else None,
+            "log_path": str(log_path),
         }
 
     finally:
@@ -489,6 +533,20 @@ def _default_requests_timeout(monkeypatch):
     def _timed_request(self, method, url, **kwargs):
         if "timeout" not in kwargs or kwargs["timeout"] is None:
             kwargs["timeout"] = 5
+        # Inject API token header for /api/* requests unless explicitly provided
+        try:
+            if "/api/" in url:
+                headers = kwargs.get("headers") or {}
+                if (
+                    "X-API-Token" not in {k.title(): v for k, v in headers.items()}
+                    and "Authorization" not in headers
+                ):
+                    headers["X-API-Token"] = os.environ.get(
+                        "TEST_API_TOKEN", "test-token"
+                    )
+                    kwargs["headers"] = headers
+        except Exception:
+            pass
         return _ORIG_REQUEST(self, method, url, **kwargs)
 
     monkeypatch.setattr(requests.Session, "request", _timed_request, raising=True)

@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/utils/metrics_history.py
+# hypothesis_version: 6.140.2
+
+[3600, 'acct_failures', 'acct_requests', 'acct_success', 'auth_failures', 'auth_requests', 'auth_success', 'author_failures', 'author_requests', 'author_success', 'avg_cpu_percent', 'avg_memory_mb', 'connections_active', 'connections_total', 'cpu_percent', 'data_points', 'memory_usage_mb', 'peak_connections', 'peak_cpu_percent', 'peak_memory_mb']
