@@ -392,7 +392,7 @@ class EnhancedAuthorizationService:
 # FastAPI integration
 
 router = APIRouter(
-    prefix="/api/command-authorization", tags=["authorization"], include_in_schema=True
+    prefix="/api/command-authorization", tags=["Authorization"], include_in_schema=True
 )
 
 

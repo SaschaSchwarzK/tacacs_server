@@ -14,12 +14,14 @@ COPY pyproject.toml poetry.lock ./
 RUN pip install --no-cache-dir poetry poetry-plugin-export \
  && poetry export -f requirements.txt -o req.txt --without-hashes
 
-# Create a slim virtualenv under /opt/venv
-RUN pip install --prefix=/opt/venv --no-cache-dir -r req.txt
+# Create a virtualenv under /opt/venv and install deps
+RUN python -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+ && /opt/venv/bin/pip install --no-cache-dir -r req.txt
 
 # Install the package into the venv
 COPY . .
-RUN PYTHONPATH=/app /opt/venv/bin/pip install --prefix=/opt/venv .
+RUN /opt/venv/bin/pip install --no-cache-dir .
 
 ###########
 # Runner  #

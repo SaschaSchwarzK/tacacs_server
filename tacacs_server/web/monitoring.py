@@ -33,6 +33,7 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
+from pydantic import BaseModel
 
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
@@ -560,6 +561,69 @@ class TacacsMonitoringAPI:
                 raise HTTPException(
                     status_code=500, detail=f"Failed to get session stats: {e}"
                 )
+
+        # Webhooks admin API (documented, token + admin session required)
+        try:
+            from tacacs_server.utils.webhook import (
+                get_webhook_config_dict as _get_wh,
+            )
+            from tacacs_server.utils.webhook import (
+                set_webhook_config as _set_wh,
+            )
+
+            class WebhookConfigUpdate(BaseModel):
+                urls: list[str] | None = None
+                headers: dict[str, str] | None = None
+                template: dict[str, Any] | None = None
+                timeout: float | None = None
+                threshold_count: int | None = None
+                threshold_window: int | None = None
+
+            @self.app.get(
+                "/api/admin/webhooks-config",
+                tags=["Administration"],
+                summary="Get webhooks configuration",
+                description="Return current webhook URLs, headers, template and thresholds.",
+            )
+            async def api_get_webhooks_config(_: None = Depends(admin_guard)):
+                return _get_wh()
+
+            @self.app.put(
+                "/api/admin/webhooks-config",
+                tags=["Administration"],
+                summary="Update webhooks configuration",
+                description="Update webhook URLs, headers, template, timeout and thresholds.",
+            )
+            async def api_update_webhooks_config(
+                payload: WebhookConfigUpdate, _: None = Depends(admin_guard)
+            ):
+                try:
+                    _set_wh(
+                        payload.urls,
+                        payload.headers,
+                        payload.template,
+                        payload.timeout,
+                        payload.threshold_count,
+                        payload.threshold_window,
+                    )
+                    cfg = get_config()
+                    if cfg is not None:
+                        cfg.update_webhook_config(
+                            urls=payload.urls,
+                            headers=payload.headers,
+                            template=payload.template,
+                            timeout=payload.timeout,
+                            threshold_count=payload.threshold_count,
+                            threshold_window=payload.threshold_window,
+                        )
+                    return _get_wh()
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400, detail=f"Failed to update: {e}"
+                    )
+        except Exception:
+            # If webhook utilities are unavailable, skip exposing these endpoints
+            pass
 
         @self.app.get(
             "/api/accounting",
