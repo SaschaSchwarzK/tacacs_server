@@ -10,7 +10,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml poetry.lock ./
-RUN pip install --no-cache-dir poetry \
+# Install Poetry and the export plugin to generate requirements.txt
+RUN pip install --no-cache-dir poetry poetry-plugin-export \
  && poetry export -f requirements.txt -o req.txt --without-hashes
 
 # Create a slim virtualenv under /opt/venv
