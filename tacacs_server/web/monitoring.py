@@ -4,6 +4,7 @@ Provides both HTML dashboard and Prometheus metrics endpoint
 """
 
 import asyncio
+import os
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -13,14 +14,16 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 import uvicorn
 from fastapi import (
+    Depends,
     FastAPI,
     HTTPException,
     Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
+    status,
 )
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from prometheus_client import (
@@ -30,6 +33,7 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
+from pydantic import BaseModel
 
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
@@ -57,6 +61,10 @@ _tacacs_server_ref = None
 _radius_server_ref = None
 _admin_auth_dependency: Callable[[Request], Awaitable[None]] | None = None
 _admin_session_manager: Optional["AdminSessionManager"] = None
+_command_authorizer: (
+    Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None
+) = None
+_command_engine: Optional["CommandAuthorizationEngine"] = None
 
 
 def get_device_service() -> Optional["DeviceService"]:
@@ -133,9 +141,40 @@ def get_admin_session_manager() -> Optional["AdminSessionManager"]:
     return _admin_session_manager
 
 
+def set_command_authorizer(
+    authorizer: Callable[[str, int, list[str] | None, str | None], tuple[bool, str]]
+    | None,
+) -> None:
+    """Register an optional command authorization callback.
+
+    The callable should accept (command, privilege_level, user_groups, device_group)
+    and return (allowed: bool, reason: str).
+    """
+    global _command_authorizer
+    _command_authorizer = authorizer
+
+
+def get_command_authorizer() -> (
+    Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None
+):
+    return _command_authorizer
+
+
+def set_command_engine(engine: Optional["CommandAuthorizationEngine"]) -> None:
+    global _command_engine
+    _command_engine = engine
+
+
+def get_command_engine():
+    return _command_engine
+
+
 if TYPE_CHECKING:
     from tacacs_server.auth.local_user_group_service import LocalUserGroupService
     from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.authorization.command_authorization import (
+        CommandAuthorizationEngine,
+    )
     from tacacs_server.config.config import TacacsConfig
     from tacacs_server.devices.service import DeviceService
 
@@ -143,7 +182,9 @@ if TYPE_CHECKING:
 
 # Prometheus Metrics
 auth_requests_total = Counter(
-    "tacacs_auth_requests_total", "Total authentication requests", ["status", "backend"]
+    "tacacs_auth_requests_total",
+    "Total authentication requests",
+    ["status", "backend", "reason"],
 )
 auth_duration = Histogram(
     "tacacs_auth_duration_seconds", "Authentication request duration"
@@ -209,12 +250,104 @@ class TacacsMonitoringAPI:
             redoc_url=None,
             openapi_tags=tags_metadata,
         )
+        # Install shared security headers middleware
+        from .middleware import install_security_headers
+
+        install_security_headers(self.app)
+
+        # Optional API token protection for all /api routes
+        api_token = os.getenv("API_TOKEN")
+        try:
+            enforced = bool(api_token)
+            logger.info(
+                "API token enforcement: %s (configured_token=%s)",
+                "enabled" if enforced else "disabled",
+                "set" if api_token else "not set",
+            )
+        except Exception:
+            pass
+
+        @self.app.middleware("http")
+        async def api_token_guard(request: Request, call_next):
+            if request.url.path.startswith("/api/"):
+                # If no API token configured, API is disabled by default
+                if not api_token:
+                    return JSONResponse(
+                        {"error": "API disabled: API_TOKEN not configured"},
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+                # If token configured, enforce token OR authenticated admin session
+                if request.cookies.get("admin_session"):
+                    return await call_next(request)
+                token = request.headers.get("X-API-Token")
+                if not token:
+                    auth = request.headers.get("Authorization", "")
+                    if auth.startswith("Bearer "):
+                        token = auth.removeprefix("Bearer ").strip()
+                if token != api_token:
+                    return JSONResponse(
+                        {"error": "Unauthorized"},
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                    )
+            return await call_next(request)
 
         # Include API routers
         self.app.include_router(devices_router)
         self.app.include_router(device_groups_router)
         self.app.include_router(users_router)
         self.app.include_router(user_groups_router)
+        # Include command authorization API (protected by admin guard inside router)
+        try:
+            from tacacs_server.authorization.command_authorization import (
+                router as cmd_router,
+            )
+
+            self.app.include_router(cmd_router)
+        except Exception as exc:
+            logger.warning("Failed to include command authorization router: %s", exc)
+
+        # Health and readiness simple endpoints (top-level convenience)
+        @self.app.get("/health", tags=["Status & Monitoring"], include_in_schema=False)
+        async def liveness():
+            return {"status": "ok"}
+
+        @self.app.get("/ready", tags=["Status & Monitoring"], include_in_schema=False)
+        async def readiness():
+            try:
+                srv = self.tacacs_server
+                if not srv or not getattr(srv, "running", False):
+                    return JSONResponse(
+                        {"ready": False, "reason": "server not running"},
+                        status_code=503,
+                    )
+                sock = getattr(srv, "server_socket", None)
+                if not sock:
+                    return JSONResponse(
+                        {"ready": False, "reason": "socket not bound"}, status_code=503
+                    )
+                _ = sock.getsockname()
+                if not getattr(srv, "auth_backends", []):
+                    return JSONResponse(
+                        {"ready": False, "reason": "no auth backends"}, status_code=503
+                    )
+                cfg = get_config()
+                if cfg is not None:
+                    issues = cfg.validate_config()
+                    if issues:
+                        return JSONResponse(
+                            {
+                                "ready": False,
+                                "reason": "config invalid",
+                                "issues": issues[:3],
+                            },
+                            status_code=503,
+                        )
+                return {"ready": True}
+            except Exception:
+                logger.exception("Exception while checking readiness")
+                return JSONResponse(
+                    {"ready": False, "reason": "internal error"}, status_code=503
+                )
 
         # Configure docs and OpenAPI
         self.app.openapi = lambda: custom_openapi_schema(self.app)
@@ -266,12 +399,13 @@ class TacacsMonitoringAPI:
             try:
                 stats = self.get_server_stats()
                 return self.templates.TemplateResponse(
+                    request,
                     "dashboard.html",
                     {
-                        "request": request,
                         "stats": stats,
                         "timestamp": datetime.now().isoformat(),
                         "websocket_enabled": True,
+                        "api_disabled": False if os.getenv("API_TOKEN") else True,
                     },
                 )
             except Exception as e:
@@ -279,6 +413,16 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail=str(e))
 
         # API Endpoints
+        # Admin guard dependency shared with admin endpoints
+        async def admin_guard(request: Request) -> None:
+            dependency = get_admin_auth_dependency_func()
+            if dependency is None:
+                # Unauthenticated environment: reject by default for admin API
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+            result = dependency(request)
+            if asyncio.iscoroutine(result):
+                await result
+
         @self.app.get(
             "/api/status",
             response_model=DetailedServerStatus,
@@ -418,6 +562,69 @@ class TacacsMonitoringAPI:
                     status_code=500, detail=f"Failed to get session stats: {e}"
                 )
 
+        # Webhooks admin API (documented, token + admin session required)
+        try:
+            from tacacs_server.utils.webhook import (
+                get_webhook_config_dict as _get_wh,
+            )
+            from tacacs_server.utils.webhook import (
+                set_webhook_config as _set_wh,
+            )
+
+            class WebhookConfigUpdate(BaseModel):
+                urls: list[str] | None = None
+                headers: dict[str, str] | None = None
+                template: dict[str, Any] | None = None
+                timeout: float | None = None
+                threshold_count: int | None = None
+                threshold_window: int | None = None
+
+            @self.app.get(
+                "/api/admin/webhooks-config",
+                tags=["Administration"],
+                summary="Get webhooks configuration",
+                description="Return current webhook URLs, headers, template and thresholds.",
+            )
+            async def api_get_webhooks_config(_: None = Depends(admin_guard)):
+                return _get_wh()
+
+            @self.app.put(
+                "/api/admin/webhooks-config",
+                tags=["Administration"],
+                summary="Update webhooks configuration",
+                description="Update webhook URLs, headers, template, timeout and thresholds.",
+            )
+            async def api_update_webhooks_config(
+                payload: WebhookConfigUpdate, _: None = Depends(admin_guard)
+            ):
+                try:
+                    _set_wh(
+                        payload.urls,
+                        payload.headers,
+                        payload.template,
+                        payload.timeout,
+                        payload.threshold_count,
+                        payload.threshold_window,
+                    )
+                    cfg = get_config()
+                    if cfg is not None:
+                        cfg.update_webhook_config(
+                            urls=payload.urls,
+                            headers=payload.headers,
+                            template=payload.template,
+                            timeout=payload.timeout,
+                            threshold_count=payload.threshold_count,
+                            threshold_window=payload.threshold_window,
+                        )
+                    return _get_wh()
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400, detail=f"Failed to update: {e}"
+                    )
+        except Exception:
+            # If webhook utilities are unavailable, skip exposing these endpoints
+            pass
+
         @self.app.get(
             "/api/accounting",
             response_model=AccountingResponse,
@@ -529,7 +736,7 @@ class TacacsMonitoringAPI:
 
         # Control Endpoints (Admin)
         @self.app.post("/api/admin/reload-config", include_in_schema=False)
-        async def reload_config():
+        async def reload_config(_: None = Depends(admin_guard)):
             """Reload server configuration"""
             try:
                 success = self.tacacs_server.reload_configuration()
@@ -539,7 +746,7 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/api/admin/reset-stats", include_in_schema=False)
-        async def reset_stats():
+        async def reset_stats(_: None = Depends(admin_guard)):
             """Reset server statistics"""
             try:
                 self.tacacs_server.reset_stats()
@@ -548,7 +755,7 @@ class TacacsMonitoringAPI:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.get("/api/admin/logs", include_in_schema=False)
-        async def get_logs(lines: int = 100):
+        async def get_logs(lines: int = 100, _: None = Depends(admin_guard)):
             """Get recent log entries"""
             try:
                 # This would read from your log file
@@ -836,9 +1043,13 @@ class PrometheusIntegration:
     """Integration helper for Prometheus metrics"""
 
     @staticmethod
-    def record_auth_request(status: str, backend: str, duration: float):
+    def record_auth_request(
+        status: str, backend: str, duration: float, reason: str = ""
+    ):
         """Record authentication request metrics"""
-        auth_requests_total.labels(status=status, backend=backend).inc()
+        auth_requests_total.labels(
+            status=status, backend=backend, reason=reason or ""
+        ).inc()
         auth_duration.observe(duration)
 
     @staticmethod

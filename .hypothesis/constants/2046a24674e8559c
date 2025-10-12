@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/auth/local.py
+# hypothesis_version: 6.140.2
+
+['User %s is disabled', 'User %s removed', 'data/local_auth.db', 'description', 'enabled', 'enabled_users', 'exec', 'groups', 'local', 'password', 'password_hash', 'privilege_level', 'service', 'shell_command', 'show', 'total_users', 'users']

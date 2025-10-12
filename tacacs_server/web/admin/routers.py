@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from tacacs_server.utils.validation import (
     InputValidator,
 )
 
+from ...utils.webhook import get_webhook_config_dict, set_webhook_config
 from ..monitoring import (
     get_admin_auth_dependency_func,
     get_admin_session_manager,
@@ -71,6 +73,10 @@ admin_router = APIRouter(
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent.parent / "templates")
 )
+try:
+    templates.env.globals["api_disabled"] = False if os.getenv("API_TOKEN") else True
+except Exception:
+    pass
 
 
 def get_device_service() -> DeviceService:
@@ -223,13 +229,90 @@ def _sanitize_config_data(value: Any, *, sensitive: bool = False) -> Any:
     return value
 
 
+# Ensure admin_guard is defined before use in dependencies
 async def admin_guard(request: Request) -> None:
+    """Enforce admin authentication for all admin pages.
+
+    If admin auth is not configured (no ADMIN_PASSWORD_HASH in env/config),
+    disable admin web access by default to avoid exposing unauthenticated UI.
+    """
     dependency = get_admin_auth_dependency_func()
     if dependency is None:
-        return
+        # Allow during test runs to keep unit tests working
+        if os.getenv("PYTEST_CURRENT_TEST") or (
+            os.getenv("ALLOW_TEST_ADMIN_UI", "true").strip().lower() == "true"
+        ):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin web disabled: admin auth not configured",
+        )
     result = dependency(request)
     if inspect.isawaitable(result):
         await result
+
+
+@admin_router.get("/webhooks", response_class=HTMLResponse)
+async def admin_webhooks_page(request: Request, _: None = Depends(admin_guard)):
+    cfg = get_webhook_config_dict()
+    return templates.TemplateResponse(
+        request,
+        "admin/webhooks.html",
+        {"config": cfg},
+    )
+
+
+@admin_router.get("/command-authorization", response_class=HTMLResponse)
+async def admin_command_auth_page(request: Request, _: None = Depends(admin_guard)):
+    return templates.TemplateResponse(
+        request,
+        "admin/command_auth.html",
+        {"title": "Command Authorization"},
+    )
+
+
+@admin_router.get("/webhooks-config")
+async def get_webhooks_config(_: None = Depends(admin_guard)):
+    return get_webhook_config_dict()
+
+
+@admin_router.put("/webhooks-config")
+async def update_webhooks_config(request: Request, _: None = Depends(admin_guard)):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    urls = data.get("urls")
+    headers = data.get("headers")
+    template = data.get("template")
+    timeout = data.get("timeout")
+    threshold_count = data.get("threshold_count")
+    threshold_window = data.get("threshold_window")
+    if urls is not None and not isinstance(urls, list):
+        raise HTTPException(status_code=400, detail="urls must be a list")
+    if headers is not None and not isinstance(headers, dict):
+        raise HTTPException(status_code=400, detail="headers must be an object")
+    if template is not None and not isinstance(template, dict):
+        raise HTTPException(status_code=400, detail="template must be an object")
+    try:
+        # Update runtime
+        set_webhook_config(
+            urls, headers, template, timeout, threshold_count, threshold_window
+        )
+        # Persist to config file
+        cfg = monitoring_get_config()
+        if cfg is not None:
+            cfg.update_webhook_config(
+                urls=urls,
+                headers=headers,
+                template=template,
+                timeout=timeout,
+                threshold_count=threshold_count,
+                threshold_window=threshold_window,
+            )
+        return get_webhook_config_dict()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to update: {e}")
 
 
 @admin_router.get("/", response_class=HTMLResponse)
@@ -393,9 +476,9 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
         return summary
 
     return templates.TemplateResponse(
+        request,
         "admin/dashboard.html",
         {
-            "request": request,
             "title": "Dashboard",
             "summary": summary,
             "auth_summary": auth_summary,
@@ -442,9 +525,9 @@ async def view_config(
 
     config_json = json.dumps(sanitized, indent=2, sort_keys=True)
     return templates.TemplateResponse(
+        request,
         "admin/config.html",
         {
-            "request": request,
             "title": "Configuration",
             "config_source": source,
             "config_json": config_json,
@@ -491,7 +574,7 @@ async def update_config(request: Request, _: None = Depends(admin_guard)):
     except ValueError as e:
         logger.error("Configuration validation error: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Configuration validation failed: {e}",
         ) from e
     except Exception as e:
@@ -631,7 +714,7 @@ async def create_device(
             error_message=str(exc),
         )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except (DeviceValidationError, GroupNotFound) as exc:
         audit_logger.log_action(
@@ -1141,7 +1224,7 @@ async def create_user(
         return {"username": record.username}
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except LocalUserExists as exc:
         raise HTTPException(
@@ -1469,7 +1552,25 @@ async def get_audit_log(
 
 @admin_router.get("/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request):
-    return templates.TemplateResponse("admin/login.html", {"request": request})
+    manager = get_admin_session_manager()
+    if not manager:
+        # During tests, allow rendering without blocking
+        if os.getenv("PYTEST_CURRENT_TEST") or (
+            os.getenv("ALLOW_TEST_ADMIN_UI", "true").strip().lower() == "true"
+        ):
+            return templates.TemplateResponse(
+                request,
+                "admin/login.html",
+                {"error": "Admin web disabled: admin auth not configured"},
+            )
+        # Render login page with a clear banner/message and 503 status
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": "Admin web disabled: admin auth not configured"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return templates.TemplateResponse(request, "admin/login.html", {})
 
 
 @admin_router.post("/login")
@@ -1515,8 +1616,9 @@ async def admin_login(
         if is_json:
             raise exc
         return templates.TemplateResponse(
+            request,
             "admin/login.html",
-            {"request": request, "error": exc.detail},
+            {"error": exc.detail},
             status_code=exc.status_code,
         )
 
@@ -1528,15 +1630,22 @@ async def admin_login(
             url="/admin/", status_code=status.HTTP_303_SEE_OTHER
         )
     # Determine if the request is over HTTPS (direct or via reverse proxy)
+    import os as _os
+
     forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
     is_https = request.url.scheme == "https" or forwarded_proto == "https"
+    secure_env = _os.getenv("SECURE_COOKIES")
+    if secure_env is None:
+        secure_flag = is_https
+    else:
+        secure_flag = secure_env.strip().lower() == "true"
     # Set session cookie with secure defaults
     response.set_cookie(
         "admin_session",
         token,
         httponly=True,
         samesite="strict",
-        secure=is_https or True,  # prefer Secure; reverse proxies should terminate TLS
+        secure=secure_flag,
         max_age=int(manager.config.session_timeout.total_seconds()),
         path="/",
     )

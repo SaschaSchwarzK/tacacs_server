@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/auth/local_user_service.py
+# hypothesis_version: 6.140.2
+
+['.', '..', 'Invalid filename', 'Path cannot be empty', 'Username is required', 'created', 'data', 'data/local_auth.db', 'deleted', 'exec', 'groups', 'password', 'r', 'shell_command', 'show', 'updated', 'users', 'utf-8']

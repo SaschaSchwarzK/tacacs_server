@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/web/api/device_groups.py
+# hypothesis_version: 6.140.2
+
+[400, 404, 409, 500, 1000, '/api/device-groups', '/{group_id}', '/{group_id}/devices', 'Create device group', 'Delete device group', 'Device Groups', 'Device group ID', 'Get device group', 'Get devices in group', 'List device groups', 'Test group secrets', 'Update device group', 'device_count', 'group_id', 'group_name', 'name', 'ok', 'radius_configured', 'radius_secret_set', 'status', 'tacacs_configured', 'tacacs_secret_set', 'warning', 'warnings']

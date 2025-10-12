@@ -6,6 +6,7 @@ Periodic tasks for metrics collection, cleanup, and maintenance.
 
 import threading
 import time
+from typing import Any
 
 from .audit_logger import get_audit_logger
 from .logger import get_logger
@@ -18,16 +19,16 @@ logger = get_logger(__name__)
 class BackgroundTaskManager:
     """Manages background tasks for the TACACS+ server"""
 
-    def __init__(self, tacacs_server=None):
-        self.tacacs_server = tacacs_server
-        self.running = False
+    def __init__(self, tacacs_server: Any | None = None) -> None:
+        self.tacacs_server: Any | None = tacacs_server
+        self.running: bool = False
         self.task_thread: threading.Thread | None = None
-        self.metrics_interval = 60  # Record metrics every minute
-        self.cleanup_interval = 3600  # Cleanup every hour
-        self.last_metrics_time = 0
-        self.last_cleanup_time = 0
+        self.metrics_interval: float = 60.0  # Record metrics every minute
+        self.cleanup_interval: float = 3600.0  # Cleanup every hour
+        self.last_metrics_time: float = 0.0
+        self.last_cleanup_time: float = 0.0
 
-    def start(self):
+    def start(self) -> None:
         """Start background tasks"""
         if self.running:
             return
@@ -37,7 +38,7 @@ class BackgroundTaskManager:
         self.task_thread.start()
         logger.info("Background task manager started")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop background tasks"""
         if not self.running:
             return
@@ -47,7 +48,7 @@ class BackgroundTaskManager:
             self.task_thread.join(timeout=5)
         logger.info("Background task manager stopped")
 
-    def _run_tasks(self):
+    def _run_tasks(self) -> None:
         """Main task loop"""
         while self.running:
             try:
@@ -70,7 +71,7 @@ class BackgroundTaskManager:
                 logger.error(f"Background task error: {e}")
                 time.sleep(30)  # Wait longer on error
 
-    def _record_metrics(self):
+    def _record_metrics(self) -> None:
         """Record current metrics to history"""
         try:
             if not self.tacacs_server:
@@ -102,7 +103,7 @@ class BackgroundTaskManager:
         except Exception as e:
             logger.debug(f"Failed to record metrics: {e}")
 
-    def _cleanup_old_data(self):
+    def _cleanup_old_data(self) -> None:
         """Clean up old data from various stores"""
         try:
             # Clean up old metrics (30 days)
@@ -136,7 +137,7 @@ def get_task_manager() -> BackgroundTaskManager | None:
     return _task_manager
 
 
-def start_background_tasks(tacacs_server=None):
+def start_background_tasks(tacacs_server: Any | None = None) -> None:
     """Start background tasks"""
     global _task_manager
     if _task_manager is None:
@@ -144,7 +145,7 @@ def start_background_tasks(tacacs_server=None):
     _task_manager.start()
 
 
-def stop_background_tasks():
+def stop_background_tasks() -> None:
     """Stop background tasks"""
     global _task_manager
     if _task_manager:

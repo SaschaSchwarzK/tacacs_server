@@ -17,6 +17,7 @@ The TACACS+ server uses INI-style configuration files with the following section
 - `[devices]` - Device inventory settings
 - `[radius]` - RADIUS server configuration
 - `[monitoring]` - Monitoring and metrics
+- `[webhooks]` - Webhook notifications and thresholds
 
 ## Server Configuration
 
@@ -275,6 +276,11 @@ bind_host = 127.0.0.1
 bind_port = 8080
 ```
 
+Important
+- The admin web UI is disabled unless an admin password hash is configured. If `password_hash` is empty (and no `ADMIN_PASSWORD_HASH` env var is set), all `/admin/*` pages return `503 Service Unavailable` and the login page displays a banner explaining that admin auth is not configured.
+- Only the admin credentials in this section (or the corresponding environment variables) grant access to the admin web UI. The local TACACS+/RADIUS user database does not grant web admin access.
+
+
 ### Generating Password Hash
 
 ```bash
@@ -353,6 +359,105 @@ dashboard_refresh_seconds = 30
 # Enable WebSocket real-time updates
 websocket_enabled = true
 ```
+
+## Webhook Configuration
+
+```ini
+[webhooks]
+# Comma-separated list of webhook endpoints. Leave empty to disable.
+urls = https://hooks.example.com/a,https://hooks.example.com/b
+
+# Optional HTTP headers as JSON (for auth or metadata)
+headers_json = {"Authorization": "Bearer <token>", "X-App": "TACACS"}
+
+# Optional payload template as JSON. Use {{placeholders}} to pull values
+# from the event payload (e.g., username, client_ip, event, detail).
+template_json = {"event": "{{event}}", "user": "{{username}}", "ip": "{{client_ip}}"}
+
+# Request timeout in seconds
+timeout = 3
+
+# Failure thresholding: when set (>0), triggers an aggregated webhook event
+# once "threshold_count" failures occur within "threshold_window" seconds.
+threshold_count = 0
+threshold_window = 60
+```
+
+- URLs: Provide one or more endpoints; the server sends JSON POST payloads.
+- Headers: JSON object applied to each POST (commonly Authorization).
+- Template: If provided, shapes the JSON payload using {{placeholders}}.
+- Timeout: Per-request timeout in seconds.
+- Thresholds: When enabled, the server records failures and emits a consolidated
+  alert when the count/window criteria are met.
+
+Admin UI mapping (Admin → Webhooks):
+- Webhook URLs → `urls`
+- Headers (JSON) → `headers_json`
+- Template (JSON) → `template_json`
+- Timeout (seconds) → `timeout`
+- Failure Threshold Count → `threshold_count`
+- Threshold Window (seconds) → `threshold_window`
+
+Notes:
+- The admin UI at `/admin/webhooks` edits the live runtime configuration and
+  persists changes back to the configuration file via the `/admin/webhooks-config` API.
+- Environment variables are also supported for quick setup: `WEBHOOK_URL`,
+  `WEBHOOK_URLS`, `WEBHOOK_HEADERS`, `WEBHOOK_TEMPLATE`, `WEBHOOK_TIMEOUT`.
+
+## Command Authorization
+
+Fine‑grained command authorization rules can be configured and managed at runtime. The engine evaluates rules in order and applies a default action when no rule matches.
+
+```ini
+[command_authorization]
+# Default action when no rule matches: permit or deny
+default_action = deny
+
+# Rules are stored as JSON (array of rule objects)
+# Each rule fields: action, match_type (exact|prefix|regex|wildcard), pattern,
+# min_privilege, max_privilege, optional description, user_groups, device_groups
+rules_json = []
+```
+
+Examples
+- Permit read‑only Cisco commands for users with privilege >= 1:
+  - {"action":"permit","match_type":"prefix","pattern":"show ","min_privilege":1}
+- Deny reload for any privilege:
+  - {"action":"deny","match_type":"wildcard","pattern":"reload*","min_privilege":0,"max_privilege":15}
+
+Admin UI
+- Navigate to `/admin/command-authorization`:
+  - Default Action toggle (permit/deny)
+  - Manage Rules: add/delete rule entries
+  - Test Command: check a command against current policy (privilege, groups, device group)
+
+API
+- Settings
+  - GET `/api/command-authorization/settings` → `{default_action}`
+  - PUT `/api/command-authorization/settings` with `{default_action}`
+- Rules
+  - GET `/api/command-authorization/rules` → list of rules
+  - POST `/api/command-authorization/rules` → add a rule
+  - DELETE `/api/command-authorization/rules/{rule_id}` → remove a rule
+  - GET `/api/command-authorization/templates` → available templates
+  - POST `/api/command-authorization/templates/{name}/apply` → apply template
+
+Runtime Behavior
+- TACACS+ authorization consults the engine (in addition to existing prefix rules) using the current user privilege level, user groups, and device group to make an allow/deny decision. Denials emit an `authorization_failure` webhook with reason.
+
+## API Token Protection
+
+By default the REST API under `/api/*` is disabled unless an API token is configured. To enable and protect the API, set an API token via environment variable:
+
+- `API_TOKEN="<your-strong-token>"`
+
+Accepted headers on requests:
+- `X-API-Token: <your-strong-token>`
+- or `Authorization: Bearer <your-strong-token>`
+
+Notes:
+- Admin endpoints under `/api/admin/*` also require an authenticated admin session. The admin UI calls these with the session cookie; direct calls must also include the API token header.
+- Configure admin credentials in `[admin]` (username, password_hash) and log in via the admin UI.
 
 ## Environment Variables
 

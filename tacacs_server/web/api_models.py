@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any
 from typing import Any as _Any
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic import Field as _Field
 
 
@@ -131,8 +131,8 @@ class UserCreate(UserBase):
             raise ValueError("Provide only password or password_hash, not both")
         return self
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "username": "jsmith",
                 "password": "SecurePass123!",
@@ -144,6 +144,7 @@ class UserCreate(UserBase):
                 "description": "Network administrator",
             }
         }
+    )
 
 
 class UserUpdate(BaseModel):
@@ -188,14 +189,15 @@ class UserUpdate(BaseModel):
         example="NewPass456!",
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "privilege_level": 10,
                 "enabled": True,
                 "groups": ["admins"],
             }
         }
+    )
 
 
 class UserResponse(UserBase):
@@ -209,9 +211,9 @@ class UserResponse(UserBase):
         None, description="Last update timestamp", example="2024-01-15T14:30:00Z"
     )
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "username": "jsmith",
@@ -224,7 +226,8 @@ class UserResponse(UserBase):
                 "created_at": "2024-01-01T12:00:00Z",
                 "updated_at": "2024-01-15T14:30:00Z",
             }
-        }
+        },
+    )
 
 
 # ============================================================================
@@ -255,8 +258,8 @@ class DeviceBase(BaseModel):
 class DeviceCreate(DeviceBase):
     """Model for creating a new device"""
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "router-01",
                 "ip_address": "192.168.1.1",
@@ -269,6 +272,7 @@ class DeviceCreate(DeviceBase):
                 },
             }
         }
+    )
 
 
 class DeviceUpdate(BaseModel):
@@ -308,8 +312,7 @@ class DeviceResponse(DeviceBase):
         None, description="Last authentication", example="2024-01-20T09:15:00Z"
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============================================================================
@@ -345,8 +348,8 @@ class DeviceGroupCreate(DeviceGroupBase):
         default=[], description="Allowed user groups", example=[1, 2]
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Core-Routers",
                 "description": "All core network routers",
@@ -355,6 +358,7 @@ class DeviceGroupCreate(DeviceGroupBase):
                 "allowed_user_groups": [1, 2],
             }
         }
+    )
 
 
 class DeviceGroupUpdate(BaseModel):
@@ -399,8 +403,7 @@ class DeviceGroupResponse(DeviceGroupBase):
         None, description="Creation timestamp", example="2024-01-01T12:00:00Z"
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============================================================================
@@ -525,8 +528,8 @@ class DetailedServerStatus(BaseModel):
     )
     radius: RADIUSStats = Field(..., description="RADIUS server statistics")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "running",
                 "uptime": 22.42,
@@ -561,6 +564,7 @@ class DetailedServerStatus(BaseModel):
                 },
             }
         }
+    )
 
 
 class HealthCheck(BaseModel):
@@ -620,8 +624,8 @@ class DetailedHealthCheck(BaseModel):
     database_status: DatabaseHealth = Field(..., description="Database health")
     memory_usage: MemoryUsage = Field(..., description="Memory usage statistics")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "healthy",
                 "uptime_seconds": 4.19,
@@ -633,6 +637,7 @@ class DetailedHealthCheck(BaseModel):
                 "memory_usage": {"rss_mb": 64.56, "vms_mb": 401591.02, "percent": 0.39},
             }
         }
+    )
 
 
 class BackendStats(BaseModel):
@@ -708,8 +713,7 @@ class SessionStats(BaseModel):
     )
     error: str | None = Field(None, description="Error message if unavailable")
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class DetailedStats(BaseModel):
@@ -724,8 +728,8 @@ class DetailedStats(BaseModel):
     database: DatabaseStats = Field(..., description="Database statistics")
     sessions: SessionStats = Field(..., description="Active session statistics")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "server": {
                     "status": "running",
@@ -772,6 +776,7 @@ class DetailedStats(BaseModel):
                 "sessions": {"active_sessions": 0, "total_sessions": 0},
             }
         }
+    )
 
 
 class LocalBackendStats(BaseModel):
@@ -822,8 +827,8 @@ class AuthBackendInfo(BaseModel):
         example={"total_users": 5, "enabled_users": 5},
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "local",
                 "type": "LocalAuthBackend",
@@ -831,6 +836,7 @@ class AuthBackendInfo(BaseModel):
                 "stats": {"total_users": 5, "enabled_users": 5},
             }
         }
+    )
 
 
 # Type alias for the response (List of backends)
@@ -853,8 +859,8 @@ class SessionsResponse(BaseModel):
         default=[], description="List of recent active sessions (up to 5)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "active_sessions": 2,
                 "total_sessions": 100,
@@ -877,6 +883,7 @@ class SessionsResponse(BaseModel):
                 ],
             }
         }
+    )
 
 
 # ============================================================================
@@ -890,8 +897,9 @@ class LoginRequest(BaseModel):
     username: str = Field(..., description="Admin username", example="admin")
     password: str = Field(..., description="Admin password", example="admin123")
 
-    class Config:
-        json_schema_extra = {"example": {"username": "admin", "password": "admin123"}}
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"username": "admin", "password": "admin123"}}
+    )
 
 
 class LoginResponse(BaseModel):
@@ -942,8 +950,7 @@ class AccountingRecord(BaseModel):
         None, description="Additional details", example={"privilege_level": 15}
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AccountingRecordDetail(BaseModel):
@@ -972,9 +979,9 @@ class AccountingRecordDetail(BaseModel):
         ..., description="Record creation timestamp", example="2024-01-01T12:00:00"
     )
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "session_id": 12345,
@@ -987,7 +994,8 @@ class AccountingRecordDetail(BaseModel):
                 "attributes": {"device_ip": "192.168.1.1", "port": "tty1"},
                 "created_at": "2024-01-01T12:00:00",
             }
-        }
+        },
+    )
 
 
 class AccountingResponse(BaseModel):
@@ -999,8 +1007,8 @@ class AccountingResponse(BaseModel):
     count: int = Field(..., description="Number of records returned", example=0)
     period_hours: int = Field(..., description="Time period in hours", example=24)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "records": [
                     {
@@ -1020,6 +1028,7 @@ class AccountingResponse(BaseModel):
                 "period_hours": 24,
             }
         }
+    )
 
 
 # ============================================================================
@@ -1053,14 +1062,15 @@ class ErrorResponse(BaseModel):
         ..., description="Error timestamp", example="2024-01-01T12:00:00Z"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "error": "Resource not found",
                 "details": "Device with ID 123 does not exist",
                 "timestamp": "2024-01-01T12:00:00Z",
             }
         }
+    )
 
 
 class ValidationError(BaseModel):
@@ -1118,8 +1128,8 @@ class UserGroupBase(BaseModel):
 class UserGroupCreate(UserGroupBase):
     """Model for creating a user group."""
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "network-admins",
                 "description": "Network administrators",
@@ -1127,6 +1137,7 @@ class UserGroupCreate(UserGroupBase):
                 "metadata": {"source": "local"},
             }
         }
+    )
 
 
 class UserGroupUpdate(BaseModel):
@@ -1150,14 +1161,15 @@ class UserGroupUpdate(BaseModel):
         None, description="Updated Okta group link", example="Network-Admins"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "description": "Updated description",
                 "privilege_level": 12,
                 "ldap_group": "cn=admins,dc=example,dc=com",
             }
         }
+    )
 
 
 class UserGroupResponse(UserGroupBase):
@@ -1174,9 +1186,9 @@ class UserGroupResponse(UserGroupBase):
         None, description="Last update timestamp", example="2024-01-05T08:30:00Z"
     )
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "name": "network-admins",
@@ -1187,7 +1199,8 @@ class UserGroupResponse(UserGroupBase):
                 "created_at": "2024-01-01T12:00:00Z",
                 "updated_at": "2024-01-05T08:30:00Z",
             }
-        }
+        },
+    )
 
 
 # ============================================================================

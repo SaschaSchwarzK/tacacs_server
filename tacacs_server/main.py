@@ -23,6 +23,8 @@ from tacacs_server.web.admin.auth import (
 from tacacs_server.web.monitoring import (
     set_admin_auth_dependency,
     set_admin_session_manager,
+    set_command_authorizer,
+    set_command_engine,
     set_device_service,
     set_local_user_group_service,
     set_local_user_service,
@@ -67,6 +69,29 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
+        # Initialize webhook runtime config from file
+        try:
+            from tacacs_server.utils.webhook import set_webhook_config as _set_wh
+
+            wh = self.config.get_webhook_config()
+            _set_wh(
+                urls=wh.get("urls"),
+                headers=wh.get("headers"),
+                template=wh.get("template"),
+                timeout=wh.get("timeout"),
+                threshold_count=wh.get("threshold_count"),
+                threshold_window=wh.get("threshold_window"),
+            )
+        except Exception:
+            pass
+        # Apply security-related runtime limits
+        try:
+            sec_cfg = self.config.get_security_config()
+            per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
+            if per_ip_cap >= 1:
+                self.server.max_connections_per_ip = per_ip_cap
+        except Exception:
+            pass
 
         # Initialize device inventory
         try:
@@ -216,6 +241,36 @@ class TacacsServerManager:
                 web_port,
             )
             try:
+                # Initialize command authorization engine from config
+                try:
+                    from tacacs_server.authorization.command_authorization import (
+                        ActionType,
+                        CommandAuthorizationEngine,
+                    )
+
+                    ca_cfg = self.config.get_command_authorization_config()
+                    engine = CommandAuthorizationEngine()
+                    engine.load_from_config(ca_cfg.get("rules") or [])
+                    # set default action
+                    engine.default_action = (
+                        ActionType.PERMIT
+                        if (ca_cfg.get("default_action") == "permit")
+                        else ActionType.DENY
+                    )
+
+                    def authorizer(cmd: str, priv: int, groups, device_group):
+                        allowed, reason = engine.authorize_command(
+                            cmd,
+                            privilege_level=priv,
+                            user_groups=groups,
+                            device_group=device_group,
+                        )
+                        return allowed, reason
+
+                    set_command_engine(engine)
+                    set_command_authorizer(authorizer)
+                except Exception as e:
+                    logger.warning("Command authorization initialization failed: %s", e)
                 started = False
                 if self.server:
                     started = self.server.enable_web_monitoring(

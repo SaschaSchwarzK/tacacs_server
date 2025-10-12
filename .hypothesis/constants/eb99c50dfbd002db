@@ -1,0 +1,4 @@
+# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/auth/__init__.py
+# hypothesis_version: 6.140.2
+
+['LDAPAuthBackend', 'LocalAuthBackend', 'OktaAuthBackend']

@@ -1,0 +1,53 @@
+apiVersion: 2021-09-01
+location: ${AZ_LOCATION}
+name: tacacs-aci
+properties:
+  containers:
+    - name: tacacs
+      properties:
+        image: ${IMAGE}
+        resources:
+          requests:
+            cpu: 1
+            memoryInGb: 1.5
+        environmentVariables:
+          - name: TACACS_CONFIG
+            value: /app/config/tacacs.aci.ini
+          - name: ADMIN_USERNAME
+            value: ${ADMIN_USERNAME}
+          - name: ADMIN_PASSWORD_HASH
+            secureValue: ${ADMIN_PASSWORD_HASH}
+        command: ["tini","--","tacacs-server","--config","/app/config/tacacs.aci.ini"]
+        ports:
+          - port: 49
+            protocol: TCP
+          - port: 1812
+            protocol: UDP
+          - port: 1813
+            protocol: UDP
+          - port: 8080
+            protocol: TCP
+        volumeMounts:
+          - mountPath: /app/data
+            name: data
+  osType: Linux
+  ipAddress:
+    type: Public
+    ports:
+      - port: 49
+        protocol: TCP
+      - port: 1812
+        protocol: UDP
+      - port: 1813
+        protocol: UDP
+      - port: 8080
+        protocol: TCP
+  restartPolicy: Always
+  volumes:
+    - name: data
+      azureFile:
+        shareName: ${AZURE_FILES_SHARE}
+        storageAccountName: ${AZURE_STORAGE_ACCOUNT}
+        storageAccountKey: ${AZURE_STORAGE_KEY}
+tags: {}
+type: Microsoft.ContainerInstance/containerGroups
