@@ -186,6 +186,18 @@ class TacacsServerManager:
                 set_admin_session_manager(self.admin_session_manager)
                 dependency = get_admin_auth_dependency(self.admin_session_manager)
                 set_admin_auth_dependency(dependency)
+                logger.info("Admin authentication enabled for username '%s'", username)
+                # Proactive bcrypt availability check to surface image issues early
+                try:
+                    import bcrypt  # type: ignore
+
+                    _ = bcrypt.__version__
+                except Exception as exc:
+                    logger.error(
+                        "Admin auth configured but bcrypt unavailable: %s. "
+                        "Ensure image has bcrypt built for this Python version.",
+                        exc,
+                    )
             else:
                 logger.warning(
                     "Admin password hash not configured; "
