@@ -339,7 +339,7 @@ class TestUserEndpoints:
         mock_user.username = "testuser"
         mock_user.privilege_level = 1
         mock_user.service = "exec"
-        mock_user.shell_command = ["show"]
+        # shell_command removed
         mock_user.groups = ["users"]
         mock_user.enabled = True
         mock_user.description = None

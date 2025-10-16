@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'tacacs-server'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['tacacs-server:8080']
+

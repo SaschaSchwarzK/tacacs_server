@@ -66,10 +66,6 @@
                 {% endif %}
             </div>
             <div class="modal-field">
-                <label for="formShell">Shell Commands (comma separated)</label>
-                <input type="text" id="formShell" placeholder="show">
-            </div>
-            <div class="modal-field">
                 <label for="formDescription">Description</label>
                 <input type="text" id="formDescription" placeholder="optional">
             </div>
@@ -154,7 +150,6 @@ function openUserModal(action = 'create', user = null) {
         document.getElementById('formUsername').value = user.username;
         document.getElementById('formPrivilege').value = user.privilege_level;
         setMultiSelectValues(document.getElementById('formGroups'), user.groups || []);
-        document.getElementById('formShell').value = user.shell_command.join(', ');
         document.getElementById('formDescription').value = user.description || '';
         document.getElementById('formEnabled').value = user.enabled ? 'true' : 'false';
     } else {
@@ -170,7 +165,7 @@ async function editUser(username) {
         const user = await resp.json();
         openUserModal('edit', user);
     } catch (err) {
-        alert(err.message || 'Failed to load user');
+        showToast(err.message || 'Failed to load user', 'error');
     }
 }
 
@@ -186,7 +181,6 @@ async function submitUser(event) {
     const selectedGroups = getSelectedValues(groupSelect);
     const payload = {
         privilege_level: Number(document.getElementById('formPrivilege').value),
-        shell_command: document.getElementById('formShell').value ? document.getElementById('formShell').value.split(',').map(s => s.trim()).filter(Boolean) : undefined,
         description: document.getElementById('formDescription').value || undefined,
         enabled: document.getElementById('formEnabled').value === 'true',
         service: 'exec',
@@ -233,10 +227,12 @@ async function submitUser(event) {
                 await updatePassword(username, password);
             }
         }
-        window.location.reload();
+        showToast(action === 'create' ? 'User created' : 'User updated');
+        setTimeout(() => window.location.reload(), 500);
     } catch (err) {
         errorBox.innerText = err.message;
         errorBox.style.display = 'block';
+        showToast(err.message || 'Request failed', 'error');
     }
 }
 
@@ -260,7 +256,8 @@ async function submitPassword(event) {
 
     try {
         await updatePassword(username, password);
-        window.location.reload();
+        showToast('Password updated');
+        setTimeout(() => window.location.reload(), 500);
     } catch (err) {
         errorBox.innerText = err.message;
         errorBox.style.display = 'block';
@@ -284,9 +281,10 @@ async function deleteUser(username) {
     const resp = await fetch(`/admin/users/${username}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
     if (!resp.ok) {
         const detail = await resp.json().catch(() => ({}));
-        alert(detail.detail || 'Failed to delete user');
+        showToast(detail.detail || 'Failed to delete user', 'error');
     }
-    window.location.reload();
+    showToast('User deleted');
+    setTimeout(() => window.location.reload(), 400);
 }
 
 function deleteUserRow(username) {

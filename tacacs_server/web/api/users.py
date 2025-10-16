@@ -34,7 +34,6 @@ def _user_to_response(record) -> dict:
         "username": record.username,
         "privilege_level": record.privilege_level,
         "service": record.service,
-        "shell_command": list(record.shell_command),
         "groups": list(record.groups),
         "enabled": record.enabled,
         "description": record.description,
@@ -111,7 +110,6 @@ async def create_user(user: UserCreate):
             password_hash=user.password_hash,
             privilege_level=user.privilege_level,
             service=user.service,
-            shell_command=user.shell_command,
             groups=user.groups,
             enabled=user.enabled,
             description=user.description,
@@ -150,8 +148,6 @@ async def update_user(
             update_kwargs["privilege_level"] = data["privilege_level"]
         if "service" in data:
             update_kwargs["service"] = data["service"]
-        if "shell_command" in data:
-            update_kwargs["shell_command"] = data["shell_command"]
         if "groups" in data:
             update_kwargs["groups"] = data["groups"]
         if "enabled" in data:

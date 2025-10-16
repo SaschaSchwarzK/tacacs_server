@@ -106,6 +106,9 @@ use_tls = true
 # Connection timeout in seconds
 timeout = 10
 
+# Optional: connection pool size for reused TCP sessions (default 5)
+pool_size = 5
+
 # Additional search filters (optional)
 user_filter = (objectClass=person)
 
@@ -149,17 +152,56 @@ group_attribute = memberOf
 # Okta organization URL
 org_url = https://company.okta.com
 
-# API token for authentication
-token = ${OKTA_API_TOKEN}
+# OAuth2 client id for password grant (required)
+client_id = ${OKTA_CLIENT_ID}
 
-# Connection timeout
-timeout = 10
+# Optional: Okta Management API token (SSWS) for group lookups
+api_token = ${OKTA_API_TOKEN}
 
-# Group filter for authorization
-group_filter = tacacs_
+# TLS verification (default true)
+verify_tls = true
 
-# Default privilege level for Okta users
-default_privilege = 1
+# Optional: Map Okta group names to privilege levels (JSON object)
+# Example: {"Network-Admins": 15, "Operators": 7, "Users": 1}
+group_privilege_map = {"Level15": 15, "Level7": 7, "Level1": 1}
+
+# Optional: Require membership in a mapped group to succeed auth (default false)
+require_group_for_auth = false
+
+# Connection and pooling options (defaults used if not set)
+request_timeout = 10
+connect_timeout = 3
+read_timeout = 10
+pool_maxsize = 50
+max_retries = 2
+backoff_factor = 0.3
+trust_env = false         # ignore system proxy vars when false
+
+# Group cache controls
+group_cache_ttl = 1800
+group_cache_maxsize = 50000
+group_cache_fail_ttl = 60
+
+# Flow controls
+# Enable/disable Resource Owner Password Credentials grant
+ropc_enabled = true
+# Optional token introspection when expiry is unknown (requires client_secret)
+introspection_enabled = false
+client_secret = ${OKTA_CLIENT_SECRET}
+use_basic_auth = false    # use HTTP Basic for confidential clients on token requests
+strict_group_mode = false # raise error at init if require_group_for_auth=true but api_token missing
+
+# Circuit breaker for Okta outages
+circuit_failures = 5
+circuit_cooldown = 30
+
+# Notes:
+# - Management API token scopes: ensure the token has permission to read user groups.
+#   Typical scope: okta.groups.read (via API token privileges). Consult Okta docs.
+# - /users/{id}/groups results may paginate; the implementation follows Link rel="next".
+# - 429 handling: The implementation honors Retry-After on token and groups endpoints.
+#   For tokens, Retry-After may open the circuit breaker for a short cooldown; for
+#   groups, Retry-After increases the short negative cache TTL to reduce retries.
 ```
 
 ## Database Configuration

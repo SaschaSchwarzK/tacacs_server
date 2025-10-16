@@ -77,9 +77,16 @@ def _update_config_paths(
 
     # Ensure admin credentials in file config so AdminSessionManager picks them up
     cfg.setdefault("admin", {})
-
     cfg["admin"]["username"] = "admin"
-    cfg["admin"]["password_hash"] = hashlib.sha256(b"AdminPass123!").hexdigest()
+    # Prefer bcrypt for admin auth (AdminSessionManager requires bcrypt)
+    try:
+        import bcrypt as _bcrypt
+
+        _admin_hash = _bcrypt.hashpw(b"AdminPass123!", _bcrypt.gensalt()).decode()
+    except Exception:
+        # Fallback to a precomputed bcrypt hash for "AdminPass123!" (cost 12)
+        _admin_hash = "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
+    cfg["admin"]["password_hash"] = _admin_hash
 
     devices_original = _resolve_path(
         base_dir, cfg.get("devices", "database", fallback="data/devices.db")
@@ -134,7 +141,8 @@ def _update_config_paths(
     cfg.setdefault("monitoring", {})
     cfg["monitoring"]["enabled"] = "true"
     cfg["monitoring"]["web_host"] = cfg["monitoring"].get("web_host", "127.0.0.1")
-    cfg["monitoring"]["web_port"] = cfg["monitoring"].get("web_port", "8080")
+    # Always select a free port for web monitoring in tests to avoid collisions
+    cfg["monitoring"]["web_port"] = str(_find_free_port())
 
     return mapping
 
@@ -184,9 +192,10 @@ def isolated_test_environment(tmp_path_factory):
     os.environ["TEST_TACACS_PORT"] = str(tacacs_port)
     # Pick a free web monitoring port as well to avoid collisions
     try:
-        web_port = int(cfg["monitoring"].get("web_port", "0")) or _find_free_port()
-    except Exception:
+        # Choose a fresh free port regardless of previous value to avoid conflicts
         web_port = _find_free_port()
+    except Exception:
+        web_port = 8080
     cfg["monitoring"]["web_port"] = str(web_port)
     os.environ["TEST_WEB_PORT"] = str(web_port)
     # Update config file with selected web port
@@ -218,6 +227,8 @@ def isolated_test_environment(tmp_path_factory):
         os.environ["SECURE_COOKIES"] = "false"
         # Enable API and enforce token on all /api/* endpoints during tests
         os.environ["API_TOKEN"] = os.environ.get("TEST_API_TOKEN", "test-token")
+        # Expose the selected local auth DB path explicitly for other fixtures
+        os.environ["TACACS_TEST_AUTH_DB"] = str(auth_db_path)
         yield {
             "config_path": config_path,
             "work_dir": work_dir,
@@ -244,6 +255,7 @@ def isolated_test_environment(tmp_path_factory):
             os.environ.pop("API_TOKEN", None)
         else:
             os.environ["API_TOKEN"] = _api_token_prev
+        os.environ.pop("TACACS_TEST_AUTH_DB", None)
         # Clean up the temporary working directory (databases, logs)
         try:
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -294,73 +306,68 @@ def server_process():
 
 
 @pytest.fixture(scope="session")
-def tacacs_server():
+def tacacs_server(isolated_test_environment):
     """Start TACACS+ server for tests that need it"""
     server_process = None
     try:
-        # Resolve and, if necessary, generate a safe config for CI
-        base_config = os.environ.get("TACACS_CONFIG", "config/tacacs.conf")
-        cfg_check = configparser.ConfigParser(interpolation=None)
-        cfg_check.read(base_config)
-        cfg_path = Path(base_config)
-        if (
-            not cfg_path.exists()
-            or cfg_check.getint("server", "port", fallback=49) < 1024
-        ):
-            # Create a temp config with non-privileged ports and radius disabled
-            # Place under project cwd (allowed by LocalAuthStore path guard)
-            base_tmp_root = Path(
-                os.environ.get("TACACS_TEST_WORKDIR", Path.cwd() / ".pytest-runtime")
-            )
-            base_tmp_root.mkdir(parents=True, exist_ok=True)
-            tmp_dir = Path(tempfile.mkdtemp(prefix="server_", dir=str(base_tmp_root)))
-            cfg_path = tmp_dir / "tacacs_test.conf"
-            if not cfg_check.has_section("server"):
-                cfg_check.add_section("server")
-            cfg_check.set(
-                "server", "host", cfg_check.get("server", "host", fallback="127.0.0.1")
-            )
-            cfg_check.set("server", "port", str(_find_free_port()))
-            if not cfg_check.has_section("radius"):
-                cfg_check.add_section("radius")
-            cfg_check.set("radius", "enabled", "false")
-            if not cfg_check.has_section("monitoring"):
-                cfg_check.add_section("monitoring")
-            mon_port = cfg_check.get("monitoring", "web_port", fallback="0")
-            if not mon_port or mon_port == "0":
-                cfg_check.set("monitoring", "web_port", str(_find_free_port()))
-            # Ensure admin auth is configured so admin login works in tests
-            if not cfg_check.has_section("admin"):
-                cfg_check.add_section("admin")
-            cfg_check.set("admin", "username", "admin")
-            try:
-                import bcrypt as _bcrypt
-
-                _file_hash = _bcrypt.hashpw(
-                    b"AdminPass123!", _bcrypt.gensalt()
-                ).decode()
-            except Exception:
-                _file_hash = (
-                    "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
+        # Reuse the session-scoped TACACS_CONFIG produced by isolated_test_environment
+        # Use the config produced by isolated_test_environment to ensure
+        # consistent DB/ports across tests and subprocess.
+        session_cfg_path = isolated_test_environment.get("config_path")
+        if not session_cfg_path or not Path(session_cfg_path).exists():
+            # Fallback to env if dict missing (defensive)
+            session_cfg_path = os.environ.get("TACACS_CONFIG")
+            if not session_cfg_path or not Path(session_cfg_path).exists():
+                raise RuntimeError(
+                    "Session TACACS_CONFIG not set; cannot start server for tests"
                 )
-            cfg_check.set("admin", "password_hash", _file_hash)
-            # Force isolated DB paths inside tmp_dir regardless of input
-            if not cfg_check.has_section("auth"):
-                cfg_check.add_section("auth")
-            iso_auth_db = tmp_dir / "local_auth.db"
-            cfg_check.set("auth", "local_auth_db", str(iso_auth_db))
-            if not cfg_check.has_section("devices"):
-                cfg_check.add_section("devices")
-            iso_dev_db = tmp_dir / "devices.db"
-            cfg_check.set("devices", "database", str(iso_dev_db))
-            if not cfg_check.has_section("database"):
-                cfg_check.add_section("database")
-            cfg_check.set(
-                "database", "accounting_db", str(tmp_dir / "tacacs_accounting.db")
-            )
-            with cfg_path.open("w") as f:
-                cfg_check.write(f)
-            os.environ["TACACS_CONFIG"] = str(cfg_path)
+        cfg_path = Path(str(session_cfg_path))
+        cfg_check = configparser.ConfigParser(interpolation=None)
+        cfg_check.read(session_cfg_path)
+
+        # Make minimal, safe adjustments for a local test run
+        if not cfg_check.has_section("server"):
+            cfg_check.add_section("server")
+        cfg_check.set("server", "host", "127.0.0.1")
+        # If the session config chose a privileged/occupied port, switch to a free one
+        try:
+            port_val = int(cfg_check.get("server", "port", fallback="49"))
+        except Exception:
+            port_val = 49
+        if port_val < 1024:
+            cfg_check.set("server", "port", str(_find_free_port()))
+
+        if not cfg_check.has_section("radius"):
+            cfg_check.add_section("radius")
+        cfg_check.set("radius", "enabled", "false")
+
+        if not cfg_check.has_section("monitoring"):
+            cfg_check.add_section("monitoring")
+        cfg_check.set("monitoring", "enabled", "true")
+        cfg_check.set("monitoring", "web_host", "127.0.0.1")
+        cfg_check.set("monitoring", "web_port", str(_find_free_port()))
+
+        # Ensure admin auth is present (bcrypt or known fallback)
+        if not cfg_check.has_section("admin"):
+            cfg_check.add_section("admin")
+        cfg_check.set("admin", "username", "admin")
+        try:
+            import bcrypt as _bcrypt
+            _file_hash = _bcrypt.hashpw(b"AdminPass123!", _bcrypt.gensalt()).decode()
+        except Exception:
+            _file_hash = "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
+        cfg_check.set("admin", "password_hash", _file_hash)
+
+        # Persist changes back to the same session config
+        with cfg_path.open("w") as f:
+            cfg_check.write(f)
+
+        # DEBUG: show effective config + auth DB path
+        try:
+            print(f"[SERVER-DEBUG] server_cfg={cfg_path}")
+            print(f"[SERVER-DEBUG] server_auth_db={cfg_check.get('auth','local_auth_db')}")
+        except Exception:
+            pass
 
         # Start server in background, capture logs for debugging in CI
         env_log = os.environ.get("TACACS_TEST_LOG", "").strip()
@@ -493,6 +500,69 @@ def run_test_client():
     return _run_client
 
 
+# ------------------------------
+# RADIUS live test fixture
+# ------------------------------
+
+
+@pytest.fixture(scope="session")
+def radius_enabled_server():
+    """Start an in-process RADIUS server (auth + acct) for integration tests.
+
+    - Binds to 127.0.0.1 on random free ports
+    - Registers a local test client for 127.0.0.1/32 with secret 'radsecret'
+    - Does not require authentication backends for basic reject/accept flow tests
+    """
+    from tacacs_server.radius.server import RADIUSServer
+
+    auth_port = _find_free_port()
+    acct_port = _find_free_port()
+    server = RADIUSServer(host="127.0.0.1", port=auth_port, accounting_port=acct_port)
+    # Register local client
+    server.add_client("127.0.0.1/32", secret="radsecret", name="local-test")
+    # Attach a local backend and seed a test user for PASS paths
+    try:
+        from tacacs_server.auth.local import LocalAuthBackend
+        from tacacs_server.auth.local_user_service import LocalUserService
+
+        # Use a temporary DB under the test workdir
+        db_path = str(
+            (
+                Path(os.environ.get("TACACS_TEST_WORKDIR", "."))
+                / "radius_local_auth.db"
+            ).resolve()
+        )
+        lus = LocalUserService(db_path)
+        # Create user 'radiususer' with password 'radiuspass'
+        try:
+            lus.create_user("radiususer", password="radiuspass", privilege_level=1)
+        except Exception:
+            pass
+        backend = LocalAuthBackend(db_path, service=lus)
+        server.add_auth_backend(backend)
+    except Exception:
+        # Backend optional; tests can still assert Reject behavior
+        pass
+    # Start threads
+    server.start()
+
+    # Wait briefly for sockets to bind
+    time.sleep(0.2)
+
+    yield {
+        "host": "127.0.0.1",
+        "auth_port": auth_port,
+        "acct_port": acct_port,
+        "secret": "radsecret",
+        "server": server,
+    }
+
+    try:
+        server.stop()
+    except Exception:
+        pass
+
+
 def pytest_sessionfinish(session, exitstatus):
     """Clean up test databases after all tests complete"""
     patterns = [
@@ -545,6 +615,19 @@ def _default_requests_timeout(monkeypatch):
                         "TEST_API_TOKEN", "test-token"
                     )
                     kwargs["headers"] = headers
+            # Remap hard-coded localhost:8080 urls to dynamic test web port
+            try:
+                from urllib.parse import urlparse, urlunparse
+
+                parsed = urlparse(url)
+                if parsed.scheme in ("http", "https") and parsed.hostname in ("localhost", "127.0.0.1"):
+                    # Always prefer the dynamic test web port for localhost URLs
+                    test_port = os.environ.get("TEST_WEB_PORT")
+                    if test_port:
+                        netloc = f"{parsed.hostname}:{test_port}"
+                        url = urlunparse(parsed._replace(netloc=netloc))
+            except Exception:
+                pass
         except Exception:
             pass
         return _ORIG_REQUEST(self, method, url, **kwargs)

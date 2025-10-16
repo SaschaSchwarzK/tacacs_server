@@ -8,11 +8,30 @@ def test_live_command_authorization_admin_api(tacacs_server):
     s = requests.Session()
 
     # Login
+    try:
+        hh = s.get(f"{base}/api/health", timeout=5)
+        print(f"[ADMIN-DEBUG] /api/health -> {hh.status_code} {(hh.text or '')[:160]}")
+    except Exception as e:
+        print(f"[ADMIN-DEBUG] health check failed: {e}")
+    try:
+        cfg = s.get(f"{base}/api/admin/config", timeout=5)
+        print(f"[ADMIN-DEBUG] /api/admin/config -> {cfg.status_code} {(cfg.text or '')[:200]}")
+    except Exception as e:
+        print(f"[ADMIN-DEBUG] admin config fetch failed: {e}")
+
     r = s.post(
         f"{base}/admin/login",
         json={"username": "admin", "password": "AdminPass123!"},
         timeout=5,
     )
+    if r.status_code not in (200, 303):
+        try:
+            logs = s.get(f"{base}/api/admin/logs", params={"lines": 200}, timeout=5)
+            print(
+                f"[ADMIN-DEBUG] login failed: {r.status_code} {r.text[:200]} /api/admin/logs -> {logs.status_code} {(logs.text or '')[:600]}"
+            )
+        except Exception as e:
+            print(f"[ADMIN-DEBUG] fetching logs failed: {e}")
     assert r.status_code in (200, 303), r.text
 
     # Update settings: default deny

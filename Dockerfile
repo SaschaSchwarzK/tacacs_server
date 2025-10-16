@@ -9,6 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# System build deps for native wheels fallback (e.g., bcrypt)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml poetry.lock ./
 # Install Poetry and the export plugin to generate requirements.txt
 RUN pip install --no-cache-dir poetry poetry-plugin-export \
@@ -34,9 +39,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install tini and curl for healthchecks
+# Install tini/curl for healthchecks and runtime libs for bcrypt (libffi)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tini curl \
+      tini curl libffi8 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user and runtime dirs

@@ -8,6 +8,7 @@ import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
+import tempfile
 
 from .local_models import LocalUserGroupRecord, LocalUserRecord
 
@@ -23,8 +24,17 @@ class LocalAuthStore:
         # Ensure path is within expected directory structure (allow pytest temp dirs)
         cwd = str(Path.cwd().resolve())
         db_str = str(self.db_path)
-        if not (db_str.startswith(cwd) or "/pytest-" in db_str):
-            raise ValueError(f"Database path outside allowed directory: {self.db_path}")
+        # Allow paths within:
+        # - Current working directory tree
+        # - Pytest temp directories
+        # - System temporary directory (handles macOS /private prefix)
+        sys_tmp = tempfile.gettempdir()
+        sys_tmp_private = "/private" + sys_tmp if not sys_tmp.startswith("/private") else sys_tmp
+        allowed_prefixes = (cwd, sys_tmp, sys_tmp_private)
+        if not (db_str.startswith(allowed_prefixes) or "/pytest-" in db_str):
+            raise ValueError(
+                f"Database path outside allowed directory: {self.db_path}"
+            )
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -66,7 +76,6 @@ class LocalAuthStore:
                     password_hash TEXT,
                     privilege_level INTEGER NOT NULL DEFAULT 1,
                     service TEXT NOT NULL DEFAULT 'exec',
-                    shell_command TEXT NOT NULL DEFAULT '[]',
                     groups TEXT NOT NULL DEFAULT '["users"]',
                     enabled INTEGER NOT NULL DEFAULT 1,
                     description TEXT,
@@ -161,9 +170,9 @@ class LocalAuthStore:
                 """
                 INSERT INTO local_users (
                     username, password, password_hash, privilege_level,
-                    service, shell_command, groups, enabled, description,
+                    service, groups, enabled, description,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.username,
@@ -171,7 +180,6 @@ class LocalAuthStore:
                     record.password_hash,
                     record.privilege_level,
                     record.service,
-                    self._dump_list(record.shell_command),
                     self._dump_list(record.groups),
                     1 if record.enabled else 0,
                     record.description,
@@ -193,7 +201,6 @@ class LocalAuthStore:
         *,
         privilege_level: int | None = None,
         service: str | None = None,
-        shell_command: Iterable[str] | None = None,
         groups: Iterable[str] | None = None,
         enabled: bool | None = None,
         description: str | None = None,
@@ -206,9 +213,6 @@ class LocalAuthStore:
         if service is not None:
             assignments.append("service = ?")
             params.append(service)
-        if shell_command is not None:
-            assignments.append("shell_command = ?")
-            params.append(self._dump_list(shell_command))
         if groups is not None:
             assignments.append("groups = ?")
             params.append(self._dump_list(groups))
@@ -387,7 +391,6 @@ class LocalAuthStore:
             username=row["username"],
             privilege_level=int(row["privilege_level"]),
             service=row["service"],
-            shell_command=self._load_list(row["shell_command"]),
             groups=self._load_list(row["groups"]),
             enabled=bool(row["enabled"]),
             description=row["description"],

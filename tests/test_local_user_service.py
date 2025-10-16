@@ -30,7 +30,6 @@ def test_local_user_crud(user_service: LocalUserService, tmp_path):
         "alice",
         password_hash=legacy_hash,
         groups=["netops"],
-        shell_command=["show", "configure"],
         privilege_level=7,
         description="Network engineer",
     )
@@ -109,8 +108,7 @@ def test_local_user_seed_from_json(tmp_path):
                     "privilege_level": 5,
                     "service": "exec",
                     "groups": ["legacy"],
-                    "enabled": True,
-                    "shell_command": ["show"],
+                "enabled": True,
                 }
             }
         )
@@ -130,7 +128,6 @@ def test_local_user_seed_from_json(tmp_path):
         service="exec",
         groups=["legacy"],
         enabled=True,
-        shell_command=["show"],
     )
     assert user.username == "dan"
     assert user.privilege_level == 5

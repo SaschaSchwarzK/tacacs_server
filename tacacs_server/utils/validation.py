@@ -396,11 +396,6 @@ class FormValidator:
                 data["service"], "service", min_len=1, max_len=32
             )
 
-        if "shell_command" in data:
-            validated["shell_command"] = InputValidator.validate_string_list(
-                data["shell_command"], "shell_command"
-            )
-
         if "groups" in data:
             validated["groups"] = InputValidator.validate_string_list(
                 data["groups"], "groups"

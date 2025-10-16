@@ -79,6 +79,21 @@ services:
     environment:
       - TACACS_CONFIG=/app/config/tacacs.conf
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      # Optional runtime tuning
+      - TACACS_LISTEN_BACKLOG=512
+      - TACACS_CLIENT_TIMEOUT=15
+      - TACACS_MAX_PACKET_LENGTH=4096
+      - TACACS_IPV6_ENABLED=false
+      - TACACS_TCP_KEEPALIVE=true
+      - TACACS_TCP_KEEPIDLE=60
+      - TACACS_TCP_KEEPINTVL=10
+      - TACACS_TCP_KEEPCNT=5
+      # RADIUS tuning
+      - RADIUS_WORKERS=16
+      - RADIUS_SOCKET_TIMEOUT=1.0
+      - RADIUS_SO_RCVBUF=2097152
+      - TACACS_USE_THREAD_POOL=true
+      - TACACS_THREAD_POOL_MAX=200
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
@@ -122,6 +137,14 @@ docker-compose logs -f tacacs-server
 
 # Scale for high availability
 docker-compose up -d --scale tacacs-server=3
+
+High availability notes
+- Replicas by themselves do not replicate state. The current implementation does not sync data between per-instance databases.
+- For effective HA, use a shared datastore and consistent configuration across replicas:
+  - Shared data: Back the application with a shared database or a common persistent volume for `data/` so all instances operate on the same state.
+  - Config sync: Distribute `config/tacacs.conf`, device/group definitions, and rate limits via a central mechanism (ConfigMap/Secret in Kubernetes, shared volume, or config management).
+  - Secrets: Provide identical secrets and admin password hash to all replicas via your secret manager.
+  - Avoid split-brain: Do not run isolated SQLite files per pod/container; this yields divergent state and undermines HA.
 ```
 
 ## Kubernetes Deployment
@@ -301,6 +324,16 @@ User=tacacs
 Group=tacacs
 WorkingDirectory=/opt/tacacs_server
 Environment=PATH=/opt/tacacs_server/.venv/bin
+Environment=TACACS_LISTEN_BACKLOG=512
+Environment=TACACS_CLIENT_TIMEOUT=15
+Environment=TACACS_MAX_PACKET_LENGTH=4096
+Environment=TACACS_IPV6_ENABLED=false
+Environment=TACACS_TCP_KEEPALIVE=true
+Environment=TACACS_USE_THREAD_POOL=true
+Environment=TACACS_THREAD_POOL_MAX=200
+Environment=RADIUS_WORKERS=16
+Environment=RADIUS_SOCKET_TIMEOUT=1.0
+Environment=RADIUS_SO_RCVBUF=2097152
 ExecStart=/opt/tacacs_server/.venv/bin/python -m tacacs_server.main --config /opt/tacacs_server/config/tacacs.conf
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
@@ -380,12 +413,16 @@ backend radius_auth_servers
 frontend web_frontend
     bind *:8080
     mode http
+    option forwardfor
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
     default_backend web_servers
 
 backend web_servers
     mode http
     balance roundrobin
-    option httpchk GET /api/health
+    option httpchk GET /ready
+    timeout http-keep-alive 60s
+    timeout tunnel 1h
     server web1 10.0.1.10:8080 check
     server web2 10.0.1.11:8080 check
     server web3 10.0.1.12:8080 check

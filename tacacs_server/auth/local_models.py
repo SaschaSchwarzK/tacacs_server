@@ -14,7 +14,6 @@ class LocalUserRecord:
     username: str
     privilege_level: int = 1
     service: str = "exec"
-    shell_command: list[str] = field(default_factory=lambda: ["show"])
     groups: list[str] = field(default_factory=lambda: ["users"])
     enabled: bool = True
     description: str | None = None
@@ -30,7 +29,6 @@ class LocalUserRecord:
             "password_hash": self.password_hash,
             "privilege_level": self.privilege_level,
             "service": self.service,
-            "shell_command": list(self.shell_command),
             "groups": list(self.groups),
             "enabled": self.enabled,
             "description": self.description,
@@ -42,7 +40,6 @@ class LocalUserRecord:
             username=username,
             privilege_level=int(payload.get("privilege_level", 1)),
             service=str(payload.get("service", "exec")),
-            shell_command=list(payload.get("shell_command", ["show"])),
             groups=list(payload.get("groups", ["users"])),
             enabled=bool(payload.get("enabled", True)),
             description=payload.get("description"),

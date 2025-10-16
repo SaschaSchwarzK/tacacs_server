@@ -7,6 +7,17 @@ def test_admin_login_and_access_admin_api(tacacs_server):
     base = f"http://{tacacs_server['host']}:{tacacs_server['web_port']}"
 
     s = requests.Session()
+    # Debug server health
+    try:
+        h = s.get(f"{base}/api/health", timeout=5)
+        print(f"[ADMIN-DEBUG] /api/health -> {h.status_code} {(h.text or '')[:160]}")
+    except Exception as e:
+        print(f"[ADMIN-DEBUG] health check failed: {e}")
+    try:
+        cfg = s.get(f"{base}/api/admin/config", timeout=5)
+        print(f"[ADMIN-DEBUG] /api/admin/config -> {cfg.status_code} {(cfg.text or '')[:200]}")
+    except Exception as e:
+        print(f"[ADMIN-DEBUG] admin config fetch failed: {e}")
 
     # Login via JSON to get session cookie
     r = s.post(
@@ -14,6 +25,14 @@ def test_admin_login_and_access_admin_api(tacacs_server):
         json={"username": "admin", "password": "AdminPass123!"},
         timeout=5,
     )
+    if r.status_code not in (200, 303):
+        try:
+            logs = s.get(f"{base}/api/admin/logs", params={"lines": 200}, timeout=5)
+            print(
+                f"[ADMIN-DEBUG] login failed: {r.status_code} {r.text[:200]} /api/admin/logs -> {logs.status_code} {(logs.text or '')[:600]}"
+            )
+        except Exception as e:
+            print(f"[ADMIN-DEBUG] fetching logs failed: {e}")
     assert r.status_code in (200, 303), r.text
 
     # Access an admin-protected API endpoint using the session

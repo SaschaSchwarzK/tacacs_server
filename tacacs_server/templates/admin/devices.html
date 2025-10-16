@@ -118,7 +118,7 @@ async function editDevice(id) {
         document.getElementById('deviceNetwork').value = device.network || '';
         setSelectValue(document.getElementById('deviceGroup'), device.group || '');
     } catch (err) {
-        alert(err.message || 'Failed to load device');
+        showToast(err.message || 'Failed to load device', 'error');
     }
 }
 
@@ -152,7 +152,8 @@ async function submitDevice(event) {
             const data = await resp.json().catch(() => ({}));
             throw new Error(data.detail || 'Request failed');
         }
-        window.location.reload();
+        showToast(deviceId ? 'Device updated' : 'Device created');
+        setTimeout(() => window.location.reload(), 500);
     } catch (err) {
         errorBox.innerText = err.message;
         errorBox.style.display = 'block';
@@ -163,9 +164,10 @@ async function deleteDevice(id) {
     if (!confirm('Delete this device?')) return;
     const resp = await fetch(`/admin/devices/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
     if (!resp.ok) {
-        alert('Failed to delete device');
+        showToast('Failed to delete device', 'error');
     }
-    window.location.reload();
+    showToast('Device deleted');
+    setTimeout(() => window.location.reload(), 400);
 }
 </script>
 {% endblock %}

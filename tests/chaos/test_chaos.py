@@ -420,11 +420,20 @@ class AuthBackendFailureExperiment(ChaosExperiment):
         self.backend = backend
 
     def steady_state_hypothesis(self) -> bool:
-        """System is responsive"""
+        """System is responsive (use dynamic port; print debug)."""
         try:
-            response = requests.get("http://localhost:8080/api/health", timeout=5)
+            base = (
+                os.environ.get("TACACS_WEB_BASE")
+                or f"http://127.0.0.1:{os.environ.get('TEST_WEB_PORT', '8080')}"
+            )
+            print(f"[CHAOS-DEBUG] steady_state base={base}")
+            response = requests.get(f"{base}/api/health", timeout=5)
+            print(
+                f"[CHAOS-DEBUG] /api/health -> {response.status_code} body[:120]={(response.text or '')[:120].replace('\n',' ')}"
+            )
             return response.status_code == 200
-        except Exception:
+        except Exception as e:
+            print(f"[CHAOS-DEBUG] steady_state error: {e}")
             return False
 
     def inject_chaos(self):

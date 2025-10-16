@@ -42,7 +42,7 @@
 <script>
 async function loadRules(){
   const r = await fetch('/api/command-authorization/rules');
-  if(!r.ok){ document.getElementById('status').textContent = 'Failed to load rules'; return; }
+  if(!r.ok){ flashStatus(document.getElementById('status'), 'Failed to load rules', 'error'); return; }
   const data = await r.json();
   const tbody = document.querySelector('#rules-table tbody');
   tbody.innerHTML = '';
@@ -55,14 +55,21 @@ async function loadRules(){
 async function loadSettings(){
   try{
     const r = await fetch('/api/command-authorization/settings');
-    if(r.ok){ const s = await r.json(); document.getElementById('default_action').value = s.default_action || 'deny'; }
+  if(r.ok){ const s = await r.json(); document.getElementById('default_action').value = s.default_action || 'deny'; }
   }catch(e){}
 }
 async function saveSettings(){
   const payload = { default_action: document.getElementById('default_action').value };
   const r = await fetch('/api/command-authorization/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-  if(r.ok){ document.getElementById('status').textContent = 'Settings saved'; }
-  else { document.getElementById('status').textContent = 'Save failed'; }
+  const statusEl = document.getElementById('status');
+  if(r.ok){
+    flashStatus(statusEl, 'Settings saved', 'success');
+    showToast('Command auth settings saved');
+  }
+  else {
+    const err = await r.text().catch(()=> '');
+    flashStatus(statusEl, 'Save failed' + (err? ': '+err : ''), 'error');
+  }
 }
 async function addRule(){
   const payload = {
@@ -75,8 +82,16 @@ async function addRule(){
     device_groups: (document.getElementById('device_groups').value||'').split(',').map(s=>s.trim()).filter(Boolean)
   };
   const r = await fetch('/api/command-authorization/rules', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-  if(r.ok){ loadRules(); document.getElementById('status').textContent='Rule added'; }
-  else { document.getElementById('status').textContent='Add failed'; }
+  const statusEl2 = document.getElementById('status');
+  if(r.ok){
+    loadRules();
+    flashStatus(statusEl2, 'Rule added', 'success');
+    showToast('Rule added');
+  }
+  else {
+    const err = await r.text().catch(()=> '');
+    flashStatus(statusEl2, 'Add failed' + (err? ': '+err : ''), 'error');
+  }
 }
 async function delRule(id){
   const r = await fetch(`/api/command-authorization/rules/${id}`, {method:'DELETE'});
