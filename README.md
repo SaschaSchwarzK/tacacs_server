@@ -421,6 +421,8 @@ rate_limit_window = 60
 
 ### **Prometheus Integration**
 
+![Prometheus](docs/images/prometheus_example.png)
+
 Add to your `prometheus.yml`:
 ```yaml
 scrape_configs:
@@ -452,6 +454,8 @@ scrape_configs:
 - `process_open_fds` - Open file descriptors
 
 ### **Grafana Dashboard Queries**
+
+![Grafana](docs/images/grafana_example.png)
 
 ```promql
 # Authentication Rate (requests/second)
@@ -1104,6 +1108,12 @@ All forks, copies, or deployments must retain the upstream attribution notice an
 
 See the [LICENSE](LICENSE) file for full terms.
 
+## Support me with a donation
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-Donate-informational?logo=github-sponsors)](https://github.com/sponsors/SaschaSchwarzK)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Donate-blue?logo=kofi)](https://ko-fi.com/saschaschwarzk)
+
+
 ## 🙏 Acknowledgments
 
 - Built with modern Python and FastAPI
@@ -1203,8 +1213,3 @@ services:
   - `bcrypt module unavailable` → missing runtime libs; rebuild with updated Dockerfile.
   - `Invalid salt` → hash was altered by YAML/interpolation; quote or escape as above.
   - `password mismatch` → wrong password for the configured hash.
-Example dashboards
-
-![Grafana](docs/images/grafana_example.png)
-
-![Prometheus](docs/images/prometheus_example.png)
