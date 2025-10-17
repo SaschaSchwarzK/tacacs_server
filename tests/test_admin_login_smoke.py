@@ -15,7 +15,9 @@ def test_admin_login_and_access_admin_api(tacacs_server):
         print(f"[ADMIN-DEBUG] health check failed: {e}")
     try:
         cfg = s.get(f"{base}/api/admin/config", timeout=5)
-        print(f"[ADMIN-DEBUG] /api/admin/config -> {cfg.status_code} {(cfg.text or '')[:200]}")
+        print(
+            f"[ADMIN-DEBUG] /api/admin/config -> {cfg.status_code} {(cfg.text or '')[:200]}"
+        )
     except Exception as e:
         print(f"[ADMIN-DEBUG] admin config fetch failed: {e}")
 

@@ -429,7 +429,7 @@ class AuthBackendFailureExperiment(ChaosExperiment):
             print(f"[CHAOS-DEBUG] steady_state base={base}")
             response = requests.get(f"{base}/api/health", timeout=5)
             print(
-                f"[CHAOS-DEBUG] /api/health -> {response.status_code} body[:120]={(response.text or '')[:120].replace('\n',' ')}"
+                f"[CHAOS-DEBUG] /api/health -> {response.status_code} body[:120]={(response.text or '')[:120].replace(chr(10), ' ')}"
             )
             return response.status_code == 200
         except Exception as e:

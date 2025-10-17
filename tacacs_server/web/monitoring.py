@@ -276,9 +276,9 @@ class TacacsMonitoringAPI:
                 # If no API token configured, allow requests that provide any X-API-Token
                 # to facilitate automation/tests. Otherwise, API is disabled.
                 if not api_token:
-                    hdr_token = request.headers.get("X-API-Token") or request.headers.get(
-                        "Authorization", ""
-                    )
+                    hdr_token = request.headers.get(
+                        "X-API-Token"
+                    ) or request.headers.get("Authorization", "")
                     if hdr_token:
                         return await call_next(request)
                     return JSONResponse(
@@ -850,7 +850,6 @@ class TacacsMonitoringAPI:
 
                 audit_logger = get_audit_logger()
                 entries = audit_logger.get_audit_log(hours, user_id, action, limit)
-                summary = audit_logger.get_audit_summary(hours)
                 # For compatibility with tests that iterate the response directly,
                 # return the list of entries as the top-level payload.
                 # Rich details are preserved under an HTTP header for debugging.

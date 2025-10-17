@@ -284,7 +284,11 @@ class OktaAuthBackend(AuthenticationBackend):
             }
             if auth_arg is not None:
                 post_kwargs["auth"] = auth_arg
-            resp = requests.post(self._token_endpoint, **post_kwargs)
+            # Ensure Bandit B113 sees explicit timeout; keep kwargs for tests
+            explicit_timeout = post_kwargs.pop("timeout", self._timeout)
+            resp = requests.post(
+                self._token_endpoint, timeout=explicit_timeout, **post_kwargs
+            )
             try:
                 from tacacs_server.utils.metrics import (
                     okta_retries_total,

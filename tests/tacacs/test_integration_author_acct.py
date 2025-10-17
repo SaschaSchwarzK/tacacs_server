@@ -1,6 +1,9 @@
+import os
 import socket
 import struct
 import time
+
+import requests
 
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_ACCT_FLAG,
@@ -12,8 +15,6 @@ from tacacs_server.tacacs.constants import (
     TAC_PLUS_PACKET_TYPE,
 )
 from tacacs_server.tacacs.packet import TacacsPacket
-import os
-import requests
 
 
 def _recv_all(sock, n: int) -> bytes:
@@ -32,7 +33,9 @@ def _recv_all(sock, n: int) -> bytes:
     return b"".join(chunks)
 
 
-def _send(sock, pkt: TacacsPacket, host: str | None = None, port: int | None = None) -> TacacsPacket:
+def _send(
+    sock, pkt: TacacsPacket, host: str | None = None, port: int | None = None
+) -> TacacsPacket:
     """Send packet and receive response robustly with limited retries.
 
     Under perf load connections can be shed briefly; retry with small backoff.
@@ -80,18 +83,25 @@ def _send(sock, pkt: TacacsPacket, host: str | None = None, port: int | None = N
     assert False, "failed to receive full response after retry"
 
 
-def _wait_for_quiet_web(base_url: str, *, max_active: int = 10, timeout_s: float = 3.0) -> None:
+def _wait_for_quiet_web(
+    base_url: str, *, max_active: int = 10, timeout_s: float = 3.0
+) -> None:
     """Wait until the server reports a low number of active connections.
 
     Helps avoid per‑IP cap shedding when running perf + integration suites together.
     """
     import time as _time
+
     deadline = _time.monotonic() + timeout_s
     while _time.monotonic() < deadline:
         try:
             r = requests.get(f"{base_url}/api/status", timeout=0.5)
             if r.status_code == 200:
-                data = r.json() if r.headers.get("content-type","" ).startswith("application/json") else {}
+                data = (
+                    r.json()
+                    if r.headers.get("content-type", "").startswith("application/json")
+                    else {}
+                )
                 active = (
                     (data.get("connections", {}) or {}).get("active", 0)
                     if isinstance(data, dict)
@@ -143,7 +153,9 @@ def test_authorization_minimal_unencrypted(tacacs_server):
     host = tacacs_server["host"]
     port = tacacs_server["port"]
     # Give the server a moment to drain previous connections when running combined suites
-    base = os.environ.get("TACACS_WEB_BASE", f"http://{host}:{os.environ.get('TEST_WEB_PORT','8080')}")
+    base = os.environ.get(
+        "TACACS_WEB_BASE", f"http://{host}:{os.environ.get('TEST_WEB_PORT', '8080')}"
+    )
     _wait_for_quiet_web(base)
     session_id = int(time.time()) & 0xFFFFFFFF
 
@@ -171,7 +183,7 @@ def test_authorization_minimal_unencrypted(tacacs_server):
             try:
                 base = os.environ.get(
                     "TACACS_WEB_BASE",
-                    f"http://127.0.0.1:{os.environ.get('TEST_WEB_PORT','8080')}",
+                    f"http://127.0.0.1:{os.environ.get('TEST_WEB_PORT', '8080')}",
                 )
                 rlog = requests.get(f"{base}/api/admin/logs", timeout=3)
                 print(
@@ -190,7 +202,9 @@ def test_authorization_minimal_unencrypted(tacacs_server):
 def test_accounting_start_stop_unencrypted(tacacs_server):
     host = tacacs_server["host"]
     port = tacacs_server["port"]
-    base = os.environ.get("TACACS_WEB_BASE", f"http://{host}:{os.environ.get('TEST_WEB_PORT','8080')}")
+    base = os.environ.get(
+        "TACACS_WEB_BASE", f"http://{host}:{os.environ.get('TEST_WEB_PORT', '8080')}"
+    )
     _wait_for_quiet_web(base)
     session_id = (int(time.time()) + 1) & 0xFFFFFFFF
 

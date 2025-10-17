@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import configparser
 import glob
-import hashlib
 import os
 import os as _os  # Ensure early env defaults for imported tests
 import shutil
@@ -383,6 +382,7 @@ def tacacs_server(isolated_test_environment):
         cfg_check.set("admin", "username", "admin")
         try:
             import bcrypt as _bcrypt
+
             _file_hash = _bcrypt.hashpw(b"AdminPass123!", _bcrypt.gensalt()).decode()
         except Exception:
             _file_hash = "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
@@ -395,7 +395,9 @@ def tacacs_server(isolated_test_environment):
         # DEBUG: show effective config + auth DB path
         try:
             print(f"[SERVER-DEBUG] server_cfg={cfg_path}")
-            print(f"[SERVER-DEBUG] server_auth_db={cfg_check.get('auth','local_auth_db')}")
+            print(
+                f"[SERVER-DEBUG] server_auth_db={cfg_check.get('auth', 'local_auth_db')}"
+            )
         except Exception:
             pass
 
@@ -465,14 +467,18 @@ def tacacs_server(isolated_test_environment):
                 app_tail = ""
                 if app_log_file:
                     try:
-                        with open(app_log_file, "r") as _af:
+                        with open(app_log_file) as _af:
                             app_tail = _af.read()[-4000:]
                     except Exception:
                         app_tail = ""
                 raise RuntimeError(
-                    "Server process exited early.\n" \
-                    + (f"Subprocess stdio tail:\n{contents}\n" if contents else "") \
-                    + (f"Application log tail ({app_log_file}):\n{app_tail}" if app_tail else "")
+                    "Server process exited early.\n"
+                    + (f"Subprocess stdio tail:\n{contents}\n" if contents else "")
+                    + (
+                        f"Application log tail ({app_log_file}):\n{app_tail}"
+                        if app_tail
+                        else ""
+                    )
                 )
             time.sleep(0.5)
         else:
@@ -484,7 +490,7 @@ def tacacs_server(isolated_test_environment):
             app_tail = ""
             if app_log_file:
                 try:
-                    with open(app_log_file, "r") as _af:
+                    with open(app_log_file) as _af:
                         app_tail = _af.read()[-4000:]
                 except Exception:
                     app_tail = ""
@@ -519,9 +525,7 @@ def tacacs_server(isolated_test_environment):
         os.environ["TACACS_LOG_PATH"] = str(log_path)
 
         # Debug: Show resolved ports and log file for combined runs
-        print(
-            f"[TEST-BOOT] TACACS 127.0.0.1:{tacacs_port} | Web 127.0.0.1:{web_port}"
-        )
+        print(f"[TEST-BOOT] TACACS 127.0.0.1:{tacacs_port} | Web 127.0.0.1:{web_port}")
         print(f"[TEST-BOOT] Log file: {log_path}")
 
         yield {
@@ -689,6 +693,7 @@ def _default_requests_timeout(monkeypatch):
     # Lightweight request pacing to avoid bursting admin/API endpoints when
     # suites run together. Targets only localhost admin/API calls.
     import threading as _th
+
     _pace_lock = getattr(_default_requests_timeout, "_pace_lock", None) or _th.Lock()
     _last_ts = getattr(_default_requests_timeout, "_last_ts", 0.0)
     setattr(_default_requests_timeout, "_pace_lock", _pace_lock)
@@ -701,16 +706,23 @@ def _default_requests_timeout(monkeypatch):
         # burst load during combined suites. Tunable via TEST_HTTP_PACING_MS.
         try:
             from urllib.parse import urlparse as _urlparse
+
             parsed = _urlparse(url)
             # Conservative default pacing for localhost admin/API requests
             _http_default = 10
             if os.environ.get("RUN_PERF_TESTS"):
                 _http_default = 20
-            pacing_ms = int(os.environ.get("TEST_HTTP_PACING_MS", str(_http_default)) or _http_default)
-            if pacing_ms and parsed.hostname in ("127.0.0.1", "localhost") and (
-                "/admin/" in parsed.path or parsed.path.startswith("/api/")
+            pacing_ms = int(
+                os.environ.get("TEST_HTTP_PACING_MS", str(_http_default))
+                or _http_default
+            )
+            if (
+                pacing_ms
+                and parsed.hostname in ("127.0.0.1", "localhost")
+                and ("/admin/" in parsed.path or parsed.path.startswith("/api/"))
             ):
                 import time as _time
+
                 with _pace_lock:
                     last = getattr(_default_requests_timeout, "_last_ts", 0.0)
                     now = _time.monotonic()
@@ -736,8 +748,12 @@ def _default_requests_timeout(monkeypatch):
             # Remap localhost URLs to the active admin web port
             try:
                 from urllib.parse import urlparse, urlunparse
+
                 parsed = urlparse(url)
-                if parsed.scheme in ("http", "https") and parsed.hostname in ("localhost", "127.0.0.1"):
+                if parsed.scheme in ("http", "https") and parsed.hostname in (
+                    "localhost",
+                    "127.0.0.1",
+                ):
                     # Prefer explicit TACACS_WEB_BASE if provided
                     base = os.environ.get("TACACS_WEB_BASE", "").strip()
                     new_port = None
@@ -772,7 +788,7 @@ def _default_requests_timeout(monkeypatch):
                 )
                 if logp:
                     try:
-                        with open(logp, "r") as _lf:
+                        with open(logp) as _lf:
                             tail = _lf.read()[-1000:]
                         print(f"[HTTP-ERROR] server log tail:\n{tail}")
                     except Exception:
@@ -798,7 +814,9 @@ def _pace_tacacs_connect():
         _tac_default = 2
         if os.environ.get("RUN_PERF_TESTS"):
             _tac_default = 4
-        pacing_ms = int(os.environ.get("TEST_TACACS_PACING_MS", str(_tac_default)) or _tac_default)
+        pacing_ms = int(
+            os.environ.get("TEST_TACACS_PACING_MS", str(_tac_default)) or _tac_default
+        )
     except Exception:
         pacing_ms = 0
     if pacing_ms <= 0:
@@ -843,6 +861,7 @@ def _pace_tacacs_connect():
     finally:
         # Restore original connect in _restore_socket_after_test fixture as well
         pass
+
 
 @pytest.fixture(autouse=True)
 def _restore_socket_after_test():

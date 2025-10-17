@@ -48,10 +48,18 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 ### **Security & Compliance**
 - **Input validation**: Comprehensive validation using Pydantic schemas
 - **SQL injection protection**: Parameterized queries and input sanitization
-- **Rate limiting**: Per-client request rate limiting
+- **Rate limiting**: Per-client request rate limiting (token-bucket)
 - **Secure secrets**: Per-device group secrets with no global fallbacks
 - **Session security**: Secure admin sessions with CSRF protection
 - **Audit trails**: Complete audit logging for compliance requirements
+
+### **Reliability & Limits**
+- **Global rate limiter**: Token-bucket limiter guarding hot paths (auth/API)
+- **Per-client throttling**: Burst/window control via `[security]` config
+- **Network timeouts**: `[server].client_timeout`, socket timeouts, keepalive
+- **RADIUS timeouts**: UDP `socket_timeout` and receive buffer tuning
+- **Webhook timeouts**: Configurable per-dispatch timeout with background send
+- **Admin session timeout**: Configurable `session_timeout_minutes`
 
 ### **Configuration & Deployment**
 - **Flexible configuration**: File-based or URL-based configuration loading
@@ -550,36 +558,63 @@ tacacs_server/
 └── main.py                  # Application entry point
 
 tests/                       # Test suite
-├── __init__.py             # Package marker
-├── conftest.py             # Pytest fixtures and server helpers
-├── test_admin_api.py       # Admin API endpoint tests
-├── test_api_functionality.py # REST API functionality tests
-├── test_api_simple.py      # Basic API sanity tests
-├── test_auth.py            # Authentication flow tests
-├── test_authorization.py   # Authorization and policy tests
-├── test_benchmark.py       # Benchmark/perf smoke tests
-├── test_client_script.py   # TACACS+/RADIUS client scripts
-├── test_config_env.py      # Env/config loading tests
-├── test_debug_syspath.py   # Dev env and sys.path checks
-├── test_device_service.py  # Device service unit tests
-├── test_input_validation.py # Pydantic/model input validation
-├── test_ldap.py            # LDAP backend tests
-├── test_local_user_group_service.py # Local user group service
-├── test_local_user_service.py # Local user service tests
-├── test_okta.py            # Okta backend tests
-├── test_radius.py          # RADIUS protocol tests
-├── test_server.py          # Server lifecycle and endpoints
-├── test_web_api_endpoints.py # Web API endpoint coverage
-├── chaos/                  # Chaos engineering tests
-│   └── test_chaos.py       # Network/resource chaos scenarios
-├── contract/               # API contract/schema tests
-│   └── test_api_contracts.py # OpenAPI schema and contracts
-├── e2e/                    # End-to-end integration tests
-│   └── test_e2e_integration.py # Full workflow tests
-├── performance/            # Load/performance suites
-│   └── locustfile.py       # Locust scenarios
-└── security/               # Security and pentest suites
-    └── test_security_pentest.py # Security checks
+├── __init__.py                           # Package marker
+├── conftest.py                           # Pytest fixtures and server helpers
+├── test_admin_api.py                     # Admin API endpoint tests
+├── test_admin_login_smoke.py             # Admin login smoke tests
+├── test_admin_session_manager.py         # Admin session manager tests
+├── test_admin_tuning_api.py              # Server tuning API tests
+├── test_api_functionality.py             # REST API functionality tests
+├── test_api_simple.py                    # Basic API sanity tests
+├── test_auth.py                          # Authentication flow tests
+├── test_authorization.py                 # Authorization and policy tests
+├── test_benchmark.py                     # Benchmark/perf smoke tests
+├── test_client_script.py                 # TACACS+/RADIUS client scripts
+├── test_config_env.py                    # Env/config loading tests
+├── test_debug_syspath.py                 # Dev env and sys.path checks
+├── test_device_service.py                # Device service unit tests
+├── test_input_validation.py              # Pydantic/model input validation
+├── test_ldap.py                          # LDAP backend tests
+├── test_local_user_group_service.py      # Local user group service
+├── test_local_user_service.py            # Local user service tests
+├── test_okta.py                          # Okta backend tests
+├── test_radius.py                        # RADIUS protocol tests
+├── test_server.py                        # Server lifecycle and endpoints
+├── test_tacacs_authorizer_integration.py # TACACS authorizer integration
+├── test_web_api_endpoints.py             # Web API endpoint coverage
+├── chaos/                                # Chaos engineering tests
+│   └── test_chaos.py                     # Network/resource chaos scenarios
+├── contract/                             # API contract/schema tests
+│   └── test_api_contracts.py             # OpenAPI schema and contracts
+├── e2e/                                  # End-to-end integration tests
+│   ├── test_command_authorization_live.py # Live command authorization
+│   ├── test_e2e_integration.py           # Full workflow tests
+│   └── test_tacacs_authorization_wire.py # Wire-level TACACS+ auth
+├── golden/                               # Golden files/regression suites
+│   └── test_tacacs_malformed.py          # Malformed TACACS packet cases
+├── performance/                          # Load/performance suites
+│   ├── locustfile.py                     # Locust scenarios
+│   └── test_auth_throughput.py           # Auth throughput tests
+├── property/                             # Property-based testing
+│   ├── test_tacacs_packet_props.py       # TACACS packet properties
+│   └── test_validation_props.py          # Validation properties
+├── radius/                               # RADIUS integration suites
+│   ├── client.py                         # Test client helpers
+│   ├── test_accounting_authenticator.py  # Accounting authenticator tests
+│   ├── test_integration_live_accounting.py # Live accounting integration
+│   ├── test_integration_live_ma.py       # Message-Authenticator (live)
+│   ├── test_integration_live_server.py   # Live server integration
+│   └── test_message_authenticator.py     # Message-Authenticator checks
+├── security/                             # Security and pentest suites
+│   ├── test_security_advanced.py         # Advanced security checks
+│   └── test_security_pentest.py          # Penetration tests
+└── tacacs/                               # TACACS protocol tests
+    ├── test_integration_auth.py          # Integration auth flows
+    ├── test_integration_author_acct.py   # Authorization + accounting
+    ├── test_integration_malformed.py     # Malformed requests handling
+    ├── test_packet_and_header.py         # Packet + header correctness
+    ├── test_server_limits.py             # Server limits/rate limiting
+    └── test_structures.py                # Low-level structures
 
 scripts/                     # Utility scripts
 ├── setup_project.py        # Project setup

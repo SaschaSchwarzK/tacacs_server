@@ -46,8 +46,8 @@ class LocalAuthBackend(AuthenticationBackend):
         # the configured database (tests already generate isolated configs).
         try:
             if not self._service_explicit:
-                import os as _os
                 import configparser as _cp
+                import os as _os
                 from pathlib import Path as _Path
 
                 cur_path = _Path(str(self.user_service.db_path)).resolve()
@@ -107,8 +107,8 @@ class LocalAuthBackend(AuthenticationBackend):
         # TACACS_CONFIG points to a different local_auth_db than currently used.
         try:
             if not self._service_explicit:
-                import os as _os
                 import configparser as _cp
+                import os as _os
                 from pathlib import Path as _Path
 
                 cur_path = _Path(str(self.user_service.db_path)).resolve()
@@ -166,13 +166,17 @@ class LocalAuthBackend(AuthenticationBackend):
                     return True
                 # Fallback: if plaintext is stored (test/minimal env), compare directly
                 if user.password is not None:
-                    result = (user.password == password)
+                    result = user.password == password
                     if not result:
                         logger.debug(
-                            "LocalAuthBackend plaintext fallback mismatch for %s", username
+                            "LocalAuthBackend plaintext fallback mismatch for %s",
+                            username,
                         )
                     if result:
-                        logger.info("Authentication successful for %s (plaintext fallback)", username)
+                        logger.info(
+                            "Authentication successful for %s (plaintext fallback)",
+                            username,
+                        )
                     else:
                         logger.info("Authentication failed for %s", username)
                     return result

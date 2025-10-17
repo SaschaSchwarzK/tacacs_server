@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
 import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-import tempfile
 
 from .local_models import LocalUserGroupRecord, LocalUserRecord
 
@@ -29,12 +29,12 @@ class LocalAuthStore:
         # - Pytest temp directories
         # - System temporary directory (handles macOS /private prefix)
         sys_tmp = tempfile.gettempdir()
-        sys_tmp_private = "/private" + sys_tmp if not sys_tmp.startswith("/private") else sys_tmp
+        sys_tmp_private = (
+            "/private" + sys_tmp if not sys_tmp.startswith("/private") else sys_tmp
+        )
         allowed_prefixes = (cwd, sys_tmp, sys_tmp_private)
         if not (db_str.startswith(allowed_prefixes) or "/pytest-" in db_str):
-            raise ValueError(
-                f"Database path outside allowed directory: {self.db_path}"
-            )
+            raise ValueError(f"Database path outside allowed directory: {self.db_path}")
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()

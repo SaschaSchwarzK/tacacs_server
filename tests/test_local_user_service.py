@@ -108,7 +108,7 @@ def test_local_user_seed_from_json(tmp_path):
                     "privilege_level": 5,
                     "service": "exec",
                     "groups": ["legacy"],
-                "enabled": True,
+                    "enabled": True,
                 }
             }
         )

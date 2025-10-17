@@ -63,9 +63,13 @@ def test_auth_pap_unencrypted_happy_path(tacacs_server):
     port = tacacs_server["port"]
     # Debug backend state via monitoring API
     try:
-        import os, requests
+        import os
+
+        import requests
+
         base = os.environ.get(
-            "TACACS_WEB_BASE", f"http://{host}:{os.environ.get('TEST_WEB_PORT','8080')}"
+            "TACACS_WEB_BASE",
+            f"http://{host}:{os.environ.get('TEST_WEB_PORT', '8080')}",
         )
         rb = requests.get(f"{base}/api/backends", timeout=3)
         print(
@@ -122,11 +126,12 @@ def test_auth_pap_unencrypted_happy_path(tacacs_server):
             # Surface server logs for diagnosis
             try:
                 import os
+
                 import requests
 
                 base = os.environ.get(
                     "TACACS_WEB_BASE",
-                    f"http://127.0.0.1:{os.environ.get('TEST_WEB_PORT','8080')}",
+                    f"http://127.0.0.1:{os.environ.get('TEST_WEB_PORT', '8080')}",
                 )
                 rlog = requests.get(f"{base}/api/admin/logs", timeout=3)
                 print(
@@ -137,7 +142,7 @@ def test_auth_pap_unencrypted_happy_path(tacacs_server):
             try:
                 log_path = tacacs_server.get("log_path")
                 if log_path:
-                    with open(log_path, "r") as lf:
+                    with open(log_path) as lf:
                         tail = lf.read()[-2000:]
                         print(f"[INTEG-DEBUG] server log tail:\n{tail}")
             except Exception as e:
