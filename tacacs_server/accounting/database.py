@@ -72,7 +72,11 @@ class DatabaseLogger:
     STATS_CACHE_TTL_SECONDS = 60
 
     def __init__(
-        self, db_path: str = "data/tacacs_accounting.db", maintain_mv: bool = True
+        self,
+        db_path: str = "data/tacacs_accounting.db",
+        maintain_mv: bool = True,
+        *,
+        pool_size: int | None = None,
     ):
         self.db_path = db_path
         self.conn: sqlite3.Connection | None = None
@@ -102,8 +106,18 @@ class DatabaseLogger:
             self.conn.execute("PRAGMA cache_size = -2000;")
             self._initialize_schema()
 
-            # ADD THIS LINE AFTER SUCCESSFUL INITIALIZATION:
-            self.pool = DatabasePool(str(db_file))
+            # Initialize connection pool with configurable size
+            if pool_size is None:
+                try:
+                    pool_size = int(os.getenv("TACACS_DB_POOL_SIZE", "5"))
+                except Exception:
+                    pool_size = 5
+            # Clamp to a sane range to avoid resource exhaustion
+            if pool_size < 1:
+                pool_size = 1
+            if pool_size > 200:
+                pool_size = 200
+            self.pool = DatabasePool(str(db_file), pool_size=pool_size)
 
         except Exception as e:
             logger.exception("Failed to initialize database: %s", e)

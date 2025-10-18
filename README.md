@@ -60,6 +60,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **RADIUS timeouts**: UDP `socket_timeout` and receive buffer tuning
 - **Webhook timeouts**: Configurable per-dispatch timeout with background send
 - **Admin session timeout**: Configurable `session_timeout_minutes`
+- **Backend auth timeout**: `TACACS_BACKEND_TIMEOUT` caps per-backend auth time
 
 ### **Configuration & Deployment**
 - **Flexible configuration**: File-based or URL-based configuration loading
@@ -695,6 +696,13 @@ Server/network tuning (env overrides)
 - `TACACS_TCP_KEEPCNT` — Keepalive probes (Linux) (default 5)
 - `TACACS_USE_THREAD_POOL` — Use thread pool for client handlers (default true)
 - `TACACS_THREAD_POOL_MAX` — Max worker threads in pool (default 100)
+- `TACACS_DB_POOL_SIZE` — Accounting DB connection pool size (default 5; range 1–200)
+- `LOCAL_AUTH_CACHE_TTL_SECONDS` — TTL for local user cache entries (default 60; 0 disables)
+
+## OpenAPI Schema
+
+- Generate: `make openapi` (writes `docs/openapi.json`)
+- View in app: Swagger UI `/docs`, ReDoc `/redoc`
 
 ### **URL-based Configuration**
 ```bash

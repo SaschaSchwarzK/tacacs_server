@@ -10,6 +10,8 @@ from __future__ import annotations
 import struct
 from typing import Any
 
+from ..utils.exceptions import ProtocolError
+
 
 def _extract_string(buf: bytes, offset: int, length: int) -> tuple[str, int]:
     if length <= 0:
@@ -27,7 +29,7 @@ def parse_authen_start(body: bytes) -> dict[str, Any]:
     user, port, rem_addr, data.
     """
     if len(body) < 8:
-        raise ValueError("authen body too short")
+        raise ProtocolError(f"authen_start too short: got={len(body)} min=8")
     action, priv_lvl, authen_type, service, ulen, plen, rlen, dlen = struct.unpack(
         "!BBBBBBBB", body[:8]
     )
@@ -55,7 +57,7 @@ def parse_author_request(body: bytes) -> dict[str, Any]:
     user, port, rem_addr, args (dict[str,str]).
     """
     if len(body) < 8:
-        raise ValueError("author body too short")
+        raise ProtocolError(f"author_request too short: got={len(body)} min=8")
     (
         authen_method,
         priv_lvl,
@@ -105,7 +107,7 @@ def parse_acct_request(body: bytes) -> dict[str, Any]:
     authen_service, user, port, rem_addr, args (dict[str,str]).
     """
     if len(body) < 9:
-        raise ValueError("acct body too short")
+        raise ProtocolError(f"acct_request too short: got={len(body)} min=9")
     (
         flags,
         authen_method,

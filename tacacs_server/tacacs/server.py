@@ -16,6 +16,7 @@ from ..accounting.database import DatabaseLogger
 from ..utils.logger import get_logger
 from ..utils.metrics import MetricsCollector
 from ..utils.rate_limiter import get_rate_limiter
+from ..utils.simple_cache import LRUDict
 from .constants import (
     TAC_PLUS_ACCT_STATUS,
     TAC_PLUS_AUTHEN_STATUS,
@@ -37,7 +38,12 @@ logger = get_logger(__name__)
 
 
 class TacacsServer:
-    """TACACS+ Server implementation"""
+    """TACACS+ Server implementation.
+
+    Listens for TACACS+ connections, validates/dispatches requests to
+    AAA handlers, tracks metrics, and exposes a monitoring API. Designed
+    for high concurrency with optional thread-pool handling and per‑IP caps.
+    """
 
     def __init__(
         self,
@@ -80,7 +86,9 @@ class TacacsServer:
         self.enable_monitoring = False
         self.device_store: DeviceStore | None = None
         self._session_lock = threading.RLock()
-        self.session_secrets: dict[int, str] = {}
+        # Limit session secret storage to avoid unbounded growth (LRU behavior)
+        self.max_session_secrets = int(os.getenv("TACACS_MAX_SESSION_SECRETS", "10000"))
+        self.session_secrets: LRUDict[int, str] = LRUDict(self.max_session_secrets)
         # Track last seen request sequence number per TACACS session
         self._seq_lock = threading.RLock()
         self._last_request_seq: dict[int, int] = {}
@@ -115,6 +123,24 @@ class TacacsServer:
             self._prom_update_active = getattr(_PM, "update_active_connections", None)
         except Exception:
             self._prom_update_active = None
+
+    # --- Stats helpers (ensure consistent locking and gauge updates) ---
+    def _update_active_connections(self, delta: int) -> None:
+        """Atomically update active connections and push gauge."""
+        with self._stats_lock:
+            current = self.stats.get("connections_active", 0)
+            new_val = max(0, current + delta)
+            self.stats["connections_active"] = new_val
+            push = self._prom_update_active
+        try:
+            if push is not None:
+                push(new_val)
+        except Exception:
+            pass
+
+    def _get_active_connections(self) -> int:
+        with self._stats_lock:
+            return int(self.stats.get("connections_active", 0))
 
     def enable_web_monitoring(
         self, web_host="127.0.0.1", web_port=8080, radius_server=None
@@ -262,8 +288,8 @@ class TacacsServer:
                             else:
                                 self._ip_connections[ip] = current
                         continue
-                    with self._stats_lock:
-                        self.stats["connections_active"] += 1
+                    # Count this as an active connection under lock and update gauge
+                    self._update_active_connections(+1)
                     logger.debug("New connection from %s", address)
                     if self._executor is not None:
                         self._executor.submit(
@@ -278,12 +304,7 @@ class TacacsServer:
                         with self._client_threads_lock:
                             self._client_threads.add(client_thread)
                         client_thread.start()
-                    # Update active connections gauge if available
-                    try:
-                        if self._prom_update_active:
-                            self._prom_update_active(self.stats["connections_active"])
-                    except Exception:
-                        pass
+                    # Gauge is already updated in _update_active_connections
                 except OSError as e:
                     if self.running:
                         logger.error("Socket error: %s", e)
@@ -356,9 +377,26 @@ class TacacsServer:
                         break
 
                     try:
-                        packet = TacacsPacket.unpack_header(header_data)
-                    except ValueError as e:
-                        conn_logger.warning("Invalid packet from %s: %s", address, e)
+                        packet = TacacsPacket.unpack_header(
+                            header_data, max_length=self.max_packet_length
+                        )
+                    except Exception as e:
+                        try:
+                            import json as _json
+
+                            log_payload = {
+                                "event": "packet_header_error",
+                                "client_ip": address[0],
+                                "client_port": address[1],
+                                "reason": str(e),
+                                "length": len(header_data),
+                                "max_length": self.max_packet_length,
+                            }
+                            conn_logger.warning(_json.dumps(log_payload))
+                        except Exception:
+                            conn_logger.warning(
+                                "Invalid packet from %s: %s", address, e
+                            )
                         break
 
                     session_ids.add(packet.session_id)
@@ -380,11 +418,26 @@ class TacacsServer:
                         break
                     if packet.length > 0:
                         if packet.length > self.max_packet_length:
-                            conn_logger.warning(
-                                "Packet too large from %s: %s bytes",
-                                address,
-                                packet.length,
-                            )
+                            try:
+                                import json as _json
+
+                                conn_logger.warning(
+                                    _json.dumps(
+                                        {
+                                            "event": "packet_too_large",
+                                            "client_ip": address[0],
+                                            "client_port": address[1],
+                                            "length": packet.length,
+                                            "max_length": self.max_packet_length,
+                                        }
+                                    )
+                                )
+                            except Exception:
+                                conn_logger.warning(
+                                    "Packet too large from %s: %s bytes",
+                                    address,
+                                    packet.length,
+                                )
                             break
                         body_data = self._recv_exact(client_socket, packet.length)
                         if not body_data:
@@ -427,15 +480,8 @@ class TacacsServer:
                     self._ip_connections.pop(ip, None)
                 else:
                     self._ip_connections[ip] = current
-            with self._stats_lock:
-                self.stats["connections_active"] = max(
-                    0, self.stats.get("connections_active", 1) - 1
-                )
-            try:
-                if self._prom_update_active:
-                    self._prom_update_active(self.stats["connections_active"])
-            except Exception:
-                pass
+            # Decrement active count and update gauge
+            self._update_active_connections(-1)
             conn_logger.debug("Connection closed: %s", address)
             try:
                 if threading.current_thread().daemon:
@@ -462,7 +508,10 @@ class TacacsServer:
 
         with self._session_lock:
             for session_id in session_ids:
-                self.session_secrets.pop(session_id, None)
+                try:
+                    self.session_secrets.pop(session_id)
+                except KeyError:
+                    pass
                 try:
                     self.handlers.cleanup_session(session_id)
                 except Exception as e:
@@ -477,6 +526,7 @@ class TacacsServer:
             secret = self.session_secrets.get(session_id)
             if secret is None:
                 secret = self._resolve_tacacs_secret(device_record) or self.secret_key
+                # Insert; LRUDict enforces size and recency
                 self.session_secrets[session_id] = secret
                 if device_record is not None:
                     self.handlers.session_device[session_id] = device_record
@@ -485,7 +535,11 @@ class TacacsServer:
                 and session_id not in self.handlers.session_device
             ):
                 self.handlers.session_device[session_id] = device_record
-            return secret
+            else:
+                # Touch to mark as recently used
+                self.session_secrets.touch(session_id)
+            # mypy: LRUDict.get is untyped; ensure we return a string
+            return str(secret)
 
     def _resolve_tacacs_secret(self, device_record) -> str | None:
         """Resolve TACACS shared secret strictly from device group configuration."""
@@ -520,14 +574,41 @@ class TacacsServer:
         """Validate packet header"""
         major_version = packet.version >> 4 & 15
         if major_version != TAC_PLUS_MAJOR_VER:
-            logger.warning(f"Invalid major version: {major_version}")
+            try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "invalid_major_version",
+                            "session": f"0x{packet.session_id:08x}",
+                            "got": major_version,
+                            "expected": TAC_PLUS_MAJOR_VER,
+                        }
+                    )
+                )
+            except Exception:
+                logger.warning(f"Invalid major version: {major_version}")
             return False
         if packet.packet_type not in [
             TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
             TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
             TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT,
         ]:
-            logger.warning(f"Invalid packet type: {packet.packet_type}")
+            try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "invalid_packet_type",
+                            "session": f"0x{packet.session_id:08x}",
+                            "type": packet.packet_type,
+                        }
+                    )
+                )
+            except Exception:
+                logger.warning(f"Invalid packet type: {packet.packet_type}")
             return False
         # TACACS+ client requests must be odd sequence numbers (1,3,5,...)
         if packet.seq_no < 1 or (packet.seq_no % 2) != 1:
@@ -538,15 +619,58 @@ class TacacsServer:
             with self._seq_lock:
                 last = self._last_request_seq.get(packet.session_id)
                 if last is not None:
-                    if packet.seq_no <= last or ((packet.seq_no - last) % 2) != 0:
-                        logger.warning(
-                            "Out-of-order or invalid sequence: sess=%s last=%s got=%s",
-                            f"0x{packet.session_id:08x}",
-                            last,
-                            packet.seq_no,
-                        )
+                    if packet.seq_no <= last:
+                        # Allow a reset if the backward gap is very large,
+                        # which likely indicates a new client session state.
+                        if (last - packet.seq_no) < 100:
+                            try:
+                                import json as _json
+
+                                logger.warning(
+                                    _json.dumps(
+                                        {
+                                            "event": "out_of_order_sequence",
+                                            "session": f"0x{packet.session_id:08x}",
+                                            "last": last,
+                                            "got": packet.seq_no,
+                                        }
+                                    )
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "Out-of-order sequence: sess=%s last=%s got=%s",
+                                    f"0x{packet.session_id:08x}",
+                                    last,
+                                    packet.seq_no,
+                                )
+                            return False
+                        # Treat as session reset: accept and overwrite
+                        self._last_request_seq[packet.session_id] = packet.seq_no
+                        return True
+                    # Forward movement must remain odd-stepped
+                    if ((packet.seq_no - last) % 2) != 0:
+                        try:
+                            import json as _json
+
+                            logger.warning(
+                                _json.dumps(
+                                    {
+                                        "event": "invalid_sequence_step",
+                                        "session": f"0x{packet.session_id:08x}",
+                                        "last": last,
+                                        "got": packet.seq_no,
+                                    }
+                                )
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Invalid sequence step: sess=%s last=%s got=%s",
+                                f"0x{packet.session_id:08x}",
+                                last,
+                                packet.seq_no,
+                            )
                         return False
-                # Update last seen request sequence
+                # Update last seen request sequence (first or valid forward)
                 self._last_request_seq[packet.session_id] = packet.seq_no
         except Exception:
             pass
@@ -755,23 +879,31 @@ class TacacsServer:
         # Wait for active connections to finish
         start_time = time.time()
         while (
-            self.stats["connections_active"] > 0
+            self._get_active_connections() > 0
             and time.time() - start_time < timeout_seconds
         ):
             time.sleep(0.1)
 
-        if self.stats["connections_active"] > 0:
+        if self._get_active_connections() > 0:
             logger.warning(
-                f"Force closing {self.stats['connections_active']} "
-                f"remaining connections"
+                f"Force closing {self._get_active_connections()} remaining connections"
             )
         # Join client threads if we created any (best-effort)
         with self._client_threads_lock:
             threads = list(self._client_threads)
             self._client_threads.clear()
+        remaining: list[threading.Thread] = []
         for t in threads:
             try:
                 t.join(timeout=1.0)
+            except Exception:
+                # Ignore join errors; treat as still alive
+                pass
+            if t.is_alive():
+                remaining.append(t)
+        if remaining:
+            try:
+                logger.warning(f"{len(remaining)} threads did not terminate gracefully")
             except Exception:
                 pass
         # Shutdown thread pool
