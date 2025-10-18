@@ -109,6 +109,11 @@ jobs:
             poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-
             poetry-${{ runner.os }}-
 
+      - name: Ensure dev dependencies installed
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --with dev
+
       - name: Prepare log dir for server
         run: |
           mkdir -p $RUNNER_TEMP/tacacs_logs
