@@ -2,10 +2,13 @@
 LDAP Authentication Backend
 """
 
+import threading
+from queue import Empty, Queue
 from typing import Any
 
 from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.metrics import ldap_pool_borrows, ldap_pool_reconnects
 from tacacs_server.utils.validation import InputValidator
 
 from .base import AuthenticationBackend
@@ -26,8 +29,8 @@ class LDAPAuthBackend(AuthenticationBackend):
 
     def __init__(
         self,
-        ldap_server: str,
-        base_dn: str,
+        ldap_server: str | dict[str, Any],
+        base_dn: str | None = None,
         user_attribute: str = "uid",
         bind_dn: str | None = None,
         bind_password: str | None = None,
@@ -35,13 +38,39 @@ class LDAPAuthBackend(AuthenticationBackend):
         timeout: int = 10,
     ):
         super().__init__("ldap")
-        self.ldap_server = ldap_server
-        self.base_dn = base_dn
-        self.user_attribute = user_attribute
-        self.bind_dn = bind_dn
-        self.bind_password = bind_password
-        self.use_tls = use_tls
-        self.timeout = timeout
+        # Support both legacy positional params and a dict config
+        if isinstance(ldap_server, dict):
+            cfg = ldap_server
+            self.ldap_server = cfg.get("server") or cfg.get("ldap_server")
+            self.base_dn = cfg.get("base_dn") or ""
+            self.user_attribute = cfg.get("user_attribute", user_attribute)
+            self.bind_dn = cfg.get("bind_dn") or None
+            self.bind_password = cfg.get("bind_password") or None
+            self.use_tls = bool(cfg.get("use_tls", use_tls))
+            # timeouts
+            self.timeout = int(cfg.get("timeout", timeout))
+            # optional pool size
+            try:
+                self._pool_size = int(cfg.get("pool_size", 5))
+            except Exception:
+                self._pool_size = 5
+        else:
+            # Legacy initialization
+            self.ldap_server = ldap_server
+            self.base_dn = base_dn or ""
+            self.user_attribute = user_attribute
+            self.bind_dn = bind_dn
+            self.bind_password = bind_password
+            self.use_tls = use_tls
+            self.timeout = timeout
+            self._pool_size = 5
+
+        # Simple connection pool settings
+        self._connect_timeout = max(1, int(self.timeout))
+        self._pool: Queue[ldap3.Connection] | None = (
+            None if not LDAP_AVAILABLE else Queue(maxsize=self._pool_size)
+        )
+        self._pool_lock = threading.Lock()
 
         # Default privilege mappings based on group membership
         self.group_privilege_map = {
@@ -70,10 +99,8 @@ class LDAPAuthBackend(AuthenticationBackend):
             if len(password) > 128:
                 raise ValidationError("Password too long")
 
-            # Create server connection
-            server = ldap3.Server(
-                self.ldap_server, use_ssl=self.use_tls, connect_timeout=self.timeout
-            )
+            # Ensure pool initialized
+            conn = self._acquire_connection()
 
             # Build user DN
             if self.bind_dn and self.bind_password:
@@ -81,6 +108,7 @@ class LDAPAuthBackend(AuthenticationBackend):
                 user_dn = self._find_user_dn(username)
                 if not user_dn:
                     logger.debug(f"User {username} not found in LDAP directory")
+                    self._release_connection(conn)
                     return False
             else:
                 # Direct bind - construct DN from username (escape for safety)
@@ -88,13 +116,27 @@ class LDAPAuthBackend(AuthenticationBackend):
                 user_dn = f"{self.user_attribute}={escaped_username},{self.base_dn}"
 
             # Attempt to bind with user credentials
-            with ldap3.Connection(server, user_dn, password) as conn:
-                if conn.bind():
-                    logger.info(f"LDAP authentication successful for {username}")
-                    return True
+            try:
+                if self.bind_dn and self.bind_password:
+                    # Use pooled connection when service account is configured
+                    conn.user = user_dn
+                    conn.password = password
+                    ok = conn.bind()
+                    self._release_connection(conn)
                 else:
-                    logger.info(f"LDAP authentication failed for {username}")
-                    return False
+                    # For direct user bind use a fresh connection per attempt
+                    server = ldap3.Server(self.ldap_server, use_ssl=self.use_tls)
+                    with ldap3.Connection(server, user_dn, password) as tmp:
+                        ok = tmp.bind()
+                    self._release_connection(conn)
+            except Exception:
+                ok = False
+            if ok:
+                logger.info(f"LDAP authentication successful for {username}")
+                return True
+            else:
+                logger.info(f"LDAP authentication failed for {username}")
+                return False
 
         except ldap3.core.exceptions.LDAPException as e:
             logger.error(f"LDAP authentication error for {username}: {e}")
@@ -120,12 +162,9 @@ class LDAPAuthBackend(AuthenticationBackend):
             privilege_level = self._determine_privilege_level(groups)
 
             # Get allowed commands based on privilege level
-            shell_command = self.privilege_commands.get(privilege_level, ["show"])
-
             return {
                 "privilege_level": privilege_level,
                 "service": "exec",
-                "shell_command": shell_command,
                 "groups": groups,
                 "full_name": user_info.get("displayName", username),
                 "email": user_info.get("mail", ""),
@@ -267,6 +306,60 @@ class LDAPAuthBackend(AuthenticationBackend):
         except Exception:
             return False
 
+    # --- Internal pooling helpers ---
+    def _build_connection(self) -> ldap3.Connection:
+        server = ldap3.Server(
+            self.ldap_server,
+            use_ssl=self.use_tls,
+            connect_timeout=self._connect_timeout,
+        )
+        return ldap3.Connection(server)
+
+    def _acquire_connection(self) -> ldap3.Connection:
+        assert LDAP_AVAILABLE
+        with self._pool_lock:
+            if self._pool is None:
+                self._pool = Queue(maxsize=self._pool_size)
+        try:
+            conn = self._pool.get_nowait()
+            # Ensure connection is alive/boundless
+            try:
+                if not conn.bound:
+                    conn.open()
+            except Exception:
+                conn = self._build_connection()
+                try:
+                    ldap_pool_reconnects.inc()
+                except Exception:
+                    pass
+        except Empty:
+            conn = self._build_connection()
+            try:
+                ldap_pool_reconnects.inc()
+            except Exception:
+                pass
+        try:
+            ldap_pool_borrows.inc()
+        except Exception:
+            pass
+        return conn
+
+    def _release_connection(self, conn: ldap3.Connection) -> None:
+        if not LDAP_AVAILABLE:
+            return
+        try:
+            # Unbind any user credentials; keep TCP session
+            try:
+                if conn.bound:
+                    conn.unbind()
+            except Exception:
+                pass
+            with self._pool_lock:
+                if self._pool is not None and not self._pool.full():
+                    self._pool.put_nowait(conn)
+        except Exception:
+            pass
+
     def test_connection(self) -> dict[str, Any]:
         """Test LDAP connection and return status"""
         result = {
@@ -324,4 +417,5 @@ class LDAPAuthBackend(AuthenticationBackend):
             "available": connection_test["available"],
             "bind_type": connection_test.get("bind_type", "none"),
             "error": connection_test.get("error"),
+            "pool_size": getattr(self, "_pool_size", 0),
         }

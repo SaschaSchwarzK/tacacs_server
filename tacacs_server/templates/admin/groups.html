@@ -151,7 +151,7 @@ async function editGroup(id) {
         document.getElementById('groupMetadata').value = meta;
         setMultiSelectValues(document.getElementById('groupAllowedUserGroups'), group.allowed_user_groups || []);
     } catch (err) {
-        alert(err.message || 'Failed to load group');
+        showToast(err.message || 'Failed to load group', 'error');
     }
 }
 
@@ -209,10 +209,12 @@ async function submitGroup(event) {
             const data = await resp.json().catch(() => ({}));
             throw new Error(data.detail || 'Request failed');
         }
-        window.location.reload();
+        showToast(groupId ? 'Group updated' : 'Group created');
+        setTimeout(() => window.location.reload(), 500);
     } catch (err) {
         errorBox.innerText = err.message;
         errorBox.style.display = 'block';
+        showToast(err.message || 'Request failed', 'error');
     }
 }
 
@@ -221,9 +223,10 @@ async function deleteGroup(id) {
     const resp = await fetch(`/admin/groups/${id}?cascade=false`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
     if (!resp.ok) {
         const detail = await resp.json().catch(() => ({}));
-        alert(detail.detail || 'Failed to delete group');
+        showToast(detail.detail || 'Failed to delete group', 'error');
     }
-    window.location.reload();
+    showToast('Group deleted');
+    setTimeout(() => window.location.reload(), 400);
 }
 </script>
 {% endblock %}

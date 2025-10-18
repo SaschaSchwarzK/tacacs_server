@@ -9,11 +9,14 @@ RFC 2866 - RADIUS Accounting
 """
 
 import hashlib
+import hmac
 import ipaddress
+import os
 import socket
 import struct
 import threading
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -31,6 +34,9 @@ RADIUS_ACCESS_REJECT = 3
 RADIUS_ACCOUNTING_REQUEST = 4
 RADIUS_ACCOUNTING_RESPONSE = 5
 RADIUS_ACCESS_CHALLENGE = 11
+
+# Packet limits
+MAX_RADIUS_PACKET_LENGTH = 4096  # RFC 2865 maximum
 
 # RADIUS Attribute Types
 ATTR_USER_NAME = 1
@@ -164,27 +170,56 @@ class RADIUSPacket:
 
         Note: MD5 is used for authenticator calculation as mandated by RADIUS RFC 2865.
         """
-        # Pack attributes
-        attrs_data = b"".join(attr.pack() for attr in self.attributes)
+        # Pack attributes (with a temporary zeroed Message-Authenticator if present)
+        raw_attrs: list[bytes] = []
+        msg_auth_idx = None  # index in raw_attrs where Message-Authenticator sits
+        for attr in self.attributes or []:
+            if attr.attr_type == ATTR_MESSAGE_AUTHENTICATOR and len(attr.value) == 16:
+                # Temporarily zero this attribute for authenticator calculations
+                raw = RADIUSAttribute(ATTR_MESSAGE_AUTHENTICATOR, b"\x00" * 16).pack()
+                msg_auth_idx = len(raw_attrs)
+                raw_attrs.append(raw)
+            else:
+                raw_attrs.append(attr.pack())
+        attrs_data = b"".join(raw_attrs)
 
-        # Calculate length
+        # Calculate length and header
         length = 20 + len(attrs_data)
-
-        # Pack header
         header = struct.pack("!BBH", self.code, self.identifier, length)
 
-        # Calculate authenticator for response packets
+        # Determine authenticator
         if secret and request_auth and self.code != RADIUS_ACCESS_REQUEST:
             # Response Authenticator = MD5(Code+ID+Length+RequestAuth+Attributes+Secret)
-            # MD5 required by RADIUS RFC 2865 - not for general cryptographic use
-            data = header + request_auth + attrs_data + secret
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-                authenticator = hashlib.md5(data, usedforsecurity=False).digest()
+                authenticator = hashlib.md5(
+                    header + request_auth + attrs_data + secret, usedforsecurity=False
+                ).digest()
         else:
             authenticator = self.authenticator
 
+        # Build packet with current authenticator
         packet = header + authenticator + attrs_data
+
+        # If we have a Message-Authenticator attribute, compute its HMAC-MD5 and inject it
+        if msg_auth_idx is not None and secret:
+            # Rebuild attrs_data with the real HMAC
+            for i in range(len(self.attributes or [])):
+                if i == msg_auth_idx:
+                    # Compute HMAC-MD5 over the full packet with the 16 bytes zeroed
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", DeprecationWarning)
+                        mac = hmac.new(secret, packet, digestmod=hashlib.md5).digest()
+                    # Replace zeros with the computed MAC
+                    # raw_attrs[i] is: type(1) + len(1) + value(16)
+                    raw_attrs[i] = bytes([ATTR_MESSAGE_AUTHENTICATOR, 18]) + mac
+                    break
+            # Repack with real msg-authenticator
+            attrs_data = b"".join(raw_attrs)
+            length = 20 + len(attrs_data)
+            header = struct.pack("!BBH", self.code, self.identifier, length)
+            packet = header + authenticator + attrs_data
+
         return packet
 
     @classmethod
@@ -197,7 +232,7 @@ class RADIUSPacket:
         code, identifier, length = struct.unpack("!BBH", data[:4])
 
         # Validate packet length to prevent buffer overflow
-        if length > 4096:  # RFC 2865 maximum packet size
+        if length > MAX_RADIUS_PACKET_LENGTH:  # RFC 2865 maximum packet size
             raise ValueError(f"Packet too large: {length} bytes")
 
         if len(data) < length:
@@ -316,6 +351,90 @@ class RADIUSPacket:
         )
 
 
+# Helper for verifying RADIUS Request Authenticator for Accounting-Request (RFC 2866)
+def _verify_request_authenticator(data: bytes, secret: bytes) -> bool:
+    """
+    Verify the Request Authenticator for Accounting-Request packets.
+    RFC 2866: For Accounting-Request, server MUST verify the Request Authenticator:
+    MD5(Code+ID+Length+16*0 + Attributes + Secret)
+    """
+    if len(data) < 20:
+        return False
+    try:
+        # Parse header
+        code, identifier, length = struct.unpack("!BBH", data[:4])
+        if length > MAX_RADIUS_PACKET_LENGTH or length < 20 or len(data) < length:
+            return False
+        # Only applicable to Accounting-Request (RFC 2866)
+        if code != RADIUS_ACCOUNTING_REQUEST:
+            return False
+        # Extract fields
+        recv_auth = data[4:20]
+        # Build a copy with zeroed authenticator
+        zeroed = bytearray(data[:length])
+        zeroed[4:20] = b"\x00" * 16
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            calc = hashlib.md5(bytes(zeroed) + secret, usedforsecurity=False).digest()
+        # Constant-time comparison
+        return hmac.compare_digest(calc, recv_auth)
+    except Exception:
+        return False
+
+
+# Helper for verifying Message-Authenticator (RFC 2869 §5.14)
+def _verify_message_authenticator(data: bytes, secret: bytes) -> bool:
+    """
+    Verify Message-Authenticator (Attr 80) on Access-Request.
+    Steps (RFC 2869 §5.14):
+      - Locate the Message-Authenticator attribute.
+      - Set its 16-byte value to zero.
+      - Compute HMAC-MD5 over the entire packet (Code..end) keyed by the shared secret.
+      - Compare to the received value (constant-time).
+    If there is no Message-Authenticator attribute, return True (not required unless EAP/CHAP or mandated by policy).
+    """
+    if len(data) < 20:
+        return False
+    try:
+        code, identifier, length = struct.unpack("!BBH", data[:4])
+        if length > MAX_RADIUS_PACKET_LENGTH or length < 20 or len(data) < length:
+            return False
+        if code != RADIUS_ACCESS_REQUEST:
+            return True
+        # Walk attributes to find attr 80
+        attrs = data[20:length]
+        idx = 0
+        found = False
+        recv_mac = None
+        mutable = bytearray(data[:length])
+        while idx + 2 <= len(attrs):
+            atype = attrs[idx]
+            alen = attrs[idx + 1]
+            if alen < 2 or idx + alen > len(attrs):
+                break
+            if atype == ATTR_MESSAGE_AUTHENTICATOR and alen == 18:
+                # Position of the 16-byte value within the whole packet
+                offset_in_packet = 20 + idx + 2
+                recv_mac = bytes(mutable[offset_in_packet : offset_in_packet + 16])
+                # Zero the value in the mutable copy
+                mutable[offset_in_packet : offset_in_packet + 16] = b"\x00" * 16
+                found = True
+                # Do not break; standard permits multiple attrs, but we validate the first
+                break
+            idx += alen
+        if not found:
+            return True  # No Message-Authenticator present
+        # mypy: ensure recv_mac is bytes, not Optional
+        if recv_mac is None:
+            return False
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            calc = hmac.new(secret, bytes(mutable), digestmod=hashlib.md5).digest()
+        return hmac.compare_digest(calc, recv_mac)
+    except Exception:
+        return False
+
+
 @dataclass
 class RadiusClient:
     """Resolved RADIUS client configuration (single host or network)."""
@@ -354,10 +473,12 @@ class RADIUSServer:
         self.accounting_port = accounting_port
         # Default fallback secret - should be overridden by device-specific secrets
         if secret is None:
-            import os
-
             secret = os.getenv("RADIUS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK")
         self.secret = secret.encode("utf-8")
+        if secret == "CHANGE_ME_FALLBACK":
+            logger.warning(
+                "RADIUS default secret is the insecure fallback; set RADIUS_DEFAULT_SECRET or per-client secrets."
+            )
 
         self.auth_backends: list[AuthenticationBackend] = []
         self.accounting_logger = None
@@ -368,6 +489,13 @@ class RADIUSServer:
         self.auth_socket = None
         self.acct_socket = None
 
+        # Config knobs
+        self.socket_timeout = float(os.getenv("RADIUS_SOCKET_TIMEOUT", "1.0"))
+        self.rcvbuf = int(os.getenv("RADIUS_SO_RCVBUF", "1048576"))
+        self.worker_count = int(os.getenv("RADIUS_WORKERS", "8"))
+        # Packet worker pool (created on start)
+        self._executor: ThreadPoolExecutor | None = None
+
         # Statistics
         self.stats = {
             "auth_requests": 0,
@@ -377,10 +505,29 @@ class RADIUSServer:
             "acct_responses": 0,
             "invalid_packets": 0,
         }
+        self._stats_lock = threading.Lock()
 
         # Client configuration (RADIUS client devices)
         self._client_lock = threading.RLock()
         self.clients: list[RadiusClient] = []
+
+    def _inc(self, key: str, amount: int = 1) -> None:
+        with self._stats_lock:
+            self.stats[key] = self.stats.get(key, 0) + amount
+
+    # Backwards-compatible workers property used by main.py
+    @property
+    def workers(self) -> int:
+        return self.worker_count
+
+    @workers.setter
+    def workers(self, value: int) -> None:
+        try:
+            ivalue = int(value)
+        except (TypeError, ValueError):
+            return
+        # Clamp to reasonable bounds
+        self.worker_count = max(1, min(64, ivalue))
 
     def add_auth_backend(self, backend):
         """Add authentication backend (shared with TACACS+)"""
@@ -489,6 +636,11 @@ class RADIUSServer:
 
         self.running = True
 
+        # Start worker pool
+        self._executor = ThreadPoolExecutor(
+            max_workers=self.worker_count, thread_name_prefix="RADIUS"
+        )
+
         # Start authentication server
         auth_thread = threading.Thread(
             target=self._start_auth_server, daemon=True, name="RADIUS-Auth"
@@ -523,6 +675,14 @@ class RADIUSServer:
             except (OSError, AttributeError):
                 pass
 
+        if self._executor:
+            try:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            finally:
+                self._executor = None
+
         logger.info("RADIUS server stopped")
 
     def _start_auth_server(self):
@@ -531,7 +691,13 @@ class RADIUSServer:
             self.auth_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.auth_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.auth_socket.bind((self.host, self.port))
-            self.auth_socket.settimeout(1.0)
+            self.auth_socket.settimeout(self.socket_timeout)
+            try:
+                self.auth_socket.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf
+                )
+            except Exception:
+                pass
 
             logger.debug(
                 "RADIUS authentication server listening on %s:%s", self.host, self.port
@@ -539,11 +705,16 @@ class RADIUSServer:
 
             while self.running:
                 try:
-                    data, addr = self.auth_socket.recvfrom(4096)
-                    # Handle in separate thread to not block
-                    threading.Thread(
-                        target=self._handle_auth_request, args=(data, addr), daemon=True
-                    ).start()
+                    data, addr = self.auth_socket.recvfrom(MAX_RADIUS_PACKET_LENGTH)
+                    # Handle in thread pool or fallback to thread
+                    if self._executor:
+                        self._executor.submit(self._handle_auth_request, data, addr)
+                    else:
+                        threading.Thread(
+                            target=self._handle_auth_request,
+                            args=(data, addr),
+                            daemon=True,
+                        ).start()
                 except TimeoutError:
                     continue
                 except (OSError, ConnectionError) as e:
@@ -568,7 +739,13 @@ class RADIUSServer:
             self.acct_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.acct_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.acct_socket.bind((self.host, self.accounting_port))
-            self.acct_socket.settimeout(1.0)
+            self.acct_socket.settimeout(self.socket_timeout)
+            try:
+                self.acct_socket.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf
+                )
+            except Exception:
+                pass
 
             logger.debug(
                 "RADIUS accounting server listening on %s:%s",
@@ -578,11 +755,16 @@ class RADIUSServer:
 
             while self.running:
                 try:
-                    data, addr = self.acct_socket.recvfrom(4096)
-                    # Handle in separate thread
-                    threading.Thread(
-                        target=self._handle_acct_request, args=(data, addr), daemon=True
-                    ).start()
+                    data, addr = self.acct_socket.recvfrom(MAX_RADIUS_PACKET_LENGTH)
+                    # Handle in thread pool or fallback to thread
+                    if self._executor:
+                        self._executor.submit(self._handle_acct_request, data, addr)
+                    else:
+                        threading.Thread(
+                            target=self._handle_acct_request,
+                            args=(data, addr),
+                            daemon=True,
+                        ).start()
                 except TimeoutError:
                     continue
                 except (OSError, ConnectionError) as e:
@@ -615,10 +797,19 @@ class RADIUSServer:
             client_config = self.lookup_client(client_ip)
             if not client_config:
                 logger.warning("RADIUS auth request from unknown client: %s", client_ip)
-                self.stats["invalid_packets"] += 1
+                self._inc("invalid_packets")
                 return
 
             client_secret = client_config.secret_bytes
+
+            # If present, verify Message-Authenticator (RFC 2869 §5.14)
+            if not _verify_message_authenticator(data, client_secret):
+                logger.warning(
+                    "RADIUS auth request with invalid Message-Authenticator from %s",
+                    client_ip,
+                )
+                self._inc("invalid_packets")
+                return
 
             # Parse request
             request = RADIUSPacket.unpack(data, client_secret)
@@ -627,7 +818,7 @@ class RADIUSServer:
                 logger.warning("Unexpected packet code in auth port: %s", request.code)
                 return
 
-            self.stats["auth_requests"] += 1
+            self._inc("auth_requests")
 
             # Extract authentication info
             username = request.get_string(ATTR_USER_NAME)
@@ -640,6 +831,8 @@ class RADIUSServer:
                     client_ip,
                 )
                 response = self._create_access_reject(request, "Missing credentials")
+                if request.get_attribute(ATTR_MESSAGE_AUTHENTICATOR):
+                    response.add_attribute(ATTR_MESSAGE_AUTHENTICATOR, b"\x00" * 16)
                 self._send_response(
                     response, addr, client_secret, request.authenticator
                 )
@@ -667,7 +860,7 @@ class RADIUSServer:
                 )
                 if allowed:
                     response = self._create_access_accept(request, user_attrs)
-                    self.stats["auth_accepts"] += 1
+                    self._inc("auth_accepts")
                     logger.info(
                         "RADIUS authentication success: user=%s detail=%s device=%s",
                         username,
@@ -682,7 +875,7 @@ class RADIUSServer:
                         pass
                 else:
                     response = self._create_access_reject(request, denial_message)
-                    self.stats["auth_rejects"] += 1
+                    self._inc("auth_rejects")
                     logger.warning(
                         "RADIUS authentication failed: user=%s reason=%s device=%s",
                         username,
@@ -697,7 +890,7 @@ class RADIUSServer:
                         pass
             else:
                 response = self._create_access_reject(request, "Authentication failed")
-                self.stats["auth_rejects"] += 1
+                self._inc("auth_rejects")
                 logger.warning(
                     "RADIUS authentication failed: user=%s reason=%s device=%s",
                     username,
@@ -711,12 +904,16 @@ class RADIUSServer:
                 except Exception:
                     pass
 
+            # Mirror Message-Authenticator if client used it
+            if request.get_attribute(ATTR_MESSAGE_AUTHENTICATOR):
+                response.add_attribute(ATTR_MESSAGE_AUTHENTICATOR, b"\x00" * 16)
+
             # Send response
             self._send_response(response, addr, client_secret, request.authenticator)
 
         except Exception as e:
             logger.error("Error handling RADIUS auth request from %s: %s", client_ip, e)
-            self.stats["invalid_packets"] += 1
+            self._inc("invalid_packets")
 
     def _handle_acct_request(self, data: bytes, addr: tuple[str, int]):
         """Handle RADIUS accounting request with improved error handling.
@@ -737,22 +934,34 @@ class RADIUSServer:
             client_config = self.lookup_client(client_ip)
             if not client_config:
                 logger.warning("RADIUS acct request from unknown client: %s", client_ip)
+                self._inc("invalid_packets")
                 return
 
             client_secret = client_config.secret_bytes
+
+            # Verify Request Authenticator for Accounting-Request (RFC 2866)
+            if not _verify_request_authenticator(data, client_secret):
+                logger.warning(
+                    "RADIUS acct request with invalid Request Authenticator from %s",
+                    client_ip,
+                )
+                self._inc("invalid_packets")
+                return
 
             # Parse request with error handling
             try:
                 request = RADIUSPacket.unpack(data, client_secret)
             except ValueError as e:
                 logger.warning("Invalid RADIUS packet from %s: %s", client_ip, e)
+                self._inc("invalid_packets")
                 return
 
             if request.code != RADIUS_ACCOUNTING_REQUEST:
                 logger.warning("Unexpected packet code in acct port: %s", request.code)
+                self._inc("invalid_packets")
                 return
 
-            self.stats["acct_requests"] += 1
+            self._inc("acct_requests")
 
             # Extract accounting info
             username = request.get_string(ATTR_USER_NAME)
@@ -788,7 +997,7 @@ class RADIUSServer:
             )
 
             self._send_response(response, addr, client_secret, request.authenticator)
-            self.stats["acct_responses"] += 1
+            self._inc("acct_responses")
 
         except Exception as e:
             logger.error("Error handling RADIUS acct request from %s: %s", client_ip, e)
@@ -963,18 +1172,23 @@ class RADIUSServer:
 
     def get_stats(self) -> dict[str, Any]:
         """Get server statistics"""
+        with self._stats_lock:
+            auth_requests = self.stats["auth_requests"]
+            auth_accepts = self.stats["auth_accepts"]
+            auth_rejects = self.stats["auth_rejects"]
+            acct_requests = self.stats["acct_requests"]
+            acct_responses = self.stats["acct_responses"]
+            invalid_packets = self.stats["invalid_packets"]
         return {
-            "auth_requests": self.stats["auth_requests"],
-            "auth_accepts": self.stats["auth_accepts"],
-            "auth_rejects": self.stats["auth_rejects"],
+            "auth_requests": auth_requests,
+            "auth_accepts": auth_accepts,
+            "auth_rejects": auth_rejects,
             "auth_success_rate": (
-                (self.stats["auth_accepts"] / self.stats["auth_requests"] * 100)
-                if self.stats["auth_requests"] > 0
-                else 0
+                (auth_accepts / auth_requests * 100) if auth_requests > 0 else 0
             ),
-            "acct_requests": self.stats["acct_requests"],
-            "acct_responses": self.stats["acct_responses"],
-            "invalid_packets": self.stats["invalid_packets"],
+            "acct_requests": acct_requests,
+            "acct_responses": acct_responses,
+            "invalid_packets": invalid_packets,
             "configured_clients": len(self.clients),
             "running": self.running,
         }

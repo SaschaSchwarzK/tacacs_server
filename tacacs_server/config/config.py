@@ -82,6 +82,17 @@ class TacacsConfig:
             "log_level": "INFO",
             "max_connections": "50",
             "socket_timeout": "30",
+            # Additional server/network tuning
+            "listen_backlog": "128",
+            "client_timeout": "15",
+            "max_packet_length": "4096",
+            "ipv6_enabled": "false",
+            "tcp_keepalive": "true",
+            "tcp_keepidle": "60",
+            "tcp_keepintvl": "10",
+            "tcp_keepcnt": "5",
+            "thread_pool_max": "100",
+            "use_thread_pool": "true",
         }
         self.config["auth"] = {
             "backends": "local",
@@ -154,6 +165,16 @@ class TacacsConfig:
             "host": "0.0.0.0",
             "share_backends": "true",
             "share_accounting": "true",
+            # Advanced tuning
+            "workers": "8",
+            "socket_timeout": "1.0",
+            "rcvbuf": "1048576",
+        }
+        # Optional web monitoring
+        self.config["monitoring"] = {
+            "enabled": "false",
+            "web_host": "127.0.0.1",
+            "web_port": "8080",
         }
 
     def save_config(self):
@@ -191,6 +212,37 @@ class TacacsConfig:
             # secret_key intentionally omitted to avoid accidental leakage
             "max_connections": self.config.getint("server", "max_connections"),
             "socket_timeout": self.config.getint("server", "socket_timeout"),
+        }
+
+    def get_server_network_config(self) -> dict[str, Any]:
+        """Get extended server/network tuning parameters."""
+        s = self.config["server"]
+        return {
+            "listen_backlog": int(s.get("listen_backlog", 128)),
+            "client_timeout": float(s.get("client_timeout", 15)),
+            "max_packet_length": int(s.get("max_packet_length", 4096)),
+            "ipv6_enabled": str(s.get("ipv6_enabled", "false")).lower() == "true",
+            "tcp_keepalive": str(s.get("tcp_keepalive", "true")).lower() != "false",
+            "tcp_keepidle": int(s.get("tcp_keepidle", 60)),
+            "tcp_keepintvl": int(s.get("tcp_keepintvl", 10)),
+            "tcp_keepcnt": int(s.get("tcp_keepcnt", 5)),
+            "thread_pool_max": int(s.get("thread_pool_max", 100)),
+            "use_thread_pool": str(s.get("use_thread_pool", "true")).lower() != "false",
+        }
+
+    def get_monitoring_config(self) -> dict[str, Any]:
+        """Get monitoring configuration if present."""
+        if "monitoring" not in self.config:
+            return {}
+        m = self.config["monitoring"]
+        try:
+            enabled = str(m.get("enabled", "false")).lower() == "true"
+        except Exception:
+            enabled = False
+        return {
+            "enabled": enabled,
+            "web_host": m.get("web_host", "127.0.0.1"),
+            "web_port": int(m.get("web_port", 8080)),
         }
 
     def get_auth_backends(self) -> list[str]:
@@ -233,6 +285,8 @@ class TacacsConfig:
                 return LocalAuthBackend(self.get_local_auth_db())
             elif backend_type == "ldap":
                 return self._create_ldap_backend()
+            elif backend_type == "okta":
+                return self._create_okta_backend()
             else:
                 logger.warning("Unknown auth backend '%s' configured", backend_name)
                 return None
@@ -253,6 +307,22 @@ class TacacsConfig:
             logger.error("LDAP backend configured but no [ldap] section found")
             return None
         return LDAPAuthBackend(dict(self.config["ldap"]))
+
+    def _create_okta_backend(self):
+        """Create Okta backend if configuration exists"""
+        try:
+            from tacacs_server.auth.okta_auth import OktaAuthBackend
+        except Exception:
+            logger.error("Okta backend requested but module not available")
+            return None
+        if "okta" not in self.config:
+            logger.error("Okta backend configured but no [okta] section found")
+            return None
+        try:
+            return OktaAuthBackend(dict(self.config["okta"]))
+        except Exception as exc:
+            logger.error("Failed to initialize Okta backend: %s", exc)
+            return None
 
     def _create_fallback_backend(self):
         """Create fallback local authentication backend"""
@@ -677,6 +747,11 @@ class TacacsConfig:
             "host": host,
             "share_backends": self.config.getboolean("radius", "share_backends"),
             "share_accounting": self.config.getboolean("radius", "share_accounting"),
+            "workers": int(self.config.get("radius", "workers", fallback="8")),
+            "socket_timeout": float(
+                self.config.get("radius", "socket_timeout", fallback="1.0")
+            ),
+            "rcvbuf": int(self.config.get("radius", "rcvbuf", fallback="1048576")),
         }
 
     @staticmethod

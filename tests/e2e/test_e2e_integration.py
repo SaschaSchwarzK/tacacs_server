@@ -284,6 +284,30 @@ class E2ETestBase:
         except Exception:
             return False
 
+    # ------------------------------------------------------------------
+    # Debug helpers to diagnose connectivity/test env quickly
+    # ------------------------------------------------------------------
+    def _debug_dump_server_state(self, label: str = "") -> None:
+        try:
+            print(f"\n[DEBUG] {label} BASE_URL={self.BASE_URL}")
+            print(
+                f"[DEBUG] TACACS_HOST={self.TACACS_HOST} TACACS_PORT={self.TACACS_PORT} WEB_PORT={self.server_info.get('web_port')}"
+            )
+            # Show token presence only (not the token value)
+            hdrs = getattr(self.session, "headers", {}) or {}
+            has_token = "X-API-Token" in {k.title(): v for k, v in hdrs.items()}
+            print(f"[DEBUG] Session has API token header: {has_token}")
+            # Probe key endpoints
+            for ep in ["/api/health", "/api/status", "/api/admin/config"]:
+                try:
+                    r = self.session.get(f"{self.BASE_URL}{ep}")
+                    snippet = (r.text or "")[:180].replace("\n", " ")
+                    print(f"[DEBUG] GET {ep} -> {r.status_code} body[:180]={snippet}")
+                except Exception as e:
+                    print(f"[DEBUG] GET {ep} raised: {e}")
+        except Exception as e:
+            print(f"[DEBUG] dump failed: {e}")
+
 
 # ============================================================================
 # Complete Workflow Tests
@@ -725,11 +749,29 @@ class TestAccountingWorkflow(E2ETestBase):
 
         # Step 3: Wait and check accounting records
         time.sleep(2)
+        # Debug before hitting accounting endpoint
+        self._debug_dump_server_state("pre-accounting")
 
-        response = self.session.get(
-            f"{self.BASE_URL}/api/accounting",
-            params={"username": user_data["username"]},
-        )
+        try:
+            response = self.session.get(
+                f"{self.BASE_URL}/api/accounting",
+                params={"username": user_data["username"]},
+            )
+        except Exception as e:
+            print(f"[DEBUG] /api/accounting request failed: {e}")
+            # Best-effort: fetch server logs via admin API alias if available
+            try:
+                logs = self.session.get(
+                    f"{self.BASE_URL}/api/admin/logs", params={"lines": 120}
+                )
+                print(
+                    f"[DEBUG] /api/admin/logs -> {getattr(logs, 'status_code', 'n/a')}"
+                )
+                if getattr(logs, "ok", False):
+                    print(f"[DEBUG] logs: {(logs.text or '')[:1000]}")
+            except Exception as e2:
+                print(f"[DEBUG] fetching logs failed: {e2}")
+            raise
 
         if response.status_code == 200:
             data = response.json()
@@ -742,7 +784,25 @@ class TestAccountingWorkflow(E2ETestBase):
             print(f"✅ Step 3: Found {len(records)} accounting record(s)")
 
         # Step 4: Check audit log
-        response = self.session.get(f"{self.BASE_URL}/api/admin/audit")
+        # Debug prior to audit fetch as well
+        self._debug_dump_server_state("pre-audit")
+        try:
+            response = self.session.get(f"{self.BASE_URL}/api/admin/audit")
+            print(
+                f"[DEBUG] /api/admin/audit -> {response.status_code} body[:200]={(response.text or '')[:200].replace(chr(10), ' ')}"
+            )
+        except Exception as e:
+            print(f"[DEBUG] /api/admin/audit failed: {e}")
+            try:
+                logs = self.session.get(
+                    f"{self.BASE_URL}/api/admin/logs", params={"lines": 200}
+                )
+                print(
+                    f"[DEBUG] /api/admin/logs -> {getattr(logs, 'status_code', 'n/a')} body[:1000]={(getattr(logs, 'text', '') or '')[:1000]}"
+                )
+            except Exception as e2:
+                print(f"[DEBUG] fetching logs failed: {e2}")
+            raise
 
         if response.status_code == 200:
             audit_logs = response.json()

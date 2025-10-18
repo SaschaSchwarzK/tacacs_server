@@ -80,6 +80,43 @@
 </div>
 
 <div class="section-grid">
+    <div class="card simple-table">
+        <h3>Auth Backends</h3>
+        {% if backend_summaries %}
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Details</th>
+                <th>Status</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for be in backend_summaries %}
+            <tr>
+                <td>{{ be.name }}</td>
+                <td class="muted">
+                    {% for k, v in be.stats.items() %}
+                        <strong>{{ k }}</strong>: {{ v }}{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
+                <td>
+                    {% if be.name|lower == 'okta' and be.stats.circuit_open %}
+                        <span style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:2px 6px;border-radius:999px;">Circuit Open</span>
+                    {% elif be.name|lower == 'okta' %}
+                        <span style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 6px;border-radius:999px;">Healthy</span>
+                    {% else %}
+                        <span class="muted">-</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">No backend details available.</p>
+        {% endif %}
+    </div>
     <div class="card">
         <h3>System Health</h3>
         <ul class="muted" style="list-style:none; padding:0; margin:1rem 0 0 0; display:flex; flex-direction:column; gap:0.35rem;">

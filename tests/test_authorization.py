@@ -27,13 +27,11 @@ class MockAuthBackend(AuthenticationBackend):
                 "enabled": True,
                 "groups": ["admin"],
                 "privilege_level": 15,
-                "shell_command": ["show", "configure"],
             },
             "user": {
                 "enabled": True,
                 "groups": ["users"],
                 "privilege_level": 1,
-                "shell_command": ["show"],
             },
             "disabled_user": {
                 "enabled": False,

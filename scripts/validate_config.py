@@ -59,6 +59,32 @@ def validate_configuration(config_file: str | None = None) -> bool:
             backends_list = ", ".join(auth_backends)
             print(f"   Auth backends: {backends_list}")
 
+            # Okta config summary (if present)
+            if "okta" in config.config:
+                okta = dict(config.config["okta"])  # type: ignore[index]
+
+                def _bool(key: str, default: bool = False) -> bool:
+                    try:
+                        return str(okta.get(key, str(default))).strip().lower() in {
+                            "1",
+                            "true",
+                            "yes",
+                            "on",
+                        }
+                    except Exception:
+                        return default
+
+                print("   Okta:")
+                print(f"     org_url: {okta.get('org_url', '')}")
+                print(f"     ropc_enabled: {_bool('ropc_enabled', True)}")
+                print(
+                    f"     require_group_for_auth: {_bool('require_group_for_auth', False)}"
+                )
+                print(f"     api_token set: {bool(okta.get('api_token', ''))}")
+                print(f"     strict_group_mode: {_bool('strict_group_mode', False)}")
+                print(f"     trust_env: {_bool('trust_env', False)}")
+                print(f"     use_basic_auth: {_bool('use_basic_auth', False)}")
+
             security_config = config.get_security_config()
             print(f"   Max auth attempts: {security_config['max_auth_attempts']}")
             print(f"   Auth timeout: {security_config['auth_timeout']}s")

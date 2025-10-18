@@ -18,7 +18,6 @@ class DummyBackend:
             "enabled": True,
             "groups": ["users"],
             "privilege_level": 1,
-            "shell_command": [],
         }
 
 

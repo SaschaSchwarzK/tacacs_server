@@ -1,9 +1,10 @@
 """Pydantic schema for TACACS+ configuration validation."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ServerConfigSchema(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     host: str = Field(..., description="Server bind host")
     port: int = Field(..., ge=1, le=65535, description="Server TCP port")
     # secret_key removed - secrets are now per-device group

@@ -31,6 +31,16 @@
         .modal-field textarea { resize:vertical; min-height:90px; }
         .modal-hint { font-size:0.8rem; color:#6b7280; }
         .modal-actions { display:flex; gap:0.75rem; justify-content:flex-end; margin-top:0.5rem; }
+
+        /* Toast styles */
+        .toast-container { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 2000; }
+        .toast { min-width: 200px; max-width: 420px; background: #10b981; color: #062b20; padding: 10px 12px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); border: 1px solid #34d399; opacity: 0; transform: translateY(8px); transition: opacity 180ms ease, transform 180ms ease; font-size: 0.95rem; }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.error { background: #fee2e2; color: #7f1d1d; border-color: #fecaca; }
+        .toast.info { background: #dbeafe; color: #1e3a8a; border-color: #bfdbfe; }
+
+        /* Subtle fade utility for inline status labels */
+        .fade-inline { transition: opacity 400ms ease; opacity: 1; }
     </style>
 </head>
 <body>
@@ -72,6 +82,7 @@
     {% endif %}
     {% block content %}{% endblock %}
 </main>
+<div id="toast-root" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 <script>
 async function logout(event) {
     event.preventDefault();
@@ -89,6 +100,47 @@ async function logout(event) {
         document.getElementById('api-warning').style.display = 'block';
     }
 })();
+
+// Toast helper
+function showToast(message, type = 'success', ms = 2400) {
+    const root = document.getElementById('toast-root');
+    if (!root) return;
+    const el = document.createElement('div');
+    el.className = 'toast ' + (type || 'success');
+    el.textContent = message || '';
+    root.appendChild(el);
+    // async show then auto-remove
+    requestAnimationFrame(() => el.classList.add('show'));
+    const remove = () => {
+        el.classList.remove('show');
+        el.addEventListener('transitionend', () => el.remove(), { once: true });
+    };
+    const t = setTimeout(remove, Math.max(1200, ms|0));
+    el.addEventListener('click', () => { clearTimeout(t); remove(); });
+}
+
+// Inline status fade helper
+function flashStatus(el, text, type = 'success', ms = 2200) {
+    if (!el) return;
+    // Ensure it can fade
+    el.classList.add('fade-inline');
+    el.style.opacity = '1';
+    if (type === 'error') {
+        el.style.color = '#ef4444';
+    } else if (type === 'info') {
+        el.style.color = '#2563eb';
+    } else {
+        el.style.color = '#10b981';
+    }
+    el.textContent = text || '';
+    if (type !== 'error') {
+        // Auto fade and clear for non-errors
+        setTimeout(() => {
+            el.style.opacity = '0';
+            el.addEventListener('transitionend', () => { el.textContent = ''; el.style.opacity = '1'; }, { once: true });
+        }, Math.max(1000, ms|0));
+    }
+}
 </script>
 </body>
 </html>

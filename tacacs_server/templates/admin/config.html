@@ -5,4 +5,247 @@
     <p><strong>Source:</strong> {{ config_source }}</p>
     <pre style="background:#111827;color:#f9fafb;padding:1rem;border-radius:6px;overflow:auto;max-height:70vh;">{{ config_json }}</pre>
 </div>
+
+<div class="card">
+  <h2>Server Tuning</h2>
+  <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+      <input type="checkbox" id="toggle-advanced" onchange="toggleAdvanced()" />
+      Show advanced settings
+    </label>
+  </div>
+  <div style="font-size:0.9rem;color:#6b7280;margin-bottom:8px;">
+    Settings marked <span class="badge" style="background:#374151;color:#e5e7eb;padding:2px 6px;border-radius:4px;">restart</span> require a server restart to fully take effect. Others apply to new connections.
+  </div>
+  <form id="server-tuning-form" onsubmit="return false;" style="display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:12px;align-items:center;">
+    <label for="listen_backlog">listen_backlog</label>
+    <div>
+      <input type="number" id="listen_backlog" name="listen_backlog" min="1" value="{{ server_section.get('listen_backlog','') }}" />
+      <div style="font-size:0.85rem;color:#6b7280;">Pending queue size for inbound TCP accepts <span class="badge" style="background:#374151;color:#e5e7eb;padding:1px 6px;border-radius:4px;">restart</span></div>
+    </div>
+
+    <label for="client_timeout">client_timeout</label>
+    <div>
+      <input type="number" step="0.1" id="client_timeout" name="client_timeout" min="1" value="{{ server_section.get('client_timeout','') }}" />
+      <div style="font-size:0.85rem;color:#6b7280;">Idle socket timeout in seconds (new connections)</div>
+    </div>
+
+    <label for="max_packet_length">max_packet_length</label>
+    <div>
+      <input type="number" id="max_packet_length" name="max_packet_length" min="512" value="{{ server_section.get('max_packet_length','') }}" />
+      <div style="font-size:0.85rem;color:#6b7280;">Drop packets larger than this size (bytes)</div>
+    </div>
+
+    <label for="ipv6_enabled">ipv6_enabled</label>
+    <div>
+    <select id="ipv6_enabled" name="ipv6_enabled">
+      {% set ipv6_val = (server_section.get('ipv6_enabled','false') | string).lower() %}
+      <option value="false" {% if ipv6_val=='false' %}selected{% endif %}>false</option>
+      <option value="true" {% if ipv6_val=='true' %}selected{% endif %}>true</option>
+    </select>
+    <div style="font-size:0.85rem;color:#6b7280;">Enable IPv6 dual-stack listener <span class="badge" style="background:#374151;color:#e5e7eb;padding:1px 6px;border-radius:4px;">restart</span></div>
+    </div>
+
+    <label for="tcp_keepalive">tcp_keepalive</label>
+    <div>
+    <select id="tcp_keepalive" name="tcp_keepalive">
+      {% set ka_val = (server_section.get('tcp_keepalive','true') | string).lower() %}
+      <option value="true" {% if ka_val=='true' %}selected{% endif %}>true</option>
+      <option value="false" {% if ka_val=='false' %}selected{% endif %}>false</option>
+    </select>
+    <div style="font-size:0.85rem;color:#6b7280;">Enable TCP keepalive (applies to new connections)</div>
+    </div>
+
+    <label for="use_thread_pool">use_thread_pool</label>
+    <div>
+    <select id="use_thread_pool" name="use_thread_pool">
+      {% set pool_val = (server_section.get('use_thread_pool','true') | string).lower() %}
+      <option value="true" {% if pool_val=='true' %}selected{% endif %}>true</option>
+      <option value="false" {% if pool_val=='false' %}selected{% endif %}>false</option>
+    </select>
+    <div style="font-size:0.85rem;color:#6b7280;">Cap per-connection workers with a thread pool <span class="badge" style="background:#374151;color:#e5e7eb;padding:1px 6px;border-radius:4px;">restart</span></div>
+    </div>
+
+    <div id="advanced-settings" style="grid-column:1/-1;display:none;">
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:12px;align-items:center;">
+        <label for="thread_pool_max">thread_pool_max</label>
+        <div>
+          <input type="number" id="thread_pool_max" name="thread_pool_max" min="1" value="{{ server_section.get('thread_pool_max','') }}" />
+          <div style="font-size:0.85rem;color:#6b7280;">Max worker threads in pool <span class="badge" style="background:#374151;color:#e5e7eb;padding:1px 6px;border-radius:4px;">restart</span></div>
+        </div>
+
+        <label for="tcp_keepidle">tcp_keepidle</label>
+        <div>
+          <input type="number" id="tcp_keepidle" name="tcp_keepidle" min="1" value="{{ server_section.get('tcp_keepidle','') }}" />
+          <div style="font-size:0.85rem;color:#6b7280;">Keepalive idle seconds (platform specific; new connections)</div>
+        </div>
+
+        <label for="tcp_keepintvl">tcp_keepintvl</label>
+        <div>
+          <input type="number" id="tcp_keepintvl" name="tcp_keepintvl" min="1" value="{{ server_section.get('tcp_keepintvl','') }}" />
+          <div style="font-size:0.85rem;color:#6b7280;">Keepalive interval seconds (platform specific; new connections)</div>
+        </div>
+
+        <label for="tcp_keepcnt">tcp_keepcnt</label>
+        <div>
+          <input type="number" id="tcp_keepcnt" name="tcp_keepcnt" min="1" value="{{ server_section.get('tcp_keepcnt','') }}" />
+          <div style="font-size:0.85rem;color:#6b7280;">Keepalive probe count (platform specific; new connections)</div>
+        </div>
+      </div>
+    </div>
+
+    <div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-start;">
+      <button class="btn" onclick="saveServerTuning()">Save</button>
+      <span id="server-tuning-status" style="margin-left:8px;color:#10b981;"></span>
+    </div>
+  </form>
+  <div id="restart-hint" style="display:none;margin-top:8px;color:#f59e0b;font-size:0.95rem;">
+    Some changes will apply after a server restart.
+  </div>
+  <script>
+    function isVisible(el){
+      return !!( el.offsetWidth || el.offsetHeight || el.getClientRects().length );
+    }
+    function toggleAdvanced(){
+      const adv = document.getElementById('advanced-settings');
+      const cb = document.getElementById('toggle-advanced');
+      adv.style.display = cb.checked ? 'block' : 'none';
+    }
+    async function saveServerTuning(){
+      const status = document.getElementById('server-tuning-status');
+      status.textContent = '';
+      const restartHint = document.getElementById('restart-hint');
+      restartHint.style.display = 'none';
+      const server = {};
+      function setIfNonEmpty(key, value){
+        if(value !== undefined && value !== null){
+          if(typeof value === 'string'){
+            if(value.trim() !== '') server[key] = value;
+          } else {
+            server[key] = value;
+          }
+        }
+      }
+      // Basic settings: always considered if non-empty
+      setIfNonEmpty('listen_backlog', document.getElementById('listen_backlog').value);
+      setIfNonEmpty('client_timeout', document.getElementById('client_timeout').value);
+      setIfNonEmpty('max_packet_length', document.getElementById('max_packet_length').value);
+      setIfNonEmpty('ipv6_enabled', document.getElementById('ipv6_enabled').value);
+      setIfNonEmpty('tcp_keepalive', document.getElementById('tcp_keepalive').value);
+      setIfNonEmpty('use_thread_pool', document.getElementById('use_thread_pool').value);
+      // Advanced settings: only considered if advanced view is visible and values are non-empty
+      if(isVisible(document.getElementById('advanced-settings'))){
+        setIfNonEmpty('thread_pool_max', document.getElementById('thread_pool_max').value);
+        setIfNonEmpty('tcp_keepidle', document.getElementById('tcp_keepidle').value);
+        setIfNonEmpty('tcp_keepintvl', document.getElementById('tcp_keepintvl').value);
+        setIfNonEmpty('tcp_keepcnt', document.getElementById('tcp_keepcnt').value);
+      }
+      const payload = { server };
+      // Detect if any restart-required keys are present in this update
+      const restartKeys = ['listen_backlog','ipv6_enabled','use_thread_pool','thread_pool_max'];
+      const restartNeeded = restartKeys.some(k => Object.prototype.hasOwnProperty.call(server,k));
+      try {
+        const resp = await fetch('/admin/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if(!resp.ok){
+          const err = await resp.text();
+          flashStatus(status, 'Error: ' + err, 'error');
+          return;
+        }
+        flashStatus(status, 'Saved', 'success');
+        showToast('Server settings saved');
+        if (restartNeeded) {
+          restartHint.style.display = 'block';
+        }
+      } catch(e){
+        flashStatus(status, 'Error: ' + e, 'error');
+      }
+    }
+  </script>
+  <div style="margin-top:10px;">
+    <button class="btn" onclick="restartRadius()">Restart RADIUS</button>
+    <span id="radius-restart-status" style="margin-left:8px;color:#10b981;"></span>
+  </div>
+  <script>
+    async function restartRadius(){
+      if(!confirm('Restart RADIUS now? Existing requests may be dropped.')){ return; }
+      const el = document.getElementById('radius-restart-status');
+      el.textContent='';
+      try{
+        const resp = await fetch('/api/radius/restart', {method:'POST'});
+        if(!resp.ok){
+          const err = await resp.text();
+          flashStatus(el, 'Error: ' + err, 'error');
+          return;
+        }
+        flashStatus(el, 'RADIUS restarted', 'success');
+        showToast('RADIUS restarted');
+      }catch(e){
+        flashStatus(el, 'Error: ' + e, 'error');
+      }
+    }
+  </script>
+</div>
+
+<div class="card">
+  <h2>RADIUS Tuning</h2>
+  <form id="radius-tuning-form" onsubmit="return false;" style="display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:12px;align-items:center;">
+    <label for="radius_workers">workers</label>
+    <div>
+      <input type="number" id="radius_workers" name="workers" min="1" max="64" value="{{ (configuration.get('radius') or {}).get('workers','') if configuration else '' }}" />
+      <div style="font-size:0.85rem;color:#6b7280;">Thread pool size for RADIUS handlers <span class="badge" style="background:#374151;color:#e5e7eb;padding:1px 6px;border-radius:4px;">restart</span></div>
+    </div>
+
+    <label for="radius_socket_timeout">socket_timeout</label>
+    <div>
+      <input type="number" step="0.1" id="radius_socket_timeout" name="socket_timeout" min="0.1" value="{{ (configuration.get('radius') or {}).get('socket_timeout','') if configuration else '' }}" />
+      <div style="font-size:0.85rem;color:#6b7280;">UDP socket timeout in seconds (applies immediately)</div>
+    </div>
+
+    <label for="radius_rcvbuf">rcvbuf</label>
+    <div>
+      <input type="number" id="radius_rcvbuf" name="rcvbuf" min="262144" value="{{ (configuration.get('radius') or {}).get('rcvbuf','') if configuration else '' }}" />
+      <div style="font-size:0.85rem;color:#6b7280;">UDP receive buffer size in bytes <span class="badge" style="background:#374151;color:#e5e7eb;padding:1px 6px;border-radius:4px;">restart</span></div>
+    </div>
+
+    <div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-start;">
+      <button class="btn" onclick="saveRadiusTuning()">Save</button>
+      <span id="radius-tuning-status" style="margin-left:8px;color:#10b981;"></span>
+    </div>
+  </form>
+  <script>
+    async function saveRadiusTuning(){
+      const status = document.getElementById('radius-tuning-status');
+      status.textContent='';
+      const form = document.getElementById('radius-tuning-form');
+      const server = {};
+      const radius = {};
+      function setIfNonEmpty(obj, key, id){
+        const v = document.getElementById(id).value;
+        if(v && String(v).trim()!==''){ obj[key]=v; }
+      }
+      setIfNonEmpty(radius,'workers','radius_workers');
+      setIfNonEmpty(radius,'socket_timeout','radius_socket_timeout');
+      setIfNonEmpty(radius,'rcvbuf','radius_rcvbuf');
+      const payload = { radius };
+      try{
+        const resp = await fetch('/admin/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        if(!resp.ok){
+          const err = await resp.text();
+          flashStatus(status, 'Error: ' + err, 'error');
+          return;
+        }
+        flashStatus(status, 'Saved', 'success');
+        showToast('RADIUS settings saved');
+      }catch(e){
+        flashStatus(status, 'Error: ' + e, 'error');
+      }
+    }
+  </script>
+</div>
 {% endblock %}

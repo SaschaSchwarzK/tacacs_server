@@ -632,6 +632,24 @@ class DatabaseLogger:
         """Ensure cleanup on object destruction"""
         self.close()
 
+    def ping(self) -> bool:
+        """Lightweight health check: run SELECT 1 using pool/conn."""
+        try:
+            if self.pool:
+                with self.pool.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT 1")
+                    _ = cur.fetchone()
+                return True
+            if self.conn:
+                cur = self.conn.cursor()
+                cur.execute("SELECT 1")
+                _ = cur.fetchone()
+                return True
+        except Exception:
+            return False
+        return False
+
     def log_accounting_original(self, record: dict[str, Any]) -> bool:
         """Original log_accounting method as fallback"""
         if not self.conn:

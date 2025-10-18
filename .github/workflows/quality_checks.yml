@@ -50,6 +50,14 @@ jobs:
             poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-
             poetry-${{ runner.os }}-
 
+      - name: Ensure dev/runtime dependencies installed
+        run: |
+          poetry install --with dev
+
+      - name: Ensure dev dependencies installed
+        run: |
+          poetry install --with dev
+
       - name: Ruff (lint)
         run: |
           poetry run ruff check .
