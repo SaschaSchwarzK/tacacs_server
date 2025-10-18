@@ -8,7 +8,9 @@ from fastapi import FastAPI
 
 DEFAULT_CSP = (
     "default-src 'self'; "
-    "script-src 'self'; "
+    # Allow inline scripts for the admin UI templates (modals, buttons).
+    # For stricter environments, override via CSP_POLICY env and use nonces.
+    "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
     "connect-src 'self' ws: wss:;"

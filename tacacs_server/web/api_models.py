@@ -82,11 +82,6 @@ class UserBase(BaseModel):
         description="Primary service profile",
         example="exec",
     )
-    shell_command: list[str] = Field(
-        default_factory=lambda: ["show"],
-        description="Allowed shell commands",
-        example=["show"],
-    )
     groups: list[str] = Field(
         default_factory=list,
         description="Assigned user groups",
@@ -138,7 +133,6 @@ class UserCreate(UserBase):
                 "password": "SecurePass123!",
                 "privilege_level": 5,
                 "service": "exec",
-                "shell_command": ["show"],
                 "groups": ["admins"],
                 "enabled": True,
                 "description": "Network administrator",
@@ -161,11 +155,6 @@ class UserUpdate(BaseModel):
         None,
         description="Updated primary service",
         example="exec",
-    )
-    shell_command: list[str] | None = Field(
-        None,
-        description="Updated shell command list",
-        example=["show", "configure"],
     )
     groups: list[str] | None = Field(
         None,
@@ -219,7 +208,6 @@ class UserResponse(UserBase):
                 "username": "jsmith",
                 "privilege_level": 5,
                 "service": "exec",
-                "shell_command": ["show"],
                 "groups": ["admins"],
                 "enabled": True,
                 "description": "Network administrator",

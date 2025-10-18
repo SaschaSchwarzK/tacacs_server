@@ -2,6 +2,21 @@ import os
 
 import pytest
 
+
+# Print base URL and environment for diagnostics when this module runs
+@pytest.fixture(autouse=True, scope="module")
+def _adv_debug_env():
+    base_env = os.environ.get("TACACS_WEB_BASE")
+    test_port = os.environ.get("TEST_WEB_PORT")
+    tacacs_port = os.environ.get("TEST_TACACS_PORT")
+    log_path = os.environ.get("TACACS_LOG_PATH")
+    print(
+        f"[SEC-ADV] TACACS_WEB_BASE={base_env} TEST_WEB_PORT={test_port} "
+        f"TEST_TACACS_PORT={tacacs_port} LOG={log_path}"
+    )
+    yield
+
+
 pytestmark = pytest.mark.skipif(
     not os.getenv("RUN_SECURITY_ADVANCED"),
     reason="Set RUN_SECURITY_ADVANCED=1 to run advanced security tests",

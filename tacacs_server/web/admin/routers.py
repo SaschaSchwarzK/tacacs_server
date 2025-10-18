@@ -236,6 +236,16 @@ async def admin_guard(request: Request) -> None:
     If admin auth is not configured (no ADMIN_PASSWORD_HASH in env/config),
     disable admin web access by default to avoid exposing unauthenticated UI.
     """
+    # Allow API token header for admin endpoints to support automation/tests
+    api_token = os.getenv("API_TOKEN")
+    if api_token:
+        token = request.headers.get("X-API-Token") or ""
+        if not token:
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                token = auth.removeprefix("Bearer ").strip()
+        if token == api_token:
+            return
     dependency = get_admin_auth_dependency_func()
     if dependency is None:
         # Allow during test runs to keep unit tests working
@@ -413,6 +423,16 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
         "acct": acct_summary,
     }
 
+    # Backend summaries (Okta/LDAP)
+    backend_summaries: list[dict[str, Any]] = []
+    try:
+        for be in getattr(tacacs_server, "auth_backends", []) or []:
+            name = getattr(be, "name", be.__class__.__name__)
+            stats = getattr(be, "get_stats", lambda: {})() or {}
+            backend_summaries.append({"name": name, "stats": stats})
+    except Exception:
+        pass
+
     device_samples = []
     for device_record in devices[:5]:
         group = device_record.group
@@ -486,6 +506,7 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
             "acct_summary": acct_summary,
             "radius_summary": radius_summary,
             "tacacs_summary": tacacs_summary,
+            "backend_summaries": backend_summaries,
             "system_summary": system_summary,
             "device_samples": device_samples,
             "group_samples": group_samples,
@@ -531,6 +552,7 @@ async def view_config(
             "title": "Configuration",
             "config_source": source,
             "config_json": config_json,
+            "server_section": sanitized.get("server", {}),
         },
     )
 
@@ -1150,7 +1172,6 @@ async def list_users(
             "username": r.username,
             "privilege_level": r.privilege_level,
             "service": r.service,
-            "shell_command": r.shell_command,
             "groups": r.groups,
             "enabled": r.enabled,
             "description": r.description,
@@ -1212,7 +1233,6 @@ async def create_user(
             password=payload.get("password"),
             privilege_level=payload.get("privilege_level", 1),
             service=payload.get("service", "exec"),
-            shell_command=payload.get("shell_command"),
             groups=payload.get("groups"),
             enabled=payload.get("enabled", True),
             description=payload.get("description"),
@@ -1253,7 +1273,6 @@ async def update_user(
             username,
             privilege_level=payload.get("privilege_level"),
             service=payload.get("service"),
-            shell_command=payload.get("shell_command"),
             groups=payload.get("groups"),
             enabled=payload.get("enabled"),
             description=payload.get("description"),
@@ -1344,7 +1363,6 @@ async def get_user_details(
             "username": record.username,
             "privilege_level": record.privilege_level,
             "service": record.service,
-            "shell_command": record.shell_command,
             "groups": record.groups,
             "enabled": record.enabled,
             "description": record.description,
@@ -1411,7 +1429,6 @@ async def bulk_create_users(
                 password=user_data.get("password"),
                 privilege_level=user_data.get("privilege_level", 1),
                 service=user_data.get("service", "exec"),
-                shell_command=user_data.get("shell_command"),
                 groups=user_data.get("groups"),
                 enabled=user_data.get("enabled", True),
                 description=user_data.get("description"),
@@ -1607,12 +1624,25 @@ async def admin_login(
         if len(password) > 128:
             raise ValidationError("Password too long")
 
+        # Log attempt (username only)
+        logger.info("Admin login attempt for user=%s", username)
+
         token = manager.login(username, password)
     except (HTTPException, ValidationError) as exc:
         if isinstance(exc, ValidationError):
             exc = HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
             )
+        # Log failure with status code and detail (no password)
+        try:
+            logger.warning(
+                "Admin login failed for user=%s status=%s detail=%s",
+                username or "",
+                getattr(exc, "status_code", 400),
+                getattr(exc, "detail", ""),
+            )
+        except Exception:
+            pass
         if is_json:
             raise exc
         return templates.TemplateResponse(
@@ -1649,6 +1679,11 @@ async def admin_login(
         max_age=int(manager.config.session_timeout.total_seconds()),
         path="/",
     )
+    # Log success
+    try:
+        logger.info("Admin login success for user=%s", username)
+    except Exception:
+        pass
     return response
 
 

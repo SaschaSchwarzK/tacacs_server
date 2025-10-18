@@ -349,7 +349,6 @@ Accept: application/json
     "username": "testuser",
     "privilege_level": 1,
     "service": "exec",
-    "shell_command": ["show"],
     "groups": ["users"],
     "enabled": true,
     "description": null
@@ -369,7 +368,6 @@ Content-Type: application/json
   "password": "Password123",
   "privilege_level": 1,
   "service": "exec",
-  "shell_command": ["show"],
   "groups": ["users"],
   "enabled": true,
   "description": "Test user"
@@ -396,7 +394,6 @@ GET /admin/users/testuser
   "username": "testuser",
   "privilege_level": 1,
   "service": "exec",
-  "shell_command": ["show"],
   "groups": ["users"],
   "enabled": true,
   "description": "Test user"

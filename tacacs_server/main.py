@@ -69,6 +69,23 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
+        # Apply extended server/network tuning
+        try:
+            net_cfg = self.config.get_server_network_config()
+            self.server.listen_backlog = int(net_cfg.get("listen_backlog", 128))
+            self.server.client_timeout = float(net_cfg.get("client_timeout", 15))
+            self.server.max_packet_length = int(net_cfg.get("max_packet_length", 4096))
+            self.server.enable_ipv6 = bool(net_cfg.get("ipv6_enabled", False))
+            self.server.tcp_keepalive = bool(net_cfg.get("tcp_keepalive", True))
+            self.server.tcp_keepalive_idle = int(net_cfg.get("tcp_keepidle", 60))
+            self.server.tcp_keepalive_intvl = int(net_cfg.get("tcp_keepintvl", 10))
+            self.server.tcp_keepalive_cnt = int(net_cfg.get("tcp_keepcnt", 5))
+            self.server.thread_pool_max_workers = int(
+                net_cfg.get("thread_pool_max", 100)
+            )
+            self.server.use_thread_pool = bool(net_cfg.get("use_thread_pool", True))
+        except Exception:
+            pass
         # Initialize webhook runtime config from file
         try:
             from tacacs_server.utils.webhook import set_webhook_config as _set_wh
@@ -186,6 +203,18 @@ class TacacsServerManager:
                 set_admin_session_manager(self.admin_session_manager)
                 dependency = get_admin_auth_dependency(self.admin_session_manager)
                 set_admin_auth_dependency(dependency)
+                logger.info("Admin authentication enabled for username '%s'", username)
+                # Proactive bcrypt availability check to surface image issues early
+                try:
+                    import bcrypt
+
+                    _ = bcrypt.__version__  # noqa: F401
+                except Exception as exc:
+                    logger.error(
+                        "Admin auth configured but bcrypt unavailable: %s. "
+                        "Ensure image has bcrypt built for this Python version.",
+                        exc,
+                    )
             else:
                 logger.warning(
                     "Admin password hash not configured; "
@@ -324,6 +353,19 @@ class TacacsServerManager:
                 accounting_port=radius_config["acct_port"],
             )
             self.radius_server = radius_server
+            # Apply advanced tuning from config
+            try:
+                self.radius_server.workers = max(
+                    1, min(64, int(radius_config.get("workers", 8)))
+                )
+                self.radius_server.socket_timeout = max(
+                    0.1, float(radius_config.get("socket_timeout", 1.0))
+                )
+                self.radius_server.rcvbuf = max(
+                    262144, int(radius_config.get("rcvbuf", 1048576))
+                )
+            except Exception:
+                pass
             if self.device_store:
                 self.radius_server.device_store = self.device_store
             if self.local_user_group_service and self.radius_server:
@@ -393,6 +435,14 @@ class TacacsServerManager:
             # Start TACACS+ server
             if self.server:
                 self.server.start()
+            # Keep the process alive until a shutdown signal is received
+            # The TACACS+ server runs its own accept loop internally; this loop
+            # ensures the main process does not exit immediately after startup.
+            import time as _time
+
+            while self.running:
+                _time.sleep(0.2)
+
         except KeyboardInterrupt:
             logger.info("Received interrupt signal")
         except Exception as e:
@@ -410,6 +460,20 @@ class TacacsServerManager:
             # Stop RADIUS server
             if self.radius_server:
                 self.radius_server.stop()
+            # Gracefully close auth backends (e.g., Okta sessions)
+            try:
+                for backend in getattr(self.server, "auth_backends", []) or []:
+                    close_fn = getattr(backend, "close", None)
+                    if callable(close_fn):
+                        try:
+                            close_fn()
+                        except Exception:
+                            logger.debug(
+                                "Backend %s close() failed",
+                                getattr(backend, "name", backend.__class__.__name__),
+                            )
+            except Exception:
+                logger.debug("Failed to close auth backends cleanly")
             if self._device_change_unsubscribe:
                 try:
                     self._device_change_unsubscribe()
@@ -445,6 +509,20 @@ class TacacsServerManager:
             for backend in self.server.auth_backends:
                 status = "✓ Available" if backend.is_available() else "✗ Unavailable"
                 logger.info(f"  {backend.name}: {status}")
+                try:
+                    if getattr(backend, "name", "").lower() == "okta":
+                        stats = getattr(backend, "get_stats", lambda: {})() or {}
+                        flags = stats.get("flags", {}) or {}
+                        logger.info(
+                            "    Okta flags: ropc=%s strict_group=%s trust_env=%s basic_auth=%s require_group=%s",
+                            flags.get("ropc_enabled"),
+                            flags.get("strict_group_mode"),
+                            flags.get("trust_env"),
+                            flags.get("use_basic_auth"),
+                            flags.get("require_group_for_auth"),
+                        )
+                except Exception:
+                    pass
         # Add RADIUS info
         if self.radius_server:
             logger.info("")

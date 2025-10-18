@@ -196,7 +196,6 @@ class FakeUserService:
                 username="alice",
                 privilege_level=1,
                 service="exec",
-                shell_command=["show"],
                 groups=["admins"],
                 enabled=True,
                 description=None,
@@ -223,7 +222,7 @@ class FakeUserService:
             username=username,
             privilege_level=payload.get("privilege_level", 1),
             service=payload.get("service", "exec"),
-            shell_command=payload.get("shell_command", ["show"]),
+            # shell_command removed
             groups=payload.get("groups", []),
             enabled=payload.get("enabled", True),
             description=payload.get("description"),
@@ -504,7 +503,6 @@ def test_create_user_conflict(api_client, monkeypatch):
         "password": "Secret123!",
         "privilege_level": 1,
         "service": "exec",
-        "shell_command": ["show"],
         "groups": [],
         "enabled": True,
     }

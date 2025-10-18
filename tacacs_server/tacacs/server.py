@@ -2,12 +2,13 @@
 TACACS+ Server Main Class
 """
 
+import os
 import socket
 import threading
 import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
-
-import psutil
 
 from tacacs_server.auth.base import AuthenticationBackend
 
@@ -48,15 +49,18 @@ class TacacsServer:
         self.port = port
         # Default fallback secret - should be overridden by device group secrets
         if secret_key is None:
-            import os
-
             secret_key = os.getenv("TACACS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK")
         self.secret_key = secret_key
+        if self.secret_key == "CHANGE_ME_FALLBACK":
+            logger.warning(
+                "Default TACACS secret in use. Configure per-device/group secrets or set TACACS_DEFAULT_SECRET."
+            )
         self.auth_backends: list[AuthenticationBackend] = []
         self.db_logger = DatabaseLogger()
         self.handlers = AAAHandlers(self.auth_backends, self.db_logger)
         self.running = False
         self.server_socket: socket.socket | None = None
+        self._stats_lock = threading.RLock()
         self.stats = {
             "connections_total": 0,
             "connections_active": 0,
@@ -77,10 +81,40 @@ class TacacsServer:
         self.device_store: DeviceStore | None = None
         self._session_lock = threading.RLock()
         self.session_secrets: dict[int, str] = {}
+        # Track last seen request sequence number per TACACS session
+        self._seq_lock = threading.RLock()
+        self._last_request_seq: dict[int, int] = {}
         # Abuse control: per-IP connection caps
         self._ip_conn_lock = threading.RLock()
         self._ip_connections: dict[str, int] = {}
         self.max_connections_per_ip = 20
+        # Networking/config knobs with sane defaults (env-overridable)
+        self.listen_backlog = int(os.getenv("TACACS_LISTEN_BACKLOG", "128"))
+        self.client_timeout = float(os.getenv("TACACS_CLIENT_TIMEOUT", "15"))
+        self.max_packet_length = int(os.getenv("TACACS_MAX_PACKET_LENGTH", "4096"))
+        self.enable_ipv6 = os.getenv("TACACS_IPV6_ENABLED", "false").lower() == "true"
+        self.tcp_keepalive = (
+            os.getenv("TACACS_TCP_KEEPALIVE", "true").lower() != "false"
+        )
+        self.tcp_keepalive_idle = int(os.getenv("TACACS_TCP_KEEPIDLE", "60"))
+        self.tcp_keepalive_intvl = int(os.getenv("TACACS_TCP_KEEPINTVL", "10"))
+        self.tcp_keepalive_cnt = int(os.getenv("TACACS_TCP_KEEPCNT", "5"))
+        # Threading strategy controls
+        self.use_thread_pool = (
+            os.getenv("TACACS_USE_THREAD_POOL", "true").lower() != "false"
+        )
+        self.thread_pool_max_workers = int(os.getenv("TACACS_THREAD_POOL_MAX", "100"))
+        self._executor: ThreadPoolExecutor | None = None
+        self._client_threads: set[threading.Thread] = set()
+        self._client_threads_lock = threading.RLock()
+        # Cache Prometheus update callable if available
+        self._prom_update_active: Callable[[int], None] | None = None
+        try:
+            from ..web.monitoring import PrometheusIntegration as _PM
+
+            self._prom_update_active = getattr(_PM, "update_active_connections", None)
+        except Exception:
+            self._prom_update_active = None
 
     def enable_web_monitoring(
         self, web_host="127.0.0.1", web_port=8080, radius_server=None
@@ -164,20 +198,44 @@ class TacacsServer:
         if not self.auth_backends:
             raise RuntimeError("No authentication backends configured")
         self.running = True
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # IPv6 dual-stack if enabled; otherwise IPv4
+        if self.enable_ipv6:
+            self.server_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            try:
+                # Enable dual-stack if supported (Linux)
+                self.server_socket.setsockopt(
+                    socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0
+                )
+            except OSError:
+                pass
+        else:
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            self.server_socket.bind((self.host, self.port))
-            self.server_socket.listen(10)
-            logger.debug("TACACS+ server started on %s:%s", self.host, self.port)
+            bind_host = self.host
+            if self.enable_ipv6 and bind_host in ("0.0.0.0", "::"):
+                bind_host = "::"
+            self.server_socket.bind((bind_host, self.port))
+            self.server_socket.listen(self.listen_backlog)
+            logger.debug("TACACS+ server started on %s:%s", bind_host, self.port)
             logger.debug(
                 "Authentication backends: %s", [b.name for b in self.auth_backends]
             )
-            logger.debug("Per-device secrets, fallback: %s chars", len(self.secret_key))
+            logger.debug(
+                "Per-device secrets configured; avoiding logging secret details"
+            )
+            # Start thread pool if configured
+            if self.use_thread_pool and self._executor is None:
+                self._executor = ThreadPoolExecutor(
+                    max_workers=self.thread_pool_max_workers
+                )
             while self.running:
                 try:
                     client_socket, address = self.server_socket.accept()
-                    self.stats["connections_total"] += 1
+                    if self.tcp_keepalive:
+                        self._enable_tcp_keepalive(client_socket)
+                    with self._stats_lock:
+                        self.stats["connections_total"] += 1
                     # Enforce per-IP concurrent connection cap
                     over_limit = False
                     with self._ip_conn_lock:
@@ -198,32 +256,42 @@ class TacacsServer:
                             pass
                         with self._ip_conn_lock:
                             # revert increment
-                            self._ip_connections[ip] = max(
-                                0, self._ip_connections.get(ip, 1) - 1
-                            )
+                            current = max(0, self._ip_connections.get(ip, 1) - 1)
+                            if current == 0:
+                                self._ip_connections.pop(ip, None)
+                            else:
+                                self._ip_connections[ip] = current
                         continue
-                    self.stats["connections_active"] += 1
+                    with self._stats_lock:
+                        self.stats["connections_active"] += 1
                     logger.debug("New connection from %s", address)
-                    client_thread = threading.Thread(
-                        target=self._handle_client,
-                        args=(client_socket, address),
-                        daemon=True,
-                    )
-                    client_thread.start()
+                    if self._executor is not None:
+                        self._executor.submit(
+                            self._handle_client, client_socket, address
+                        )
+                    else:
+                        client_thread = threading.Thread(
+                            target=self._handle_client,
+                            args=(client_socket, address),
+                            daemon=True,
+                        )
+                        with self._client_threads_lock:
+                            self._client_threads.add(client_thread)
+                        client_thread.start()
                     # Update active connections gauge if available
                     try:
-                        from ..web.monitoring import PrometheusIntegration as _PM
-
-                        _PM.update_active_connections(self.stats["connections_active"])
+                        if self._prom_update_active:
+                            self._prom_update_active(self.stats["connections_active"])
                     except Exception:
                         pass
                 except OSError as e:
                     if self.running:
                         logger.error("Socket error: %s", e)
-                    break
+                    # continue accept loop unless stopping
+                    continue
                 except Exception as e:
                     logger.error("Unexpected error accepting connections: %s", e)
-                    break
+                    continue
         except Exception as e:
             logger.error("Server startup error: %s", e)
             raise
@@ -250,6 +318,17 @@ class TacacsServer:
 
     def _handle_client(self, client_socket: socket.socket, address: tuple[str, int]):
         """Handle client connection with improved error handling and performance."""
+        # Create a contextual logger for this connection
+        try:
+            import logging as _logging
+
+            extra: dict[str, object] = {
+                "client_ip": address[0],
+                "client_port": address[1],
+            }
+            conn_logger = _logging.LoggerAdapter(logger, extra)
+        except Exception:
+            conn_logger = logger
         session_ids: set[int] = set()
         connection_device = None
         client_ip = address[0]
@@ -257,7 +336,7 @@ class TacacsServer:
         # Rate limiting check
         rate_limiter = get_rate_limiter()
         if not rate_limiter.allow_request(client_ip):
-            logger.warning("Rate limit exceeded for %s", client_ip)
+            conn_logger.warning("Rate limit exceeded for %s", client_ip)
             self._safe_close_socket(client_socket)
             return
 
@@ -269,7 +348,7 @@ class TacacsServer:
                 logger.warning("Failed to resolve device for %s: %s", client_ip, exc)
 
         try:
-            client_socket.settimeout(30.0)
+            client_socket.settimeout(self.client_timeout)
             while self.running:
                 try:
                     header_data = self._recv_exact(client_socket, TAC_PLUS_HEADER_SIZE)
@@ -279,18 +358,29 @@ class TacacsServer:
                     try:
                         packet = TacacsPacket.unpack_header(header_data)
                     except ValueError as e:
-                        logger.warning("Invalid packet from %s: %s", address, e)
+                        conn_logger.warning("Invalid packet from %s: %s", address, e)
                         break
 
                     session_ids.add(packet.session_id)
+                    # Enrich logger context with session_id once known
+                    try:
+                        import logging as _logging
+
+                        if isinstance(conn_logger, _logging.LoggerAdapter):
+                            base_extra = getattr(conn_logger, "extra", {}) or {}
+                            new_extra = dict(base_extra)
+                            new_extra["session_id"] = f"0x{packet.session_id:08x}"
+                            conn_logger = _logging.LoggerAdapter(logger, new_extra)
+                    except Exception:
+                        pass
                     if not self._validate_packet_header(packet):
-                        logger.warning(
+                        conn_logger.warning(
                             "Invalid packet header from %s: %s", address, packet
                         )
                         break
                     if packet.length > 0:
-                        if packet.length > 4096:  # Reasonable TACACS+ packet size limit
-                            logger.warning(
+                        if packet.length > self.max_packet_length:
+                            conn_logger.warning(
                                 "Packet too large from %s: %s bytes",
                                 address,
                                 packet.length,
@@ -298,7 +388,9 @@ class TacacsServer:
                             break
                         body_data = self._recv_exact(client_socket, packet.length)
                         if not body_data:
-                            logger.warning("Incomplete packet body from %s", address)
+                            conn_logger.warning(
+                                "Incomplete packet body from %s", address
+                            )
                             break
                         secret = self._select_session_secret(
                             packet.session_id, connection_device
@@ -314,33 +406,43 @@ class TacacsServer:
                         if response.flags & TAC_PLUS_FLAGS.TAC_PLUS_SINGLE_CONNECT_FLAG:
                             break
                 except TimeoutError:
-                    logger.debug("Client timeout: %s", address)
+                    conn_logger.debug("Client timeout: %s", address)
                     break
                 except OSError as e:
-                    logger.debug("Client socket error %s: %s", address, e)
+                    conn_logger.debug("Client socket error %s: %s", address, e)
                     break
                 except Exception as e:
-                    logger.error("Error handling client %s: %s", address, e)
+                    conn_logger.error("Error handling client %s: %s", address, e)
                     break
         except Exception as e:
-            logger.error("Client handling error %s: %s", address, e)
+            conn_logger.error("Client handling error %s: %s", address, e)
         finally:
             self._safe_close_socket(client_socket)
             self._cleanup_client_session(session_ids)
             # Decrement per-IP counter and active counter safely
             with self._ip_conn_lock:
                 ip = address[0]
-                self._ip_connections[ip] = max(0, self._ip_connections.get(ip, 1) - 1)
-            self.stats["connections_active"] = max(
-                0, self.stats.get("connections_active", 1) - 1
-            )
+                current = max(0, self._ip_connections.get(ip, 1) - 1)
+                if current == 0:
+                    self._ip_connections.pop(ip, None)
+                else:
+                    self._ip_connections[ip] = current
+            with self._stats_lock:
+                self.stats["connections_active"] = max(
+                    0, self.stats.get("connections_active", 1) - 1
+                )
             try:
-                from ..web.monitoring import PrometheusIntegration as _PM
-
-                _PM.update_active_connections(self.stats["connections_active"])
+                if self._prom_update_active:
+                    self._prom_update_active(self.stats["connections_active"])
             except Exception:
                 pass
-            logger.debug("Connection closed: %s", address)
+            conn_logger.debug("Connection closed: %s", address)
+            try:
+                if threading.current_thread().daemon:
+                    with self._client_threads_lock:
+                        self._client_threads.discard(threading.current_thread())
+            except Exception:
+                pass
 
     def _safe_close_socket(self, sock: socket.socket) -> None:
         """Safely close socket with proper error handling."""
@@ -365,6 +467,9 @@ class TacacsServer:
                     self.handlers.cleanup_session(session_id)
                 except Exception as e:
                     logger.warning("Failed to cleanup session %s: %s", session_id, e)
+        with self._seq_lock:
+            for session_id in session_ids:
+                self._last_request_seq.pop(session_id, None)
 
     def _select_session_secret(self, session_id: int, device_record) -> str:
         """Ensure a session secret is registered, preferring device-specific keys."""
@@ -424,9 +529,27 @@ class TacacsServer:
         ]:
             logger.warning(f"Invalid packet type: {packet.packet_type}")
             return False
-        if packet.seq_no < 1:
-            logger.warning(f"Invalid sequence number: {packet.seq_no}")
+        # TACACS+ client requests must be odd sequence numbers (1,3,5,...)
+        if packet.seq_no < 1 or (packet.seq_no % 2) != 1:
+            logger.warning(f"Invalid sequence number for request: {packet.seq_no}")
             return False
+        # Enforce monotonic odd progression per session (1,3,5,...) best-effort
+        try:
+            with self._seq_lock:
+                last = self._last_request_seq.get(packet.session_id)
+                if last is not None:
+                    if packet.seq_no <= last or ((packet.seq_no - last) % 2) != 0:
+                        logger.warning(
+                            "Out-of-order or invalid sequence: sess=%s last=%s got=%s",
+                            f"0x{packet.session_id:08x}",
+                            last,
+                            packet.seq_no,
+                        )
+                        return False
+                # Update last seen request sequence
+                self._last_request_seq[packet.session_id] = packet.seq_no
+        except Exception:
+            pass
         return True
 
     def _process_packet(
@@ -448,17 +571,21 @@ class TacacsServer:
             self._select_session_secret(packet.session_id, device_record)
 
             if packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN:
-                self.stats["auth_requests"] += 1
+                with self._stats_lock:
+                    self.stats["auth_requests"] += 1
                 response = self.handlers.handle_authentication(packet, device_record)
                 if response and len(response.body) > 0:
                     status = response.body[0]
                     if status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS:
-                        self.stats["auth_success"] += 1
+                        with self._stats_lock:
+                            self.stats["auth_success"] += 1
                     elif status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_FAIL:
-                        self.stats["auth_failures"] += 1
+                        with self._stats_lock:
+                            self.stats["auth_failures"] += 1
                 return response
             elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR:
-                self.stats["author_requests"] += 1
+                with self._stats_lock:
+                    self.stats["author_requests"] += 1
                 response = self.handlers.handle_authorization(packet, device_record)
                 if response and len(response.body) > 0:
                     status = response.body[0]
@@ -466,19 +593,30 @@ class TacacsServer:
                         TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
                         TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_REPL,
                     ]:
-                        self.stats["author_success"] += 1
+                        with self._stats_lock:
+                            self.stats["author_success"] += 1
                     elif status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL:
-                        self.stats["author_failures"] += 1
+                        with self._stats_lock:
+                            self.stats["author_failures"] += 1
                 return response
             elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT:
-                self.stats["acct_requests"] += 1
+                with self._stats_lock:
+                    self.stats["acct_requests"] += 1
                 response = self.handlers.handle_accounting(packet, device_record)
                 if response and len(response.body) >= 6:
-                    status = int.from_bytes(response.body[4:6], byteorder="big")
+                    # handlers._create_acct_response packs as: !HHH (srv_msg_len, data_len, status)
+                    try:
+                        import struct as _st
+
+                        _, _, status = _st.unpack("!HHH", response.body[:6])
+                    except Exception:
+                        status = None
                     if status == TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_SUCCESS:
-                        self.stats["acct_success"] += 1
+                        with self._stats_lock:
+                            self.stats["acct_success"] += 1
                     else:
-                        self.stats["acct_failures"] += 1
+                        with self._stats_lock:
+                            self.stats["acct_failures"] += 1
                 return response
             else:
                 logger.error(f"Unknown packet type: {packet.packet_type}")
@@ -487,11 +625,14 @@ class TacacsServer:
             logger.error("Error processing packet from %s: %s", address, e)
             # Return appropriate error response based on packet type
             if packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN:
-                self.stats["auth_failures"] += 1
+                with self._stats_lock:
+                    self.stats["auth_failures"] += 1
             elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR:
-                self.stats["author_failures"] += 1
+                with self._stats_lock:
+                    self.stats["author_failures"] += 1
             elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT:
-                self.stats["acct_failures"] += 1
+                with self._stats_lock:
+                    self.stats["acct_failures"] += 1
             return None
 
     def get_stats(self) -> dict[str, Any]:
@@ -551,6 +692,9 @@ class TacacsServer:
     def _get_memory_usage(self) -> dict[str, Any]:
         """Get memory usage statistics"""
         try:
+            # Optional psutil import to avoid hard dependency
+            import psutil
+
             process = psutil.Process()
             memory_info = process.memory_info()
             return {
@@ -564,9 +708,20 @@ class TacacsServer:
     def _check_database_health(self) -> dict[str, Any]:
         """Check database health"""
         try:
-            # Test database connection
-            stats = self.db_logger.get_statistics(days=1)
-            return {"status": "healthy", "records_today": stats.get("total_records", 0)}
+            # Cheap health check first
+            ok = getattr(self.db_logger, "ping", lambda: False)()
+            if not ok:
+                return {"status": "unhealthy", "error": "Database ping failed"}
+            # Optionally add a light stats sample (best-effort)
+            try:
+                stats = self.db_logger.get_statistics(days=1)
+                recs = stats.get("total_records", 0) if isinstance(stats, dict) else 0
+            except Exception:
+                recs = None
+            payload = {"status": "healthy"}
+            if recs is not None:
+                payload["records_today"] = recs
+            return payload
         except Exception as e:
             logger.error("Database health check failed: %s", e)
             return {"status": "unhealthy", "error": "Database error"}
@@ -610,5 +765,49 @@ class TacacsServer:
                 f"Force closing {self.stats['connections_active']} "
                 f"remaining connections"
             )
-
+        # Join client threads if we created any (best-effort)
+        with self._client_threads_lock:
+            threads = list(self._client_threads)
+            self._client_threads.clear()
+        for t in threads:
+            try:
+                t.join(timeout=1.0)
+            except Exception:
+                pass
+        # Shutdown thread pool
+        if self._executor:
+            try:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            finally:
+                self._executor = None
         logger.info("Server shutdown complete")
+
+    def _enable_tcp_keepalive(self, sock: socket.socket) -> None:
+        """Enable TCP keepalive with best-effort platform options."""
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            if hasattr(socket, "TCP_KEEPIDLE"):
+                sock.setsockopt(
+                    socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, self.tcp_keepalive_idle
+                )
+            if hasattr(socket, "TCP_KEEPINTVL"):
+                sock.setsockopt(
+                    socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, self.tcp_keepalive_intvl
+                )
+            if hasattr(socket, "TCP_KEEPCNT"):
+                sock.setsockopt(
+                    socket.IPPROTO_TCP, socket.TCP_KEEPCNT, self.tcp_keepalive_cnt
+                )
+            if hasattr(socket, "TCP_KEEPALIVE"):
+                try:
+                    sock.setsockopt(
+                        socket.IPPROTO_TCP,
+                        socket.TCP_KEEPALIVE,
+                        self.tcp_keepalive_idle,
+                    )
+                except OSError:
+                    pass
+        except OSError:
+            pass

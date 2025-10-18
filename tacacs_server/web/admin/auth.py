@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
+
+logger = logging.getLogger(__name__)
 
 
 class AdminAuthConfig:
@@ -61,26 +64,19 @@ class AdminSessionManager:
         return True
 
     def _verify_password(self, password: str) -> bool:
-        """Verify admin password.
+        """Verify admin password using bcrypt.
 
-        Supports bcrypt hashes (recommended) and legacy SHA-256 hex digests for
-        backward compatibility. Does not impact TACACS/RADIUS user auth.
+        - Returns True on successful match, False on mismatch or internal error.
+        - Emits precise log messages for: missing bcrypt, unsupported hash,
+          mismatch, and unexpected errors.
         """
         cfg_hash = self.config.password_hash or ""
-        try:
-            # Prefer bcrypt when configured
-            if cfg_hash.startswith(("$2a$", "$2b$", "$2y$")):
-                try:
-                    import bcrypt
 
-                    return bcrypt.checkpw(
-                        password.encode("utf-8"), cfg_hash.encode("utf-8")
-                    )
-                except Exception:
-                    return False
-
-            # Reject unsupported hash formats (not bcrypt)
-            # Legacy SHA-256 hashes are no longer supported for security reasons.
+        # Only bcrypt hashes are supported for admin auth
+        if not cfg_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            logger.warning(
+                "Admin login rejected: unsupported admin hash format configured; bcrypt required"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=(
@@ -88,8 +84,25 @@ class AdminSessionManager:
                     "Please migrate ADMIN_PASSWORD_HASH to bcrypt."
                 ),
             )
-        except Exception:
+
+        # Import bcrypt explicitly and provide clear diagnostics
+        try:
+            import bcrypt
+        except Exception as exc:  # ImportError or runtime linking error
+            logger.error("Admin login failed: bcrypt module unavailable: %s", exc)
             return False
+
+        try:
+            ok = bcrypt.checkpw(password.encode("utf-8"), cfg_hash.encode("utf-8"))
+        except Exception as exc:
+            logger.error("Admin login failed: bcrypt verification error: %s", exc)
+            return False
+
+        if not ok:
+            logger.warning("Admin login failed: password mismatch for configured user")
+            return False
+
+        return True
 
 
 def get_admin_auth_dependency(session_manager: AdminSessionManager):
