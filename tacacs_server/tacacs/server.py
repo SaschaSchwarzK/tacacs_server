@@ -174,10 +174,12 @@ class TacacsServer:
             time.sleep(0.1)
             if (
                 started
-                and self.monitoring_api
+                and self.monitoring_api is not None
                 and getattr(self.monitoring_api, "server_thread", None)
             ):
-                alive = self.monitoring_api.server_thread.is_alive()
+                # mypy: guard against Optional and missing attribute
+                _thr = getattr(self.monitoring_api, "server_thread", None)
+                alive = bool(getattr(_thr, "is_alive", lambda: False)())
             else:
                 alive = False
             if alive:

@@ -46,6 +46,7 @@ playwright = "^1.39.0"
 pytest-bdd = "^8.1.0"
 ruff = "^0.13.3"
 schemathesis = "^4.1.4"
+mutmut = "^2.4.4"
 
 [tool.poetry.scripts]
 tacacs-server = "tacacs_server.cli:main"
@@ -83,3 +84,4 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unused_configs = true
 strict_optional = true
+check_untyped_defs = true

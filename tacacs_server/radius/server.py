@@ -18,7 +18,7 @@ import threading
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from tacacs_server.auth.base import AuthenticationBackend
 from tacacs_server.utils.logger import get_logger
@@ -458,6 +458,10 @@ class RadiusClient:
         return self.secret.encode("utf-8")
 
 
+if TYPE_CHECKING:
+    from ..devices.store import DeviceStore as _DeviceStore
+
+
 class RADIUSServer:
     """RADIUS Server implementation"""
 
@@ -482,12 +486,12 @@ class RADIUSServer:
 
         self.auth_backends: list[AuthenticationBackend] = []
         self.accounting_logger = None
-        self.device_store = None
+        self.device_store: _DeviceStore | None = None
         self.local_user_group_service = None
 
         self.running = False
-        self.auth_socket = None
-        self.acct_socket = None
+        self.auth_socket: socket.socket | None = None
+        self.acct_socket: socket.socket | None = None
 
         # Config knobs
         self.socket_timeout = float(os.getenv("RADIUS_SOCKET_TIMEOUT", "1.0"))
@@ -703,9 +707,11 @@ class RADIUSServer:
                 "RADIUS authentication server listening on %s:%s", self.host, self.port
             )
 
+            sock = self.auth_socket
+            assert sock is not None
             while self.running:
                 try:
-                    data, addr = self.auth_socket.recvfrom(MAX_RADIUS_PACKET_LENGTH)
+                    data, addr = sock.recvfrom(MAX_RADIUS_PACKET_LENGTH)
                     # Handle in thread pool or fallback to thread
                     if self._executor:
                         self._executor.submit(self._handle_auth_request, data, addr)
@@ -753,9 +759,11 @@ class RADIUSServer:
                 self.accounting_port,
             )
 
+            sock2 = self.acct_socket
+            assert sock2 is not None
             while self.running:
                 try:
-                    data, addr = self.acct_socket.recvfrom(MAX_RADIUS_PACKET_LENGTH)
+                    data, addr = sock2.recvfrom(MAX_RADIUS_PACKET_LENGTH)
                     # Handle in thread pool or fallback to thread
                     if self._executor:
                         self._executor.submit(self._handle_acct_request, data, addr)

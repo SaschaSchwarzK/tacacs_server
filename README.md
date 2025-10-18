@@ -704,6 +704,14 @@ Server/network tuning (env overrides)
 - Generate: `make openapi` (writes `docs/openapi.json`)
 - View in app: Swagger UI `/docs`, ReDoc `/redoc`
 
+## Mutation Testing
+
+- Tool: `mutmut`
+- Run locally: `make mutmut`
+  - Executes mutations against `tacacs_server/` and runs tests in `tests/`
+  - Shows surviving mutants in the summary
+  - Configurable via `.mutmut.yaml`
+
 ### **URL-based Configuration**
 ```bash
 # Load from HTTPS URL (read-only)

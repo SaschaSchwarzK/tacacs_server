@@ -1,0 +1,11 @@
+# Mutmut configuration
+
+runner: "poetry run pytest -q"
+paths_to_mutate:
+  - tacacs_server
+tests_dir:
+  - tests
+backup: false
+use_coverage: false
+dict_synonyms: ["dict", "OrderedDict"]
+exclude: ["tacacs_server/web/openapi_config.py", "tacacs_server/web/app_setup.py"]

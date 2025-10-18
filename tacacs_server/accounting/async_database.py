@@ -19,7 +19,7 @@ class AsyncDatabaseLogger:
     def __init__(self, db_path: str = "data/tacacs_accounting.db"):
         self.db_path = db_path
         self.write_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=10000)
-        self.writer_task = None
+        self.writer_task: asyncio.Task[Any] | None = None
         self.running = False
 
     async def start(self):

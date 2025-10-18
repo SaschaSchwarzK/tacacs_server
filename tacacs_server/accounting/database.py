@@ -224,6 +224,8 @@ class DatabaseLogger:
     def _initialize_schema(self):
         """Create tables and indexes in a SQLite-compatible way."""
         try:
+            if self.conn is None:
+                raise RuntimeError("Database connection not initialized")
             cur = self.conn.cursor()
             # Create accounting table
             cur.execute(
@@ -477,7 +479,8 @@ class DatabaseLogger:
                     """
                 )
 
-            self.conn.commit()
+            if self.conn is not None:
+                self.conn.commit()
             logger.info("Database initialized: %s", self.db_path)
         except sqlite3.OperationalError as e:
             logger.error("SQLite operational error during schema init: %s", e)
@@ -580,6 +583,8 @@ class DatabaseLogger:
     def _start_session_with_pool(self, record):
         """Start tracking an active session using pool"""
         try:
+            if not self.pool:
+                return
             with self.pool.get_connection() as conn:
                 conn.execute(
                     """
@@ -605,6 +610,8 @@ class DatabaseLogger:
     def _update_session_with_pool(self, record):
         """Update active session using pool"""
         try:
+            if not self.pool:
+                return
             with self.pool.get_connection() as conn:
                 conn.execute(
                     """
@@ -625,6 +632,8 @@ class DatabaseLogger:
     def _stop_session_with_pool(self, record):
         """Stop tracking an active session using pool"""
         try:
+            if not self.pool:
+                return
             with self.pool.get_connection() as conn:
                 conn.execute(
                     "DELETE FROM active_sessions WHERE session_id = ?",
