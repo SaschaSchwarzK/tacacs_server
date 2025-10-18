@@ -98,6 +98,9 @@ class TacacsConfig:
             "backends": "local",
             "local_auth_db": "data/local_auth.db",
             "require_all_backends": "false",
+            # runtime tuning
+            "local_auth_cache_ttl_seconds": "60",
+            "backend_timeout": "2.0",
         }
         self.config["ldap"] = {
             "server": "ldap://localhost:389",
@@ -116,6 +119,8 @@ class TacacsConfig:
             "audit_trail_db": "data/audit_trail.db",
             "metrics_retention_days": "30",
             "audit_retention_days": "90",
+            # connection pool size for accounting DB
+            "db_pool_size": "5",
         }
         self.config["security"] = {
             "max_auth_attempts": "3",
@@ -282,7 +287,10 @@ class TacacsConfig:
             backend_type = normalized_name.lower()
 
             if backend_type == "local":
-                return LocalAuthBackend(self.get_local_auth_db())
+                # Pass cache TTL from config
+                tuning = self.get_auth_runtime_config()
+                ttl = int(tuning.get("local_auth_cache_ttl_seconds", 60))
+                return LocalAuthBackend(self.get_local_auth_db(), cache_ttl_seconds=ttl)
             elif backend_type == "ldap":
                 return self._create_ldap_backend()
             elif backend_type == "okta":
@@ -346,6 +354,30 @@ class TacacsConfig:
             "audit_retention_days": self.config.getint(
                 "database", "audit_retention_days"
             ),
+            "db_pool_size": int(
+                self.config.get("database", "db_pool_size", fallback="5")
+            ),
+        }
+
+    def get_auth_runtime_config(self) -> dict[str, Any]:
+        """Get runtime tuning for auth backends (non-secret)."""
+        a = self.config["auth"]
+
+        def _int(name: str, default: int) -> int:
+            try:
+                return int(a.get(name, default))
+            except Exception:
+                return default
+
+        def _float(name: str, default: float) -> float:
+            try:
+                return float(a.get(name, default))
+            except Exception:
+                return default
+
+        return {
+            "local_auth_cache_ttl_seconds": _int("local_auth_cache_ttl_seconds", 60),
+            "backend_timeout": _float("backend_timeout", 2.0),
         }
 
     def get_device_store_config(self) -> dict[str, Any]:

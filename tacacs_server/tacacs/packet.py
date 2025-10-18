@@ -6,6 +6,7 @@ import hashlib
 import struct
 import warnings
 
+from ..utils.exceptions import ProtocolError
 from .constants import TAC_PLUS_FLAGS, TAC_PLUS_HEADER_SIZE, TAC_PLUS_VERSION
 
 
@@ -50,7 +51,9 @@ class TacacsPacket:
         )
 
     @classmethod
-    def unpack_header(cls, data: bytes) -> "TacacsPacket":
+    def unpack_header(
+        cls, data: bytes, max_length: int | None = None
+    ) -> "TacacsPacket":
         """Unpack TACACS+ header from bytes.
 
         Args:
@@ -64,8 +67,8 @@ class TacacsPacket:
             struct.error: If data format is invalid
         """
         if len(data) < TAC_PLUS_HEADER_SIZE:
-            raise ValueError(
-                f"Invalid packet header length: {len(data)} < {TAC_PLUS_HEADER_SIZE}"
+            raise ProtocolError(
+                f"Packet too short: got {len(data)} bytes, expected at least {TAC_PLUS_HEADER_SIZE} bytes"
             )
 
         try:
@@ -73,11 +76,15 @@ class TacacsPacket:
                 "!BBBBLL", data[:TAC_PLUS_HEADER_SIZE]
             )
         except struct.error as e:
-            raise ValueError(f"Failed to unpack header: {e}") from e
+            raise ProtocolError(f"Header unpack failed: error={e!s}") from e
 
-        # Validate packet length to prevent buffer overflow
-        if length > 65535:  # Maximum reasonable packet size
-            raise ValueError(f"Packet length too large: {length}")
+        # Validate packet length to prevent buffer overflow. Allow caller to
+        # constrain with a configured maximum; fallback to protocol-safe ceiling.
+        limit = max_length if isinstance(max_length, int) and max_length > 0 else 65535
+        if length > limit:
+            raise ProtocolError(
+                f"Packet length exceeds limit: got={length} max={limit}"
+            )
 
         return cls(version, packet_type, seq_no, flags, session_id, length)
 
@@ -104,17 +111,20 @@ class TacacsPacket:
         return bytes(a ^ b for a, b in zip(encrypted_body, pad))
 
     def _generate_pad(self, key: str, length: int) -> bytes:
-        """Generate encryption pad using MD5 as specified by TACACS+ RFC 8907.
+        """Generate TACACS+ MD5 pad for body XOR.
 
-        Note: MD5 is used here as required by the TACACS+ protocol specification,
-        not for general cryptographic purposes. This is protocol-mandated legacy.
+        TACACS+ encryption (RFC 8907) derives a keystream by hashing the
+        concatenation of session_id, shared secret, version, seq_no and the
+        previous digest, then XORs the body with that stream. MD5 is mandated
+        by the protocol; we use it only for this purpose (not for general
+        cryptographic needs).
 
         Args:
             key: Shared secret key for encryption
             length: Required pad length in bytes
 
         Returns:
-            Encryption pad bytes of specified length
+            Bytes of length `length` to XOR with the body.
         """
         if length <= 0:
             return b""
