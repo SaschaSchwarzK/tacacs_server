@@ -7,9 +7,17 @@ import struct
 import threading
 from typing import Any
 
+try:
+    import json as _json
+
+    _HAS_JSON = True
+except Exception:  # pragma: no cover - stdlib always present
+    _HAS_JSON = False
+
 from tacacs_server.auth.base import AuthenticationBackend
 
 from ..accounting.models import AccountingRecord
+from ..utils.constants import MAX_PASSWORD_LENGTH
 from ..utils.exceptions import AuthenticationError, ProtocolError
 from ..utils.logger import get_logger
 from ..utils.policy import PolicyContext, PolicyResult, evaluate_policy
@@ -165,15 +173,16 @@ class AAAHandlers:
             "success": bool(success),
             "detail": detail or "",
         }
-        try:
-            import json as _json
-
-            msg = _json.dumps(payload)
-            if success:
-                logger.info(msg)
-            else:
-                logger.warning(msg)
-        except Exception:
+        if _HAS_JSON:
+            try:
+                msg = _json.dumps(payload)
+                if success:
+                    logger.info(msg)
+                else:
+                    logger.warning(msg)
+            except Exception:
+                pass
+        if not _HAS_JSON:
             if success:
                 logger.info(
                     "TACACS authentication success: user=%s detail=%s device=%s session=%s",
@@ -199,22 +208,23 @@ class AAAHandlers:
             try:
                 parsed = parse_authen_start(packet.body)
             except ProtocolError as pe:
-                try:
-                    import json as _json
-
-                    logger.warning(
-                        _json.dumps(
-                            {
-                                "event": "auth_parse_error",
-                                "stage": "start",
-                                "session": f"0x{packet.session_id:08x}",
-                                "seq": packet.seq_no,
-                                "reason": str(pe),
-                                "length": len(packet.body or b""),
-                            }
+                if _HAS_JSON:
+                    try:
+                        logger.warning(
+                            _json.dumps(
+                                {
+                                    "event": "auth_parse_error",
+                                    "stage": "start",
+                                    "session": f"0x{packet.session_id:08x}",
+                                    "seq": packet.seq_no,
+                                    "reason": str(pe),
+                                    "length": len(packet.body or b""),
+                                }
+                            )
                         )
-                    )
-                except Exception:
+                    except Exception:
+                        pass
+                else:
                     logger.warning("Invalid authentication packet body: %s", pe)
                 response = self._create_auth_response(
                     packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
@@ -277,21 +287,22 @@ class AAAHandlers:
             try:
                 a = parse_author_request(packet.body)
             except ProtocolError as pe:
-                try:
-                    import json as _json
-
-                    logger.warning(
-                        _json.dumps(
-                            {
-                                "event": "author_parse_error",
-                                "session": f"0x{packet.session_id:08x}",
-                                "seq": packet.seq_no,
-                                "reason": str(pe),
-                                "length": len(packet.body or b""),
-                            }
+                if _HAS_JSON:
+                    try:
+                        logger.warning(
+                            _json.dumps(
+                                {
+                                    "event": "author_parse_error",
+                                    "session": f"0x{packet.session_id:08x}",
+                                    "seq": packet.seq_no,
+                                    "reason": str(pe),
+                                    "length": len(packet.body or b""),
+                                }
+                            )
                         )
-                    )
-                except Exception:
+                    except Exception:
+                        pass
+                else:
                     logger.warning("Invalid authorization packet body: %s", pe)
                 return self._create_author_response(
                     packet, TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_ERROR
@@ -331,21 +342,22 @@ class AAAHandlers:
             try:
                 r = parse_acct_request(packet.body)
             except ProtocolError as pe:
-                try:
-                    import json as _json
-
-                    logger.warning(
-                        _json.dumps(
-                            {
-                                "event": "acct_parse_error",
-                                "session": f"0x{packet.session_id:08x}",
-                                "seq": packet.seq_no,
-                                "reason": str(pe),
-                                "length": len(packet.body or b""),
-                            }
+                if _HAS_JSON:
+                    try:
+                        logger.warning(
+                            _json.dumps(
+                                {
+                                    "event": "acct_parse_error",
+                                    "session": f"0x{packet.session_id:08x}",
+                                    "seq": packet.seq_no,
+                                    "reason": str(pe),
+                                    "length": len(packet.body or b""),
+                                }
+                            )
                         )
-                    )
-                except Exception:
+                    except Exception:
+                        pass
+                else:
                     logger.warning("Invalid accounting packet body: %s", pe)
                 return self._create_acct_response(
                     packet, TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR
@@ -1056,7 +1068,7 @@ class AAAHandlers:
         # Hard cap password length to mitigate abuse
         if password is None or len(password) == 0:
             return False, "empty password"
-        if len(password) > 128:
+        if len(password) > MAX_PASSWORD_LENGTH:
             return False, "password too long"
 
         if client_ip and not self.rate_limiter.is_allowed(client_ip):

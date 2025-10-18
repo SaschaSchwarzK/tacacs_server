@@ -89,8 +89,12 @@ class DatabaseLogger:
         try:
             # Resolve and validate path to prevent path traversal
             db_file = Path(self.db_path).resolve()
-            # Ensure path is within expected directory structure
-            if not str(db_file).startswith(str(Path.cwd().resolve())):
+            # Ensure path is within expected directory structure using pathlib semantics
+            allowed_base = Path.cwd().resolve()
+            try:
+                # Will raise ValueError if db_file is not contained in allowed_base
+                db_file.relative_to(allowed_base)
+            except ValueError:
                 raise ValueError(f"Database path outside allowed directory: {db_file}")
             if not db_file.parent.exists():
                 db_file.parent.mkdir(parents=True, exist_ok=True)

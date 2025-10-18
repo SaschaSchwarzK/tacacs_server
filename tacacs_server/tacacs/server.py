@@ -10,6 +10,13 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
+try:
+    import json as _json
+
+    _HAS_JSON = True
+except Exception:  # pragma: no cover
+    _HAS_JSON = False
+
 from tacacs_server.auth.base import AuthenticationBackend
 
 from ..accounting.database import DatabaseLogger
@@ -381,19 +388,20 @@ class TacacsServer:
                             header_data, max_length=self.max_packet_length
                         )
                     except Exception as e:
-                        try:
-                            import json as _json
-
-                            log_payload = {
-                                "event": "packet_header_error",
-                                "client_ip": address[0],
-                                "client_port": address[1],
-                                "reason": str(e),
-                                "length": len(header_data),
-                                "max_length": self.max_packet_length,
-                            }
-                            conn_logger.warning(_json.dumps(log_payload))
-                        except Exception:
+                        if _HAS_JSON:
+                            try:
+                                log_payload = {
+                                    "event": "packet_header_error",
+                                    "client_ip": address[0],
+                                    "client_port": address[1],
+                                    "reason": str(e),
+                                    "length": len(header_data),
+                                    "max_length": self.max_packet_length,
+                                }
+                                conn_logger.warning(_json.dumps(log_payload))
+                            except Exception:
+                                pass
+                        else:
                             conn_logger.warning(
                                 "Invalid packet from %s: %s", address, e
                             )
@@ -418,21 +426,22 @@ class TacacsServer:
                         break
                     if packet.length > 0:
                         if packet.length > self.max_packet_length:
-                            try:
-                                import json as _json
-
-                                conn_logger.warning(
-                                    _json.dumps(
-                                        {
-                                            "event": "packet_too_large",
-                                            "client_ip": address[0],
-                                            "client_port": address[1],
-                                            "length": packet.length,
-                                            "max_length": self.max_packet_length,
-                                        }
+                            if _HAS_JSON:
+                                try:
+                                    conn_logger.warning(
+                                        _json.dumps(
+                                            {
+                                                "event": "packet_too_large",
+                                                "client_ip": address[0],
+                                                "client_port": address[1],
+                                                "length": packet.length,
+                                                "max_length": self.max_packet_length,
+                                            }
+                                        )
                                     )
-                                )
-                            except Exception:
+                                except Exception:
+                                    pass
+                            else:
                                 conn_logger.warning(
                                     "Packet too large from %s: %s bytes",
                                     address,
@@ -574,20 +583,21 @@ class TacacsServer:
         """Validate packet header"""
         major_version = packet.version >> 4 & 15
         if major_version != TAC_PLUS_MAJOR_VER:
-            try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "invalid_major_version",
-                            "session": f"0x{packet.session_id:08x}",
-                            "got": major_version,
-                            "expected": TAC_PLUS_MAJOR_VER,
-                        }
+            if _HAS_JSON:
+                try:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "invalid_major_version",
+                                "session": f"0x{packet.session_id:08x}",
+                                "got": major_version,
+                                "expected": TAC_PLUS_MAJOR_VER,
+                            }
+                        )
                     )
-                )
-            except Exception:
+                except Exception:
+                    pass
+            else:
                 logger.warning(f"Invalid major version: {major_version}")
             return False
         if packet.packet_type not in [
@@ -595,19 +605,20 @@ class TacacsServer:
             TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
             TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT,
         ]:
-            try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "invalid_packet_type",
-                            "session": f"0x{packet.session_id:08x}",
-                            "type": packet.packet_type,
-                        }
+            if _HAS_JSON:
+                try:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "invalid_packet_type",
+                                "session": f"0x{packet.session_id:08x}",
+                                "type": packet.packet_type,
+                            }
+                        )
                     )
-                )
-            except Exception:
+                except Exception:
+                    pass
+            else:
                 logger.warning(f"Invalid packet type: {packet.packet_type}")
             return False
         # TACACS+ client requests must be odd sequence numbers (1,3,5,...)
@@ -623,20 +634,21 @@ class TacacsServer:
                         # Allow a reset if the backward gap is very large,
                         # which likely indicates a new client session state.
                         if (last - packet.seq_no) < 100:
-                            try:
-                                import json as _json
-
-                                logger.warning(
-                                    _json.dumps(
-                                        {
-                                            "event": "out_of_order_sequence",
-                                            "session": f"0x{packet.session_id:08x}",
-                                            "last": last,
-                                            "got": packet.seq_no,
-                                        }
+                            if _HAS_JSON:
+                                try:
+                                    logger.warning(
+                                        _json.dumps(
+                                            {
+                                                "event": "out_of_order_sequence",
+                                                "session": f"0x{packet.session_id:08x}",
+                                                "last": last,
+                                                "got": packet.seq_no,
+                                            }
+                                        )
                                     )
-                                )
-                            except Exception:
+                                except Exception:
+                                    pass
+                            else:
                                 logger.warning(
                                     "Out-of-order sequence: sess=%s last=%s got=%s",
                                     f"0x{packet.session_id:08x}",
@@ -649,20 +661,21 @@ class TacacsServer:
                         return True
                     # Forward movement must remain odd-stepped
                     if ((packet.seq_no - last) % 2) != 0:
-                        try:
-                            import json as _json
-
-                            logger.warning(
-                                _json.dumps(
-                                    {
-                                        "event": "invalid_sequence_step",
-                                        "session": f"0x{packet.session_id:08x}",
-                                        "last": last,
-                                        "got": packet.seq_no,
-                                    }
+                        if _HAS_JSON:
+                            try:
+                                logger.warning(
+                                    _json.dumps(
+                                        {
+                                            "event": "invalid_sequence_step",
+                                            "session": f"0x{packet.session_id:08x}",
+                                            "last": last,
+                                            "got": packet.seq_no,
+                                        }
+                                    )
                                 )
-                            )
-                        except Exception:
+                            except Exception:
+                                pass
+                        else:
                             logger.warning(
                                 "Invalid sequence step: sess=%s last=%s got=%s",
                                 f"0x{packet.session_id:08x}",

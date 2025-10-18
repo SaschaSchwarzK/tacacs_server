@@ -6,6 +6,8 @@ import re
 import time
 from collections import defaultdict
 
+from .constants import MAX_USERNAME_LENGTH
+
 
 class AuthRateLimiter:
     """Rate limiter for authentication attempts"""
@@ -28,10 +30,14 @@ class AuthRateLimiter:
 
 
 def validate_username(username: str) -> bool:
-    """Validate username format"""
-    if not username or len(username) > 64:
+    """Validate username format.
+
+    Allows alphanumerics plus '.', '_', '-', and '@' to support common
+    directory/email-style usernames. Enforces a maximum length via constant.
+    """
+    if not username or len(username) > MAX_USERNAME_LENGTH:
         return False
-    match = re.match(r"^[a-zA-Z0-9._-]+$", username)
+    match = re.match(r"^[a-zA-Z0-9._@-]+$", username)
     return bool(match is not None)
 
 
