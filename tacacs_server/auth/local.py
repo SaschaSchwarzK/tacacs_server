@@ -1,6 +1,8 @@
 """Local SQLite-Based Authentication Backend."""
 
+import os
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
@@ -21,13 +23,18 @@ logger = get_logger(__name__)
 
 
 class LocalAuthBackend(AuthenticationBackend):
-    """Local authentication backend backed by :class:`LocalUserService`."""
+    """Local authentication backend backed by :class:`LocalUserService`.
+
+    Supports TTL-based user caching to avoid stale reads and reduce load.
+    Cache TTL can be configured via config or `LOCAL_AUTH_CACHE_TTL_SECONDS`.
+    """
 
     def __init__(
         self,
         db_path: str = "data/local_auth.db",
         *,
         service: LocalUserService | None = None,
+        cache_ttl_seconds: int | None = None,
     ):
         super().__init__("local")
         self.db_path = db_path
@@ -67,7 +74,21 @@ class LocalAuthBackend(AuthenticationBackend):
         except Exception:
             # Non-fatal; keep existing user_service
             pass
-        self._user_cache: dict[str, LocalUserRecord] = {}
+        # Cache of user records with timestamp for TTL eviction
+        self._user_cache: dict[str, tuple[LocalUserRecord, float]] = {}
+        # TTL for user cache entries (seconds); prevents stale data
+        if cache_ttl_seconds is None:
+            try:
+                ttl = int(os.getenv("LOCAL_AUTH_CACHE_TTL_SECONDS", "60"))
+            except Exception:
+                ttl = 60
+        else:
+            ttl = int(cache_ttl_seconds)
+        if ttl < 0:
+            ttl = 0
+        if ttl > 3600:
+            ttl = 3600
+        self._cache_ttl_seconds = ttl
         self._cache_lock = threading.RLock()
         self._listener_remove: Callable[[], None] | None = None
         self._attach_user_service(self.user_service)
@@ -269,13 +290,21 @@ class LocalAuthBackend(AuthenticationBackend):
         self.invalidate_user_cache(username)
 
     def _get_user(self, username: str) -> LocalUserRecord:
+        now = time.monotonic()
         with self._cache_lock:
-            cached = self._user_cache.get(username)
-        if cached is not None:
-            return self._clone_record(cached)
+            entry = self._user_cache.get(username)
+            if entry is not None:
+                record, ts = entry
+                if (
+                    self._cache_ttl_seconds == 0
+                    or (now - ts) <= self._cache_ttl_seconds
+                ):
+                    return self._clone_record(record)
+                # Expired; remove and fall through to reload
+                self._user_cache.pop(username, None)
         record = self.user_service.get_user(username)
         with self._cache_lock:
-            self._user_cache[username] = record
+            self._user_cache[username] = (record, now)
         return self._clone_record(record)
 
     @staticmethod

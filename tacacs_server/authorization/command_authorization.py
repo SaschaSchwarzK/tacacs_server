@@ -4,8 +4,9 @@ Implements fine-grained command authorization with regex patterns and privilege 
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from re import Pattern
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -44,6 +45,9 @@ class CommandRule:
     description: str | None = None
     user_groups: list[str] | None = None
     device_groups: list[str] | None = None
+
+    # Compiled pattern cache (for regex/wildcard), None otherwise
+    _compiled_pattern: Pattern[str] | None = field(init=False, default=None)
 
     def __post_init__(self):
         """Compile regex patterns for efficiency"""
@@ -84,7 +88,8 @@ class CommandRule:
         elif self.match_type == CommandMatchType.PREFIX:
             return command.startswith(self.pattern)
         elif self.match_type in (CommandMatchType.REGEX, CommandMatchType.WILDCARD):
-            return bool(self._compiled_pattern.match(command))
+            pat = self._compiled_pattern
+            return bool(pat is not None and pat.match(command))
 
         return False
 

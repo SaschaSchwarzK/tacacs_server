@@ -2,14 +2,23 @@
 TACACS+ AAA Request Handlers
 """
 
+import os
 import struct
 import threading
 from typing import Any
 
+try:
+    import json as _json
+
+    _HAS_JSON = True
+except Exception:  # pragma: no cover - stdlib always present
+    _HAS_JSON = False
+
 from tacacs_server.auth.base import AuthenticationBackend
 
 from ..accounting.models import AccountingRecord
-from ..utils.exceptions import AuthenticationError
+from ..utils.constants import MAX_PASSWORD_LENGTH
+from ..utils.exceptions import AuthenticationError, ProtocolError
 from ..utils.logger import get_logger
 from ..utils.policy import PolicyContext, PolicyResult, evaluate_policy
 from ..utils.security import AuthRateLimiter, validate_username
@@ -28,9 +37,20 @@ logger = get_logger(__name__)
 
 
 class AAAHandlers:
-    """TACACS+ Authentication, Authorization, and Accounting handlers"""
+    """TACACS+ Authentication, Authorization, and Accounting handlers.
 
-    def __init__(self, auth_backends: list[AuthenticationBackend], db_logger):
+    Orchestrates packet parsing, backend authentication with timeouts,
+    authorization decisions via a policy engine, and accounting persistence.
+    Emits structured JSON logs for observability and safety.
+    """
+
+    def __init__(
+        self,
+        auth_backends: list[AuthenticationBackend],
+        db_logger,
+        *,
+        backend_timeout: float | None = None,
+    ):
         self.auth_backends = auth_backends
         self.db_logger = db_logger
         # Shared session state; protect with a re-entrant lock
@@ -40,6 +60,17 @@ class AAAHandlers:
         self.session_device: dict[int, Any] = {}
         self.session_usernames: dict[int, str] = {}
         self.local_user_group_service = None
+        # Per-backend authentication timeout (seconds) to avoid slow backend DoS
+        if backend_timeout is not None:
+            try:
+                self.backend_timeout = float(backend_timeout)
+            except Exception:
+                self.backend_timeout = 2.0
+        else:
+            try:
+                self.backend_timeout = float(os.getenv("TACACS_BACKEND_TIMEOUT", "2"))
+            except Exception:
+                self.backend_timeout = 2.0
 
     def set_local_user_group_service(self, service) -> None:
         self.local_user_group_service = service
@@ -86,18 +117,27 @@ class AAAHandlers:
     def cleanup_session(self, session_id: int) -> None:
         """Remove cached state associated with a TACACS session."""
         with self._lock:
+            # First, determine all keys to remove without mutating dicts mid-iteration
+            simple_key = session_id
+            prefix = f"{session_id}_"
+            # Collect auth session keys: both simple and composite
+            auth_keys_to_remove = []
+            if simple_key in self.auth_sessions:
+                auth_keys_to_remove.append(simple_key)
+            for key in list(self.auth_sessions.keys()):
+                try:
+                    if isinstance(key, str) and key.startswith(prefix):
+                        auth_keys_to_remove.append(key)
+                    elif not isinstance(key, str) and str(key).startswith(prefix):
+                        auth_keys_to_remove.append(key)
+                except Exception:
+                    # Be conservative; skip malformed keys
+                    continue
+
+            # Now perform removals
             self.session_device.pop(session_id, None)
             self.session_usernames.pop(session_id, None)
-            # Remove the simple session key if present
-            self.auth_sessions.pop(session_id, None)
-            # Remove any composite keys like f"{session_id}_..." if used elsewhere
-            prefix = f"{session_id}_"
-            stale_keys = [
-                key
-                for key in list(self.auth_sessions.keys())
-                if str(key).startswith(prefix)
-            ]
-            for key in stale_keys:
+            for key in auth_keys_to_remove:
                 self.auth_sessions.pop(key, None)
 
     def _log_auth_result(
@@ -116,22 +156,49 @@ class AAAHandlers:
         group_name = getattr(getattr(device, "group", None), "name", None)
         context = group_name or device_name or "unknown"
         sess_hex = f"0x{session_id:08x}"
-        if success:
-            logger.info(
-                "TACACS authentication success: user=%s detail=%s device=%s session=%s",
-                safe_user,
-                detail or "backend=unknown",
-                context,
-                sess_hex,
-            )
-        else:
-            logger.warning(
-                "TACACS authentication failed: user=%s reason=%s device=%s session=%s",
-                safe_user,
-                detail or "unknown",
-                context,
-                sess_hex,
-            )
+        # Try to emit structured JSON; fall back to plain
+        backend_name = None
+        try:
+            if detail and "backend=" in detail:
+                backend_name = detail.split("backend=", 1)[1].split()[0]
+        except Exception:
+            backend_name = None
+        payload = {
+            "event": "auth_result",
+            "session": sess_hex,
+            "user": safe_user,
+            "device_group": group_name,
+            "device": device_name,
+            "backend": backend_name or "unknown",
+            "success": bool(success),
+            "detail": detail or "",
+        }
+        if _HAS_JSON:
+            try:
+                msg = _json.dumps(payload)
+                if success:
+                    logger.info(msg)
+                else:
+                    logger.warning(msg)
+            except Exception:
+                pass
+        if not _HAS_JSON:
+            if success:
+                logger.info(
+                    "TACACS authentication success: user=%s detail=%s device=%s session=%s",
+                    safe_user,
+                    detail or "backend=unknown",
+                    context,
+                    sess_hex,
+                )
+            else:
+                logger.warning(
+                    "TACACS authentication failed: user=%s reason=%s device=%s session=%s",
+                    safe_user,
+                    detail or "unknown",
+                    context,
+                    sess_hex,
+                )
 
     def handle_authentication(
         self, packet: TacacsPacket, device: Any | None = None
@@ -140,8 +207,32 @@ class AAAHandlers:
         try:
             try:
                 parsed = parse_authen_start(packet.body)
+            except ProtocolError as pe:
+                if _HAS_JSON:
+                    try:
+                        logger.warning(
+                            _json.dumps(
+                                {
+                                    "event": "auth_parse_error",
+                                    "stage": "start",
+                                    "session": f"0x{packet.session_id:08x}",
+                                    "seq": packet.seq_no,
+                                    "reason": str(pe),
+                                    "length": len(packet.body or b""),
+                                }
+                            )
+                        )
+                    except Exception:
+                        pass
+                else:
+                    logger.warning("Invalid authentication packet body: %s", pe)
+                response = self._create_auth_response(
+                    packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
+                )
+                self.cleanup_session(packet.session_id)
+                return response
             except Exception:
-                logger.error("Invalid authentication packet body length")
+                logger.error("Authentication parsing failed (unexpected error)")
                 response = self._create_auth_response(
                     packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
                 )
@@ -195,8 +286,29 @@ class AAAHandlers:
         try:
             try:
                 a = parse_author_request(packet.body)
+            except ProtocolError as pe:
+                if _HAS_JSON:
+                    try:
+                        logger.warning(
+                            _json.dumps(
+                                {
+                                    "event": "author_parse_error",
+                                    "session": f"0x{packet.session_id:08x}",
+                                    "seq": packet.seq_no,
+                                    "reason": str(pe),
+                                    "length": len(packet.body or b""),
+                                }
+                            )
+                        )
+                    except Exception:
+                        pass
+                else:
+                    logger.warning("Invalid authorization packet body: %s", pe)
+                return self._create_author_response(
+                    packet, TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_ERROR
+                )
             except Exception:
-                logger.error("Invalid authorization packet body length")
+                logger.error("Authorization parsing failed (unexpected error)")
                 return self._create_author_response(
                     packet, TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_ERROR
                 )
@@ -229,8 +341,29 @@ class AAAHandlers:
         try:
             try:
                 r = parse_acct_request(packet.body)
+            except ProtocolError as pe:
+                if _HAS_JSON:
+                    try:
+                        logger.warning(
+                            _json.dumps(
+                                {
+                                    "event": "acct_parse_error",
+                                    "session": f"0x{packet.session_id:08x}",
+                                    "seq": packet.seq_no,
+                                    "reason": str(pe),
+                                    "length": len(packet.body or b""),
+                                }
+                            )
+                        )
+                    except Exception:
+                        pass
+                else:
+                    logger.warning("Invalid accounting packet body: %s", pe)
+                return self._create_acct_response(
+                    packet, TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR
+                )
             except Exception:
-                logger.error("Invalid accounting packet body length")
+                logger.error("Accounting parsing failed (unexpected error)")
                 return self._create_acct_response(
                     packet, TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR
                 )
@@ -499,6 +632,25 @@ class AAAHandlers:
             # Otherwise, treat as failure when a command is requested but user unknown
             self.cleanup_session(packet.session_id)
             try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "authorization_denied",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user,
+                            "reason": "no_attrs",
+                            "command": args.get("cmd"),
+                            "device_group": getattr(
+                                getattr(device, "group", None), "name", None
+                            ),
+                        }
+                    )
+                )
+            except Exception:
+                pass
+            try:
                 from ..utils.webhook import notify
 
                 notify(
@@ -518,6 +670,25 @@ class AAAHandlers:
             )
         if not user_attrs.get("enabled", True):
             self.cleanup_session(packet.session_id)
+            try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "authorization_denied",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user,
+                            "reason": "disabled",
+                            "command": args.get("cmd"),
+                            "device_group": getattr(
+                                getattr(device, "group", None), "name", None
+                            ),
+                        }
+                    )
+                )
+            except Exception:
+                pass
             try:
                 from ..utils.webhook import notify
 
@@ -565,6 +736,27 @@ class AAAHandlers:
         if not result.allowed:
             self.cleanup_session(packet.session_id)
             try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "authorization_denied",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user,
+                            "reason": result.denial_message or "policy_denied",
+                            "command": args.get("cmd"),
+                            "required_priv": priv_lvl,
+                            "user_priv": user_priv,
+                            "device_group": getattr(
+                                getattr(device, "group", None), "name", None
+                            ),
+                        }
+                    )
+                )
+            except Exception:
+                pass
+            try:
                 from ..utils.webhook import notify
 
                 notify(
@@ -589,6 +781,27 @@ class AAAHandlers:
         command = args.get("cmd", "")
         if priv_lvl > user_priv:
             self.cleanup_session(packet.session_id)
+            try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "authorization_denied",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user,
+                            "reason": "insufficient_privilege",
+                            "command": args.get("cmd"),
+                            "required_priv": priv_lvl,
+                            "user_priv": user_priv,
+                            "device_group": getattr(
+                                getattr(device, "group", None), "name", None
+                            ),
+                        }
+                    )
+                )
+            except Exception:
+                pass
             try:
                 from ..utils.webhook import notify
 
@@ -626,6 +839,27 @@ class AAAHandlers:
             if not allowed:
                 self.cleanup_session(packet.session_id)
                 try:
+                    import json as _json
+
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "authorization_denied",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "reason": f"cmd_not_authorized:{command}:{reason}",
+                                "command": command,
+                                "required_priv": priv_lvl,
+                                "user_priv": user_priv,
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
+                    )
+                except Exception:
+                    pass
+                try:
                     from ..utils.webhook import notify
 
                     notify(
@@ -652,6 +886,27 @@ class AAAHandlers:
                 pass  # allow
             elif user_priv < 15:
                 self.cleanup_session(packet.session_id)
+                try:
+                    import json as _json
+
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "authorization_denied",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "reason": "cmd_not_permitted_at_priv",
+                                "command": command,
+                                "required_priv": 15,
+                                "user_priv": user_priv,
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
+                    )
+                except Exception:
+                    pass
                 return self._create_author_response(
                     packet,
                     TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -660,6 +915,26 @@ class AAAHandlers:
 
         auth_attrs = self._build_authorization_attributes(user_attrs, args)
         self.cleanup_session(packet.session_id)
+        try:
+            import json as _json
+
+            logger.info(
+                _json.dumps(
+                    {
+                        "event": "authorization_granted",
+                        "session": f"0x{packet.session_id:08x}",
+                        "user": user,
+                        "command": args.get("cmd"),
+                        "user_priv": user_priv,
+                        "device_group": getattr(
+                            getattr(device, "group", None), "name", None
+                        ),
+                        "attrs": auth_attrs,
+                    }
+                )
+            )
+        except Exception:
+            pass
         return self._create_author_response(
             packet,
             TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
@@ -715,6 +990,27 @@ class AAAHandlers:
                 "Accounting record logged successfully",
             )
             try:
+                import json as _json
+
+                logger.info(
+                    _json.dumps(
+                        {
+                            "event": "acct_record",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user or self._safe_user(None),
+                            "status": status,
+                            "service": record.service,
+                            "command": record.command,
+                            "client_ip": rem_addr,
+                            "port": port,
+                            "priv": priv_lvl,
+                            "attrs": self._redact_args(args),
+                        }
+                    )
+                )
+            except Exception:
+                pass
+            try:
                 from ..web.monitoring import PrometheusIntegration as _PM
 
                 _PM.record_accounting_record("success")
@@ -726,6 +1022,27 @@ class AAAHandlers:
                 TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR,
                 "Failed to log accounting record",
             )
+            try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "acct_record_error",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user or self._safe_user(None),
+                            "status": status,
+                            "service": record.service,
+                            "command": record.command,
+                            "client_ip": rem_addr,
+                            "port": port,
+                            "priv": priv_lvl,
+                            "attrs": self._redact_args(args),
+                        }
+                    )
+                )
+            except Exception:
+                pass
             try:
                 from ..web.monitoring import PrometheusIntegration as _PM
 
@@ -751,10 +1068,24 @@ class AAAHandlers:
         # Hard cap password length to mitigate abuse
         if password is None or len(password) == 0:
             return False, "empty password"
-        if len(password) > 128:
+        if len(password) > MAX_PASSWORD_LENGTH:
             return False, "password too long"
 
         if client_ip and not self.rate_limiter.is_allowed(client_ip):
+            try:
+                import json as _json
+
+                logger.warning(
+                    _json.dumps(
+                        {
+                            "event": "auth_rate_limited",
+                            "user": username or self._safe_user(None),
+                            "client_ip": client_ip,
+                        }
+                    )
+                )
+            except Exception:
+                pass
             return False, f"rate limit exceeded for {client_ip}"
 
         if client_ip:
@@ -764,17 +1095,27 @@ class AAAHandlers:
         used_backend = ""
         for backend in self.auth_backends:
             try:
-                if backend.authenticate(username, password):
+                ok, timed_out, err = self._authenticate_backend_with_timeout(
+                    backend, username, password, timeout_s=self.backend_timeout
+                )
+                if timed_out:
+                    last_error = f"backend={backend.name} error=timeout"
+                    logger.warning(
+                        "Auth backend %s timed out for %s after %.2fs",
+                        backend.name,
+                        username,
+                        self.backend_timeout,
+                    )
+                    continue
+                if err is not None:
+                    last_error = f"backend={backend.name} error={err}"
+                    continue
+                if ok:
                     used_backend = backend.name
                     _PM.record_auth_request(
                         "ok", used_backend, _time.time() - start_ts, ""
                     )
                     return True, f"backend={backend.name}"
-            except AuthenticationError as exc:
-                last_error = f"backend={backend.name} error={exc}"
-                logger.warning(
-                    "Auth error with %s for %s: %s", backend.name, username, exc
-                )
             except Exception as exc:
                 last_error = f"backend={backend.name} error={exc}"
                 logger.error(
@@ -846,6 +1187,39 @@ class AAAHandlers:
         except Exception:
             pass
         return False, "no backend accepted credentials"
+
+    def _authenticate_backend_with_timeout(
+        self,
+        backend: AuthenticationBackend,
+        username: str,
+        password: str,
+        *,
+        timeout_s: float,
+    ) -> tuple[bool, bool, str | None]:
+        """Call backend.authenticate with a timeout.
+
+        Returns (ok, timed_out, error_msg).
+        Does not attempt to kill the backend call; if it exceeds timeout,
+        the result is ignored and timed_out is True.
+        """
+        result_container: dict[str, Any] = {}
+
+        def _worker():
+            try:
+                result_container["ok"] = bool(backend.authenticate(username, password))
+            except AuthenticationError as exc:
+                result_container["error"] = str(exc)
+            except Exception as exc:  # noqa: BLE001
+                result_container["error"] = str(exc)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout=timeout_s if timeout_s and timeout_s > 0 else None)
+        if t.is_alive():
+            return False, True, None
+        if "error" in result_container:
+            return False, False, result_container.get("error")
+        return bool(result_container.get("ok", False)), False, None
 
     def _build_authorization_attributes(
         self, user_attrs: dict[str, Any], request_args: dict[str, str]

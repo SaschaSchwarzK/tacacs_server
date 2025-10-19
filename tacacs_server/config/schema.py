@@ -17,6 +17,8 @@ class AuthConfigSchema(BaseModel):
     backends: str = Field(..., description="Comma separated backend list")
     local_auth_db: str = Field(..., description="SQLite DB path")
     require_all_backends: bool = Field(default=False)
+    local_auth_cache_ttl_seconds: int = Field(default=60, ge=0, le=3600)
+    backend_timeout: float = Field(default=2.0, ge=0.1, le=30.0)
 
 
 class SecurityConfigSchema(BaseModel):

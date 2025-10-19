@@ -266,7 +266,7 @@ def configure_openapi_ui(app: FastAPI):
     @app.get("/docs", include_in_schema=False)
     async def custom_swagger_ui_html():
         resp = get_swagger_ui_html(
-            openapi_url=app.openapi_url,
+            openapi_url=app.openapi_url or "/openapi.json",
             title=f"{app.title} - Swagger UI",
             oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
             swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
@@ -301,7 +301,7 @@ def configure_openapi_ui(app: FastAPI):
     @app.get("/redoc", include_in_schema=False)
     async def custom_redoc_html():
         resp = get_redoc_html(
-            openapi_url=app.openapi_url,
+            openapi_url=app.openapi_url or "/openapi.json",
             title=f"{app.title} - ReDoc",
             redoc_js_url="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js",
             redoc_favicon_url="https://fastapi.tiangolo.com/img/favicon.png",

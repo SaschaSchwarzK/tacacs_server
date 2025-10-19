@@ -44,15 +44,28 @@ class TacacsServerManager:
         monitoring_set_config(self.config)
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
-        self.device_store = None
-        self.device_service = None
+        from tacacs_server.devices.service import DeviceService as _DSe
+        from tacacs_server.devices.store import (
+            DeviceStore as _DS,
+        )  # local import for typing
+
+        self.device_store: _DS | None = None
+        self.device_service: _DSe | None = None
         self.local_auth_store: LocalAuthStore | None = None
-        self.local_user_service = None
-        self.local_user_group_service = None
-        self.admin_session_manager = None
+        from tacacs_server.auth.local_user_group_service import (
+            LocalUserGroupService as _LUGS,
+        )
+        from tacacs_server.auth.local_user_service import LocalUserService as _LUS
+        from tacacs_server.web.admin.auth import AdminSessionManager as _ASM
+
+        self.local_user_service: _LUS | None = None
+        self.local_user_group_service: _LUGS | None = None
+        self.admin_session_manager: _ASM | None = None
         self.device_store_config: dict[str, Any] = {}
         self.running = False
-        self._device_change_unsubscribe = None
+        from collections.abc import Callable
+
+        self._device_change_unsubscribe: Callable[[], None] | None = None
         self._pending_radius_refresh = False
 
     def setup(self):
@@ -201,14 +214,18 @@ class TacacsServerManager:
                 )
                 self.admin_session_manager = AdminSessionManager(auth_config)
                 set_admin_session_manager(self.admin_session_manager)
+                assert self.admin_session_manager is not None
                 dependency = get_admin_auth_dependency(self.admin_session_manager)
                 set_admin_auth_dependency(dependency)
                 logger.info("Admin authentication enabled for username '%s'", username)
                 # Proactive bcrypt availability check to surface image issues early
                 try:
+                    from typing import Any as _Any
+
                     import bcrypt
 
-                    _ = bcrypt.__version__  # noqa: F401
+                    _ver: _Any = getattr(bcrypt, "__version__", None)
+                    _ = _ver  # prevent unused variable
                 except Exception as exc:
                     logger.error(
                         "Admin auth configured but bcrypt unavailable: %s. "
@@ -374,7 +391,7 @@ class TacacsServerManager:
                 )
 
             # Configure RADIUS client devices from the device store when available
-            initial_clients: list[dict[str, Any]] = []
+            initial_clients: list[Any] = []
             if self.device_store:
                 try:
                     initial_clients = self.device_store.iter_radius_clients()

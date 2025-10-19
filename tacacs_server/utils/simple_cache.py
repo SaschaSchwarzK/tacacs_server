@@ -3,8 +3,9 @@ from __future__ import annotations
 import functools
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -101,14 +102,65 @@ def time_cache(
 
     def _decorator(fn: Callable[..., V]) -> Callable[..., V]:
         @functools.lru_cache(maxsize=maxsize, typed=typed)
-        def _cached(*args, __time_salt: int, **kwargs):
+        def _cached(*args: object, __time_salt: int, **kwargs: object) -> V:
             return fn(*args, **kwargs)
 
         @functools.wraps(fn)
-        def _wrapped(*args, **kwargs):
+        def _wrapped(*args: object, **kwargs: object) -> V:
             # Integer-divide current time by max_age to change salt per-window
             return _cached(*args, __time_salt=int(time.time() // max_age), **kwargs)
 
         return _wrapped
 
     return _decorator
+
+
+class LRUDict(OrderedDict, Generic[K, V]):
+    """A lightweight LRU dict with optional max size.
+
+    - Evicts the least-recently-used item when `maxsize` is exceeded.
+    - On set, updates recency and enforces the size bound.
+    - On get, moves the key to most-recent if found.
+    - Thread safety is the caller's responsibility.
+    """
+
+    def __init__(self, maxsize: int | None = 1000) -> None:
+        super().__init__()
+        self.maxsize = maxsize if (isinstance(maxsize, int) and maxsize > 0) else None
+
+    def __setitem__(self, key: K, value: V) -> None:
+        if key in self:
+            try:
+                super().__delitem__(key)
+            except KeyError:
+                pass
+        super().__setitem__(key, value)
+        try:
+            self.move_to_end(key, last=True)
+        except Exception:
+            pass
+        if self.maxsize is not None and len(self) > self.maxsize:
+            try:
+                self.popitem(last=False)
+            except Exception:
+                pass
+
+    def __getitem__(self, key: K) -> V:
+        value = cast(V, super().__getitem__(key))
+        try:
+            self.move_to_end(key, last=True)
+        except Exception:
+            pass
+        return value
+
+    def get(self, key: K, default: Any = None) -> Any:
+        try:
+            return self.__getitem__(key)
+        except KeyError:
+            return default
+
+    def touch(self, key: K) -> None:
+        try:
+            self.move_to_end(key, last=True)
+        except Exception:
+            pass
