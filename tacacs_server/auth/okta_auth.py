@@ -1,5 +1,8 @@
 """
-Okta authentication backend (OAuth2 token endpoint) with in-memory caching.
+Okta authentication backend with in-memory caching.
+
+Uses the Okta Authentication API (AuthN). Group lookups use the Okta
+Management API when an `api_token` is configured.
 """
 
 import base64
@@ -56,18 +59,22 @@ def _parse_exp_from_jwt(token: str) -> int | None:
 
 class OktaAuthBackend(AuthenticationBackend):
     """
-    Okta OAuth2 token-based backend.
+    Okta authentication backend.
 
     Config options (cfg dict):
       org_url                - base Okta url, e.g. https://dev-xxxx.okta.com (required)
-      client_id              - OAuth2 client id for password grant (required)
       api_token              - Okta Management API token (SSWS) if groups queries are
                                desired (optional)
       cache_default_ttl      - fallback TTL in seconds (default 60)
       verify_tls             - bool for requests.verify (default True)
-      group_privilege_map    - JSON string or dict mapping group names -> privilege int
-      require_group_for_auth - bool: require user to be member of mapped group to count
+      require_group_for_auth - bool: require user to be member of an allowed Okta group to count
                                as authorized (default False)
+      authn_enabled          - bool: use Okta AuthN API (default True)
+      mfa_enabled            - bool: enable simple MFA via password-suffix handling (default False)
+      mfa_otp_digits         - int: number of digits for OTP suffix parsing (default 6)
+      mfa_push_keyword       - str: keyword to trigger Okta Verify push when appended to password (default "push")
+      mfa_timeout_seconds    - int: max seconds to wait for push approval (default 25)
+      mfa_poll_interval      - float: seconds between push poll attempts (default 2.0)
     """
 
     def __init__(self, cfg: dict[str, Any]):
@@ -75,9 +82,8 @@ class OktaAuthBackend(AuthenticationBackend):
         self.org_url = cfg.get("org_url") or cfg.get("okta_org_url")
         if not self.org_url:
             raise ValueError("Okta org_url must be provided in config (org_url)")
-        self.client_id = cfg.get("client_id") or cfg.get("CLIENT_ID")
-        if not self.client_id:
-            raise ValueError("Okta client_id must be provided in config (client_id)")
+        # No client/app credentials needed for AuthN API
+        self.client_id = None
         self.api_token = cfg.get("api_token") or cfg.get("OKTA_API_TOKEN")
         self.cache_default_ttl = int(cfg.get("cache_default_ttl", 60))
         vt = cfg.get("verify_tls", True)
@@ -86,35 +92,29 @@ class OktaAuthBackend(AuthenticationBackend):
         else:
             self.verify_tls = bool(vt)
         self.require_group_for_auth = bool(cfg.get("require_group_for_auth", False))
-        self.ropc_enabled = bool(cfg.get("ropc_enabled", True))
-
-        # parse group_privilege_map if provided as JSON string
-        gpm = cfg.get("group_privilege_map", {})
-        if isinstance(gpm, str):
-            try:
-                gpm = json.loads(gpm)
-            except Exception:
-                gpm = {}
-        # ensure keys are str and values int
-        self.group_privilege_map: dict[str, int] = {
-            str(k): int(v) for k, v in (gpm or {}).items()
-        }
-        # sensible defaults if none provided
-        if not self.group_privilege_map:
-            self.group_privilege_map = {"Level15": 15, "Level7": 7, "Level1": 1}
-        # Lowercased map for case-insensitive group matching
+        # Default to AuthN API
+        self.authn_enabled = bool(cfg.get("authn_enabled", True))
+        # Simple MFA controls
+        self.mfa_enabled = bool(cfg.get("mfa_enabled", False))
         try:
-            self._group_privilege_map_lc: dict[str, int] = {
-                str(k).lower(): int(v) for k, v in self.group_privilege_map.items()
-            }
+            self.mfa_otp_digits = int(cfg.get("mfa_otp_digits", 6))
         except Exception:
-            self._group_privilege_map_lc = {}
+            self.mfa_otp_digits = 6
+        self.mfa_push_keyword = str(cfg.get("mfa_push_keyword", "push")).strip().lower()
+        try:
+            self.mfa_timeout_seconds = int(cfg.get("mfa_timeout_seconds", 25))
+        except Exception:
+            self.mfa_timeout_seconds = 25
+        try:
+            self.mfa_poll_interval = float(cfg.get("mfa_poll_interval", 2.0))
+        except Exception:
+            self.mfa_poll_interval = 2.0
+
+        # No static group-to-privilege mapping for Okta; privilege is determined later
+        # via local user groups and the authorization policy engine.
 
         # endpoints
-        self._token_endpoint = self.org_url.rstrip("/") + "/oauth2/default/v1/token"
-        self._userinfo_endpoint = (
-            self.org_url.rstrip("/") + "/oauth2/default/v1/userinfo"
-        )
+        self._authn_endpoint = self.org_url.rstrip("/") + "/api/v1/authn"
         self._groups_api_base = self.org_url.rstrip("/") + "/api/v1"
 
         # Auth cache: key=username+password HMAC -> (result_bool, expiry_ts, safe_attributes)
@@ -167,19 +167,10 @@ class OktaAuthBackend(AuthenticationBackend):
             maxsize=int(cfg.get("group_cache_maxsize", 50000)),
         )
 
-        # Warn about ROPC (password grant) usage
-        if not bool(cfg.get("suppress_ropc_warning", False)):
-            logger.warning(
-                "Okta password grant (ROPC) is discouraged and may be disabled by your org. "
-                "Consider alternative flows (AuthN API, LDAP interface, OIDC + introspection)."
-            )
+        # ROPC removed; always use AuthN API
 
-        # Optional token introspection support (requires client_secret)
-        self._introspect_enabled = bool(cfg.get("introspection_enabled", False))
-        self._client_secret = cfg.get("client_secret")
-        self._introspect_endpoint = (
-            self.org_url.rstrip("/") + "/oauth2/default/v1/introspect"
-        )
+        # No token introspection with AuthN-only flow
+        self._introspect_enabled = False
 
         # Circuit breaker settings
         self._cb_fail_threshold = int(cfg.get("circuit_failures", 5))
@@ -190,7 +181,7 @@ class OktaAuthBackend(AuthenticationBackend):
 
         # Strict group mode: require API token when require_group_for_auth=true
         self._strict_group_mode = bool(cfg.get("strict_group_mode", False))
-        self._use_basic_auth_flag = bool(cfg.get("use_basic_auth", False))
+        self._use_basic_auth_flag = False
         if (
             self.require_group_for_auth
             and not self.api_token
@@ -246,264 +237,227 @@ class OktaAuthBackend(AuthenticationBackend):
         with self._lock:
             self._cache[key] = (result, int(expiry_ts), attrs)
 
-    def _call_token_endpoint(
+    # ROPC token endpoint removed
+
+    def _call_authn_endpoint(
         self, username: str, password: str
     ) -> tuple[bool, int | None, dict[str, Any]]:
         """
-        Perform OAuth2 password grant against Okta token endpoint.
-        Returns (success, expiry_ts_or_None, attributes)
+        Perform Okta Authentication API call to validate username/password.
+        On success, returns (True, expiry_ts_or_None, {"okta_user_id": id}).
+        The AuthN sessionToken is short-lived; we do not use it further. We
+        cache success using default TTL with jitter.
         """
         try:
             headers = {
                 "Accept": "application/json",
-                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Type": "application/json",
             }
-            data = {
-                "grant_type": "password",
-                "username": username,
-                "password": password,
-                "client_id": self.client_id,
-                "scope": "openid profile groups offline_access",
-            }
-            if getattr(self, "_client_secret", None):
-                data["client_secret"] = self._client_secret
-            start_t = time.time()
-            # Choose auth mechanism for confidential clients if configured
-            auth_arg = None
-            if getattr(self, "_client_secret", None) and self._use_basic_auth_flag:
-                auth_arg = (self.client_id, self._client_secret)
-                # When using basic auth, client_id/secret need not be in the form
-                data.pop("client_id", None)
-                data.pop("client_secret", None)
-            # Use requests.post to allow test monkeypatching
-            post_kwargs = {
-                "headers": headers,
-                "data": data,
-                "verify": self.verify_tls,
-                "timeout": self._timeout,
-            }
-            if auth_arg is not None:
-                post_kwargs["auth"] = auth_arg
-            # Ensure Bandit B113 sees explicit timeout; keep kwargs for tests
-            explicit_timeout = post_kwargs.pop("timeout", self._timeout)
-            resp = requests.post(
-                self._token_endpoint, timeout=explicit_timeout, **post_kwargs
-            )
-            try:
-                from tacacs_server.utils.metrics import (
-                    okta_retries_total,
-                    okta_token_latency,
-                    okta_token_requests,
-                )
+            # Optional simple MFA handling via password suffix
+            base_password = password
+            requested_otp: str | None = None
+            requested_push = False
+            if self.mfa_enabled and isinstance(password, str):
+                pw = password
+                pws = pw.strip()
+                kw = (self.mfa_push_keyword or "").lower()
+                # Accept several separators or no separator: " push", "+push", ":push", "/push", ".push", "-push", "#push", "@push", or just "push"
+                if kw:
+                    candidates = [
+                        " " + kw,
+                        "+" + kw,
+                        ":" + kw,
+                        "/" + kw,
+                        "." + kw,
+                        "-" + kw,
+                        "#" + kw,
+                        "@" + kw,
+                        kw,
+                    ]
+                    pws_l = pws.lower()
+                    for suf in candidates:
+                        if pws_l.endswith(suf):
+                            requested_push = True
+                            cut = len(pws) - len(suf)
+                            base_password = pws[:cut]
+                            break
+                # If not push, detect trailing N digits as OTP
+                if not requested_push:
+                    d = self.mfa_otp_digits
+                    if d >= 4 and len(pws) > d and pws[-d:].isdigit():
+                        requested_otp = pws[-d:]
+                        base_password = pws[:-d]
 
-                okta_token_requests.inc()
-                okta_token_latency.observe(max(0.0, time.time() - start_t))
-                if resp.status_code in (429, 500, 502, 503, 504):
-                    okta_retries_total.inc()
+            body = {"username": username, "password": base_password}
+            a_start = time.time()
+            resp = requests.post(
+                self._authn_endpoint,
+                headers=headers,
+                json=body,
+                verify=self.verify_tls,
+                timeout=self._timeout,
+            )
+            # Basic latency metric reuse (token latency) to avoid adding new metric
+            try:
+                from tacacs_server.utils.metrics import okta_token_latency
+
+                okta_token_latency.observe(max(0.0, time.time() - a_start))
             except Exception:
                 pass
             if resp.status_code not in (200, 201):
                 logger.debug(
-                    "Okta token endpoint returned non-200: %s %s",
+                    "Okta AuthN API returned non-200: %s %s",
                     resp.status_code,
                     resp.text,
                 )
-                # Respect Retry-After on 429 to open breaker faster
-                if resp.status_code == 429:
-                    try:
-                        ra = resp.headers.get("Retry-After")
-                        if ra is not None:
-                            ra_s = int(ra)
-                            self._cb_open_until = max(
-                                self._cb_open_until,
-                                int(time.time()) + min(ra_s, self._cb_cooldown),
-                            )
-                            self._retries_429_total += 1
-                    except Exception:
-                        pass
                 return False, None, {}
-            body = resp.json()
-            access_token = body.get("access_token")
-            expires_in = body.get("expires_in")
-            expiry_ts = None
-            if isinstance(expires_in, int | float):
-                expiry_ts = int(time.time()) + int(expires_in)
-            elif access_token:
-                parsed = _parse_exp_from_jwt(access_token)
-                if parsed:
-                    # Note: Using JWT 'exp' claim solely as cache hint; not trusted for authz.
-                    expiry_ts = parsed
-            attrs = {"access_token": access_token, "token_response": {}}
-            return True, expiry_ts, attrs
-        except Exception:
-            logger.exception("Okta token request failed")
-            return False, None, {}
-
-    def _get_privilege_for_user(self, access_token: str, username: str) -> int:
-        """
-        Option A: Use userinfo to get 'sub' then call /api/v1/users/{sub}/groups
-        using Management API token (SSWS).
-        Map groups to privilege levels using self.group_privilege_map.
-        Returns the highest matched privilege (or 0).
-        """
-        try:
-            # get userinfo (to retrieve sub)
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json",
-            }
-            u_start = time.time()
-            # Use requests.get to allow test monkeypatching
-            r = requests.get(
-                self._userinfo_endpoint,
-                headers=headers,
-                timeout=self._timeout,
-                verify=self.verify_tls,
-            )
-            try:
-                from tacacs_server.utils.metrics import okta_token_latency
-
-                okta_token_latency.observe(max(0.0, time.time() - u_start))
-            except Exception:
+            data = resp.json() or {}
+            status_up = str(data.get("status", "")).upper()
+            if status_up == "SUCCESS":
                 pass
-            if r.status_code != 200:
-                logger.debug("Okta userinfo failed: %s %s", r.status_code, r.text)
-                return 0
-            userinfo = r.json()
-            okta_sub = userinfo.get("sub")
-            if not okta_sub:
-                logger.debug("Okta userinfo missing 'sub'")
-                return 0
-
-            if not self.api_token:
-                logger.warning(
-                    "Okta groups lookup disabled: no API token configured (require_group_for_auth=%s)",
-                    self.require_group_for_auth,
-                )
-                # Negative cache to reduce repeated lookups
-                try:
-                    self._group_cache.set(
-                        username,
-                        {"groups": [], "priv": 0},
-                        ttl=self._group_cache_fail_ttl,
-                    )
-                except Exception:
-                    pass
-                return 0
-
-            # Check cache first
-            cached = self._group_cache.get(username)
-            if cached is not None:
-                try:
-                    okta_group_cache_hits.inc()
-                except Exception:
-                    pass
-                return int(cached.get("priv", 0))
-            else:
-                try:
-                    okta_group_cache_misses.inc()
-                except Exception:
-                    pass
-
-            groups_url = f"{self._groups_api_base}/users/{okta_sub}/groups"
-            headers = {
-                "Authorization": f"SSWS {self.api_token}",
-                "Accept": "application/json",
-            }
-            # Handle pagination (basic link-based pagination); start directly with first page
-            groups: list[str] = []
-            url_next: str | None = groups_url
-            while url_next:
-                g2_start = time.time()
-                r = requests.get(
-                    url_next,
-                    headers=headers,
-                    timeout=self._timeout,
-                    verify=self.verify_tls,
-                )
-                try:
-                    from tacacs_server.utils.metrics import (
-                        okta_group_latency,
-                        okta_group_requests,
-                        okta_retries_total,
-                    )
-
-                    okta_group_requests.inc()
-                    okta_group_latency.observe(max(0.0, time.time() - g2_start))
-                    if r.status_code in (429, 500, 502, 503, 504):
-                        okta_retries_total.inc()
-                except Exception:
-                    pass
-                if r.status_code != 200:
-                    logger.debug("Okta groups API failed: %s %s", r.status_code, r.text)
-                    # Respect Retry-After on 429 to set a slightly longer negative cache
-                    if r.status_code == 429:
+            elif status_up == "MFA_REQUIRED" and self.mfa_enabled:
+                # Attempt MFA follow-up if caller supplied an OTP or push keyword
+                state_token = data.get("stateToken")
+                factors = (data.get("_embedded") or {}).get("factors", [])
+                if not state_token or not isinstance(factors, list):
+                    logger.debug("MFA required but stateToken/factors missing")
+                    return False, None, {}
+                # Prefer OTP if provided, else push if requested
+                if requested_otp:
+                    # Find a TOTP software token factor
+                    verify_href = None
+                    for f in factors:
                         try:
-                            ra = r.headers.get("Retry-After")
-                            if ra is not None:
-                                ra_s = int(ra)
-                                self._group_cache_fail_ttl = max(
-                                    self._group_cache_fail_ttl, min(ra_s, 300)
-                                )
-                                self._retries_429_total += 1
+                            if f.get("factorType") in (
+                                "token:software:totp",
+                                "token:hotp",
+                            ) and "verify" in (f.get("_links") or {}):
+                                verify_href = f["_links"]["verify"]["href"]
+                                break
+                        except Exception:
+                            continue
+                    if not verify_href:
+                        logger.debug("No TOTP factor available for OTP verification")
+                        return False, None, {}
+                    v = requests.post(
+                        verify_href,
+                        json={"stateToken": state_token, "passCode": requested_otp},
+                        headers={"Accept": "application/json"},
+                        verify=self.verify_tls,
+                        timeout=self._timeout,
+                    )
+                    if v.status_code not in (200, 201):
+                        logger.debug("OTP verify failed: %s %s", v.status_code, v.text)
+                        return False, None, {}
+                    data = v.json() or {}
+                    if str(data.get("status", "")).upper() != "SUCCESS":
+                        logger.debug(
+                            "OTP verify did not reach SUCCESS: %s", data.get("status")
+                        )
+                        return False, None, {}
+                elif requested_push:
+                    # Find Okta Verify push factor
+                    verify_href = None
+                    for f in factors:
+                        try:
+                            if (
+                                f.get("factorType") == "push"
+                                and f.get("provider") == "OKTA"
+                                and "verify" in (f.get("_links") or {})
+                            ):
+                                verify_href = f["_links"]["verify"]["href"]
+                                break
+                        except Exception:
+                            continue
+                    if not verify_href:
+                        logger.debug("No Okta Verify push factor available")
+                        return False, None, {}
+                    # Initiate push and poll until SUCCESS or timeout
+                    start_poll = time.time()
+                    current = requests.post(
+                        verify_href,
+                        json={"stateToken": state_token},
+                        headers={"Accept": "application/json"},
+                        verify=self.verify_tls,
+                        timeout=self._timeout,
+                    )
+                    if current.status_code not in (200, 201):
+                        logger.debug(
+                            "Push verify init failed: %s %s",
+                            current.status_code,
+                            current.text,
+                        )
+                        return False, None, {}
+                    while (time.time() - start_poll) < max(5, self.mfa_timeout_seconds):
+                        resp_data: dict[str, Any] = {}
+                        try:
+                            j = current.json()
+                            if isinstance(j, dict):
+                                resp_data = j
                         except Exception:
                             pass
-                    # Cache failure briefly
-                    try:
-                        self._group_cache.set(
-                            username,
-                            {"groups": [], "priv": 0},
-                            ttl=self._group_cache_fail_ttl,
+                        st = str(resp_data.get("status", "")).upper()
+                        if st == "SUCCESS":
+                            data = resp_data
+                            break
+                        # Some responses include factorResult WAITING; retry same verify
+                        poll_href = verify_href
+                        links = (
+                            resp_data.get("_links")
+                            if isinstance(resp_data, dict)
+                            else None
                         )
-                    except Exception:
-                        pass
-                    break
-                groups.extend(
-                    [
-                        str(g.get("profile", {}).get("name", "")).lower()
-                        for g in r.json()
-                        if isinstance(g, dict)
-                    ]
-                )
-                link = r.headers.get("Link") or r.headers.get("link")
-                url_next = None
-                if link and 'rel="next"' in link:
-                    try:
-                        # <url>; rel="next"
-                        for part in link.split(","):
-                            if 'rel="next"' in part:
-                                start = part.find("<")
-                                end = part.find(">", start + 1)
-                                if start != -1 and end != -1:
-                                    url_next = part[start + 1 : end]
-                                    break
-                    except Exception:
-                        url_next = None
-            # determine highest privilege matching map
-            priv = 0
-            for g_lc in groups:
-                if g_lc in self._group_privilege_map_lc:
-                    try:
-                        lv = int(self._group_privilege_map_lc[g_lc])
-                        if lv > priv:
-                            priv = lv
-                    except Exception:
-                        continue
-            # cache groups + computed privilege
-            try:
-                self._group_cache.set(username, {"groups": groups, "priv": priv})
-            except Exception:
-                pass
-            return priv
+                        if isinstance(links, dict):
+                            try:
+                                next_link = links.get("next")
+                                if isinstance(next_link, dict) and isinstance(
+                                    next_link.get("href"), str
+                                ):
+                                    poll_href = next_link["href"]
+                            except Exception:
+                                poll_href = verify_href
+                        time.sleep(max(0.5, self.mfa_poll_interval))
+                        current = requests.post(
+                            poll_href,
+                            json={"stateToken": state_token},
+                            headers={"Accept": "application/json"},
+                            verify=self.verify_tls,
+                            timeout=self._timeout,
+                        )
+                    else:
+                        logger.debug("Push verify timed out")
+                        return False, None, {}
+                else:
+                    logger.debug(
+                        "MFA required but no OTP/push indicator present in password"
+                    )
+                    return False, None, {}
+            else:
+                logger.debug("Okta AuthN status not SUCCESS: %s", data.get("status"))
+                return False, None, {}
+            # Extract user id for group lookups
+            user_id = (
+                (data.get("_embedded") or {}).get("user", {}).get("id")
+                if isinstance(data.get("_embedded"), dict)
+                else None
+            )
+            attrs: dict[str, Any] = {}
+            if user_id:
+                attrs["okta_user_id"] = str(user_id)
+            # No trusted expiry from AuthN; leave None to use default TTL in cache
+            return True, None, attrs
         except Exception:
-            logger.exception("Failed to determine Okta groups/privilege")
-            return 0
+            logger.exception("Okta AuthN request failed")
+            return False, None, {}
+
+    # Userinfo-based group lookup removed; we resolve by user id directly
 
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
         """
-        Authenticate user via Okta token endpoint. On success cache until token expiry.
-        If require_group_for_auth is True, authentication only considered successful
-        if user belongs to a mapped group (>0 privilege).
+        Authenticate user via Okta AuthN. If require_group_for_auth is True or a
+        device-scoped allowed Okta group list is provided, authentication is
+        considered successful only if the user is a member of at least one of the
+        allowed Okta groups.
         """
         # Circuit breaker with cooldown reset
         now_i = int(time.time())
@@ -535,11 +489,8 @@ class OktaAuthBackend(AuthenticationBackend):
             except Exception:
                 pass
 
-        if not self.ropc_enabled:
-            logger.warning(
-                "Okta ROPC flow disabled by configuration (ropc_enabled=false)"
-            )
-            return False
+        # AuthN is the only supported flow
+        use_authn = True
 
         key = self._cache_key(username, password)
         cached = self._cache_get(key)
@@ -547,7 +498,7 @@ class OktaAuthBackend(AuthenticationBackend):
             logger.debug("Okta cache hit for %s -> %s", username, cached)
             return cached
 
-        success, expiry_ts, attrs = self._call_token_endpoint(username, password)
+        success, expiry_ts, attrs = self._call_authn_endpoint(username, password)
         if not success:
             # cache negative result shortly
             fail_ttl = int(kwargs.get("fail_ttl", 5))
@@ -568,80 +519,54 @@ class OktaAuthBackend(AuthenticationBackend):
                     pass
             return False
 
-        access_token = attrs.get("access_token")
-        if not access_token:
-            # Malformed/denied response; treat as failure and cache briefly
-            self._cache_set(key, False, int(time.time()) + 5, {})
-            self._cb_consecutive_failures += 1
-            return False
-        # Optional introspection when expiry unknown
-        if self._introspect_enabled and (not expiry_ts) and self._client_secret:
-            try:
-                i_start = time.time()
-                auth = (self.client_id, self._client_secret)
-                data = {"token": access_token, "token_type_hint": "access_token"}
-                resp = self._session.post(
-                    self._introspect_endpoint,
-                    data=data,
-                    auth=auth,
-                    verify=self.verify_tls,
-                    timeout=self._timeout,
-                )
-                try:
-                    from tacacs_server.utils.metrics import (
-                        okta_token_latency,
-                        okta_token_requests,
-                    )
-
-                    okta_token_requests.inc()
-                    okta_token_latency.observe(max(0.0, time.time() - i_start))
-                except Exception:
-                    pass
-                if resp.status_code == 200:
-                    body = resp.json()
-                    if body.get("active"):
-                        expiry_ts = int(time.time()) + 60
-                    else:
-                        self._cache_set(key, False, int(time.time()) + 5, {})
-                        self._cb_consecutive_failures += 1
-                        return False
-            except Exception:
-                # Ignore introspection errors
-                pass
         priv = 0
-        if access_token and (self.api_token or self.require_group_for_auth):
-            priv = self._get_privilege_for_user(access_token, username)
-            # Fallback only when not requiring group membership:
-            # if a group map is provided but lookup yielded no match, use the
-            # highest mapped privilege as a conservative default for tests.
-            try:
-                if (
-                    priv == 0
-                    and not self.require_group_for_auth
-                    and self._group_privilege_map_lc
-                ):
-                    priv = max(int(v) for v in self._group_privilege_map_lc.values())
-            except Exception:
-                pass
+        if use_authn:
+            okta_user_id = attrs.get("okta_user_id")
+            # Optional device-scoped allowed Okta groups
+            allowed_okta_groups_kw = kwargs.get("allowed_okta_groups")
+            allowed_set: set[str] | None = None
+            if isinstance(allowed_okta_groups_kw, (list, set, tuple)):
+                try:
+                    allowed_set = {
+                        str(x)
+                        for x in allowed_okta_groups_kw
+                        if isinstance(x, (str, int))
+                    }
+                except Exception:
+                    allowed_set = None
+            if (
+                self.api_token or self.require_group_for_auth or allowed_set
+            ) and okta_user_id:
+                priv = self._get_privilege_for_userid(
+                    str(okta_user_id), username, allowed_okta_groups=allowed_set
+                )
+        else:
+            pass
 
-        # If require_group_for_auth true and no privilege found, treat as failure
-        if self.require_group_for_auth and priv == 0:
+        # If device-scoped allowed groups provided or require_group_for_auth true and no privilege, fail
+        if (kwargs.get("allowed_okta_groups") and priv == 0) or (
+            self.require_group_for_auth and priv == 0
+        ):
             logger.warning(
-                "Okta token valid but user lacks required groups or lookup failed: %s",
+                "Okta authentication valid but user lacks required Okta groups for device or mapping: %s",
                 username,
             )
-            self._cache_set(
-                key,
-                False,
-                expiry_ts or (int(time.time()) + self.cache_default_ttl),
-                attrs,
-            )
+            if kwargs.get("allowed_okta_groups"):
+                # Do not cache device-scoped denials to avoid cross-device side effects
+                pass
+            else:
+                self._cache_set(
+                    key,
+                    False,
+                    expiry_ts or (int(time.time()) + self.cache_default_ttl),
+                    attrs,
+                )
             return False
 
         # Cache based on expiry_ts; include minimal safe token metadata for tests
         safe_attrs = {"privilege": priv}
-        if access_token:
-            safe_attrs["access_token"] = access_token
+        if attrs.get("okta_user_id"):
+            safe_attrs["okta_user_id"] = attrs["okta_user_id"]
         self._cache_set(key, True, expiry_ts, safe_attrs)
         with self._lock:
             self._attr_cache[username] = dict(safe_attrs)
@@ -653,6 +578,155 @@ class OktaAuthBackend(AuthenticationBackend):
         )
         self._cb_consecutive_failures = 0
         return True
+
+    def _get_privilege_for_userid(
+        self,
+        okta_user_id: str,
+        username: str,
+        *,
+        allowed_okta_groups: set[str] | None = None,
+    ) -> int:
+        """
+        Use Okta Management API to fetch groups for a given user id and map to privilege.
+        """
+        try:
+            if not self.api_token:
+                logger.warning(
+                    "Okta groups lookup disabled: no API token configured (require_group_for_auth=%s)",
+                    self.require_group_for_auth,
+                )
+                try:
+                    self._group_cache.set(
+                        username,
+                        {"groups": [], "priv": 0},
+                        ttl=self._group_cache_fail_ttl,
+                    )
+                except Exception:
+                    pass
+                return 0
+
+            cached = self._group_cache.get(username)
+            if cached is not None:
+                try:
+                    okta_group_cache_hits.inc()
+                except Exception:
+                    pass
+                return int(cached.get("priv", 0))
+            else:
+                try:
+                    okta_group_cache_misses.inc()
+                except Exception:
+                    pass
+
+            groups_url = f"{self._groups_api_base}/users/{okta_user_id}/groups"
+            headers = {
+                "Authorization": f"SSWS {self.api_token}",
+                "Accept": "application/json",
+            }
+            groups: list[str] = []
+            group_ids: list[str] = []
+            url_next: str | None = groups_url
+            while url_next:
+                g_start = time.time()
+                r = requests.get(
+                    url_next,
+                    headers=headers,
+                    timeout=self._timeout,
+                    verify=self.verify_tls,
+                )
+                try:
+                    from tacacs_server.utils.metrics import (
+                        okta_group_latency,
+                        okta_group_requests,
+                        okta_retries_total,
+                    )
+
+                    okta_group_requests.inc()
+                    okta_group_latency.observe(max(0.0, time.time() - g_start))
+                    if r.status_code in (429, 500, 502, 503, 504):
+                        okta_retries_total.inc()
+                except Exception:
+                    pass
+                if r.status_code != 200:
+                    logger.debug("Okta groups API failed: %s %s", r.status_code, r.text)
+                    if r.status_code == 429:
+                        try:
+                            ra = r.headers.get("Retry-After")
+                            if ra is not None:
+                                ra_s = int(ra)
+                                self._group_cache_fail_ttl = max(
+                                    self._group_cache_fail_ttl, min(ra_s, 300)
+                                )
+                                self._retries_429_total += 1
+                        except Exception:
+                            pass
+                    try:
+                        self._group_cache.set(
+                            username,
+                            {"groups": [], "priv": 0},
+                            ttl=self._group_cache_fail_ttl,
+                        )
+                    except Exception:
+                        pass
+                    break
+                page = r.json()
+                if isinstance(page, list):
+                    for g in page:
+                        if not isinstance(g, dict):
+                            continue
+                        name = str(g.get("profile", {}).get("name", ""))
+                        gid = str(g.get("id", ""))
+                        if name:
+                            groups.append(name.lower())
+                        if gid:
+                            group_ids.append(gid)
+                link = r.headers.get("Link") or r.headers.get("link")
+                url_next = None
+                if link and 'rel="next"' in link:
+                    try:
+                        for part in link.split(","):
+                            if 'rel="next"' in part:
+                                s = part.find("<")
+                                e = part.find(">", s + 1)
+                                if s != -1 and e != -1:
+                                    url_next = part[s + 1 : e]
+                                    break
+                    except Exception:
+                        url_next = None
+
+            # Enforce device-scoped allowed list if provided (match by id or name)
+            if allowed_okta_groups:
+                try:
+                    allowed_lc = {str(x).lower() for x in allowed_okta_groups}
+                except Exception:
+                    allowed_lc = set()
+                has_match = any(g in allowed_lc for g in groups) or any(
+                    gid in allowed_okta_groups for gid in group_ids
+                )
+                if not has_match:
+                    logger.warning(
+                        "Okta AuthN success but user not in allowed Okta groups for device: %s",
+                        username,
+                    )
+                    try:
+                        self._group_cache.set(
+                            username,
+                            {"groups": groups, "priv": 0},
+                            ttl=self._group_cache_fail_ttl,
+                        )
+                    except Exception:
+                        pass
+                    return 0
+
+            # Cache group names; privilege remains 0 (computed later by policy engine)
+            try:
+                self._group_cache.set(username, {"groups": groups, "priv": 0})
+            except Exception:
+                pass
+            return 0
+        except Exception:
+            logger.exception("Failed to determine Okta groups/privilege (by user id)")
+            return 0
 
     def get_user_attributes(self, username: str) -> dict[str, Any]:
         # Return only safe attributes (never tokens)
@@ -685,10 +759,9 @@ class OktaAuthBackend(AuthenticationBackend):
                 else 0,
                 "retries_429_total": self._retries_429_total,
                 "flags": {
-                    "ropc_enabled": self.ropc_enabled,
+                    "authn_enabled": True,
                     "strict_group_mode": self._strict_group_mode,
                     "trust_env": self._trust_env_flag,
-                    "use_basic_auth": self._use_basic_auth_flag,
                     "require_group_for_auth": self.require_group_for_auth,
                 },
                 "group_cache": {

@@ -228,6 +228,8 @@ class LocalAuthBackend(AuthenticationBackend):
         attrs = user.to_dict()
         attrs.pop("password", None)
         attrs.pop("password_hash", None)
+        # Do not expose privilege_level from backend; policy engine derives it from local user groups
+        attrs.pop("privilege_level", None)
         return attrs
 
     def change_password(
