@@ -184,3 +184,51 @@ class MetricsCollector:
 
     def __init__(self) -> None:
         pass
+
+
+# Async runtime metrics
+tacacs_requests_total = safe_counter(
+    "tacacs_requests_total",
+    "Total TACACS+ requests processed by async runtime",
+    ["status"],
+    namespace="tacacs",
+)
+tacacs_latency_seconds = safe_histogram(
+    "tacacs_latency_seconds",
+    "Latency of TACACS+ handler in async runtime",
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.5, 1, 2],
+    namespace="tacacs",
+)
+radius_requests_total = safe_counter(
+    "radius_requests_total",
+    "Total RADIUS datagrams processed by async runtime",
+    ["status"],
+    namespace="tacacs",
+)
+radius_latency_seconds = safe_histogram(
+    "radius_latency_seconds",
+    "Latency of RADIUS handler in async runtime",
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.5, 1, 2],
+    namespace="tacacs",
+)
+udp_drops_total = safe_counter(
+    "udp_drops_total",
+    "Dropped UDP datagrams in async runtime",
+    ["reason"],
+    namespace="tacacs",
+)
+
+# Per-path TACACS counters
+tacacs_requests_by_type_total = safe_counter(
+    "tacacs_requests_by_type_total",
+    "TACACS+ requests by type and status",
+    ["type", "status"],
+    namespace="tacacs",
+)
+
+tacacs_latency_by_type_seconds = safe_histogram(
+    "tacacs_latency_by_type_seconds",
+    "Latency of TACACS+ handler by packet type",
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.5, 1, 2],
+    namespace="tacacs",
+)

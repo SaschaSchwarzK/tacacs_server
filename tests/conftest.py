@@ -240,6 +240,8 @@ def isolated_test_environment(tmp_path_factory):
     try:
         # Expose for any external tooling that wants to collect artifacts
         os.environ["TACACS_TEST_WORKDIR"] = str(work_dir)
+        # Put chaos tests into mock mode to avoid host resource dependencies in CI
+        os.environ.setdefault("ADVANCED_TEST_MODE", "mock")
         # Ensure cookies are not marked secure in HTTP test env
         os.environ["SECURE_COOKIES"] = "false"
         # Enable API and enforce token on all /api/* endpoints during tests

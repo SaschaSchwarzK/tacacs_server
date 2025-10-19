@@ -5,6 +5,7 @@ LDAP Authentication Backend
 import threading
 from queue import Empty, Queue
 from typing import Any
+import asyncio
 
 from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.logger import get_logger
@@ -149,6 +150,15 @@ class LDAPAuthBackend(AuthenticationBackend):
         """Get user attributes from LDAP"""
         if not LDAP_AVAILABLE:
             return {}
+
+    # Async variants (executor-backed; ldap3 is sync)
+    async def authenticate_async(self, username: str, password: str, **kwargs) -> bool:  # type: ignore[override]
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.authenticate, username, password)
+
+    async def get_user_attributes_async(self, username: str) -> dict[str, Any]:  # type: ignore[override]
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.get_user_attributes, username)
 
         try:
             user_info = self._get_ldap_user_info(username)

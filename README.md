@@ -1264,3 +1264,22 @@ services:
   - `bcrypt module unavailable` → missing runtime libs; rebuild with updated Dockerfile.
   - `Invalid salt` → hash was altered by YAML/interpolation; quote or escape as above.
   - `password mismatch` → wrong password for the configured hash.
+## Async Runtime
+
+The asyncio-based TACACS+/RADIUS runtime is now the default.
+
+- To force the legacy synchronous runtime, set `TACACS_SYNC=true` and run `poetry run tacacs-server`.
+- Listeners: TACACS+ (TCP) and RADIUS (UDP) using asyncio with bounded backpressure.
+- Adapters: class‑based; TACACS adapter parses frames, decrypts with group secret, and dispatches to AAAHandlers.
+ - Monitoring: when admin password hash is configured and monitoring is enabled, the web admin shows live runtime counters (connections, TACACS auth/author/acct, RADIUS ok/err, UDP drops).
+ - Prometheus: when monitoring is enabled, scrape metrics at `/metrics` (web port); live metrics stream at `/ws/metrics`. See docs/DEPLOYMENT.md for OS tuning and metric names.
+
+Tuning knobs (env or config defaults):
+- `max_concurrency_tcp`, `max_concurrency_udp`: per‑protocol concurrency.
+- `tcp_idle_timeout_sec`, `tcp_read_timeout_sec`: connection idle and read timeouts.
+- `tacacs_max_body_len`, `udp_max_packet_len`: packet size caps.
+
+Notes:
+- Device‑level secrets are not supported; use group secrets.
+- Existing device databases with legacy secret columns are migrated automatically on startup.
+- RADIUS CHAP: CHAP validation requires a backend that supports `authenticate_chap(...)`. The built‑in local backend stores bcrypt hashes and cannot validate CHAP digests; CHAP requests will be rejected unless a suitable backend is configured.

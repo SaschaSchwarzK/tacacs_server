@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Callable, Iterable
+import re
+from tacacs_server.utils.constants import MAX_DEVICE_NAME_LENGTH
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
@@ -46,6 +48,11 @@ class DeviceService:
     def __init__(self, store: DeviceStore) -> None:
         self.store = store
         self._change_listeners: list[Callable[[], None]] = []
+        # Allow only safe characters in device names to avoid XSS/injection
+        # Letters, digits, dash, underscore and dot; length capped by constant
+        self._name_pattern = re.compile(
+            rf"^[A-Za-z0-9_.-]{{1,{MAX_DEVICE_NAME_LENGTH}}}$"
+        )
 
     # ------------------------------------------------------------------
     # Change notifications
@@ -447,6 +454,10 @@ class DeviceService:
         name = (name or "").strip()
         if not name:
             raise DeviceValidationError("Device name is required")
+        if not self._name_pattern.match(name):
+            raise DeviceValidationError(
+                f"Device name may contain only letters, digits, '-', '_' and '.' and must be at most {MAX_DEVICE_NAME_LENGTH} characters"
+            )
 
         network_obj = self._validate_network(network)
 
@@ -535,6 +546,10 @@ class DeviceService:
             stripped_name = name.strip()
             if not stripped_name:
                 raise DeviceValidationError("Device name cannot be empty")
+            if not self._name_pattern.match(stripped_name):
+                raise DeviceValidationError(
+                    f"Device name may contain only letters, digits, '-', '_' and '.' and must be at most {MAX_DEVICE_NAME_LENGTH} characters"
+                )
         else:
             stripped_name = None
 

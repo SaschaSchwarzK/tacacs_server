@@ -328,3 +328,28 @@ class LocalAuthBackend(AuthenticationBackend):
             "total_users": len(users),
             "enabled_users": enabled_users,
         }
+
+    # Async variants (executor-backed for now)
+    async def authenticate_async(self, username: str, password: str, **kwargs) -> bool:  # type: ignore[override]
+        # Use service async verification to avoid blocking the loop
+        try:
+            return await self.user_service.verify_user_password_async(username, password)
+        except Exception:
+            # Fallback to sync method in executor
+            import asyncio
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.authenticate, username, password)
+
+    async def get_user_attributes_async(self, username: str) -> dict[str, Any]:  # type: ignore[override]
+        try:
+            user = await self.user_service.async_get_user(username)
+            if not user:
+                return {}
+            attrs = user.to_dict()
+            attrs.pop("password", None)
+            attrs.pop("password_hash", None)
+            return attrs
+        except Exception:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.get_user_attributes, username)

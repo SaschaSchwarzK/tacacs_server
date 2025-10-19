@@ -230,6 +230,26 @@ metrics_retention_days = 30
 audit_retention_days = 90
 ```
 
+## Async Runtime Configuration
+
+The asyncio runtime is enabled by default. To force the legacy synchronous runtime, set the environment variable `TACACS_SYNC=true`.
+
+Additional async runtime tuning can be configured via environment variables (they complement config file values):
+
+```env
+# Max concurrent TACACS+ request handlers
+ASYNC_MAX_CONCURRENCY_TCP=200
+
+# Number of UDP worker tasks for RADIUS
+ASYNC_MAX_CONCURRENCY_UDP=200
+
+# Timeouts (seconds)
+ASYNC_TCP_IDLE_TIMEOUT=15
+ASYNC_TCP_READ_TIMEOUT=15
+```
+
+These variables adjust the async runtime in `tacacs_server/runtime.py` and can be set in your service environment or docker-compose.
+
 ## Security Configuration
 
 ```ini

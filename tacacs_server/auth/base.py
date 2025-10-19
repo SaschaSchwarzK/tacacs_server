@@ -4,6 +4,7 @@ Abstract Authentication Backend Base Class
 
 from abc import ABC, abstractmethod
 from typing import Any
+import asyncio
 
 
 class AuthenticationBackend(ABC):
@@ -48,6 +49,25 @@ class AuthenticationBackend(ABC):
             bool: True if backend is ready to use
         """
         return True
+
+    # ------------------------------
+    # Async convenience wrappers
+    # ------------------------------
+    async def authenticate_async(self, username: str, password: str, **kwargs) -> bool:
+        """
+        Async-friendly authenticate. Default implementation runs sync method
+        in the default thread pool. Backends may override with native async.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.authenticate, username, password, **kwargs)
+
+    async def get_user_attributes_async(self, username: str) -> dict[str, Any]:
+        """
+        Async-friendly attributes fetch. Default implementation runs sync method
+        in the default thread pool. Backends may override with native async.
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.get_user_attributes, username)
 
     def validate_user(self, username: str) -> bool:
         """

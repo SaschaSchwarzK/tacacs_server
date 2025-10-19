@@ -64,6 +64,7 @@ from ..monitoring import (
 from ..monitoring import (
     get_tacacs_server as monitoring_get_tacacs_server,
 )
+from tacacs_server.utils.simple_cache import clear_all_caches
 
 admin_router = APIRouter(
     prefix="/admin",
@@ -136,15 +137,11 @@ def _parse_int(value, field: str, *, required: bool = False) -> int | None:
         if required:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field} is required"
-            )
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{field} must be an integer",
-        ) from exc
+        )
+    return None
+
+
+## cache clear route will be defined after admin_guard
 
 
 _SENSITIVE_KEYWORDS = ("secret", "password", "token", "key", "hash")
@@ -284,6 +281,19 @@ async def admin_command_auth_page(request: Request, _: None = Depends(admin_guar
 @admin_router.get("/webhooks-config")
 async def get_webhooks_config(_: None = Depends(admin_guard)):
     return get_webhook_config_dict()
+
+
+@admin_router.post("/caches/clear")
+async def admin_clear_caches(_: None = Depends(admin_guard)):
+    """Clear all process-wide TTL caches.
+
+    Useful for troubleshooting and tests to ensure fresh state.
+    """
+    try:
+        clear_all_caches()
+        return {"success": True, "message": "Caches cleared"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to clear caches: {exc}")
 
 
 @admin_router.put("/webhooks-config")

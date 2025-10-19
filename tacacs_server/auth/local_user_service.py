@@ -9,6 +9,9 @@ import threading
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
+import asyncio
+import aiosqlite
+import json as _json
 
 from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.logger import get_logger
@@ -225,6 +228,60 @@ class LocalUserService:
 
     def reload(self) -> None:
         self.store.reload()
+
+    # ------------------------------
+    # Async helpers (aiosqlite-backed)
+    # ------------------------------
+    async def async_get_user(self, username: str) -> LocalUserRecord | None:
+        db_path = str(self.db_path)
+        query = (
+            "SELECT id, username, password, password_hash, privilege_level, service, groups, enabled, description, created_at, updated_at "
+            "FROM local_users WHERE username = ?"
+        )
+        try:
+            async with aiosqlite.connect(db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(query, (username,)) as cur:
+                    row = await cur.fetchone()
+                    if not row:
+                        return None
+                    groups = []
+                    try:
+                        data = _json.loads(row["groups"]) if row["groups"] else []
+                        if isinstance(data, list):
+                            groups = [str(x) for x in data if isinstance(x, str)]
+                    except Exception:
+                        groups = []
+                    return LocalUserRecord(
+                        username=row["username"],
+                        privilege_level=int(row["privilege_level"] or 1),
+                        service=str(row["service"] or "exec"),
+                        groups=groups or ["users"],
+                        enabled=bool(row["enabled"]),
+                        description=row["description"],
+                        password=row["password"],
+                        password_hash=row["password_hash"],
+                        id=row["id"],
+                    )
+        except Exception:
+            return None
+
+    async def verify_user_password_async(self, username: str, password: str) -> bool:
+        """Async password verification using aiosqlite + bcrypt in threadpool."""
+        user = await self.async_get_user(username)
+        if not user:
+            return False
+        if user.password_hash:
+            loop = asyncio.get_running_loop()
+            try:
+                from tacacs_server.utils.password_hash import verify_password as _vp
+
+                return await loop.run_in_executor(None, _vp, password, user.password_hash)
+            except Exception:
+                return False
+        if user.password is None:
+            return False
+        return user.password == password
 
     # ------------------------------------------------------------------
     # Helpers
