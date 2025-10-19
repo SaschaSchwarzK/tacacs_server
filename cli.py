@@ -13,20 +13,19 @@ logger = get_logger(__name__)
 def main() -> int:
     configure()
     try:
-        import tacacs_server.main as pkg_main
+        # Prefer async runtime by default; allow TACACS_SYNC=true to force legacy
+        import os
+        use_sync = str(os.environ.get("TACACS_SYNC", "")).lower() in ("1", "true", "yes")
+        if use_sync:
+            import tacacs_server.main as pkg_main
+        else:
+            import tacacs_server.main_async as pkg_main
 
         rc = pkg_main.main()
         return cast(int, rc)
     except Exception as exc:
         logger.error("Failed to start tacacs-server", error=str(exc))
-        try:
-            import main as legacy_main
-
-            rc2 = legacy_main.main()
-            return cast(int, rc2)
-        except Exception as exc2:
-            logger.debug("Fallback to legacy main failed", error=str(exc2))
-            return 1
+        return 1
 
 
 if __name__ == "__main__":

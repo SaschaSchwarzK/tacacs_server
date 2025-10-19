@@ -13,8 +13,11 @@ cd tacacs_server
 poetry install
 python scripts/setup_project.py --project-root "$(pwd)"
 
-# Start development server
-poetry run python -m tacacs_server.main
+# Start development server (async runtime is default)
+poetry run tacacs-server
+
+# To force legacy sync runtime
+# TACACS_SYNC=true poetry run tacacs-server
 ```
 
 ### Production Environment
@@ -79,6 +82,8 @@ services:
     environment:
       - TACACS_CONFIG=/app/config/tacacs.conf
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      # Async runtime (default). Set TACACS_SYNC=true to use legacy sync.
+      - TACACS_SYNC=false
       # Optional runtime tuning
       - TACACS_LISTEN_BACKLOG=512
       - TACACS_CLIENT_TIMEOUT=15
@@ -95,6 +100,11 @@ services:
       - RADIUS_SO_RCVBUF=2097152
       - TACACS_USE_THREAD_POOL=true
       - TACACS_THREAD_POOL_MAX=200
+      # Async runtime tuning
+      - ASYNC_MAX_CONCURRENCY_TCP=200
+      - ASYNC_MAX_CONCURRENCY_UDP=200
+      - ASYNC_TCP_IDLE_TIMEOUT=15
+      - ASYNC_TCP_READ_TIMEOUT=15
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
@@ -845,3 +855,34 @@ grep -i "slow\|timeout\|error" /opt/tacacs_server/logs/tacacs.log
 - [ ] Monitoring alerts configured
 - [ ] Runbook documentation
 - [ ] Team training completed
+## Async Runtime Notes
+
+The project includes an asyncio-based runtime for TACACS+/RADIUS.
+
+- Enable via environment: set `TACACS_ASYNC=true` before `tacacs-server`.
+- Web admin (if enabled and admin hash configured) will display live counters.
+
+Tuning parameters (constructor defaults, configurable in code or via future config options):
+- `max_concurrency_tcp` / `max_concurrency_udp`: backpressure via semaphores and bounded UDP worker queue.
+- `tcp_idle_timeout_sec` / `tcp_read_timeout_sec`: connection idle and per-read timeouts.
+- `tacacs_max_body_len` / `udp_max_packet_len`: packet size caps.
+
+Environment overrides (main_async):
+- `ASYNC_MAX_CONCURRENCY_TCP` (default 200)
+- `ASYNC_MAX_CONCURRENCY_UDP` (default 200)
+- `ASYNC_TCP_IDLE_TIMEOUT` (seconds, defaults to `[server].client_timeout` or 15)
+- `ASYNC_TCP_READ_TIMEOUT` (seconds, defaults to `[server].client_timeout` or 15)
+
+Host OS recommendations for higher concurrency:
+- Increase file descriptor limits: `ulimit -n 65535` (and system limits as needed).
+- Consider enlarging UDP receive buffer for heavy RADIUS traffic:
+  - Linux: `sysctl -w net.core.rmem_max=2621440` (example value)
+- Ensure container runtime allows binding to desired ports; for tests prefer non-privileged ports.
+
+Observability:
+- Prometheus counters/histograms exposed in-process when `prometheus_client` is available:
+  - `tacacs_tacacs_requests_total{status}` and `tacacs_radius_requests_total{status}`
+  - `tacacs_tacacs_latency_seconds`, `tacacs_radius_latency_seconds`
+  - `tacacs_udp_drops_total{reason}`
+  - `tacacs_tacacs_requests_by_type_total{type,status}` and `tacacs_tacacs_latency_by_type_seconds{type}`
+- Web admin shows TACACS per-path counters, RADIUS ok/err, and UDP drops.

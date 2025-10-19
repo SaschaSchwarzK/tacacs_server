@@ -971,6 +971,25 @@ class TacacsMonitoringAPI:
 
             if self.radius_server:
                 data["radius"] = self.get_radius_stats()
+            else:
+                # If runtime exposes RADIUS counters, include a lightweight view
+                try:
+                    if isinstance(stats, dict) and (
+                        "radius_ok" in stats or "radius_err" in stats
+                    ):
+                        data["radius"] = {
+                            "enabled": True,
+                            "running": True,
+                            "authentication": {
+                                "requests": int(stats.get("radius_ok", 0))
+                                + int(stats.get("radius_err", 0)),
+                                "accepts": int(stats.get("radius_ok", 0)),
+                                "rejects": int(stats.get("radius_err", 0)),
+                            },
+                            "udp_drops": stats.get("udp_drops", {}),
+                        }
+                except Exception:
+                    pass
 
             return data
         except Exception as e:

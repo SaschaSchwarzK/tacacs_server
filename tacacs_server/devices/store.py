@@ -43,8 +43,8 @@ class DeviceRecord:
     name: str
     network: NetworkType
     group: DeviceGroup | None
-    tacacs_secret: str | None
-    radius_secret: str | None
+    tacacs_secret: str | None = None
+    radius_secret: str | None = None
     metadata: JsonDict = field(default_factory=dict)
 
     @property
@@ -80,7 +80,21 @@ class DeviceStore:
 
     def __init__(self, db_path: str | Path = "data/devices.db") -> None:
         # Resolve and validate path to prevent path traversal
-        self.db_path = Path(db_path).resolve()
+        requested_input = Path(db_path)
+        requested = requested_input.resolve()
+        # Rebase into TACACS_TEST_WORKDIR if present to avoid writing to production DBs
+        import os as _os
+        try:
+            twd = _os.environ.get("TACACS_TEST_WORKDIR")
+            project_default = (Path.cwd().resolve() / "data" / "devices.db").resolve()
+            if twd:
+                twd_path = Path(twd).resolve()
+                # Only rebase when using the project default devices DB path.
+                if requested == project_default:
+                    requested = (twd_path / requested.name).resolve()
+        except Exception:
+            pass
+        self.db_path = requested
         # Ensure path is within expected directory structure (allow pytest temp dirs)
         cwd = str(Path.cwd().resolve())
         db_str = str(self.db_path)
@@ -141,6 +155,10 @@ class DeviceStore:
                 """
             )
             self._conn.commit()
+            # Legacy migration disabled: keep device secret columns for compatibility
+
+    def _migrate_legacy_device_columns(self, cur) -> None:  # pragma: no cover - kept for compatibility
+        return
 
     # ------------------------------------------------------------------
     # Helpers
@@ -197,8 +215,6 @@ class DeviceStore:
             name=row["name"],
             network=network,
             group=group,
-            tacacs_secret=None,
-            radius_secret=None,
             metadata=self._json_load(row["metadata"]),
         )
 
@@ -442,9 +458,8 @@ class DeviceStore:
 
             self._conn.execute(
                 """
-                INSERT INTO devices (name, network, tacacs_secret, radius_secret, 
-                                     metadata, group_id)
-                VALUES (?, ?, NULL, NULL, NULL, ?)
+                INSERT INTO devices (name, network, metadata, group_id)
+                VALUES (?, ?, NULL, ?)
                 """,
                 (
                     name,

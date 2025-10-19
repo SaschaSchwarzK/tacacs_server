@@ -77,6 +77,21 @@
             <small class="muted">Success rate: {{ acct_summary.success_percent }}%</small>
         </div>
     </div>
+    <!-- Per-type TACACS counters -->
+    <div class="overview-grid" style="margin-top:1rem;">
+        <div class="stat-card">
+            <div class="stat-label">TACACS Auth Requests</div>
+            <div class="stat-value">{{ tacacs_summary.auth.total }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">TACACS Authorize Requests</div>
+            <div class="stat-value">{{ tacacs_summary.author.total }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">TACACS Accounting Requests</div>
+            <div class="stat-value">{{ tacacs_summary.acct.total }}</div>
+        </div>
+    </div>
 </div>
 
 <div class="section-grid">
@@ -156,8 +171,35 @@
             <li><strong>Authentication Failures:</strong> {{ radius_summary.auth.failure }}</li>
             <li><strong>Accounting Success:</strong> {{ radius_summary.acct.success_percent }}% ({{ radius_summary.acct.success }} / {{ radius_summary.acct.total }})</li>
             <li><strong>Accounting Failures:</strong> {{ radius_summary.acct.failure }}</li>
+            {% if radius_summary.udp_drops %}
+            <li><strong>UDP Drops:</strong>
+                oversized={{ radius_summary.udp_drops.get('oversized',0) }},
+                queue_full={{ radius_summary.udp_drops.get('queue_full',0) }}
+            </li>
+            {% endif %}
             <li class="muted" style="font-size:0.8rem;">Counts reflect totals since server start. Zero totals indicate no requests yet.</li>
         </ul>
+        <!-- Prominent tiles for RADIUS counters -->
+        <div class="overview-grid" style="margin-top:1rem;">
+            <div class="stat-card">
+                <div class="stat-label">RADIUS Auth Requests</div>
+                <div class="stat-value">{{ radius_summary.auth.total }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">RADIUS Accepts</div>
+                <div class="stat-value">{{ radius_summary.auth.success }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">RADIUS Rejects</div>
+                <div class="stat-value">{{ radius_summary.auth.failure }}</div>
+            </div>
+            {% if radius_summary.udp_drops %}
+            <div class="stat-card">
+                <div class="stat-label">RADIUS UDP Drops</div>
+                <div class="stat-value">{{ radius_summary.udp_drops.get('oversized',0) + radius_summary.udp_drops.get('queue_full',0) }}</div>
+            </div>
+            {% endif %}
+        </div>
     </div>
     {% endif %}
 </div>

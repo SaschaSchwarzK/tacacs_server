@@ -20,7 +20,23 @@ class LocalAuthStore:
 
     def __init__(self, db_path: Path | str = "data/local_auth.db") -> None:
         # Resolve and validate path to prevent path traversal
-        self.db_path = Path(db_path).resolve()
+        requested_input = Path(db_path)
+        requested = requested_input.resolve()
+        # If running tests with an isolated workdir, rebase path into it to avoid
+        # polluting production databases when code paths forget to pass the test DB.
+        import os as _os
+        try:
+            twd = _os.environ.get("TACACS_TEST_WORKDIR")
+            project_default = (Path.cwd().resolve() / "data" / "local_auth.db").resolve()
+            if twd:
+                twd_path = Path(twd).resolve()
+                # Only rebase when using the project default path; do NOT override
+                # explicit tmp/test paths provided by callers.
+                if requested == project_default:
+                    requested = (twd_path / requested.name).resolve()
+        except Exception:
+            pass
+        self.db_path = requested
         # Ensure path is within expected directory structure (allow pytest temp dirs)
         cwd = str(Path.cwd().resolve())
         db_str = str(self.db_path)

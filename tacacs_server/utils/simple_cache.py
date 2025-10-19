@@ -164,3 +164,35 @@ class LRUDict(OrderedDict, Generic[K, V]):
             self.move_to_end(key, last=True)
         except Exception:
             pass
+
+
+# ------------------------------
+# Global cache registry helpers
+# ------------------------------
+_TTL_CACHES: dict[str, TTLCache[Any, Any]] = {}
+_CACHE_LOCK = threading.RLock()
+
+
+def get_ttl_cache(name: str, ttl_seconds: int, maxsize: int | None = None) -> TTLCache[Any, Any]:
+    """Get or create a named TTLCache shared process-wide.
+
+    - Returns the existing cache if already created with the same name.
+    - If a cache exists, its TTL/maxsize are left unchanged.
+    - Use per-set TTLs on .set if dynamic expiries are required.
+    """
+    with _CACHE_LOCK:
+        cache = _TTL_CACHES.get(name)
+        if cache is None:
+            cache = TTLCache[Any, Any](ttl_seconds=ttl_seconds, maxsize=maxsize)
+            _TTL_CACHES[name] = cache
+        return cache
+
+
+def clear_all_caches() -> None:
+    """Clear all named caches in the registry (useful for tests)."""
+    with _CACHE_LOCK:
+        for c in _TTL_CACHES.values():
+            try:
+                c.clear()
+            except Exception:
+                pass

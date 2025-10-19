@@ -12,7 +12,14 @@ import threading
 import time
 from hashlib import sha256
 from typing import Any
+import asyncio
 from typing import Any as _Any
+
+# Optional async HTTP client for real non-blocking I/O
+try:  # pragma: no cover - network client optional in some envs
+    import httpx as _httpx
+except Exception:  # pragma: no cover
+    _httpx = None
 
 import requests  # type: ignore[import-untyped]
 from requests.adapters import HTTPAdapter  # type: ignore[import-untyped]
@@ -22,7 +29,7 @@ from tacacs_server.utils.metrics import (
     okta_group_cache_hits,
     okta_group_cache_misses,
 )
-from tacacs_server.utils.simple_cache import TTLCache
+from tacacs_server.utils.simple_cache import TTLCache, get_ttl_cache
 
 from .base import AuthenticationBackend
 
@@ -162,7 +169,8 @@ class OktaAuthBackend(AuthenticationBackend):
         # Group membership cache: username -> {"groups": [...], "priv": int}
         self._group_cache_ttl = int(cfg.get("group_cache_ttl", 1800))
         self._group_cache_fail_ttl = int(cfg.get("group_cache_fail_ttl", 60))
-        self._group_cache = TTLCache[str, dict[str, Any]](
+        self._group_cache = get_ttl_cache(
+            name=f"okta_group_cache:{self.client_id}",
             ttl_seconds=self._group_cache_ttl,
             maxsize=int(cfg.get("group_cache_maxsize", 50000)),
         )
@@ -200,17 +208,156 @@ class OktaAuthBackend(AuthenticationBackend):
                 "Okta configuration invalid: require_group_for_auth=true but api_token missing and strict_group_mode=true"
             )
 
+        # Async token cache via shared TTLCache
+        self._async_token_cache = get_ttl_cache(
+            name=f"okta_token_cache:{self.client_id}", ttl_seconds=3600, maxsize=10000
+        )
+
     def _cache_key(self, username: str, password: str) -> str:
         # HMAC(username || "\0" || password)
         msg = f"{username}\0{password}".encode()
         return hmac.new(self._hmac_key, msg, sha256).hexdigest()
 
     def _cache_get(self, key: str) -> bool | None:
+        """Get cached auth result from sync cache (not the async token cache)."""
         now = int(time.time())
         with self._lock:
             v = self._cache.get(key)
             if not v:
                 return None
+            result, expiry, _attrs = v
+            if expiry and expiry > now:
+                return result
+            # expired
+            try:
+                del self._cache[key]
+            except Exception:
+                pass
+            return None
+
+    # ------------------------------
+    # Async variants (executor-backed for now)
+    # ------------------------------
+    async def authenticate_async(self, username: str, password: str, **kwargs) -> bool:  # type: ignore[override]
+        """Async authenticate. Tries httpx if available; falls back to sync in executor.
+
+        Uses password grant against the configured token endpoint when ropc_enabled.
+        Caches/attribute mapping remain handled by the sync path; this async path
+        is best-effort and will defer to the sync implementation on error.
+        """
+        try:
+            hx = globals().get("httpx") or _httpx
+            if hx is None:
+                raise RuntimeError("httpx unavailable")
+            if not self.ropc_enabled:
+                raise RuntimeError("ROPC disabled; fallback to sync")
+            data = {
+                "grant_type": "password",
+                "username": username,
+                "password": password,
+                "scope": "openid profile email",
+                "client_id": self.client_id,
+            }
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            timeout = hx.Timeout(self._timeout[1], connect=self._timeout[0])
+            async with hx.AsyncClient(timeout=timeout, verify=self.verify_tls, trust_env=self._trust_env_flag) as client:
+                resp = await client.post(self._token_endpoint, data=data, headers=headers)
+                if resp.status_code == 200:
+                    try:
+                        payload = resp.json()
+                        access_token = payload.get("access_token")
+                        expires_in = int(payload.get("expires_in", 3600) or 3600)
+                        if access_token:
+                            exp_ts = int(time.time()) + max(60, min(86400, expires_in))
+                            # cache per-username; do not cache by password
+                            self._async_token_cache.set(username, (access_token, exp_ts), ttl=expires_in)
+                            return True
+                    except Exception:
+                        return True
+                return False
+        except Exception:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.authenticate, username, password)
+
+    async def get_user_attributes_async(self, username: str) -> dict[str, Any]:  # type: ignore[override]
+        """Async userinfo fetch. Tries httpx; falls back to sync in executor.
+
+        If a valid access token is cached from authenticate_async, queries the
+        OIDC userinfo endpoint and returns minimal attributes. Otherwise defers
+        to the sync path (which includes group mapping via Management API).
+        """
+        try:
+            hx = globals().get("httpx") or _httpx
+            if hx is None:
+                raise RuntimeError("httpx unavailable")
+            tok = self._async_token_cache.get(username)
+            if not tok:
+                raise RuntimeError("no token cached")
+            token, exp = tok
+            if int(time.time()) >= int(exp):
+                # expired
+                self._async_token_cache.set(username, (token, exp), ttl=0)  # expire immediately
+                raise RuntimeError("token expired")
+            headers = {"Authorization": f"Bearer {token}"}
+            timeout = hx.Timeout(self._timeout[1], connect=self._timeout[0])
+            async with hx.AsyncClient(timeout=timeout, verify=self.verify_tls, trust_env=self._trust_env_flag) as client:
+                resp = await client.get(self._userinfo_endpoint, headers=headers)
+                if resp.status_code != 200:
+                    raise RuntimeError("userinfo failed")
+                info = resp.json()
+                # Attribute mapping; optionally fetch groups via Management API if token present
+                groups: list[str] = []
+                if self.api_token:
+                    try:
+                        uid = info.get("sub")
+                        if isinstance(uid, str) and uid:
+                            g_headers = {"Authorization": f"SSWS {self.api_token}", "Accept": "application/json"}
+                            url_next = f"{self._groups_api_base}/users/{uid}/groups"
+                            while url_next:
+                                g_resp = await client.get(url_next, headers=g_headers)
+                                if g_resp.status_code != 200:
+                                    break
+                                g_list = g_resp.json() or []
+                                for g in g_list:
+                                    name = g.get("profile", {}).get("name") or g.get("profile", {}).get("groupName")
+                                    if isinstance(name, str):
+                                        groups.append(name)
+                                # Very simple pagination handling
+                                link = g_resp.headers.get("Link") or ""
+                                if "rel=\"next\"" in link:
+                                    # Extract URL between <...>
+                                    try:
+                                        start = link.find("<")
+                                        end = link.find(">", start + 1)
+                                        url_next = link[start + 1 : end] if start != -1 and end != -1 else None
+                                    except Exception:
+                                        url_next = None
+                                else:
+                                    url_next = None
+                    except Exception:
+                        groups = []
+                # privilege via group_privilege_map (highest match)
+                priv = 1
+                if groups and self._group_privilege_map_lc:
+                    try:
+                        cand = [self._group_privilege_map_lc.get(g.lower(), 0) for g in groups]
+                        cand = [int(x) for x in cand if isinstance(x, (int, float))]
+                        if cand:
+                            priv = max(cand)
+                    except Exception:
+                        priv = 1
+                attrs: dict[str, Any] = {
+                    "privilege_level": priv,
+                    "service": "exec",
+                    "groups": groups,
+                    "full_name": info.get("name") or username,
+                    "email": info.get("email", ""),
+                    "enabled": True,
+                }
+                return attrs
+        except Exception:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.get_user_attributes, username)
             result, expiry, _attrs = v
             if expiry and expiry > now:
                 return result

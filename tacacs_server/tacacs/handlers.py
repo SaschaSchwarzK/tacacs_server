@@ -6,6 +6,7 @@ import os
 import struct
 import threading
 from typing import Any
+import asyncio
 
 try:
     import json as _json
@@ -74,6 +75,230 @@ class AAAHandlers:
 
     def set_local_user_group_service(self, service) -> None:
         self.local_user_group_service = service
+
+    # ----------------------
+    # Async wrappers
+    # ----------------------
+    async def async_handle_authentication(self, packet: TacacsPacket, device: Any | None = None) -> TacacsPacket:
+        """Async authentication handler focusing on PAP path; other types fallback."""
+        try:
+            a = parse_authen_start(packet.body)
+        except ProtocolError:
+            try:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, self.handle_authentication, packet, device)
+            except RuntimeError:
+                # No running loop (defensive): execute synchronously
+                return self.handle_authentication(packet, device)
+        action = a["action"]
+        authen_type = a["authen_type"]
+        user = a["user"]
+        port = a["port"]
+        rem_addr = a["rem_addr"]
+        data = a["data"]
+        priv_lvl = a["priv_lvl"]
+        if authen_type == TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_PAP:
+            # PAP: username + password in data
+            password = data.decode("utf-8", errors="replace")
+            client_ip = rem_addr or None
+            ok, detail = await self._authenticate_user_async(user, password, client_ip=client_ip)
+            if ok:
+                self._remember_username(packet.session_id, user)
+                self._log_auth_result(packet.session_id, user, device, True, detail)
+                return self._create_auth_response(
+                    packet,
+                    TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS,
+                    "Authentication successful",
+                )
+            self._log_auth_result(packet.session_id, user, device, False, detail)
+            resp = self._create_auth_response(
+                packet,
+                TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_FAIL,
+                "Authentication failed",
+            )
+            self.cleanup_session(packet.session_id)
+            return resp
+        # Fallback to sync handler for ASCII/CHAP/others
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.handle_authentication, packet, device)
+
+    async def async_handle_authorization(self, packet: TacacsPacket, device: Any | None = None) -> TacacsPacket:
+        try:
+            a = parse_author_request(packet.body)
+        except ProtocolError:
+            try:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, self.handle_authorization, packet, device)
+            except RuntimeError:
+                return self.handle_authorization(packet, device)
+        priv_lvl = a["priv_lvl"]
+        authen_service = a["authen_service"]
+        user = a["user"]
+        args = a["args"]
+        # Fetch attributes from first backend that returns data, using async API
+        user_attrs = None
+        for backend in self.auth_backends:
+            try:
+                user_attrs = await backend.get_user_attributes_async(user)
+                if user_attrs:
+                    break
+            except Exception:
+                continue
+        if not user_attrs:
+            # Mirror sync fallback behavior
+            has_cmd = bool(args.get("cmd"))
+            if not has_cmd:
+                auth_attrs = {"priv-lvl": "1", "service": args.get("service", "exec")}
+                self.cleanup_session(packet.session_id)
+                return self._create_author_response(
+                    packet,
+                    TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
+                    "Authorization granted",
+                    auth_attrs,
+                )
+            self.cleanup_session(packet.session_id)
+            return self._create_author_response(
+                packet,
+                TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
+                "User not found or no attributes available",
+            )
+        # Build attributes and permit/deny using existing helpers
+        device_record = device or self.session_device.get(packet.session_id)
+        device_group = getattr(device_record, "group", None) if device_record else None
+        allowed_groups = getattr(device_group, "allowed_user_groups", []) if device_group else []
+        device_group_name = getattr(device_group, "name", None) if device_group else None
+        context = PolicyContext(
+            device_group_name=device_group_name,
+            allowed_user_groups=allowed_groups,
+        )
+        try:
+            allowed = evaluate_policy(user_attrs, args, context)
+        except Exception:
+            allowed = PolicyResult(False, "policy_error")
+        if not allowed.allowed:
+            self.cleanup_session(packet.session_id)
+            return self._create_author_response(
+                packet,
+                TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
+                allowed.reason or "Not permitted",
+            )
+        auth_attrs = self._build_authorization_attributes(user_attrs, args)
+        self.cleanup_session(packet.session_id)
+        return self._create_author_response(
+            packet,
+            TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
+            "Authorization granted",
+            auth_attrs,
+        )
+
+    async def async_handle_accounting(self, packet: TacacsPacket, device: Any | None = None) -> TacacsPacket:
+        # Parse request body; on error fallback to sync handler
+        try:
+            r = parse_acct_request(packet.body)
+        except ProtocolError:
+            try:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, self.handle_accounting, packet, device)
+            except RuntimeError:
+                return self.handle_accounting(packet, device)
+
+        flags = r["flags"]
+        priv_lvl = r["priv_lvl"]
+        authen_service = r["authen_service"]
+        user = r["user"]
+        port = r["port"]
+        rem_addr = r["rem_addr"]
+        args = r["args"]
+
+        # Build accounting record and write via async DB logger if available
+        try:
+            from tacacs_server.accounting.models import AccountingRecord
+        except Exception:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.handle_accounting, packet, device)
+
+        status_map = {0: "START", 1: "STOP", 2: "UPDATE"}
+        status = status_map.get(flags & 0x0F, "UPDATE")
+        record = AccountingRecord(
+            username=user or "",
+            session_id=packet.session_id,
+            status=status,
+            service=str(authen_service),
+            command=args.get("cmd", ""),
+            client_ip=rem_addr,
+            port=port,
+            bytes_in=int(args.get("bytes_in", 0) or 0),
+            bytes_out=int(args.get("bytes_out", 0) or 0),
+            privilege_level=int(priv_lvl or 1),
+        )
+        # Access db_logger if present
+        db = getattr(self, "db_logger", None)
+        if db and hasattr(db, "log_accounting_async"):
+            ok = await db.log_accounting_async(record)
+            if ok:
+                return self._create_acct_response(
+                    packet, TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_SUCCESS
+                )
+            return self._create_acct_response(
+                packet, TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR
+            )
+        # Fallback to sync path if async not available
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.handle_accounting, packet, device)
+        except RuntimeError:
+            return self.handle_accounting(packet, device)
+
+    async def _authenticate_user_async(
+        self, username: str, password: str, *, client_ip: str | None
+    ) -> tuple[bool, str | None]:
+        """Async version of _authenticate_user using backend async methods and asyncio timeouts."""
+        import time as _time
+        start_ts = _time.time()
+        if not validate_username(username):
+            return False, "invalid username format"
+        if password is None or len(password) == 0:
+            return False, "empty password"
+        if len(password) > MAX_PASSWORD_LENGTH:
+            return False, "password too long"
+        if client_ip and not self.rate_limiter.is_allowed(client_ip):
+            return False, f"rate limit exceeded for {client_ip}"
+        if client_ip:
+            self.rate_limiter.record_attempt(client_ip)
+        last_error: str | None = None
+        used_backend = ""
+        for backend in self.auth_backends:
+            try:
+                timeout = self.backend_timeout if self.backend_timeout and self.backend_timeout > 0 else None
+                if timeout:
+                    ok = await asyncio.wait_for(
+                        backend.authenticate_async(username, password), timeout=timeout
+                    )
+                else:
+                    ok = await backend.authenticate_async(username, password)
+                if ok:
+                    used_backend = backend.name
+                    try:
+                        from ..utils.metrics_history import get_metrics_history as _gh
+
+                        _gh().record_snapshot({})  # placeholder hook
+                    except Exception:
+                        pass
+                    return True, f"backend={backend.name}"
+            except asyncio.TimeoutError:
+                last_error = f"backend={backend.name} error=timeout"
+                continue
+            except AuthenticationError as exc:
+                last_error = f"backend={backend.name} error={exc}"
+                continue
+            except Exception as exc:
+                last_error = f"backend={backend.name} error={exc}"
+                continue
+        if last_error:
+            return False, last_error
+        if not self.auth_backends:
+            return False, "no authentication backends configured"
+        return False, "no backend accepted credentials"
 
     def _redact_args(self, args: dict[str, str]) -> dict[str, str]:
         """Return a copy of args with sensitive values redacted.

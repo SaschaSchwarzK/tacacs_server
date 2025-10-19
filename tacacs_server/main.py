@@ -792,7 +792,38 @@ def create_test_client_script():
 
 
 def main():
-    """Main entry point"""
+    """Main entry point (legacy synchronous manager).
+
+    Deprecated: delegates to async runtime unless TACACS_SYNC_LEGACY=true.
+    """
+    import os, sys
+    # If not explicitly forcing legacy sync manager, forward to async main
+    if str(os.environ.get("TACACS_SYNC_LEGACY", "")).lower() in ("", "0", "false", "no"):
+        # Respect --config/-c passed on CLI by exporting TACACS_CONFIG for async main
+        try:
+            cfg_path = None
+            argv = list(sys.argv[1:])
+            for i, tok in enumerate(argv):
+                if tok in ("-c", "--config") and i + 1 < len(argv):
+                    cfg_path = argv[i + 1]
+                    break
+            if cfg_path:
+                os.environ["TACACS_CONFIG"] = cfg_path
+        except Exception:
+            pass
+        try:
+            from .main_async import main as _async_main
+
+            logger = get_logger(__name__)
+            logger.warning(
+                "tacacs_server.main delegating to async runtime. Set TACACS_SYNC_LEGACY=true to use legacy sync manager."
+            )
+            _async_main()
+            return 0
+        except Exception:
+            # Fall through to legacy sync manager on failure
+            pass
+
     parser = argparse.ArgumentParser(description="TACACS+ Server")
     parser.add_argument(
         "-c", "--config", default="config/tacacs.conf", help="Configuration file path"
