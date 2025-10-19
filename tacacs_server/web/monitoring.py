@@ -359,9 +359,7 @@ class TacacsMonitoringAPI:
                 )
 
         # Configure docs and OpenAPI
-        self.app.openapi = (  # type: ignore[method-assign]
-            lambda: custom_openapi_schema(self.app)
-        )
+        cast(Any, self.app).openapi = lambda: custom_openapi_schema(self.app)
         configure_openapi_ui(self.app)
         # Use package-relative paths for templates/static so it works regardless of CWD
         pkg_root = FilePath(__file__).resolve().parent.parent

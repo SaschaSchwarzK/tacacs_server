@@ -152,20 +152,16 @@ group_attribute = memberOf
 # Okta organization URL
 org_url = https://company.okta.com
 
-# OAuth2 client id for password grant (required)
-client_id = ${OKTA_CLIENT_ID}
-
 # Optional: Okta Management API token (SSWS) for group lookups
 api_token = ${OKTA_API_TOKEN}
 
 # TLS verification (default true)
 verify_tls = true
 
-# Optional: Map Okta group names to privilege levels (JSON object)
-# Example: {"Network-Admins": 15, "Operators": 7, "Users": 1}
-group_privilege_map = {"Level15": 15, "Level7": 7, "Level1": 1}
+# Privilege is derived via local user groups and the authorization policy engine.
+# No static Okta group -> privilege mapping is required.
 
-# Optional: Require membership in a mapped group to succeed auth (default false)
+# Optional: Require membership in an allowed Okta group (from device group allow‑list) to succeed auth (default false)
 require_group_for_auth = false
 
 # Connection and pooling options (defaults used if not set)
@@ -183,12 +179,8 @@ group_cache_maxsize = 50000
 group_cache_fail_ttl = 60
 
 # Flow controls
-# Enable/disable Resource Owner Password Credentials grant
-ropc_enabled = true
-# Optional token introspection when expiry is unknown (requires client_secret)
-introspection_enabled = false
-client_secret = ${OKTA_CLIENT_SECRET}
-use_basic_auth = false    # use HTTP Basic for confidential clients on token requests
+# AuthN API
+authn_enabled = true
 strict_group_mode = false # raise error at init if require_group_for_auth=true but api_token missing
 
 # Circuit breaker for Okta outages

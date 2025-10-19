@@ -853,8 +853,26 @@ class RADIUSServer:
                 client_config.network,
             )
 
-            # Authenticate against backends
-            authenticated, auth_detail = self._authenticate_user(username, password)
+            # Build allowed Okta groups from client config -> allowed_user_groups -> local user groups' okta_group
+            allowed_okta_groups: list[str] = []
+            try:
+                allowed = list(getattr(client_config, "allowed_user_groups", []) or [])
+                if allowed and self.local_user_group_service:
+                    for gname in allowed:
+                        try:
+                            rec = self.local_user_group_service.get_group(gname)
+                            okg = getattr(rec, "okta_group", None)
+                            if okg:
+                                allowed_okta_groups.append(str(okg))
+                        except Exception:
+                            continue
+            except Exception:
+                allowed_okta_groups = []
+
+            # Authenticate against backends with allowed Okta groups context
+            authenticated, auth_detail = self._authenticate_user(
+                username, password, allowed_okta_groups=allowed_okta_groups
+            )
 
             device_label = (
                 client_config.group or client_config.name or str(client_config.network)
@@ -863,10 +881,10 @@ class RADIUSServer:
             if authenticated:
                 # Get user attributes for response
                 user_attrs = self._get_user_attributes(username)
-                allowed, denial_message = self._apply_user_group_policy(
+                allowed_ok, denial_message = self._apply_user_group_policy(
                     client_config, user_attrs
                 )
-                if allowed:
+                if allowed_ok:
                     response = self._create_access_accept(request, user_attrs)
                     self._inc("auth_accepts")
                     logger.info(
@@ -1010,7 +1028,9 @@ class RADIUSServer:
         except Exception as e:
             logger.error("Error handling RADIUS acct request from %s: %s", client_ip, e)
 
-    def _authenticate_user(self, username: str, password: str) -> tuple[bool, str]:
+    def _authenticate_user(
+        self, username: str, password: str, **kwargs
+    ) -> tuple[bool, str]:
         """Authenticate user against backends with diagnostic detail."""
         if not self.auth_backends:
             return False, "no authentication backends configured"
@@ -1018,7 +1038,7 @@ class RADIUSServer:
         last_error: str | None = None
         for backend in self.auth_backends:
             try:
-                if backend.authenticate(username, password):
+                if backend.authenticate(username, password, **kwargs):
                     logger.debug(
                         f"RADIUS: Authentication successful via {backend.name}"
                     )

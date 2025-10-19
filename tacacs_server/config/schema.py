@@ -40,8 +40,11 @@ class LdapConfigSchema(BaseModel):
 
 
 class OktaConfigSchema(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
     org_url: str
-    token: str
+    # Accept either 'api_token' or legacy 'token'
+    api_token: str | None = Field(default=None, alias="token")
+    verify_tls: bool = Field(default=True)
     timeout: int = Field(default=10, ge=0)
 
 

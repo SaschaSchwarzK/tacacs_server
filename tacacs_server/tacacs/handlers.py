@@ -431,8 +431,36 @@ class AAAHandlers:
                             pass
             except Exception:
                 pass
+            # Build allowed Okta groups from device group -> allowed_user_groups -> local user groups' okta_group
+            allowed_okta_groups: list[str] = []
+            try:
+                allowed = (
+                    list(
+                        getattr(
+                            getattr(device, "group", None), "allowed_user_groups", []
+                        )
+                        or []
+                    )
+                    if getattr(device, "group", None)
+                    else []
+                )
+                if allowed and self.local_user_group_service:
+                    for gname in allowed:
+                        try:
+                            rec = self.local_user_group_service.get_group(gname)
+                            okg = getattr(rec, "okta_group", None)
+                            if okg:
+                                allowed_okta_groups.append(str(okg))
+                        except Exception:
+                            continue
+            except Exception:
+                allowed_okta_groups = []
+
             authenticated, detail = self._authenticate_user(
-                user, password, client_ip=client_ip
+                user,
+                password,
+                client_ip=client_ip,
+                allowed_okta_groups=allowed_okta_groups,
             )
             if not authenticated:
                 # One-time best-effort reload for local store to catch recent writes
@@ -1053,7 +1081,7 @@ class AAAHandlers:
         return response
 
     def _authenticate_user(
-        self, username: str, password: str, client_ip: str | None = None
+        self, username: str, password: str, client_ip: str | None = None, **kwargs
     ) -> tuple[bool, str]:
         """Authenticate user against all backends with rate limiting."""
         import time as _time
@@ -1096,7 +1124,11 @@ class AAAHandlers:
         for backend in self.auth_backends:
             try:
                 ok, timed_out, err = self._authenticate_backend_with_timeout(
-                    backend, username, password, timeout_s=self.backend_timeout
+                    backend,
+                    username,
+                    password,
+                    timeout_s=self.backend_timeout,
+                    **kwargs,
                 )
                 if timed_out:
                     last_error = f"backend={backend.name} error=timeout"
@@ -1195,6 +1227,7 @@ class AAAHandlers:
         password: str,
         *,
         timeout_s: float,
+        **kwargs,
     ) -> tuple[bool, bool, str | None]:
         """Call backend.authenticate with a timeout.
 
@@ -1206,7 +1239,9 @@ class AAAHandlers:
 
         def _worker():
             try:
-                result_container["ok"] = bool(backend.authenticate(username, password))
+                result_container["ok"] = bool(
+                    backend.authenticate(username, password, **kwargs)
+                )
             except AuthenticationError as exc:
                 result_container["error"] = str(exc)
             except Exception as exc:  # noqa: BLE001

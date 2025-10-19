@@ -72,20 +72,7 @@ class LDAPAuthBackend(AuthenticationBackend):
         )
         self._pool_lock = threading.Lock()
 
-        # Default privilege mappings based on group membership
-        self.group_privilege_map = {
-            "administrators": 15,
-            "network-admins": 15,
-            "operators": 7,
-            "users": 1,
-        }
-
-        # Default command mappings
-        self.privilege_commands = {
-            15: ["show", "configure", "debug", "enable", "disable"],
-            7: ["show", "configure"],
-            1: ["show"],
-        }
+        # No static group->privilege mapping in backend; privilege derived by policy engine
 
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
         """Authenticate against LDAP server"""
@@ -158,12 +145,7 @@ class LDAPAuthBackend(AuthenticationBackend):
             # Extract groups
             groups = self._extract_groups(user_info)
 
-            # Determine privilege level based on group membership
-            privilege_level = self._determine_privilege_level(groups)
-
-            # Get allowed commands based on privilege level
             return {
-                "privilege_level": privilege_level,
                 "service": "exec",
                 "groups": groups,
                 "full_name": user_info.get("displayName", username),
@@ -281,18 +263,7 @@ class LDAPAuthBackend(AuthenticationBackend):
 
         return groups
 
-    def _determine_privilege_level(self, groups: list) -> int:
-        """Determine privilege level based on group membership"""
-        highest_privilege = 1  # Default privilege level
-
-        for group in groups:
-            group_lower = group.lower()
-            if group_lower in self.group_privilege_map:
-                privilege = self.group_privilege_map[group_lower]
-                if privilege > highest_privilege:
-                    highest_privilege = privilege
-
-        return highest_privilege
+    # No privilege calculation here; handled by policy engine
 
     def is_available(self) -> bool:
         """Check if LDAP backend is available"""
@@ -396,15 +367,7 @@ class LDAPAuthBackend(AuthenticationBackend):
 
         return result
 
-    def set_group_privilege_mapping(self, group_mappings: dict[str, int]):
-        """Set custom group to privilege level mappings"""
-        self.group_privilege_map.update(group_mappings)
-        logger.info(f"Updated group privilege mappings: {group_mappings}")
-
-    def set_privilege_commands(self, privilege_mappings: dict[int, list]):
-        """Set custom privilege level to commands mappings"""
-        self.privilege_commands.update(privilege_mappings)
-        logger.info(f"Updated privilege command mappings: {privilege_mappings}")
+    # Removed privilege mapping and command mapping management; use policy engine
 
     def get_stats(self) -> dict[str, Any]:
         """Get backend statistics"""

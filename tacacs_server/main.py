@@ -531,11 +531,10 @@ class TacacsServerManager:
                         stats = getattr(backend, "get_stats", lambda: {})() or {}
                         flags = stats.get("flags", {}) or {}
                         logger.info(
-                            "    Okta flags: ropc=%s strict_group=%s trust_env=%s basic_auth=%s require_group=%s",
-                            flags.get("ropc_enabled"),
+                            "    Okta flags: authn=%s strict_group=%s trust_env=%s require_group=%s",
+                            flags.get("authn_enabled", True),
                             flags.get("strict_group_mode"),
                             flags.get("trust_env"),
-                            flags.get("use_basic_auth"),
                             flags.get("require_group_for_auth"),
                         )
                 except Exception:
