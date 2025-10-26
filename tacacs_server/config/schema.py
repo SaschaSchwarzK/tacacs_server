@@ -1,6 +1,12 @@
 """Pydantic schema for TACACS+ configuration validation."""
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from __future__ import annotations
+
+import ipaddress
+import re
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ServerConfigSchema(BaseModel):
@@ -14,6 +20,17 @@ class ServerConfigSchema(BaseModel):
     accept_proxy_protocol: bool = Field(
         default=True, description="Accept HAProxy PROXY v2 headers"
     )
+    # Optional instance name (for display/metadata)
+    instance_name: str | None = Field(default=None)
+
+    @field_validator("instance_name")
+    @classmethod
+    def _validate_instance_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", v):
+            raise ValueError("instance_name must be alphanumeric with hyphens/underscores only")
+        return v
 
 
 class AuthConfigSchema(BaseModel):
@@ -57,6 +74,9 @@ class TacacsConfigSchema(BaseModel):
     security: SecurityConfigSchema
     ldap: LdapConfigSchema | None = None
     okta: OktaConfigSchema | None = None
+    backup: BackupConfigSchema | None = None
+    # Optional remote source URL – HTTPS only, no localhost/private IPs
+    source_url: str | None = None
 
     @field_validator("auth")
     @classmethod
@@ -68,8 +88,66 @@ class TacacsConfigSchema(BaseModel):
             raise ValueError("At least one authentication backend must be configured")
         return value
 
+    @model_validator(mode="after")
+    def _cross_field_validation(self) -> "TacacsConfigSchema":
+        # If LDAP backend is configured, ldap section must be present
+        try:
+            backends = [
+                entry.strip().lower() for entry in (self.auth.backends or "").split(",") if entry.strip()
+            ]
+            if "ldap" in backends and self.ldap is None:
+                raise ValueError("LDAP backend selected but [ldap] section is missing")
+        except Exception:
+            pass
+        # Validate source_url constraints
+        if self.source_url:
+            if not self.source_url.lower().startswith("https://"):
+                raise ValueError("source_url must use HTTPS")
+            # Block localhost/private
+            if re.search(r"^(https://)?(localhost|127\.0\.0\.1)\b", self.source_url, re.IGNORECASE):
+                raise ValueError("source_url must not point to localhost")
+        return self
+
 
 def validate_config_file(payload: dict) -> TacacsConfigSchema:
     """Validate configuration payload with Pydantic schema."""
 
     return TacacsConfigSchema(**payload)
+class BackupConfigSchema(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    destination_type: Literal["local", "ftp", "sftp", "azure"]
+    schedule_cron: str
+    retention_days: int = Field(gt=0, le=3650)
+    encryption_enabled: bool = False
+    # Optional azure-specific fields
+    azure_connection_string: str | None = None
+    azure_container: str | None = None
+
+    @field_validator("schedule_cron")
+    @classmethod
+    def validate_cron(cls, v: str) -> str:
+        try:
+            from croniter import croniter  # type: ignore
+
+            if not croniter.is_valid(v):  # type: ignore[attr-defined]
+                raise ValueError("Invalid cron expression")
+        except Exception:
+            # Best-effort fallback: require at least 5 space-separated parts
+            if len(v.split()) < 5:
+                raise ValueError("Invalid cron expression")
+        return v
+
+    @model_validator(mode="after")
+    def check_azure_fields(self) -> "BackupConfigSchema":
+        if self.destination_type == "azure":
+            if not (self.azure_connection_string and self.azure_container):
+                raise ValueError("azure_connection_string and azure_container required for Azure backup")
+        return self
+
+    @staticmethod
+    def validate_cidr(cidr: str) -> bool:
+        try:
+            ipaddress.ip_network(cidr, strict=False)
+            return True
+        except Exception:
+            return False

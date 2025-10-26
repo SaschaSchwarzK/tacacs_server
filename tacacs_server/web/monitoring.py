@@ -8,6 +8,7 @@ import os
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from pathlib import Path as FilePath
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -40,6 +41,7 @@ from tacacs_server.web.api.devices import router as devices_router
 from tacacs_server.web.api.proxies import router as proxies_router
 from tacacs_server.web.api.usergroups import router as user_groups_router
 from tacacs_server.web.api.users import router as users_router
+from tacacs_server.web.api.config import router as config_router
 from tacacs_server.web.api_models import (
     AccountingResponse,
     AuthBackendInfo,
@@ -64,6 +66,26 @@ _command_authorizer: (
     Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None
 ) = None
 _command_engine: Optional["CommandAuthorizationEngine"] = None
+
+# --- Change context (for configuration updates) ---
+_config_user: ContextVar[str] = ContextVar("config_user", default="system")
+_config_source_ip: ContextVar[str | None] = ContextVar(
+    "config_source_ip", default=None
+)
+
+
+def get_config_change_user() -> str:
+    try:
+        return _config_user.get()
+    except Exception:
+        return "system"
+
+
+def get_config_change_source_ip() -> str | None:
+    try:
+        return _config_source_ip.get()
+    except Exception:
+        return None
 
 
 def get_device_service() -> Optional["DeviceService"]:
@@ -341,6 +363,36 @@ class TacacsMonitoringAPI:
 
         install_security_headers(self.app)
 
+        # Middleware to capture config change context (user + source IP)
+        @self.app.middleware("http")
+        async def config_change_context(request: Request, call_next):
+            try:
+                path = request.url.path or ""
+                if path.startswith("/api/admin/config"):
+                    # Best-effort extraction of current user and source IP
+                    user = request.headers.get("X-Admin-User") or "system"
+                    # Fall back to Authorization header (opaque)
+                    if user == "system":
+                        auth = request.headers.get("Authorization") or ""
+                        if auth:
+                            user = auth.split()[0]
+                    _config_user.set(user)
+                    client = getattr(request, "client", None)
+                    ip = getattr(client, "host", None) if client else None
+                    _config_source_ip.set(ip)
+            except Exception:
+                pass
+            try:
+                resp = await call_next(request)
+            finally:
+                # Clear context for next request
+                try:
+                    _config_user.set("system")
+                    _config_source_ip.set(None)
+                except Exception:
+                    pass
+            return resp
+
         # Optional API token protection for all /api routes
         api_token = os.getenv("API_TOKEN")
         # Disable token enforcement when no config is wired (unit/functional tests)
@@ -395,6 +447,7 @@ class TacacsMonitoringAPI:
         self.app.include_router(users_router)
         self.app.include_router(user_groups_router)
         self.app.include_router(proxies_router)
+        self.app.include_router(config_router)
         # Include command authorization API (protected by admin guard inside router)
         try:
             from tacacs_server.authorization.command_authorization import (
@@ -605,6 +658,33 @@ class TacacsMonitoringAPI:
                 return health
             except Exception as e:
                 raise HTTPException(status_code=503, detail=f"Health check failed: {e}")
+
+        # --- Config validation endpoint ---
+        @self.app.post(
+            "/api/admin/config/validate",
+            tags=["Administration"],
+            dependencies=[Depends(admin_guard)],
+        )
+        async def validate_config_change(
+            section: str,
+            key: str,
+            value: str,
+        ):
+            """Validate a configuration change before applying."""
+            cfg = get_config()
+            if cfg is None or not hasattr(cfg, "validate_change"):
+                raise HTTPException(status_code=503, detail="Configuration not available")
+            try:
+                ok, issues = cfg.validate_change(section, key, value)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Validation error: {exc}")
+            return {
+                "valid": bool(ok),
+                "issues": list(issues or []),
+                "section": section,
+                "key": key,
+                "value": value,
+            }
 
         @self.app.get(
             "/api/stats",

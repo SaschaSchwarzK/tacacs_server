@@ -454,10 +454,26 @@ rate_limit_window = 60
 
 ### **Configuration Management**
 - **Validation**: `python scripts/validate_config.py`
-- **Automatic backups**: Changes create timestamped backups
+- **Automatic backups**: Changes create timestamped backups and version snapshots
 - **Hot reload**: Configuration changes without restart
 - **Schema validation**: Pydantic-based validation with detailed error messages
 - **Environment variables**: Support for secrets via environment variables
+
+#### Configuration Sources & Precedence
+1. Defaults: internal safe defaults
+2. Base: file (config/tacacs.conf) or HTTPS URL (cached to `data/config_baseline_cache.conf`)
+3. Database overrides: runtime changes stored in `data/config_overrides.db`
+4. Environment variables: selected keys (e.g., `SERVER_PORT`) override at read time
+
+#### Overrides via API/UI
+- Validate change: `POST /api/admin/config/validate?section=server&key=port&value=5050`
+- Update section: `PUT /api/admin/config/server` with `{"section":"server","updates":{"port":5050},"reason":"ops change"}`
+- Inspect: `GET /api/admin/config/sections`, `GET /api/admin/config/{section}` (includes `overridden_keys`)
+- History/Versions: `GET /api/admin/config/history`, `GET /api/admin/config/versions`
+- Drift detection: `GET /api/admin/config/drift`
+
+#### URL-Based Configuration
+- Set `TACACS_CONFIG` to an HTTPS URL (localhost/private IPs are rejected). On startup the config is fetched and cached; a background task attempts periodic refresh (`CONFIG_REFRESH_SECONDS`, default 300s). If unreachable, the cached baseline is used.
 
 ### **Performance Tuning**
 - Backlog: Set `[server].listen_backlog` (or `TACACS_LISTEN_BACKLOG`) to handle connection bursts.

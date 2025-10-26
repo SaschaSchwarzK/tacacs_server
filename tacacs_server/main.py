@@ -65,10 +65,53 @@ class TacacsServerManager:
 
         self._device_change_unsubscribe: Callable[[], None] | None = None
         self._pending_radius_refresh = False
+        self._config_refresh_thread = None
+
+        # Ensure instance identity and initial version
+        try:
+            store = getattr(self.config, "config_store", None)
+            if store is not None:
+                instance_id = store.ensure_instance_id()
+                instance_name = store.get_instance_name()
+                if not instance_name:
+                    try:
+                        import socket as _socket
+
+                        hostname = _socket.gethostname()
+                    except Exception:
+                        hostname = "node"
+                    name = os.getenv("INSTANCE_NAME") or f"tacacs-{hostname}-{instance_id[:8]}"
+                    store.set_instance_name(name)
+                    instance_name = name
+                logger.info(f"Instance: {instance_name} (ID: {instance_id[:8]}...)")
+                # Initial configuration snapshot
+                try:
+                    cfg_dict = self.config._export_full_config()
+                    store.create_version(
+                        config_dict=cfg_dict,
+                        created_by="system",
+                        description="Initial configuration snapshot",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create initial config version: {e}")
+        except Exception:
+            logger.debug("Instance identity/version init skipped")
 
     def setup(self):
         """Setup server components"""
         setup_logging(self.config)
+        # Capture a configuration snapshot at startup
+        try:
+            store = getattr(self.config, "config_store", None)
+            if store is not None:
+                cfg_dict = self.config._export_full_config()  # base + overrides
+                store.create_version(
+                    config_dict=cfg_dict,
+                    created_by="system",
+                    description="Configuration at startup",
+                )
+        except Exception:
+            logger.debug("Failed to create startup configuration snapshot")
         issues = self.config.validate_config()
         if issues:
             logger.error("Configuration validation failed:")
@@ -431,6 +474,40 @@ class TacacsServerManager:
                 logger.exception("Exception while enabling monitoring: %s", e)
         return True
 
+    def _start_config_refresh_scheduler(self) -> None:
+        """Start background thread to refresh URL-based config periodically."""
+        try:
+            import threading
+            import time as _t
+
+            if not hasattr(self.config, "refresh_url_config"):
+                return
+
+            def _worker():
+                # Loop until manager stops
+                while True:
+                    try:
+                        if not self.running:
+                            break
+                        updated = False
+                        try:
+                            updated = bool(self.config.refresh_url_config(False))
+                        except Exception:
+                            updated = False
+                        if updated:
+                            logger.info("URL configuration refresh applied")
+                        # Sleep for configured interval or default 5 minutes
+                        interval = int(os.getenv("CONFIG_REFRESH_SECONDS", "300"))
+                        _t.sleep(max(30, interval))
+                    except Exception:
+                        _t.sleep(60)
+
+            th = threading.Thread(target=_worker, daemon=True)
+            th.start()
+            self._config_refresh_thread = th
+        except Exception:
+            logger.debug("Failed to start config refresh scheduler")
+
     def _handle_device_change(self) -> None:
         try:
             self._refresh_radius_clients()
@@ -540,6 +617,11 @@ class TacacsServerManager:
             logger.info("TACACS+ & RADIUS Server Starting")
             logger.info("=" * 50)
             self._print_startup_info()
+            # Start URL config refresh scheduler if applicable
+            try:
+                self._start_config_refresh_scheduler()
+            except Exception:
+                logger.debug("Config refresh scheduler not started")
             # Start RADIUS server if configured
             if self.radius_server:
                 self.radius_server.start()

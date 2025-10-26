@@ -17,6 +17,9 @@ from tacacs_server.utils.logger import configure as configure_logging
 from tacacs_server.utils.logger import get_logger
 
 from .schema import TacacsConfigSchema, validate_config_file
+from .config_store import ConfigStore, compute_config_hash
+import io
+from datetime import datetime, UTC, timedelta
 
 logger = get_logger(__name__)
 
@@ -56,7 +59,27 @@ class TacacsConfig:
             None if self._is_url(self.config_source) else self.config_source
         )
         self.config = configparser.ConfigParser(interpolation=None)
+        # Initialize the configuration override store (creates DB/tables on first run)
+        try:
+            self.config_store = ConfigStore("data/config_overrides.db")
+        except Exception:
+            # Fail soft; consumers can still operate without overrides DB
+            self.config_store = None
+        # Track baseline (pre-override) snapshot and which keys were overridden
+        self._baseline_snapshot: dict[str, dict[str, str]] = {}
+        self.overridden_keys: dict[str, set[str]] = {}
+        # Load base configuration (file or URL), then overlay DB overrides
         self._load_config()
+        self._snapshot_baseline()
+        self._apply_overrides()
+        # URL configuration caching
+        self._baseline_cache_path = os.path.join("data", "config_baseline_cache.conf")
+        try:
+            os.makedirs(os.path.dirname(self._baseline_cache_path), exist_ok=True)
+        except Exception:
+            pass
+        # Default refresh interval (seconds)
+        self._refresh_interval_seconds = int(os.getenv("CONFIG_REFRESH_SECONDS", "300"))
 
     def _load_config(self):
         """Load configuration from file"""
@@ -687,22 +710,159 @@ class TacacsConfig:
             logger.warning("Failed to persist webhook config: %s", e)
 
     def update_server_config(self, **kwargs):
-        """Update server configuration with validation"""
+        """Update server configuration with validation and history tracking"""
+        # Extract context hints (not real keys)
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        # Capture previous values for history
+        old_values: dict[str, str] = {
+            k: self.config.get("server", k, fallback="") for k in kwargs.keys()
+        }
         temp_config = self._create_temp_config_with_updates("server", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("server", kwargs)
+        # Apply overrides + history + version if store is available
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="server",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="server",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated server config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        # Apply in-memory overrides for live process
+        self._apply_overrides()
+        # Persist file-backed configuration
+        if not self.is_url_config():
+            self.save_config()
 
     def update_auth_config(self, **kwargs):
-        """Update authentication configuration with validation"""
+        """Update authentication configuration with validation and history tracking"""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        old_values: dict[str, str] = {
+            k: self.config.get("auth", k, fallback="") for k in kwargs.keys()
+        }
         temp_config = self._create_temp_config_with_updates("auth", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("auth", kwargs)
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="auth",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="auth",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated auth config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
 
     def update_ldap_config(self, **kwargs):
-        """Update LDAP configuration with validation"""
+        """Update LDAP configuration with validation and history tracking"""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        old_values: dict[str, str] = {
+            k: self.config.get("ldap", k, fallback="") for k in kwargs.keys()
+        }
         temp_config = self._create_temp_config_with_updates("ldap", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("ldap", kwargs)
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="ldap",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="ldap",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated ldap config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
 
     def _create_temp_config_with_updates(
         self, section: str, updates: dict
@@ -942,9 +1102,293 @@ class TacacsConfig:
         try:
             payload = self._fetch_url_content(source)
             if payload:
+                # Load into config and cache baseline to disk
                 self.config.read_string(payload)
+                try:
+                    with open(self._baseline_cache_path, "w", encoding="utf-8") as fh:
+                        fh.write(payload)
+                except Exception:
+                    pass
+                # Update metadata
+                try:
+                    if self.config_store:
+                        self.config_store.set_metadata("last_url_fetch", datetime.now(UTC).isoformat())
+                        self.config_store.set_metadata("config_source", source)
+                        # Create a baseline version snapshot
+                        try:
+                            snap = json.loads(self._serialize_config_to_json())
+                            self.config_store.create_version(snap, created_by="system", description="URL baseline", is_baseline=True)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            else:
+                # Fall back to cached baseline if available
+                self._load_from_cache()
         except Exception as exc:
             logger.exception("Failed to load configuration from %s: %s", source, exc)
+            # Fall back to cached baseline if available
+            self._load_from_cache()
+
+    def _load_from_cache(self) -> None:
+        try:
+            if os.path.exists(self._baseline_cache_path):
+                with open(self._baseline_cache_path, "r", encoding="utf-8") as fh:
+                    cached = fh.read()
+                self.config.read_string(cached)
+                logger.warning("Using cached baseline configuration: %s", self._baseline_cache_path)
+            else:
+                logger.warning("No cached baseline config found at %s", self._baseline_cache_path)
+        except Exception:
+            logger.exception("Failed to load cached baseline configuration")
+
+    def _serialize_config_to_json(self) -> str:
+        # Convert configparser content to a JSON-serializable nested dict
+        data: dict[str, dict[str, str]] = {}
+        for section in self.config.sections():
+            data[section] = {k: v for k, v in self.config.items(section)}
+        return json.dumps(data, sort_keys=True)
+
+    def _snapshot_baseline(self) -> None:
+        """Store a copy of the current (pre-override) configuration for UI comparisons."""
+        snap: dict[str, dict[str, str]] = {}
+        for section in self.config.sections():
+            snap[section] = {k: v for k, v in self.config.items(section)}
+        self._baseline_snapshot = snap
+
+    def _apply_overrides(self) -> None:
+        """Apply database overrides on top of base configuration."""
+        self.overridden_keys = {}
+        if not getattr(self, "config_store", None):
+            return
+        try:
+            ov = self.config_store.get_all_overrides()
+        except Exception:
+            return
+        for section, kv in ov.items():
+            if not self.config.has_section(section):
+                try:
+                    self.config.add_section(section)
+                except Exception:
+                    continue
+            for key, (val, vtype) in kv.items():
+                # Convert decoded value to a string for configparser
+                if isinstance(val, (dict, list)):
+                    sval = json.dumps(val)
+                elif isinstance(val, bool):
+                    sval = "true" if val else "false"
+                else:
+                    sval = str(val)
+                try:
+                    self.config.set(section, key, sval)
+                    self.overridden_keys.setdefault(section, set()).add(key)
+                except Exception:
+                    continue
+
+    def is_url_config(self) -> bool:
+        return self._is_url(self.config_source)
+
+    def get_baseline_config(self) -> dict:
+        """Return base config without overrides (for UI comparison)."""
+        return json.loads(json.dumps(self._baseline_snapshot))
+
+    # --- helpers for history/version tracking ---
+    def _get_current_user(self) -> str:
+        """Return current admin user for audit purposes.
+
+        In this implementation, returns "system". Hook into your auth/session
+        context as needed to populate the real user.
+        """
+        return os.getenv("CURRENT_ADMIN_USER", "system")
+
+    def _infer_type(self, value: Any) -> str:
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int) and not isinstance(value, bool):
+            return "integer"
+        if isinstance(value, list):
+            return "list"
+        if isinstance(value, dict):
+            return "json"
+        return "string"
+
+    def _export_full_config(self) -> dict:
+        out: dict[str, dict[str, str]] = {}
+        for section in self.config.sections():
+            out[section] = {k: v for k, v in self.config.items(section)}
+        return out
+
+    # --- drift detection ---
+    def _get_base_value(self, section: str, key: str, value_type: str | None = None) -> Any:
+        """Return the baseline (pre-override) value for section/key.
+
+        Attempts to coerce string baseline to the expected type when provided.
+        """
+        try:
+            sval = self._baseline_snapshot.get(section, {}).get(key)
+            if sval is None:
+                return None
+            if not value_type:
+                return sval
+            vtype = value_type.lower()
+            if vtype in ("boolean", "bool"):
+                return str(sval).lower() in ("1", "true", "yes")
+            if vtype in ("integer", "int"):
+                try:
+                    return int(sval)
+                except Exception:
+                    return sval
+            if vtype in ("json", "list"):
+                try:
+                    return json.loads(sval)
+                except Exception:
+                    return sval
+            # default string
+            return sval
+        except Exception:
+            return None
+
+    def detect_config_drift(self) -> dict[str, dict[str, tuple[Any, Any]]]:
+        """
+        Compare base config (pre-overrides) with active overrides.
+
+        Returns: {section: {key: (base_value, override_value)}}
+        """
+        drift: dict[str, dict[str, tuple[Any, Any]]] = {}
+        store = getattr(self, "config_store", None)
+        if not store:
+            return drift
+        try:
+            overrides = store.get_all_overrides()
+        except Exception:
+            return drift
+        for section, keys in overrides.items():
+            for key, (override_value, value_type) in keys.items():
+                base_value = self._get_base_value(section, key, value_type)
+                if base_value != override_value:
+                    drift.setdefault(section, {})[key] = (base_value, override_value)
+        return drift
+
+    # --- pre-apply validation ---
+    def _is_port_available(self, port: int, host: str = "127.0.0.1") -> bool:
+        import socket as _socket
+
+        try:
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+                try:
+                    s.bind((host, int(port)))
+                except OSError:
+                    return False
+            return True
+        except Exception:
+            return False
+
+    def validate_change(self, section: str, key: str, value: Any) -> tuple[bool, list[str]]:
+        """
+        Validate a single configuration change against the schema and custom rules.
+
+        Returns: (is_valid, issues)
+        """
+        issues: list[str] = []
+        # 1) Build a temporary payload with proposed change layered on current config
+        payload = self._export_full_config()
+        sec = payload.setdefault(section, {})
+        # stringify the value for config parser semantics
+        sec[key] = str(value)
+
+        # 2) Schema validation
+        try:
+            validate_config_file({
+                "server": payload.get("server", {}),
+                "auth": payload.get("auth", {}),
+                "security": payload.get("security", {}),
+                **({"ldap": payload.get("ldap", {})} if "ldap" in payload else {}),
+                **({"okta": payload.get("okta", {})} if "okta" in payload else {}),
+                **({"backup": payload.get("backup", {})} if "backup" in payload else {}),
+                **({"source_url": payload.get("source_url", {})} if isinstance(payload.get("source_url"), dict) else {}),
+            })
+        except Exception as e:  # pydantic raises ValidationError (subclass of ValueError)
+            issues.append(str(e))
+            return False, issues
+
+        # 3) Custom validation
+        if section == "server" and key == "port":
+            try:
+                port_int = int(value)
+                if not (1 <= port_int <= 65535):
+                    issues.append("Port out of valid range (1-65535)")
+                elif not self._is_port_available(port_int):
+                    issues.append(f"Port {port_int} is already in use")
+            except Exception:
+                issues.append("Port must be an integer")
+
+        if section == "auth" and key == "backends":
+            try:
+                backends = [b.strip().lower() for b in str(value).split(",") if b.strip()]
+                valid = {"local", "ldap", "okta"}
+                for b in backends:
+                    if b not in valid:
+                        issues.append(f"Unknown backend: {b}")
+            except Exception:
+                issues.append("Invalid backends format")
+
+        return (len(issues) == 0), issues
+
+    def refresh_url_config(self, force: bool = False) -> bool:
+        """Refresh configuration from URL if the source is a URL.
+
+        Returns True if a new configuration was fetched and applied.
+        """
+        try:
+            if not self._is_url(self.config_source):
+                return False
+            # Check interval
+            try:
+                last_fetch = None
+                if self.config_store:
+                    ts = self.config_store.get_metadata("last_url_fetch")
+                    if ts:
+                        last_fetch = datetime.fromisoformat(ts)
+            except Exception:
+                last_fetch = None
+            if not force and last_fetch is not None:
+                if datetime.now(UTC) - last_fetch < timedelta(seconds=self._refresh_interval_seconds):
+                    return False
+            # Attempt fetch
+            payload = self._fetch_url_content(self.config_source) or ""
+            if not payload:
+                logger.warning("URL refresh failed; using existing configuration")
+                return False
+            new_hash = compute_config_hash(payload)
+            # Current config hash
+            current_json = self._serialize_config_to_json()
+            current_hash = compute_config_hash(current_json)
+            if new_hash == current_hash:
+                # Update last fetch metadata even if unchanged
+                if self.config_store:
+                    self.config_store.set_metadata("last_url_fetch", datetime.now(UTC).isoformat())
+                return False
+            # Apply and cache
+            self.config.read_string(payload)
+            try:
+                with open(self._baseline_cache_path, "w", encoding="utf-8") as fh:
+                    fh.write(payload)
+            except Exception:
+                pass
+            # Persist new version snapshot
+            try:
+                if self.config_store:
+                    snap = json.loads(self._serialize_config_to_json())
+                    self.config_store.create_version(snap, created_by="system", description="URL refresh", is_baseline=True)
+                    self.config_store.set_metadata("last_url_fetch", datetime.now(UTC).isoformat())
+            except Exception:
+                logger.debug("Failed to persist config version snapshot")
+            logger.info("Configuration refreshed from URL (hash changed)")
+            return True
+        except Exception as e:
+            logger.warning("URL configuration refresh failed: %s", e)
+            return False
 
     def _is_url_safe(self, source: str) -> bool:
         """Validate URL safety to prevent SSRF attacks"""
