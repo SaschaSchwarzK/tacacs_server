@@ -34,6 +34,7 @@ from prometheus_client import Gauge as _PM_Gauge
 from prometheus_client import Histogram as _PM_Histogram
 from pydantic import BaseModel
 
+from tacacs_server.utils import config_utils
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
 from tacacs_server.web.api.device_groups import router as device_groups_router
@@ -68,25 +69,13 @@ _command_authorizer: (
 _command_engine: Optional["CommandAuthorizationEngine"] = None
 
 # --- Change context (for configuration updates) ---
-_config_user: ContextVar[str] = ContextVar("config_user", default="system")
-_config_source_ip: ContextVar[str | None] = ContextVar(
-    "config_source_ip", default=None
-)
-
-
-def get_config_change_user() -> str:
-    try:
-        return _config_user.get()
-    except Exception:
-        return "system"
-
-
-def get_config_change_source_ip() -> str | None:
-    try:
-        return _config_source_ip.get()
-    except Exception:
-        return None
-
+# Re-export config utility functions for backward compatibility
+set_config = config_utils.set_config
+get_config = config_utils.get_config
+get_config_change_user = config_utils.get_config_change_user
+get_config_change_source_ip = config_utils.get_config_change_source_ip
+set_admin_auth_dependency = config_utils.set_admin_auth_dependency
+get_admin_auth_dependency_func = config_utils.get_admin_auth_dependency_func
 
 def get_device_service() -> Optional["DeviceService"]:
     return _device_service

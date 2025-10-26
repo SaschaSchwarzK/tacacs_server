@@ -3,6 +3,7 @@ Configuration Management for TACACS+ Server
 """
 
 import configparser
+import json
 import logging
 import os
 import time
@@ -68,16 +69,16 @@ class TacacsConfig:
         # Track baseline (pre-override) snapshot and which keys were overridden
         self._baseline_snapshot: dict[str, dict[str, str]] = {}
         self.overridden_keys: dict[str, set[str]] = {}
-        # Load base configuration (file or URL), then overlay DB overrides
-        self._load_config()
-        self._snapshot_baseline()
-        self._apply_overrides()
-        # URL configuration caching
+        # URL configuration caching (initialize before loading so fallback works)
         self._baseline_cache_path = os.path.join("data", "config_baseline_cache.conf")
         try:
             os.makedirs(os.path.dirname(self._baseline_cache_path), exist_ok=True)
         except Exception:
             pass
+        # Load base configuration (file or URL), then overlay DB overrides
+        self._load_config()
+        self._snapshot_baseline()
+        self._apply_overrides()
         # Default refresh interval (seconds)
         self._refresh_interval_seconds = int(os.getenv("CONFIG_REFRESH_SECONDS", "300"))
 

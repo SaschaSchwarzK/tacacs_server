@@ -30,6 +30,7 @@ from tacacs_server.web.monitoring import (
 from tacacs_server.web.monitoring import (
     set_config as monitoring_set_config,
 )
+from tacacs_server.utils.config_utils import set_config as utils_set_config
 
 logger = get_logger(__name__)
 
@@ -40,6 +41,11 @@ class TacacsServerManager:
     def __init__(self, config_file: str = "config/tacacs.conf"):
         self.config = TacacsConfig(config_file)
         monitoring_set_config(self.config)
+        # Mirror into utils accessor so API modules using config_utils see it
+        try:
+            utils_set_config(self.config)
+        except Exception:
+            pass
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
         from tacacs_server.devices.service import DeviceService as _DSe
