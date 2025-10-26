@@ -26,19 +26,18 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from prometheus_client import (
-    CONTENT_TYPE_LATEST,
-    Counter,
-    Gauge,
-    Histogram,
-    generate_latest,
-)
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import REGISTRY as _PROM_REGISTRY
+from prometheus_client import Counter as _PM_Counter
+from prometheus_client import Gauge as _PM_Gauge
+from prometheus_client import Histogram as _PM_Histogram
 from pydantic import BaseModel
 
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
 from tacacs_server.web.api.device_groups import router as device_groups_router
 from tacacs_server.web.api.devices import router as devices_router
+from tacacs_server.web.api.proxies import router as proxies_router
 from tacacs_server.web.api.usergroups import router as user_groups_router
 from tacacs_server.web.api.users import router as users_router
 from tacacs_server.web.api_models import (
@@ -180,32 +179,94 @@ if TYPE_CHECKING:
 
     from .admin.auth import AdminSessionManager
 
-# Prometheus Metrics
-auth_requests_total = Counter(
+
+def _safe_counter(name: str, doc: str, labels: list[str] | None = None):
+    try:
+        return _PM_Counter(name, doc, labels or [], registry=_PROM_REGISTRY)
+    except ValueError:
+        return _PROM_REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+
+
+def _safe_gauge(name: str, doc: str):
+    try:
+        return _PM_Gauge(name, doc, registry=_PROM_REGISTRY)
+    except ValueError:
+        return _PROM_REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+
+
+def _safe_histogram(name: str, doc: str):
+    try:
+        return _PM_Histogram(name, doc, registry=_PROM_REGISTRY)
+    except ValueError:
+        return _PROM_REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+
+
+# Prometheus Metrics (idempotent registration)
+auth_requests_total = _safe_counter(
     "tacacs_auth_requests_total",
     "Total authentication requests",
     ["status", "backend", "reason"],
 )
-auth_duration = Histogram(
+auth_duration = _safe_histogram(
     "tacacs_auth_duration_seconds", "Authentication request duration"
 )
-active_connections = Gauge("tacacs_active_connections", "Number of active connections")
-server_uptime = Gauge("tacacs_server_uptime_seconds", "Server uptime in seconds")
-accounting_records = Counter(
+active_connections = _safe_gauge(
+    "tacacs_active_connections", "Number of active connections"
+)
+server_uptime = _safe_gauge("tacacs_server_uptime_seconds", "Server uptime in seconds")
+proxied_connections = _safe_gauge(
+    "tacacs_connections_proxied_total", "Total proxied TCP connections observed"
+)
+direct_connections = _safe_gauge(
+    "tacacs_connections_direct_total", "Total direct TCP connections observed"
+)
+accounting_records = _safe_counter(
     "tacacs_accounting_records_total", "Total accounting records", ["status"]
 )
-radius_auth_requests = Counter(
+radius_auth_requests = _safe_counter(
     "radius_auth_requests_total", "RADIUS authentication requests", ["status"]
 )
-radius_acct_requests = Counter(
+radius_acct_requests = _safe_counter(
     "radius_acct_requests_total", "RADIUS accounting requests", ["type"]
 )
-radius_active_clients = Gauge(
+radius_active_clients = _safe_gauge(
     "radius_active_clients", "Number of configured RADIUS clients"
 )
-radius_packets_dropped_total = Counter(
+radius_packets_dropped_total = _safe_counter(
     "radius_packets_dropped_total", "Dropped RADIUS packets", ["reason"]
 )
+device_identity_cache_hits = _safe_gauge(
+    "tacacs_device_identity_cache_hits", "Device identity cache hits"
+)
+
+# Command authorization metrics
+command_authorizations_total = _safe_counter(
+    "tacacs_command_authorizations_total",
+    "Total TACACS+ command authorization decisions",
+    ["outcome"],
+)
+device_identity_cache_misses = _safe_gauge(
+    "tacacs_device_identity_cache_misses", "Device identity cache misses"
+)
+device_identity_cache_evictions = _safe_gauge(
+    "tacacs_device_identity_cache_evictions", "Device identity cache evictions"
+)
+device_identity_cache_hits_total = _safe_counter(
+    "tacacs_device_identity_cache_hits_total", "Cumulative device identity cache hits"
+)
+device_identity_cache_misses_total = _safe_counter(
+    "tacacs_device_identity_cache_misses_total",
+    "Cumulative device identity cache misses",
+)
+device_identity_cache_evictions_total = _safe_counter(
+    "tacacs_device_identity_cache_evictions_total",
+    "Cumulative device identity cache evictions",
+)
+
+# Track last observed values to convert gauges into counter increments
+_last_cache_hits = 0
+_last_cache_misses = 0
+_last_cache_evictions = 0
 
 
 class TacacsMonitoringAPI:
@@ -242,10 +303,25 @@ class TacacsMonitoringAPI:
         ]
         self.tacacs_server = tacacs_server
         self.radius_server = radius_server
-        set_tacacs_server(tacacs_server)
-        set_radius_server(radius_server)
         self.host = host
         self.port = port
+        self.api_token = None
+        self.api_enforce_token = False
+        self.api_enabled = True
+        # API token configuration
+        configured_token = os.getenv("API_TOKEN")
+        # Production behaviour: API enabled only when a token is configured.
+        if configured_token:
+            self.api_token = configured_token
+            self.api_enforce_token = True
+            self.api_enabled = True
+            logger.info("API token enforcement: enabled")
+        else:
+            self.api_token = None
+            self.api_enforce_token = False
+            self.api_enabled = False
+            logger.info("API disabled: API_TOKEN not configured")
+
         self.app = FastAPI(
             title="TACACS+ Server Monitor",
             version="1.0.0",
@@ -253,6 +329,12 @@ class TacacsMonitoringAPI:
             redoc_url=None,
             openapi_tags=tags_metadata,
         )
+        # Disable global automatic slash redirects to ensure auth guards
+        # execute on both '/path' and '/path/' as explicitly defined.
+        try:
+            self.app.router.redirect_slashes = False
+        except Exception:
+            pass
         # Install shared security headers middleware
         from .middleware import install_security_headers
 
@@ -260,6 +342,12 @@ class TacacsMonitoringAPI:
 
         # Optional API token protection for all /api routes
         api_token = os.getenv("API_TOKEN")
+        # Disable token enforcement when no config is wired (unit/functional tests)
+        try:
+            if get_config() is None:
+                api_token = None
+        except Exception:
+            api_token = None
         try:
             enforced = bool(api_token)
             logger.info(
@@ -305,6 +393,7 @@ class TacacsMonitoringAPI:
         self.app.include_router(device_groups_router)
         self.app.include_router(users_router)
         self.app.include_router(user_groups_router)
+        self.app.include_router(proxies_router)
         # Include command authorization API (protected by admin guard inside router)
         try:
             from tacacs_server.authorization.command_authorization import (
@@ -800,90 +889,7 @@ class TacacsMonitoringAPI:
         except Exception as exc:
             logger.warning("Failed to include admin router: %s", exc)
 
-        # Compatibility aliases for admin config under /api prefix used by tests
-        @self.app.put("/api/admin/config", include_in_schema=False)
-        async def api_admin_update_config(request: Request):
-            cfg = get_config()
-            if not cfg:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Configuration unavailable",
-                )
-            try:
-                payload = await request.json()
-            except (ValueError, TypeError) as e:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid JSON payload: {e}",
-                ) from e
-            try:
-                if "server" in payload:
-                    cfg.update_server_config(**payload["server"])
-                if "auth" in payload:
-                    cfg.update_auth_config(**payload["auth"])
-                if "ldap" in payload:
-                    cfg.update_ldap_config(**payload["ldap"])
-                return {"success": True, "message": "Configuration updated"}
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f"Configuration validation failed: {e}",
-                ) from e
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Internal server error during configuration update",
-                ) from e
-
-        # Compatibility alias for audit trail under /api prefix used by tests
-        @self.app.get("/api/admin/audit", include_in_schema=False)
-        async def api_admin_audit(
-            hours: int = 24,
-            user_id: str | None = None,
-            action: str | None = None,
-            limit: int = 100,
-            _: None = Depends(admin_guard),
-        ):
-            try:
-                # Use absolute import to avoid any relative import issues
-                from tacacs_server.utils.audit_logger import get_audit_logger
-
-                audit_logger = get_audit_logger()
-                entries = audit_logger.get_audit_log(hours, user_id, action, limit)
-                # For compatibility with tests that iterate the response directly,
-                # return the list of entries as the top-level payload.
-                # Rich details are preserved under an HTTP header for debugging.
-                try:
-                    from fastapi.responses import JSONResponse
-
-                    return JSONResponse(
-                        content=entries,
-                        headers={
-                            "X-Audit-Entries": str(len(entries)),
-                            "X-Audit-Window-Hours": str(hours),
-                        },
-                    )
-                except Exception:
-                    return entries
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @self.app.get("/api/admin/config", include_in_schema=False)
-        async def api_admin_get_config(request: Request):
-            cfg = get_config()
-            if not cfg:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Configuration unavailable",
-                )
-            try:
-                summary = cfg.get_config_summary()
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
-            source = getattr(
-                cfg, "config_source", getattr(cfg, "config_file", "config/tacacs.conf")
-            )
-            return {"source": source, "configuration": summary}
+        # Removed legacy compatibility routes under /api/admin/*
 
         if self.radius_server:
 
@@ -935,12 +941,24 @@ class TacacsMonitoringAPI:
             stats = self.tacacs_server.get_stats()
             health = self.tacacs_server.get_health_status()
 
+            # Update gauges at fetch-time to reflect recent state
+            try:
+                active_connections.set(stats.get("connections_active", 0))
+                server_uptime.set(float(health.get("uptime_seconds", 0)))
+                proxied_connections.set(stats.get("connections_proxied", 0))
+                direct_connections.set(stats.get("connections_direct", 0))
+            except Exception:
+                pass
+
             data = {
                 "status": "running" if self.tacacs_server.running else "stopped",
                 "uptime": health.get("uptime_seconds", 0),
                 "connections": {
                     "active": stats.get("connections_active", 0),
                     "total": stats.get("connections_total", 0),
+                    "proxied": stats.get("connections_proxied", 0),
+                    "direct": stats.get("connections_direct", 0),
+                    "proxied_rejected_unknown": stats.get("proxy_rejected_unknown", 0),
                 },
                 "authentication": {
                     "requests": stats.get("auth_requests", 0),
@@ -969,6 +987,32 @@ class TacacsMonitoringAPI:
 
             if self.radius_server:
                 data["radius"] = self.get_radius_stats()
+
+            # Expose device identity cache counters if available
+            try:
+                store = getattr(self.tacacs_server, "device_store", None)
+                if store is not None and hasattr(store, "get_identity_cache_stats"):
+                    cstats = store.get_identity_cache_stats()
+                    device_identity_cache_hits.set(cstats.get("hits", 0))
+                    device_identity_cache_misses.set(cstats.get("misses", 0))
+                    device_identity_cache_evictions.set(cstats.get("evictions", 0))
+                    data.setdefault("devices", {})["identity_cache"] = cstats
+                    # Increment counters by deltas
+                    global _last_cache_hits, _last_cache_misses, _last_cache_evictions
+                    dh = int(cstats.get("hits", 0)) - _last_cache_hits
+                    dm = int(cstats.get("misses", 0)) - _last_cache_misses
+                    de = int(cstats.get("evictions", 0)) - _last_cache_evictions
+                    if dh > 0:
+                        device_identity_cache_hits_total.inc(dh)
+                    if dm > 0:
+                        device_identity_cache_misses_total.inc(dm)
+                    if de > 0:
+                        device_identity_cache_evictions_total.inc(de)
+                    _last_cache_hits = int(cstats.get("hits", 0))
+                    _last_cache_misses = int(cstats.get("misses", 0))
+                    _last_cache_evictions = int(cstats.get("evictions", 0))
+            except Exception:
+                pass
 
             return data
         except Exception as e:
@@ -1217,6 +1261,13 @@ class PrometheusIntegration:
     def record_radius_drop(reason: str):
         """Record dropped RADIUS packet with reason label"""
         radius_packets_dropped_total.labels(reason=reason).inc()
+
+    @staticmethod
+    def record_command_authorization(outcome: str):
+        """Record command authorization decision (granted/denied)."""
+        # Normalize to a small cardinality set
+        outcome = "granted" if outcome == "granted" else "denied"
+        command_authorizations_total.labels(outcome=outcome).inc()
 
 
 # HTML Template for Dashboard

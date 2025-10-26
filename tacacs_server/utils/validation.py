@@ -434,6 +434,20 @@ class FormValidator:
                     desc, "description", max_len=500
                 )
 
+        # proxy_network deprecated and no longer supported in admin validation
+
+        # New: allow proxy_id (preferred) for linking proxies
+        if "proxy_id" in data:
+            try:
+                pid = (
+                    int(data["proxy_id"])
+                    if data["proxy_id"] not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                raise ValidationError("proxy_id must be an integer or null")
+            validated["proxy_id"] = pid
+
         if "tacacs_secret" in data and data["tacacs_secret"]:
             validated["tacacs_secret"] = InputValidator.validate_secret(
                 data["tacacs_secret"], "TACACS+ secret"
