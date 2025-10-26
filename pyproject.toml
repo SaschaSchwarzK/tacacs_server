@@ -8,6 +8,7 @@ packages = [{ include = "tacacs_server" }]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
+apscheduler = "^3.10.4"
 requests = "^2.32.5"
 ldap3 = "^2.9"
 pyasn1 = "^0.6.1"

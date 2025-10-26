@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 import traceback
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -16,9 +15,24 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+# Registry to avoid pickling bound methods (APScheduler jobstores pickle callables)
+_SCHEDULERS: dict[str, BackupScheduler] = {}
+
+
+def _execute_job_static(
+    reg_id: str,
+    job_id: str,
+    destination_id: str | None,
+    execution_id: str | None = None,
+) -> None:
+    sch = _SCHEDULERS.get(reg_id)
+    if not sch:
+        return
+    sch._execute_job_impl(job_id, destination_id, execution_id)
+
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class BackupScheduler:
@@ -29,24 +43,31 @@ class BackupScheduler:
     counts in a scheduler-agnostic way.
     """
 
-    def __init__(self, backup_service: "BackupService") -> None:
+    def __init__(self, backup_service: BackupService) -> None:
         self.backup_service = backup_service
         os.makedirs("data", exist_ok=True)
         self._meta_path = os.path.join("data", "backup_jobs_meta.json")
         self._meta_lock = threading.RLock()
         self._metadata: dict[str, Any] = self._load_metadata()
         self._executions: dict[str, dict[str, Any]] = {}
+        self._registry_id: str = str(id(self))
+        _SCHEDULERS[self._registry_id] = self
 
         jobstores = {"default": SQLAlchemyJobStore(url="sqlite:///data/backup_jobs.db")}
         executors = {"default": ThreadPoolExecutor(max_workers=4)}
         job_defaults = {"coalesce": False, "max_instances": 1, "misfire_grace_time": 60}
-        self.scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults, timezone=timezone.utc)
+        self.scheduler = BackgroundScheduler(
+            jobstores=jobstores,
+            executors=executors,
+            job_defaults=job_defaults,
+            timezone=UTC,
+        )
 
     # --- metadata helpers ---
     def _load_metadata(self) -> dict[str, Any]:
         try:
             if os.path.exists(self._meta_path):
-                with open(self._meta_path, "r", encoding="utf-8") as fh:
+                with open(self._meta_path, encoding="utf-8") as fh:
                     return json.load(fh)
         except Exception:
             pass
@@ -68,6 +89,10 @@ class BackupScheduler:
     def stop(self) -> None:
         try:
             self.scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        try:
+            _SCHEDULERS.pop(self._registry_id, None)
         except Exception:
             pass
 
@@ -103,21 +128,23 @@ class BackupScheduler:
             return job_id
 
         if schedule_type == "cron":
-            trigger = CronTrigger.from_crontab(schedule_value, timezone=timezone.utc)
+            trigger = CronTrigger.from_crontab(schedule_value, timezone=UTC)
         else:  # interval
             # format: "hours:24" or "days:1" or "minutes:15"
             try:
                 k, v = schedule_value.split(":", 1)
                 kwargs = {k.strip(): int(v.strip())}
             except Exception as exc:
-                raise ValueError(f"Invalid interval schedule_value: {schedule_value}") from exc
-            trigger = IntervalTrigger(timezone=timezone.utc, **kwargs)
+                raise ValueError(
+                    f"Invalid interval schedule_value: {schedule_value}"
+                ) from exc
+            trigger = IntervalTrigger(timezone=UTC, **kwargs)
 
         self.scheduler.add_job(
-            self._execute_job,
+            _execute_job_static,
             trigger=trigger,
             id=job_id,
-            args=[job_id, destination_id],
+            args=[self._registry_id, job_id, destination_id],
             replace_existing=True,
             max_instances=1,
         )
@@ -161,10 +188,10 @@ class BackupScheduler:
         dest = job_meta.get("destination_id")
         run_time = _utc_now() + timedelta(seconds=1)
         self.scheduler.add_job(
-            self._execute_job,
+            _execute_job_static,
             trigger=DateTrigger(run_date=run_time),
             id=f"{job_id}__{exec_id}",
-            args=[job_id, dest, exec_id],
+            args=[self._registry_id, job_id, dest, exec_id],
             replace_existing=False,
             max_instances=1,
         )
@@ -174,7 +201,9 @@ class BackupScheduler:
         job = self.scheduler.get_job(job_id)
         meta = self._metadata.get("jobs", {}).get(job_id, {}).copy()
         meta["job_id"] = job_id
-        meta["next_run"] = job.next_run_time.isoformat() if job and job.next_run_time else None
+        meta["next_run"] = (
+            job.next_run_time.isoformat() if job and job.next_run_time else None
+        )
         meta["pending"] = job is not None
         return meta
 
@@ -186,7 +215,9 @@ class BackupScheduler:
             ids.add(jid)
             item = self._metadata.get("jobs", {}).get(jid, {}).copy()
             item["job_id"] = jid
-            item["next_run"] = job.next_run_time.isoformat() if job.next_run_time else None
+            item["next_run"] = (
+                job.next_run_time.isoformat() if job.next_run_time else None
+            )
             jobs.append(item)
         # Include manual jobs which won't exist in scheduler
         for jid, meta in (self._metadata.get("jobs", {}) or {}).items():
@@ -198,7 +229,9 @@ class BackupScheduler:
         return sorted(jobs, key=lambda x: x.get("job_id", ""))
 
     # --- execution handler ---
-    def _execute_job(self, job_id: str, destination_id: str | None, execution_id: str | None = None) -> None:
+    def _execute_job_impl(
+        self, job_id: str, destination_id: str | None, execution_id: str | None = None
+    ) -> None:
         exec_id = execution_id or str(uuid.uuid4())
         start = _utc_now()
         ok = False
@@ -217,11 +250,13 @@ class BackupScheduler:
         finally:
             end = _utc_now()
             info = self._executions.get(exec_id, {})
-            info.update({
-                "end_time": end.isoformat(),
-                "status": "success" if ok else "failed",
-                "error": err,
-            })
+            info.update(
+                {
+                    "end_time": end.isoformat(),
+                    "status": "success" if ok else "failed",
+                    "error": err,
+                }
+            )
             self._executions[exec_id] = info
             # update job meta
             with self._meta_lock:
@@ -246,4 +281,3 @@ class BackupScheduler:
                     jm["failure_count"] = 0
                 self._metadata["jobs"][job_id] = jm
                 self._save_metadata()
-

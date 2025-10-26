@@ -81,7 +81,9 @@ class BackupExecutionStore:
             )
 
     # --- executions ---
-    def create_execution(self, execution_id: str, destination_id: str, triggered_by: str) -> dict:
+    def create_execution(
+        self, execution_id: str, destination_id: str, triggered_by: str
+    ) -> dict:
         row = {
             "id": execution_id,
             "destination_id": destination_id,
@@ -95,7 +97,13 @@ class BackupExecutionStore:
                 INSERT INTO backup_executions(id, destination_id, triggered_by, started_at, status)
                 VALUES(?, ?, ?, ?, ?)
                 """,
-                (row["id"], row["destination_id"], row["triggered_by"], row["started_at"], row["status"]),
+                (
+                    row["id"],
+                    row["destination_id"],
+                    row["triggered_by"],
+                    row["started_at"],
+                    row["status"],
+                ),
             )
         return row
 
@@ -124,7 +132,9 @@ class BackupExecutionStore:
         row = cur.fetchone()
         return dict(row) if row else None
 
-    def list_executions(self, limit: int = 100, offset: int = 0, status: str | None = None) -> list[dict]:
+    def list_executions(
+        self, limit: int = 100, offset: int = 0, status: str | None = None
+    ) -> list[dict]:
         sql = "SELECT * FROM backup_executions"
         params: list[Any] = []
         if status:
@@ -152,7 +162,9 @@ class BackupExecutionStore:
             return int(cur.rowcount or 0)
 
     # --- destinations ---
-    def create_destination(self, name: str, dest_type: str, config: dict, created_by: str, **kwargs) -> str:
+    def create_destination(
+        self, name: str, dest_type: str, config: dict, created_by: str, **kwargs
+    ) -> str:
         dest_id = str(uuid.uuid4())
         created_at = _now_iso()
         cfg_json = json.dumps(config or {})
@@ -164,7 +176,16 @@ class BackupExecutionStore:
                 INSERT INTO backup_destinations(id, name, type, enabled, config_json, retention_days, created_at, created_by)
                 VALUES(?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (dest_id, name, dest_type, enabled, cfg_json, retention_days, created_at, created_by),
+                (
+                    dest_id,
+                    name,
+                    dest_type,
+                    enabled,
+                    cfg_json,
+                    retention_days,
+                    created_at,
+                    created_by,
+                ),
             )
         return dest_id
 
@@ -175,7 +196,9 @@ class BackupExecutionStore:
         params = []
         for k, v in updates.items():
             keys.append(f"{k}=?")
-            params.append(json.dumps(v) if k == "config_json" and not isinstance(v, str) else v)
+            params.append(
+                json.dumps(v) if k == "config_json" and not isinstance(v, str) else v
+            )
         params.append(dest_id)
         with self._conn:
             self._conn.execute(
@@ -184,7 +207,9 @@ class BackupExecutionStore:
             )
 
     def get_destination(self, dest_id: str) -> dict | None:
-        cur = self._conn.execute("SELECT * FROM backup_destinations WHERE id=?", (dest_id,))
+        cur = self._conn.execute(
+            "SELECT * FROM backup_destinations WHERE id=?", (dest_id,)
+        )
         row = cur.fetchone()
         return dict(row) if row else None
 
@@ -199,14 +224,17 @@ class BackupExecutionStore:
 
     def delete_destination(self, dest_id: str) -> bool:
         with self._conn:
-            cur = self._conn.execute("DELETE FROM backup_destinations WHERE id=?", (dest_id,))
+            cur = self._conn.execute(
+                "DELETE FROM backup_destinations WHERE id=?", (dest_id,)
+            )
             return cur.rowcount > 0
 
-    def set_last_backup(self, dest_id: str, status: str, timestamp: str | None = None) -> None:
+    def set_last_backup(
+        self, dest_id: str, status: str, timestamp: str | None = None
+    ) -> None:
         ts = timestamp or _now_iso()
         with self._conn:
             self._conn.execute(
                 "UPDATE backup_destinations SET last_backup_at=?, last_backup_status=? WHERE id=?",
                 (ts, status, dest_id),
             )
-

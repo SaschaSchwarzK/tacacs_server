@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
 
+from tacacs_server.exceptions import AuthenticationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,13 +41,9 @@ class AdminSessionManager:
 
     def login(self, username: str, password: str) -> str:
         if username != self.config.username:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
-            )
+            raise AuthenticationError("Invalid credentials")
         if not self._verify_password(password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
-            )
+            raise AuthenticationError("Invalid credentials")
 
         self._session_token = secrets.token_urlsafe(32)
         self._session_expiry = datetime.now(UTC) + self.config.session_timeout
@@ -77,12 +75,8 @@ class AdminSessionManager:
             logger.warning(
                 "Admin login rejected: unsupported admin hash format configured; bcrypt required"
             )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=(
-                    "Legacy admin password hashes are not supported. "
-                    "Please migrate ADMIN_PASSWORD_HASH to bcrypt."
-                ),
+            raise AuthenticationError(
+                "Legacy admin password hashes are not supported. Please migrate ADMIN_PASSWORD_HASH to bcrypt."
             )
 
         # Import bcrypt explicitly and provide clear diagnostics

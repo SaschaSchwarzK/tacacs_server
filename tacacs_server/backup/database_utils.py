@@ -5,7 +5,6 @@ import shutil
 import sqlite3
 import time
 from datetime import UTC, datetime
-from typing import Dict, Tuple
 
 
 def export_database(source_path: str, dest_path: str) -> None:
@@ -19,8 +18,14 @@ def export_database(source_path: str, dest_path: str) -> None:
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            with sqlite3.connect(source_path, check_same_thread=False, timeout=30.0) as src,
-                sqlite3.connect(dest_path, check_same_thread=False, timeout=30.0) as dst:
+            with (
+                sqlite3.connect(
+                    source_path, check_same_thread=False, timeout=30.0
+                ) as src,
+                sqlite3.connect(
+                    dest_path, check_same_thread=False, timeout=30.0
+                ) as dst,
+            ):
                 # Configure busy timeout to wait on locks
                 try:
                     src.execute("PRAGMA busy_timeout = 30000")
@@ -43,7 +48,9 @@ def export_database(source_path: str, dest_path: str) -> None:
         raise RuntimeError(f"Exported DB failed integrity check: {msg}")
 
 
-def export_database_with_retry(source_path: str, dest_path: str, max_retries: int = 3) -> None:
+def export_database_with_retry(
+    source_path: str, dest_path: str, max_retries: int = 3
+) -> None:
     """Export with retry on lock contention (OperationalError: locked)."""
     attempt = 0
     while True:
@@ -92,7 +99,7 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
             raise RuntimeError(f"Imported DB failed integrity: {msg}")
 
 
-def verify_database_integrity(db_path: str) -> Tuple[bool, str]:
+def verify_database_integrity(db_path: str) -> tuple[bool, str]:
     """Comprehensive database verification: existence, integrity, FKs, readability."""
     if not os.path.exists(db_path):
         return False, "Database file does not exist"
@@ -135,12 +142,12 @@ def verify_database_integrity(db_path: str) -> Tuple[bool, str]:
         return False, f"Verification failed: {str(e)}"
 
 
-def count_database_records(db_path: str) -> Dict[str, int]:
+def count_database_records(db_path: str) -> dict[str, int]:
     """
     Count rows for all tables in the SQLite database.
     Returns mapping of table_name -> row_count.
     """
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     try:
         with sqlite3.connect(db_path) as conn:
             cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")

@@ -8,7 +8,6 @@ import os
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from contextvars import ContextVar
 from datetime import datetime, timedelta
 from pathlib import Path as FilePath
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -37,12 +36,12 @@ from pydantic import BaseModel
 from tacacs_server.utils import config_utils
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
+from tacacs_server.web.api.config import router as config_router
 from tacacs_server.web.api.device_groups import router as device_groups_router
 from tacacs_server.web.api.devices import router as devices_router
 from tacacs_server.web.api.proxies import router as proxies_router
 from tacacs_server.web.api.usergroups import router as user_groups_router
 from tacacs_server.web.api.users import router as users_router
-from tacacs_server.web.api.config import router as config_router
 from tacacs_server.web.api_models import (
     AccountingResponse,
     AuthBackendInfo,
@@ -51,6 +50,7 @@ from tacacs_server.web.api_models import (
     DetailedStats,
     SessionsResponse,
 )
+from tacacs_server.web.errors import install_exception_handlers as _install_exc
 from tacacs_server.web.openapi_config import configure_openapi_ui, custom_openapi_schema
 
 logger = get_logger(__name__)
@@ -76,6 +76,7 @@ get_config_change_user = config_utils.get_config_change_user
 get_config_change_source_ip = config_utils.get_config_change_source_ip
 set_admin_auth_dependency = config_utils.set_admin_auth_dependency
 get_admin_auth_dependency_func = config_utils.get_admin_auth_dependency_func
+
 
 def get_device_service() -> Optional["DeviceService"]:
     return _device_service
@@ -341,6 +342,7 @@ class TacacsMonitoringAPI:
             redoc_url=None,
             openapi_tags=tags_metadata,
         )
+        _install_exc(self.app)
         # Disable global automatic slash redirects to ensure auth guards
         # execute on both '/path' and '/path/' as explicitly defined.
         try:
@@ -437,6 +439,13 @@ class TacacsMonitoringAPI:
         self.app.include_router(user_groups_router)
         self.app.include_router(proxies_router)
         self.app.include_router(config_router)
+        # Include backup router (admin-protected)
+        try:
+            from tacacs_server.web.api.backup import router as backup_router
+
+            self.app.include_router(backup_router)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to include backup router: %s", exc)
         # Include command authorization API (protected by admin guard inside router)
         try:
             from tacacs_server.authorization.command_authorization import (
@@ -662,7 +671,9 @@ class TacacsMonitoringAPI:
             """Validate a configuration change before applying."""
             cfg = get_config()
             if cfg is None or not hasattr(cfg, "validate_change"):
-                raise HTTPException(status_code=503, detail="Configuration not available")
+                raise HTTPException(
+                    status_code=503, detail="Configuration not available"
+                )
             try:
                 ok, issues = cfg.validate_change(section, key, value)
             except Exception as exc:

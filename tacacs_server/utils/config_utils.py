@@ -3,6 +3,7 @@ Configuration utilities for TACACS+ server.
 
 This module provides thread-safe access to the server's configuration.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fastapi import Request
+
     from tacacs_server.config.config import TacacsConfig
 
 # Thread-local storage for configuration (per-context) and a global fallback
@@ -20,7 +22,7 @@ _config_global: TacacsConfig | None = None
 
 def set_config(config: TacacsConfig | None) -> None:
     """Set the current configuration.
-    
+
     Args:
         config: The configuration object to set, or None to clear it.
     """
@@ -31,7 +33,7 @@ def set_config(config: TacacsConfig | None) -> None:
 
 def get_config() -> TacacsConfig | None:
     """Get the current configuration.
-    
+
     Returns:
         The current configuration, or None if not set.
     """
@@ -63,7 +65,7 @@ def set_admin_auth_dependency(
     dependency: Callable[[Request], Awaitable[None]] | None,
 ) -> None:
     """Set the admin authentication dependency function.
-    
+
     Args:
         dependency: The dependency function to set, or None to clear it.
     """
@@ -73,7 +75,7 @@ def set_admin_auth_dependency(
 
 def get_admin_auth_dependency_func() -> Callable[[Request], Awaitable[None]] | None:
     """Get the current admin authentication dependency function.
-    
+
     Returns:
         The current admin authentication dependency function, or None if not set.
     """

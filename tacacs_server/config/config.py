@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+from datetime import UTC, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from typing import Any
 from urllib.parse import urlparse
@@ -17,10 +18,8 @@ from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.utils.logger import configure as configure_logging
 from tacacs_server.utils.logger import get_logger
 
-from .schema import TacacsConfigSchema, validate_config_file
 from .config_store import ConfigStore, compute_config_hash
-import io
-from datetime import datetime, UTC, timedelta
+from .schema import TacacsConfigSchema, validate_config_file
 
 logger = get_logger(__name__)
 
@@ -196,6 +195,15 @@ class TacacsConfig:
             # - after: evaluate command policy first; do not pre-block on priv mismatch
             # - none: disable explicit priv-level enforcement; policy decides entirely
             "privilege_check_order": "before",
+        }
+        # Backup configuration defaults
+        self.config["backup"] = {
+            "enabled": "true",
+            "create_on_startup": "false",
+            "temp_directory": "data/backup_temp",
+            "encryption_enabled": "false",
+            "encryption_passphrase": "",
+            "default_retention_days": "30",
         }
         self.config["admin"] = {
             "username": os.environ.get("ADMIN_USERNAME", "admin"),
@@ -516,6 +524,47 @@ class TacacsConfig:
             "username": section.get("username", "admin"),
             "password_hash": section.get("password_hash", ""),
             "session_timeout_minutes": int(section.get("session_timeout_minutes", 60)),
+        }
+
+    def get_backup_config(self) -> dict[str, Any]:
+        """Get backup configuration"""
+        try:
+            enabled = self.config.getboolean("backup", "enabled", fallback=True)
+        except Exception:
+            enabled = True
+        try:
+            create_on_startup = self.config.getboolean(
+                "backup", "create_on_startup", fallback=False
+            )
+        except Exception:
+            create_on_startup = False
+        temp_directory = self.config.get(
+            "backup", "temp_directory", fallback="data/backup_temp"
+        )
+        try:
+            encryption_enabled = self.config.getboolean(
+                "backup", "encryption_enabled", fallback=False
+            )
+        except Exception:
+            encryption_enabled = False
+        from os import getenv as _getenv
+
+        enc_passphrase = _getenv("BACKUP_ENCRYPTION_PASSPHRASE") or self.config.get(
+            "backup", "encryption_passphrase", fallback=""
+        )
+        try:
+            retention_days = self.config.getint(
+                "backup", "default_retention_days", fallback=30
+            )
+        except Exception:
+            retention_days = 30
+        return {
+            "enabled": enabled,
+            "create_on_startup": create_on_startup,
+            "temp_directory": temp_directory,
+            "encryption_enabled": encryption_enabled,
+            "encryption_passphrase": enc_passphrase,
+            "default_retention_days": retention_days,
         }
 
     def get_command_authorization_config(self) -> dict[str, Any]:
@@ -1113,12 +1162,19 @@ class TacacsConfig:
                 # Update metadata
                 try:
                     if self.config_store:
-                        self.config_store.set_metadata("last_url_fetch", datetime.now(UTC).isoformat())
+                        self.config_store.set_metadata(
+                            "last_url_fetch", datetime.now(UTC).isoformat()
+                        )
                         self.config_store.set_metadata("config_source", source)
                         # Create a baseline version snapshot
                         try:
                             snap = json.loads(self._serialize_config_to_json())
-                            self.config_store.create_version(snap, created_by="system", description="URL baseline", is_baseline=True)
+                            self.config_store.create_version(
+                                snap,
+                                created_by="system",
+                                description="URL baseline",
+                                is_baseline=True,
+                            )
                         except Exception:
                             pass
                 except Exception:
@@ -1134,12 +1190,16 @@ class TacacsConfig:
     def _load_from_cache(self) -> None:
         try:
             if os.path.exists(self._baseline_cache_path):
-                with open(self._baseline_cache_path, "r", encoding="utf-8") as fh:
+                with open(self._baseline_cache_path, encoding="utf-8") as fh:
                     cached = fh.read()
                 self.config.read_string(cached)
-                logger.warning("Using cached baseline configuration: %s", self._baseline_cache_path)
+                logger.warning(
+                    "Using cached baseline configuration: %s", self._baseline_cache_path
+                )
             else:
-                logger.warning("No cached baseline config found at %s", self._baseline_cache_path)
+                logger.warning(
+                    "No cached baseline config found at %s", self._baseline_cache_path
+                )
         except Exception:
             logger.exception("Failed to load cached baseline configuration")
 
@@ -1220,7 +1280,9 @@ class TacacsConfig:
         return out
 
     # --- drift detection ---
-    def _get_base_value(self, section: str, key: str, value_type: str | None = None) -> Any:
+    def _get_base_value(
+        self, section: str, key: str, value_type: str | None = None
+    ) -> Any:
         """Return the baseline (pre-override) value for section/key.
 
         Attempts to coerce string baseline to the expected type when provided.
@@ -1285,7 +1347,9 @@ class TacacsConfig:
         except Exception:
             return False
 
-    def validate_change(self, section: str, key: str, value: Any) -> tuple[bool, list[str]]:
+    def validate_change(
+        self, section: str, key: str, value: Any
+    ) -> tuple[bool, list[str]]:
         """
         Validate a single configuration change against the schema and custom rules.
 
@@ -1300,16 +1364,28 @@ class TacacsConfig:
 
         # 2) Schema validation
         try:
-            validate_config_file({
-                "server": payload.get("server", {}),
-                "auth": payload.get("auth", {}),
-                "security": payload.get("security", {}),
-                **({"ldap": payload.get("ldap", {})} if "ldap" in payload else {}),
-                **({"okta": payload.get("okta", {})} if "okta" in payload else {}),
-                **({"backup": payload.get("backup", {})} if "backup" in payload else {}),
-                **({"source_url": payload.get("source_url", {})} if isinstance(payload.get("source_url"), dict) else {}),
-            })
-        except Exception as e:  # pydantic raises ValidationError (subclass of ValueError)
+            validate_config_file(
+                {
+                    "server": payload.get("server", {}),
+                    "auth": payload.get("auth", {}),
+                    "security": payload.get("security", {}),
+                    **({"ldap": payload.get("ldap", {})} if "ldap" in payload else {}),
+                    **({"okta": payload.get("okta", {})} if "okta" in payload else {}),
+                    **(
+                        {"backup": payload.get("backup", {})}
+                        if "backup" in payload
+                        else {}
+                    ),
+                    **(
+                        {"source_url": payload.get("source_url", {})}
+                        if isinstance(payload.get("source_url"), dict)
+                        else {}
+                    ),
+                }
+            )
+        except (
+            Exception
+        ) as e:  # pydantic raises ValidationError (subclass of ValueError)
             issues.append(str(e))
             return False, issues
 
@@ -1326,7 +1402,9 @@ class TacacsConfig:
 
         if section == "auth" and key == "backends":
             try:
-                backends = [b.strip().lower() for b in str(value).split(",") if b.strip()]
+                backends = [
+                    b.strip().lower() for b in str(value).split(",") if b.strip()
+                ]
                 valid = {"local", "ldap", "okta"}
                 for b in backends:
                     if b not in valid:
@@ -1354,7 +1432,9 @@ class TacacsConfig:
             except Exception:
                 last_fetch = None
             if not force and last_fetch is not None:
-                if datetime.now(UTC) - last_fetch < timedelta(seconds=self._refresh_interval_seconds):
+                if datetime.now(UTC) - last_fetch < timedelta(
+                    seconds=self._refresh_interval_seconds
+                ):
                     return False
             # Attempt fetch
             payload = self._fetch_url_content(self.config_source) or ""
@@ -1368,7 +1448,9 @@ class TacacsConfig:
             if new_hash == current_hash:
                 # Update last fetch metadata even if unchanged
                 if self.config_store:
-                    self.config_store.set_metadata("last_url_fetch", datetime.now(UTC).isoformat())
+                    self.config_store.set_metadata(
+                        "last_url_fetch", datetime.now(UTC).isoformat()
+                    )
                 return False
             # Apply and cache
             self.config.read_string(payload)
@@ -1381,8 +1463,15 @@ class TacacsConfig:
             try:
                 if self.config_store:
                     snap = json.loads(self._serialize_config_to_json())
-                    self.config_store.create_version(snap, created_by="system", description="URL refresh", is_baseline=True)
-                    self.config_store.set_metadata("last_url_fetch", datetime.now(UTC).isoformat())
+                    self.config_store.create_version(
+                        snap,
+                        created_by="system",
+                        description="URL refresh",
+                        is_baseline=True,
+                    )
+                    self.config_store.set_metadata(
+                        "last_url_fetch", datetime.now(UTC).isoformat()
+                    )
             except Exception:
                 logger.debug("Failed to persist config version snapshot")
             logger.info("Configuration refreshed from URL (hash changed)")

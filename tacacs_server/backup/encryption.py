@@ -2,21 +2,24 @@ from __future__ import annotations
 
 import base64
 import os
-from typing import Tuple
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
-def derive_key_from_passphrase(passphrase: str, salt: bytes | None = None) -> Tuple[bytes, bytes]:
+def derive_key_from_passphrase(
+    passphrase: str, salt: bytes | None = None
+) -> tuple[bytes, bytes]:
     """
     Derive encryption key from passphrase using PBKDF2 (SHA256).
     Returns (key, salt). Generates 16-byte salt when not provided.
     """
     if salt is None:
         salt = os.urandom(16)
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100_000)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100_000
+    )
     key = base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
     return key, salt
 
@@ -43,4 +46,3 @@ def decrypt_file(input_path: str, output_path: str, passphrase: str) -> None:
     plaintext = fernet.decrypt(ciphertext)
     with open(output_path, "wb") as f:
         f.write(plaintext)
-

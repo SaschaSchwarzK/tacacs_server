@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from .base import BackupDestination, BackupMetadata
 
@@ -108,7 +106,11 @@ class LocalBackupDestination(BackupDestination):
                 checksum = self._sha256_file(p)
                 items.append(
                     BackupMetadata(
-                        filename=p.name, size_bytes=size, timestamp=ts, path=str(p), checksum_sha256=checksum
+                        filename=p.name,
+                        size_bytes=size,
+                        timestamp=ts,
+                        path=str(p),
+                        checksum_sha256=checksum,
                     )
                 )
             except Exception:
@@ -135,8 +137,11 @@ class LocalBackupDestination(BackupDestination):
             ts = datetime.fromtimestamp(p.stat().st_mtime, UTC).isoformat()
             checksum = self._sha256_file(p)
             return BackupMetadata(
-                filename=p.name, size_bytes=size, timestamp=ts, path=str(p), checksum_sha256=checksum
+                filename=p.name,
+                size_bytes=size,
+                timestamp=ts,
+                path=str(p),
+                checksum_sha256=checksum,
             )
         except Exception:
             return None
-

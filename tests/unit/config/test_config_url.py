@@ -69,4 +69,3 @@ def test_refresh_logic_time_based(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     if cfg.config_store:
         vers = cfg.config_store.list_versions()
         assert vers, "Version snapshot expected after refresh"
-

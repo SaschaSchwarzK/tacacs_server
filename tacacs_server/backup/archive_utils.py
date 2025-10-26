@@ -5,7 +5,11 @@ import tarfile
 from typing import Literal
 
 
-def create_tarball(source_dir: str, output_path: str, compression: Literal["gz", "bz2", "xz", ""] = "gz") -> int:
+def create_tarball(
+    source_dir: str,
+    output_path: str,
+    compression: Literal["gz", "bz2", "xz", ""] = "gz",
+) -> int:
     """
     Create compressed tarball from directory. Returns archive size in bytes.
     compression: "gz" (default), "bz2", "xz", or "" for no compression.
@@ -30,7 +34,9 @@ def extract_tarball(archive_path: str, dest_dir: str) -> None:
     def _is_safe_path(base: str, target: str) -> bool:
         base_abs = os.path.abspath(base)
         target_abs = os.path.abspath(target)
-        return os.path.commonpath([base_abs]) == os.path.commonpath([base_abs, target_abs])
+        return os.path.commonpath([base_abs]) == os.path.commonpath(
+            [base_abs, target_abs]
+        )
 
     with tarfile.open(archive_path, "r:*") as tar:
         for member in tar.getmembers():
@@ -41,4 +47,3 @@ def extract_tarball(archive_path: str, dest_dir: str) -> None:
             if not _is_safe_path(dest_dir, target_path):
                 raise ValueError(f"Unsafe extraction target: {name}")
         tar.extractall(dest_dir)
-

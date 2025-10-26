@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from .api_models import ErrorResponse
 from .openapi_config import configure_openapi_ui, custom_openapi_schema
 from .middleware import install_security_headers
+from .errors import install_exception_handlers as _install_exc
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,8 @@ def create_app() -> FastAPI:
         return response
 
     # Custom exception handlers
+    _install_exc(app)
+
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError

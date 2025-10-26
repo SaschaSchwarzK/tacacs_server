@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from .base import BackupDestination, BackupMetadata
 
 
@@ -35,4 +33,3 @@ class FTPBackupDestination(BackupDestination):
 
     def get_backup_info(self, remote_path: str) -> BackupMetadata | None:
         raise NotImplementedError("FTP get info not implemented")
-

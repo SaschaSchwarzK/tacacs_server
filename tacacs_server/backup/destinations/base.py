@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import UTC
 from typing import Any
 
 
@@ -64,9 +65,11 @@ class BackupDestination(ABC):
         Delete backups older than retention_days.
         Returns: Number of backups deleted
         """
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=max(0, int(retention_days)))
+        cutoff = datetime.now(UTC) - timedelta(
+            days=max(0, int(retention_days))
+        )
         deleted = 0
         try:
             for meta in self.list_backups():
@@ -81,4 +84,3 @@ class BackupDestination(ABC):
         except Exception:
             return deleted
         return deleted
-

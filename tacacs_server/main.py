@@ -14,6 +14,7 @@ from tacacs_server.config.config import TacacsConfig, setup_logging
 from tacacs_server.devices.service import DeviceService
 from tacacs_server.devices.store import DeviceStore
 from tacacs_server.tacacs.server import TacacsServer
+from tacacs_server.utils.config_utils import set_config as utils_set_config
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.web.admin.auth import (
     AdminAuthConfig,
@@ -30,7 +31,6 @@ from tacacs_server.web.monitoring import (
 from tacacs_server.web.monitoring import (
     set_config as monitoring_set_config,
 )
-from tacacs_server.utils.config_utils import set_config as utils_set_config
 
 logger = get_logger(__name__)
 
@@ -86,7 +86,10 @@ class TacacsServerManager:
                         hostname = _socket.gethostname()
                     except Exception:
                         hostname = "node"
-                    name = os.getenv("INSTANCE_NAME") or f"tacacs-{hostname}-{instance_id[:8]}"
+                    name = (
+                        os.getenv("INSTANCE_NAME")
+                        or f"tacacs-{hostname}-{instance_id[:8]}"
+                    )
                     store.set_instance_name(name)
                     instance_name = name
                 logger.info(f"Instance: {instance_name} (ID: {instance_id[:8]}...)")
@@ -220,6 +223,39 @@ class TacacsServerManager:
                     self.server.encryption_required = True
         except Exception:
             pass
+
+        # Initialize backup system
+        try:
+            from tacacs_server.backup.service import initialize_backup_service
+
+            backup_service = initialize_backup_service(self.config)
+            self.backup_service = backup_service  # type: ignore[attr-defined]
+
+            logger.info("Backup system initialized")
+
+            # Create initial backup if configured
+            try:
+                initial_backup = self.config.config.getboolean(
+                    "backup", "create_on_startup", fallback=False
+                )
+            except Exception:
+                initial_backup = False
+            if initial_backup:
+                try:
+                    destinations = backup_service.execution_store.list_destinations(
+                        enabled_only=True
+                    )
+                    if destinations:
+                        backup_service.create_manual_backup(
+                            destination_id=destinations[0]["id"], created_by="system"
+                        )
+                        logger.info("Created startup backup")
+                except Exception:
+                    logger.warning("Startup backup creation skipped due to error")
+        except Exception as e:
+            logger.error(f"Failed to initialize backup system: {e}")
+            # Don't fail startup if backup system has issues
+            self.backup_service = None  # type: ignore[attr-defined]
 
         # Initialize device inventory
         try:
@@ -654,8 +690,17 @@ class TacacsServerManager:
     def stop(self):
         """Stop the TACACS+ server"""
         if self.server and self.running:
-            logger.info("Shutting down down servers...")
+            logger.info("Shutting down servers...")
             self.running = False
+            # Stop backup scheduler
+            if getattr(self, "backup_service", None):
+                try:
+                    sched = getattr(self.backup_service, "scheduler", None)  # type: ignore[attr-defined]
+                    if sched:
+                        sched.stop()
+                        logger.info("Backup scheduler stopped")
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"Error stopping backup scheduler: {e}")
             # Stop RADIUS server
             if self.radius_server:
                 self.radius_server.stop()
