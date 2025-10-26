@@ -1016,6 +1016,117 @@ class AccountingRecordDetail(BaseModel):
     )
 
 
+# ============================================================================
+# Backup Models
+# ============================================================================
+
+
+class BackupDestinationModel(BaseModel):
+    """Backup destination with parsed configuration."""
+
+    id: str = Field(..., description="Destination ID", example="a3f5d2...")
+    name: str = Field(..., description="Destination name", example="primary-local")
+    type: str = Field(..., description="Destination type", example="local")
+    enabled: bool = Field(True, description="Whether destination is enabled")
+    retention_days: int = Field(30, description="Retention period in days")
+    created_at: str | None = Field(None, description="Creation timestamp (ISO)")
+    created_by: str | None = Field(None, description="Creator username")
+    last_backup_at: str | None = Field(None, description="Last backup time (ISO)")
+    last_backup_status: str | None = Field(
+        None, description="Status of last backup (success/failed)"
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict, description="Destination configuration payload"
+    )
+
+
+class BackupDestinationListResponse(BaseModel):
+    destinations: list[BackupDestinationModel]
+
+
+class BackupTestResponse(BaseModel):
+    success: bool
+    message: str
+    tested_at: str
+
+
+class BackupTriggerResponse(BaseModel):
+    execution_id: str
+    status: str
+    message: str
+
+
+class BackupExecutionModel(BaseModel):
+    id: str
+    destination_id: str | None = None
+    backup_filename: str | None = None
+    backup_path: str | None = None
+    triggered_by: str | None = None
+    started_at: str
+    completed_at: str | None = None
+    status: str
+    size_bytes: int | None = None
+    compressed_size_bytes: int | None = None
+    files_included: int | None = None
+    error_message: str | None = None
+
+
+class BackupExecutionsResponse(BaseModel):
+    executions: list[BackupExecutionModel]
+    limit: int
+    offset: int
+
+
+class BackupExecutionDetail(BackupExecutionModel):
+    manifest: dict[str, Any] | None = None
+
+
+class BackupItem(BaseModel):
+    filename: str
+    size_bytes: int
+    timestamp: str
+    path: str
+    checksum_sha256: str | None = None
+    destination_id: str | None = None
+    destination_name: str | None = None
+
+
+class BackupListResponse(BaseModel):
+    backups: list[BackupItem]
+
+
+class BackupRestoreResponse(BaseModel):
+    success: bool
+    message: str
+    restart_required: bool | None = None
+
+
+class BackupDeleteResponse(BaseModel):
+    success: bool
+
+
+class BackupScheduleListResponse(BaseModel):
+    jobs: list[dict[str, Any]]
+    scheduler_running: bool
+
+
+class BackupScheduleCreateResponse(BaseModel):
+    job_id: str
+    schedule_type: str
+    schedule_value: str
+    destination_id: str
+
+
+class BackupScheduleStateResponse(BaseModel):
+    success: bool
+    status: str | None = None
+
+
+class BackupScheduleTriggerResponse(BaseModel):
+    execution_id: str
+    status: str
+    message: str
+
 class AccountingResponse(BaseModel):
     """Accounting records response"""
 

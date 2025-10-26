@@ -46,4 +46,8 @@ def extract_tarball(archive_path: str, dest_dir: str) -> None:
             target_path = os.path.join(dest_dir, name)
             if not _is_safe_path(dest_dir, target_path):
                 raise ValueError(f"Unsafe extraction target: {name}")
-        tar.extractall(dest_dir)
+        # Use Python's safe extraction filter to avoid writing special files
+        try:
+            tar.extractall(dest_dir, filter="data")  # Python 3.12+
+        except TypeError:  # pragma: no cover - older Python fallback
+            tar.extractall(dest_dir)

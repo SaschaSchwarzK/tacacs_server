@@ -57,7 +57,12 @@ def _ensure_enabled():
         pass
 
 
-@router.get("", response_model=list[ProxyResponse])
+@router.get(
+    "",
+    response_model=list[ProxyResponse],
+    summary="List proxies",
+    description="Return configured TACACS+/RADIUS proxies (requires proxy feature enabled)",
+)
 async def list_proxies(limit: int = Query(100, ge=1, le=1000)):
     _ensure_enabled()
     svc: DeviceService = get_device_service()
@@ -65,7 +70,13 @@ async def list_proxies(limit: int = Query(100, ge=1, le=1000)):
     return [_to_resp(p) for p in items]
 
 
-@router.post("", response_model=ProxyResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ProxyResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create proxy",
+    description="Create a new proxy with name and network CIDR",
+)
 async def create_proxy(payload: ProxyCreate):
     _ensure_enabled()
     svc: DeviceService = get_device_service()
@@ -80,7 +91,12 @@ async def create_proxy(payload: ProxyCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{proxy_id}", response_model=ProxyResponse)
+@router.get(
+    "/{proxy_id}",
+    response_model=ProxyResponse,
+    summary="Get proxy",
+    description="Get a proxy by ID",
+)
 async def get_proxy(proxy_id: int):
     _ensure_enabled()
     svc: DeviceService = get_device_service()
@@ -93,7 +109,12 @@ async def get_proxy(proxy_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/{proxy_id}", response_model=ProxyResponse)
+@router.put(
+    "/{proxy_id}",
+    response_model=ProxyResponse,
+    summary="Update proxy",
+    description="Update proxy name, network, or metadata",
+)
 async def update_proxy(proxy_id: int, payload: ProxyUpdate):
     _ensure_enabled()
     svc: DeviceService = get_device_service()
@@ -111,7 +132,12 @@ async def update_proxy(proxy_id: int, payload: ProxyUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{proxy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{proxy_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete proxy",
+    description="Delete a proxy by ID",
+)
 async def delete_proxy(proxy_id: int):
     _ensure_enabled()
     svc: DeviceService = get_device_service()

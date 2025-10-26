@@ -1,0 +1,429 @@
+from __future__ import annotations
+
+import os
+import re
+import time
+from datetime import UTC, datetime
+from typing import Any
+
+from tacacs_server.utils.logger import get_logger
+
+from .base import BackupDestination, BackupMetadata
+
+_logger = get_logger(__name__)
+
+
+class AzureBlobBackupDestination(BackupDestination):
+    """Store backups in Azure Blob Storage"""
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config)
+        self.blob_service_client = None
+        self.container_client = None
+
+    # --- configuration / validation ---
+    def validate_config(self) -> None:
+        cfg = self.config or {}
+
+        # Determine auth method
+        has_conn_str = bool(cfg.get("connection_string"))
+        has_account_key = bool(cfg.get("account_name") and cfg.get("account_key"))
+        has_sas = bool(cfg.get("account_name") and cfg.get("sas_token"))
+        has_mi = bool(cfg.get("account_name") and cfg.get("use_managed_identity"))
+
+        methods = [has_conn_str, has_account_key, has_sas, has_mi]
+        if sum(1 for m in methods if m) != 1:
+            raise ValueError(
+                "Exactly one authentication method must be configured: "
+                "connection_string OR (account_name+account_key) OR (account_name+sas_token) OR managed identity"
+            )
+
+        # Required fields per method
+        if has_conn_str:
+            if not isinstance(cfg.get("connection_string"), str):
+                raise ValueError("connection_string must be a string")
+        else:
+            if not isinstance(cfg.get("account_name"), str) or not cfg.get(
+                "account_name"
+            ):
+                raise ValueError("account_name is required for this auth method")
+            if has_account_key and not cfg.get("account_key"):
+                raise ValueError("account_key is required for account key auth")
+            if has_sas and not cfg.get("sas_token"):
+                raise ValueError("sas_token is required for SAS auth")
+            # Managed identity requires no extra secret
+
+        # Common required
+        container = str(cfg.get("container_name", ""))
+        if not container:
+            raise ValueError("container_name is required")
+        # Validate container name: lowercase, alnum and hyphens, 3-63 chars, start/end alnum
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{1,61})[a-z0-9]", container):
+            raise ValueError(
+                "Invalid container_name; must be lowercase alphanumeric and hyphens (3-63 chars)"
+            )
+
+        # Defaults
+        if "max_concurrency" not in cfg:
+            self.config["max_concurrency"] = 4
+        if "timeout" not in cfg:
+            self.config["timeout"] = 300
+        if not cfg.get("endpoint_suffix"):
+            self.config["endpoint_suffix"] = "core.windows.net"
+        # Optional base_path for key prefix
+        if cfg.get("base_path") is None:
+            self.config["base_path"] = ""
+
+    # --- client helpers ---
+    def _ensure_clients(self) -> None:
+        if self.container_client is not None:
+            return
+        cfg = self.config
+        try:
+            # Late import to avoid mandatory dependency when unused
+            from azure.storage.blob import BlobServiceClient  # type: ignore
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError(
+                "azure-storage-blob package is required for Azure destination"
+            ) from exc
+
+        timeout = int(cfg.get("timeout", 300))
+        endpoint_suffix = str(cfg.get("endpoint_suffix", "core.windows.net"))
+        container_name = str(cfg.get("container_name"))
+
+        # Initialize BlobServiceClient according to auth method
+        if cfg.get("connection_string"):
+            self.blob_service_client = BlobServiceClient.from_connection_string(
+                cfg["connection_string"], connection_timeout=timeout
+            )
+        else:
+            account_name = str(cfg.get("account_name"))
+            account_url = f"https://{account_name}.blob.{endpoint_suffix}"
+            credential: Any
+            if cfg.get("account_key"):
+                credential = cfg.get("account_key")
+            elif cfg.get("sas_token"):
+                credential = cfg.get("sas_token")
+            else:
+                try:
+                    from azure.identity import DefaultAzureCredential  # type: ignore
+                except Exception as exc:  # pragma: no cover
+                    raise RuntimeError(
+                        "azure-identity package is required for managed identity auth"
+                    ) from exc
+                credential = DefaultAzureCredential()
+            self.blob_service_client = BlobServiceClient(
+                account_url=account_url, credential=credential
+            )
+
+        # Container client
+        self.container_client = self.blob_service_client.get_container_client(
+            container_name
+        )
+
+    # --- metadata / tags helpers ---
+    def _build_blob_metadata(self, manifest: dict) -> dict[str, str]:
+        """
+        Build blob metadata from backup manifest.
+        Metadata keys must be valid HTTP headers (alphanumeric + hyphens).
+        """
+        try:
+            metadata = {
+                "instance_id": str(manifest["backup_metadata"]["instance_id"]),
+                "instance_name": str(manifest["backup_metadata"]["instance_name"]),
+                "backup_type": str(manifest["backup_metadata"]["backup_type"]),
+                "timestamp_utc": str(manifest["backup_metadata"]["timestamp_utc"]),
+                "server_version": str(manifest["system_info"]["server_version"]),
+                "total_size_bytes": str(manifest["total_size_bytes"]),
+                "compressed_size_bytes": str(manifest.get("compressed_size_bytes", 0)),
+                "encrypted": str(manifest.get("encrypted", False)).lower(),
+            }
+        except Exception as exc:
+            _logger.debug("azure_build_metadata_failed", error=str(exc))
+            return {}
+        return metadata
+
+    def _build_blob_tags(
+        self, manifest: dict, custom_tags: dict | None = None
+    ) -> dict[str, str]:
+        """
+        Build blob tags for efficient querying.
+        Azure allows up to 10 tags per blob.
+        """
+        try:
+            tags: dict[str, str] = {
+                "instance_name": str(manifest["backup_metadata"]["instance_name"]),
+                "backup_type": str(manifest["backup_metadata"]["backup_type"]),
+                "encrypted": str(manifest.get("encrypted", False)).lower(),
+            }
+        except Exception as exc:
+            _logger.debug("azure_build_tags_failed", error=str(exc))
+            tags = {}
+
+        # Add custom tags from configuration
+        if custom_tags and isinstance(custom_tags, dict):
+            for k, v in custom_tags.items():
+                try:
+                    tags[str(k)] = str(v)
+                except Exception:
+                    continue
+
+        # Ensure we don't exceed 10 tags
+        if len(tags) > 10:
+            _logger.warning("Too many blob tags, truncating to 10")
+            tags = dict(list(tags.items())[:10])
+
+        return tags
+
+    # --- API methods ---
+    def test_connection(self) -> tuple[bool, str]:
+        try:
+            # Initialize and ensure container exists
+            self._ensure_clients()
+            assert self.container_client is not None
+
+            try:
+                if not self.container_client.exists():  # type: ignore[attr-defined]
+                    try:
+                        # Private access by default
+                        self.container_client.create_container()  # type: ignore[attr-defined]
+                    except Exception as exc:
+                        # If already exists, ignore
+                        from azure.core.exceptions import (
+                            ResourceExistsError,  # type: ignore
+                        )
+
+                        if not isinstance(exc, ResourceExistsError):
+                            raise
+            except Exception:
+                # Fallback to best-effort create ignoring conflicts
+                try:
+                    self.container_client.create_container()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+            # Test upload, download, delete
+            test_blob = ".connect_test"
+            blob_client = self.container_client.get_blob_client(test_blob)  # type: ignore[attr-defined]
+            payload = b"ok"
+            blob_client.upload_blob(
+                payload,
+                overwrite=True,
+                max_concurrency=int(self.config.get("max_concurrency", 4)),
+                timeout=int(self.config.get("timeout", 300)),
+            )
+            data = blob_client.download_blob(
+                max_concurrency=int(self.config.get("max_concurrency", 4))
+            ).readall()
+            if data != payload:
+                return False, "I/O verification failed"
+            blob_client.delete_blob()
+            # List operation
+            list(self.container_client.list_blobs(name_starts_with=""))  # type: ignore[attr-defined]
+            return True, "Connected successfully"
+        except Exception as exc:
+            try:
+                from azure.core.exceptions import AzureError  # type: ignore
+
+                if isinstance(exc, AzureError):
+                    return False, f"Azure error: {exc}"
+            except Exception:
+                pass
+            return False, str(exc)
+
+    # --- path helpers ---
+    def _blob_name(self, remote_filename: str) -> str:
+        base = str(self.config.get("base_path", "")).strip("/")
+        if base:
+            return f"{base}/{remote_filename}".strip("/")
+        return remote_filename.strip("/")
+
+    # --- operations ---
+    def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
+        self._ensure_clients()
+        assert self.container_client is not None
+        blob_name = self._blob_name(remote_filename)
+        blob_client = self.container_client.get_blob_client(blob_name)  # type: ignore[attr-defined]
+
+        # Basic retry with exponential backoff for transient errors
+        max_attempts = 3
+        delay = 1.0
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with open(local_file_path, "rb") as data:
+                    blob_client.upload_blob(
+                        data,
+                        overwrite=True,
+                        max_concurrency=int(self.config.get("max_concurrency", 4)),
+                        timeout=int(self.config.get("timeout", 300)),
+                    )
+                break
+            except Exception as exc:
+                if attempt >= max_attempts:
+                    raise RuntimeError(f"Azure upload failed: {exc}")
+                _logger.warning("azure_upload_retry", attempt=attempt, error=str(exc))
+                time.sleep(delay)
+                delay *= 2
+
+        # Optional metadata and tags (best-effort; no extra context available here)
+        try:
+            # We propagate any provided metadata keys from config if present
+            meta_cfg = self.config.get("default_metadata") or {}
+            if isinstance(meta_cfg, dict) and meta_cfg:
+                blob_client.set_blob_metadata(
+                    {str(k): str(v) for k, v in meta_cfg.items()}
+                )
+        except Exception as exc:
+            _logger.debug("azure_set_metadata_failed", error=str(exc))
+        try:
+            tags_cfg = self.config.get("default_tags") or {}
+            if isinstance(tags_cfg, dict) and tags_cfg:
+                blob_client.set_blob_tags({str(k): str(v) for k, v in tags_cfg.items()})
+        except Exception as exc:
+            _logger.debug("azure_set_tags_failed", error=str(exc))
+
+        return blob_client.url  # type: ignore[attr-defined]
+
+    def download_backup(self, remote_path: str, local_file_path: str) -> bool:
+        try:
+            self._ensure_clients()
+            assert self.container_client is not None
+            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))  # type: ignore[attr-defined]
+            os.makedirs(os.path.dirname(local_file_path) or ".", exist_ok=True)
+            with open(local_file_path, "wb") as file:
+                download_stream = blob_client.download_blob(
+                    max_concurrency=int(self.config.get("max_concurrency", 4))
+                )
+                file.write(download_stream.readall())
+            # Verify size
+            props = blob_client.get_blob_properties()
+            size_remote = (
+                int(getattr(props, "size", 0) or props.get("size", 0))
+                if isinstance(props, dict)
+                else int(props.size)
+            )  # type: ignore[attr-defined]
+            size_local = os.path.getsize(local_file_path)
+            return int(size_remote) == int(size_local)
+        except Exception as exc:
+            _logger.error(
+                "azure_download_failed", error=str(exc), remote_path=remote_path
+            )
+            return False
+
+    def list_backups(self, prefix: str | None = None) -> list[BackupMetadata]:
+        items: list[BackupMetadata] = []
+        try:
+            self._ensure_clients()
+            assert self.container_client is not None
+            base_prefix = str(self.config.get("base_path", "")).strip("/")
+            start = base_prefix
+            if prefix:
+                p = prefix.strip("/")
+                start = f"{base_prefix}/{p}" if base_prefix else p
+            it = self.container_client.list_blobs(name_starts_with=start or None)  # type: ignore[attr-defined]
+            for blob in it:
+                name: str = getattr(blob, "name", "")
+                if not name or not name.endswith(".tar.gz"):
+                    continue
+                size = int(getattr(blob, "size", 0) or 0)
+                lm = getattr(blob, "last_modified", None)
+                ts = (
+                    lm.replace(tzinfo=UTC).isoformat()
+                    if hasattr(lm, "replace") and lm
+                    else datetime.now(UTC).isoformat()
+                )
+                items.append(
+                    BackupMetadata(
+                        filename=os.path.basename(name),
+                        size_bytes=size,
+                        timestamp=ts,
+                        path=name,
+                        checksum_sha256="",
+                    )
+                )
+        except Exception as exc:
+            _logger.error("azure_list_failed", error=str(exc))
+            return []
+        return sorted(items, key=lambda m: m.timestamp, reverse=True)
+
+    def delete_backup(self, remote_path: str) -> bool:
+        try:
+            self._ensure_clients()
+            assert self.container_client is not None
+            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))  # type: ignore[attr-defined]
+            blob_client.delete_blob()
+            # Delete associated manifest if present
+            try:
+                man = remote_path + ".manifest.json"
+                self.container_client.get_blob_client(man).delete_blob()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            return True
+        except Exception as exc:
+            _logger.warning(
+                "azure_delete_failed", error=str(exc), remote_path=remote_path
+            )
+            return False
+
+    def get_backup_info(self, remote_path: str) -> BackupMetadata | None:
+        try:
+            self._ensure_clients()
+            assert self.container_client is not None
+            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))  # type: ignore[attr-defined]
+            props = blob_client.get_blob_properties()
+            size = (
+                int(getattr(props, "size", 0) or 0)
+                if isinstance(props, dict)
+                else int(props.size)
+            )  # type: ignore[attr-defined]
+            lm = (
+                getattr(props, "last_modified", None)
+                if not isinstance(props, dict)
+                else props.get("last_modified")
+            )
+            ts = (
+                lm.replace(tzinfo=UTC).isoformat()
+                if hasattr(lm, "replace") and lm
+                else datetime.now(UTC).isoformat()
+            )
+            return BackupMetadata(
+                filename=os.path.basename(remote_path.strip("/")),
+                size_bytes=size,
+                timestamp=ts,
+                path=remote_path.strip("/"),
+                checksum_sha256="",
+            )
+        except Exception as exc:
+            _logger.error(
+                "azure_get_info_failed", error=str(exc), remote_path=remote_path
+            )
+            return None
+
+    # Advanced: move older backups to Cool tier and then fall back to base delete policy
+    def apply_retention_policy(self, retention_days: int) -> int:
+        moved = 0
+        try:
+            self._ensure_clients()
+            assert self.container_client is not None
+            now = datetime.now(UTC)
+            for meta in self.list_backups():
+                try:
+                    ts = datetime.fromisoformat(meta.timestamp)
+                    age_days = (now - ts).days
+                    if age_days > 90:
+                        try:
+                            bc = self.container_client.get_blob_client(meta.path)  # type: ignore[attr-defined]
+                            bc.set_standard_blob_tier("Cool")
+                            moved += 1
+                        except Exception:
+                            pass
+                except Exception:
+                    continue
+        except Exception as exc:
+            _logger.debug("azure_apply_retention_tiering_failed", error=str(exc))
+        # Perform base deletion for items older than retention_days
+        try:
+            deleted = super().apply_retention_policy(retention_days)
+        except Exception:
+            deleted = 0
+        return deleted

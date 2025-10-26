@@ -17,8 +17,12 @@ def create_destination(dest_type: str, config: dict[str, Any]) -> BackupDestinat
 
         return FTPBackupDestination(config)
     elif t == "sftp":
-        raise ValueError("SFTP destination not implemented yet")
+        from .sftp import SFTPBackupDestination
+
+        return SFTPBackupDestination(config)
     elif t == "azure":
-        raise ValueError("Azure destination not implemented yet")
+        from .azure import AzureBlobBackupDestination
+
+        return AzureBlobBackupDestination(config)
     else:
         raise ValueError(f"Unknown destination type: {dest_type}")

@@ -9,6 +9,10 @@ packages = [{ include = "tacacs_server" }]
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
 apscheduler = "^3.10.4"
+ftputil = "^5.0.0"
+paramiko = "^3.5.0"
+azure-storage-blob = "^12.19.0"
+azure-identity = "^1.15.0"
 requests = "^2.32.5"
 ldap3 = "^2.9"
 pyasn1 = "^0.6.1"

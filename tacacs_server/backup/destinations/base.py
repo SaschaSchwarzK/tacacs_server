@@ -67,9 +67,7 @@ class BackupDestination(ABC):
         """
         from datetime import datetime, timedelta
 
-        cutoff = datetime.now(UTC) - timedelta(
-            days=max(0, int(retention_days))
-        )
+        cutoff = datetime.now(UTC) - timedelta(days=max(0, int(retention_days)))
         deleted = 0
         try:
             for meta in self.list_backups():

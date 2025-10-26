@@ -7,7 +7,7 @@ import platform
 import shutil
 import socket
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +84,7 @@ class BackupService:
                 "instance_name": self.instance_name,
                 "hostname": socket.gethostname(),
                 "backup_type": backup_type,
-                "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+                "timestamp_utc": datetime.now(UTC).isoformat(),
                 "triggered_by": triggered_by,
                 "backup_version": "1.0",
             },
@@ -192,7 +192,7 @@ class BackupService:
         execution_id = execution_id or str(uuid.uuid4())
         backup_dir = os.path.join(str(self.temp_dir), execution_id)
         archive_path = None
-        t0 = datetime.utcnow()
+        t0 = datetime.now(UTC)
 
         try:
             # Step 1: Initialize execution tracking
@@ -272,7 +272,7 @@ class BackupService:
                 json.dump(manifest, f, indent=2)
 
             # Step 6: Create compressed archive
-            timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             filename = f"backup-{self.instance_name}-{timestamp}-{backup_type}.tar.gz"
             archive_path = os.path.join(str(self.temp_dir), filename)
             self._create_tarball(backup_dir, archive_path)
@@ -315,12 +315,12 @@ class BackupService:
                 size_bytes=manifest["total_size_bytes"],
                 compressed_size_bytes=archive_size,
                 files_included=len(manifest["contents"]),
-                completed_at=datetime.utcnow().isoformat() + "Z",
+                completed_at=datetime.now(UTC).isoformat(),
                 manifest_json=json.dumps(manifest),
             )
             self.execution_store.set_last_backup(destination_id, status="success")
             try:
-                dur = (datetime.utcnow() - t0).total_seconds()
+                dur = (datetime.now(UTC) - t0).total_seconds()
                 size = int(
                     manifest.get("total_size_bytes", archive_size) or archive_size
                 )
@@ -403,7 +403,7 @@ class BackupService:
         local_archive = source_path
         restore_root = None
         emergency_exec_id: str | None = None
-        t0 = datetime.utcnow()
+        t0 = datetime.now(UTC)
         try:
             try:
                 _logger.info(
@@ -592,7 +592,7 @@ class BackupService:
                 pass
 
             try:
-                dur = (datetime.utcnow() - t0).total_seconds()
+                dur = (datetime.now(UTC) - t0).total_seconds()
                 _logger.info(
                     json.dumps(
                         {
