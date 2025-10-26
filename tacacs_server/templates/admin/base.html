@@ -65,6 +65,9 @@
         <a href="/admin/">Dashboard</a>
         <a href="/admin/devices">Devices</a>
         <a href="/admin/groups">Device Groups</a>
+        {% if proxy_enabled %}
+        <a href="/admin/proxies">Proxies</a>
+        {% endif %}
         <a href="/admin/user-groups">User Groups</a>
         <a href="/admin/users">Users</a>
         <a href="/admin/config">Configuration</a>

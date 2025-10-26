@@ -8,7 +8,7 @@ from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
-from .store import DeviceGroup, DeviceRecord, DeviceStore
+from .store import DeviceGroup, DeviceRecord, DeviceStore, Proxy
 
 UNSET = object()
 
@@ -46,6 +46,20 @@ class DeviceService:
     def __init__(self, store: DeviceStore) -> None:
         self.store = store
         self._change_listeners: list[Callable[[], None]] = []
+        # Prime indexes for fast lookups
+        try:
+            self.store.refresh_indexes()
+        except Exception:
+            logger.exception("DeviceService: failed to refresh indexes on init")
+
+        # Ensure cache/index refresh on changes
+        def _refresh():
+            try:
+                self.store.refresh_indexes()
+            except Exception:
+                logger.exception("DeviceService: failed to refresh indexes on change")
+
+        self.add_change_listener(_refresh)
 
     # ------------------------------------------------------------------
     # Change notifications
@@ -117,10 +131,19 @@ class DeviceService:
         tacacs_secret: str | None = None,
         device_config: dict[str, Any] | None = None,
         allowed_user_groups: Iterable[str] | None = None,
+        realm: str | None = None,
+        proxy_network: str | None = None,
+        proxy_id: int | None = None,
     ) -> DeviceGroup:
+        from tacacs_server.utils.validation import InputValidator
+
         name = (name or "").strip()
         if not name:
             raise DeviceValidationError("Group name is required")
+        # Enforce safe character set for group names
+        name = InputValidator.validate_safe_text(
+            name, "group name", min_len=1, max_len=64
+        )
         existing = self.store.get_group_by_name(name)
         if existing:
             raise DeviceValidationError(f"Group '{name}' already exists")
@@ -140,9 +163,18 @@ class DeviceService:
             merged_metadata["allowed_user_groups"] = allowed_groups
         else:
             merged_metadata.pop("allowed_user_groups", None)
+        # If proxy_id provided and proxy_network not provided, resolve
+        if proxy_id is not None and proxy_network is None:
+            proxy = self.store.get_proxy_by_id(int(proxy_id))
+            if not proxy:
+                raise DeviceValidationError(f"Proxy id {proxy_id} not found")
+            proxy_network = str(proxy.network)
+
         group = self.store.ensure_group(
             name,
             description=description,
+            realm=realm,
+            proxy_network=proxy_network,
             tacacs_profile=_ensure_metadata(tacacs_profile),
             radius_profile=_ensure_metadata(radius_profile),
             metadata=merged_metadata,
@@ -157,6 +189,8 @@ class DeviceService:
         tacacs_secret: str | None = None,
         radius_secret: str | None = None,
         allowed_user_groups: list[str] | None = None,
+        proxy_network: str | None = None,
+        proxy_id: int | None = None,
     ) -> dict[str, Any]:
         """
         Create device group (API-friendly).
@@ -169,6 +203,8 @@ class DeviceService:
             tacacs_secret=tacacs_secret,
             radius_secret=radius_secret,
             allowed_user_groups=allowed_user_groups,
+            proxy_network=proxy_network,
+            proxy_id=proxy_id,
         )
         return self._group_to_dict(group)
 
@@ -185,6 +221,8 @@ class DeviceService:
         tacacs_secret: str | None | object = UNSET,
         device_config: dict[str, Any] | None | object = UNSET,
         allowed_user_groups: Iterable[str] | None | object = UNSET,
+        proxy_id: int | None | object = UNSET,
+        proxy_network: str | None | object = UNSET,
     ) -> DeviceGroup:
         group = self.get_group(group_id)
 
@@ -260,6 +298,9 @@ class DeviceService:
                 _ensure_metadata(radius_profile) if radius_profile is not None else None
             ),
             metadata=merged_metadata,
+            proxy_id=(int(proxy_id) if isinstance(proxy_id, int) else None)
+            if proxy_id is not UNSET
+            else None,
         )
         if not updated:
             raise GroupNotFound(f"Group id {group_id} not found")
@@ -274,6 +315,8 @@ class DeviceService:
         tacacs_secret: str | None = None,
         radius_secret: str | None = None,
         allowed_user_groups: list[str] | None = None,
+        proxy_network: str | None = None,
+        proxy_id: int | None = None,
     ) -> dict[str, Any]:
         """
         Update device group (API-friendly).
@@ -293,7 +336,9 @@ class DeviceService:
         if allowed_user_groups is not None:
             kwargs["allowed_user_groups"] = allowed_user_groups
 
-        group = self.update_group(group_id, **kwargs)
+        group = self.update_group(
+            group_id, proxy_id=proxy_id, proxy_network=proxy_network, **kwargs
+        )
         return self._group_to_dict(group)
 
     def delete_group(self, group_id: int, *, cascade: bool = False) -> bool:
@@ -327,10 +372,22 @@ class DeviceService:
         # Extract allowed user groups
         allowed_groups = group.metadata.get("allowed_user_groups", [])
 
+        # Best-effort resolve proxy id
+        proxy_id_val = None
+        try:
+            for p in self.store.list_proxies():
+                if str(p.network) == str(getattr(group, "proxy_network", None) or ""):
+                    proxy_id_val = p.id
+                    break
+        except Exception:
+            proxy_id_val = None
+
         return {
             "id": group.id,
             "name": group.name,
             "description": group.description,
+            "proxy_network": getattr(group, "proxy_network", None),
+            "proxy_id": proxy_id_val,
             "tacacs_secret_set": tacacs_secret_set,
             "radius_secret_set": radius_secret_set,
             "allowed_user_groups": allowed_groups
@@ -343,6 +400,57 @@ class DeviceService:
             "tacacs_profile": group.tacacs_profile,
             "radius_profile": group.radius_profile,
         }
+
+    # ------------------------------
+    # Proxies management
+    # ------------------------------
+    def list_proxies(self) -> list[Proxy]:
+        return self.store.list_proxies()
+
+    def create_proxy(
+        self, name: str, network: str, metadata: dict[str, Any] | None = None
+    ) -> Proxy:
+        if str(name).lower().startswith("auto-proxy:"):
+            raise DeviceValidationError(
+                "Proxy name cannot start with reserved prefix 'auto-proxy:'"
+            )
+        try:
+            return self.store.create_proxy(
+                name=name, network=network, metadata=metadata or {}
+            )
+        except ValueError as e:
+            raise DeviceValidationError(str(e))
+
+    def update_proxy(
+        self,
+        proxy_id: int,
+        *,
+        name: str | None = None,
+        network: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Proxy:
+        if name is not None and str(name).lower().startswith("auto-proxy:"):
+            raise DeviceValidationError(
+                "Proxy name cannot start with reserved prefix 'auto-proxy:'"
+            )
+        try:
+            rec = self.store.update_proxy(
+                proxy_id, name=name, network=network, metadata=metadata
+            )
+        except ValueError as e:
+            raise DeviceValidationError(str(e))
+        if rec is None:
+            raise DeviceValidationError("Proxy not found")
+        return rec
+
+    def delete_proxy(self, proxy_id: int) -> bool:
+        return self.store.delete_proxy(proxy_id)
+
+    def get_proxy(self, proxy_id: int) -> Proxy:
+        rec = self.store.get_proxy_by_id(proxy_id)
+        if rec is None:
+            raise DeviceValidationError("Proxy not found")
+        return rec
 
     # ------------------------------------------------------------------
     # Devices

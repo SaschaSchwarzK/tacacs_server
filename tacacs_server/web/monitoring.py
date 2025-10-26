@@ -184,21 +184,22 @@ def _safe_counter(name: str, doc: str, labels: list[str] | None = None):
     try:
         return _PM_Counter(name, doc, labels or [], registry=_PROM_REGISTRY)
     except ValueError:
-        return _PROM_REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+        # Already registered; fetch existing collector
+        return _PROM_REGISTRY._names_to_collectors.get(name)
 
 
 def _safe_gauge(name: str, doc: str):
     try:
         return _PM_Gauge(name, doc, registry=_PROM_REGISTRY)
     except ValueError:
-        return _PROM_REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+        return _PROM_REGISTRY._names_to_collectors.get(name)
 
 
 def _safe_histogram(name: str, doc: str):
     try:
         return _PM_Histogram(name, doc, registry=_PROM_REGISTRY)
     except ValueError:
-        return _PROM_REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+        return _PROM_REGISTRY._names_to_collectors.get(name)
 
 
 # Prometheus Metrics (idempotent registration)
@@ -408,6 +409,25 @@ class TacacsMonitoringAPI:
         @self.app.get("/health", tags=["Status & Monitoring"], include_in_schema=False)
         async def liveness():
             return {"status": "ok"}
+
+        # Lightweight TACACS-only health endpoint for container/orchestrator probes.
+        # Unauthenticated and not under /api/; returns plain boolean text.
+        @self.app.get(
+            "/tacacs-health",
+            include_in_schema=False,
+        )
+        async def tacacs_health():
+            try:
+                running = bool(
+                    self.tacacs_server and getattr(self.tacacs_server, "running", False)
+                )
+            except Exception:
+                running = False
+            # Return text/plain boolean with 200 when healthy, 503 when not.
+            return PlainTextResponse(
+                "true" if running else "false",
+                status_code=200 if running else 503,
+            )
 
         @self.app.get("/ready", tags=["Status & Monitoring"], include_in_schema=False)
         async def readiness():
@@ -1149,6 +1169,8 @@ class TacacsMonitoringAPI:
                     port=self.port,
                     log_level="warning",
                     access_log=False,
+                    server_header=False,
+                    date_header=False,
                 )
                 server = uvicorn.Server(config)
                 # keep reference so we can signal shutdown later

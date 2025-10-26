@@ -47,6 +47,7 @@ pytest-bdd = "^8.1.0"
 ruff = "^0.13.3"
 schemathesis = "^4.1.4"
 mutmut = "^2.4.4"
+types-requests = "^2.32.4.20250913"
 
 [tool.poetry.scripts]
 tacacs-server = "tacacs_server.cli:main"

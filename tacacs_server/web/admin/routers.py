@@ -75,6 +75,13 @@ templates = Jinja2Templates(
 )
 try:
     templates.env.globals["api_disabled"] = False if os.getenv("API_TOKEN") else True
+    # Initialize proxy_enabled global for nav visibility (updated on config changes below)
+    cfg = monitoring_get_config()
+    templates.env.globals["proxy_enabled"] = (
+        bool(cfg.get_server_network_config().get("proxy_enabled", False))
+        if cfg
+        else False
+    )
 except Exception:
     pass
 
@@ -233,29 +240,28 @@ def _sanitize_config_data(value: Any, *, sensitive: bool = False) -> Any:
 async def admin_guard(request: Request) -> None:
     """Enforce admin authentication for all admin pages.
 
-    If admin auth is not configured (no ADMIN_PASSWORD_HASH in env/config),
-    disable admin web access by default to avoid exposing unauthenticated UI.
+    In production: Requires valid admin session cookie.
+    In tests: Allows explicit Authorization Bearer token that matches API_TOKEN.
     """
-    # Allow API token header for admin endpoints to support automation/tests
-    api_token = os.getenv("API_TOKEN")
-    if api_token:
-        token = request.headers.get("X-API-Token") or ""
-        if not token:
-            auth = request.headers.get("Authorization", "")
-            if auth.startswith("Bearer "):
-                token = auth.removeprefix("Bearer ").strip()
-        if token == api_token:
-            return
+    # Only allow token bypass during pytest runs and only with explicit Authorization
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        api_token = os.getenv("API_TOKEN", "")
+        if api_token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                provided = auth_header[7:].strip()
+                import secrets as _secrets
+
+                if _secrets.compare_digest(provided, api_token):
+                    return
+        # Fall through to normal dependency-based auth if not matched
+
     dependency = get_admin_auth_dependency_func()
     if dependency is None:
-        # Allow during test runs to keep unit tests working
-        if os.getenv("PYTEST_CURRENT_TEST") or (
-            os.getenv("ALLOW_TEST_ADMIN_UI", "true").strip().lower() == "true"
-        ):
-            return
+        # Admin auth not configured - reject access
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin web disabled: admin auth not configured",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required",
         )
     result = dependency(request)
     if inspect.isawaitable(result):
@@ -325,6 +331,9 @@ async def update_webhooks_config(request: Request, _: None = Depends(admin_guard
         raise HTTPException(status_code=400, detail=f"Failed to update: {e}")
 
 
+# Support both '/admin' and '/admin/' without framework redirect to ensure
+# auth guard runs before any implicit redirect behavior.
+@admin_router.get("", response_class=HTMLResponse)
 @admin_router.get("/", response_class=HTMLResponse)
 async def admin_home(request: Request, _: None = Depends(admin_guard)):
     device_service = monitoring_get_device_service()
@@ -516,7 +525,7 @@ async def admin_home(request: Request, _: None = Depends(admin_guard)):
 
 
 @admin_router.get("", include_in_schema=False)
-async def admin_root_redirect():
+async def admin_root_redirect(_guard: None = Depends(admin_guard)):
     return RedirectResponse(
         url="/admin/", status_code=status.HTTP_307_TEMPORARY_REDIRECT
     )
@@ -558,7 +567,7 @@ async def view_config(
 
 
 @admin_router.get("/config/", include_in_schema=False)
-async def view_config_trailing_slash():
+async def view_config_trailing_slash(_guard: None = Depends(admin_guard)):
     return RedirectResponse(
         url="/admin/config", status_code=status.HTTP_307_TEMPORARY_REDIRECT
     )
@@ -586,6 +595,13 @@ async def update_config(request: Request, _: None = Depends(admin_guard)):
         # Update different sections based on payload
         if "server" in payload:
             config.update_server_config(**payload["server"])
+            # Keep template global in sync for nav visibility
+            try:
+                templates.env.globals["proxy_enabled"] = bool(
+                    config.get_server_network_config().get("proxy_enabled", False)
+                )
+            except Exception:
+                pass
         if "auth" in payload:
             config.update_auth_config(**payload["auth"])
         if "ldap" in payload:
@@ -852,6 +868,16 @@ async def list_groups(
             "id": group.id,
             "name": group.name,
             "description": group.description,
+            "proxy_network": getattr(group, "proxy_network", None),
+            "proxy_id": next(
+                (
+                    p.id
+                    for p in service.list_proxies()
+                    if str(p.network)
+                    == str(getattr(group, "proxy_network", None) or "")
+                ),
+                None,
+            ),
             "metadata": group.metadata,
             "radius_secret": bool(group.radius_secret),
             "tacacs_secret": bool(group.tacacs_secret),
@@ -866,6 +892,12 @@ async def list_groups(
     user_group_options = sorted(
         record.name for record in user_group_service.list_groups()
     )
+    cfg = monitoring_get_config()
+    proxy_enabled = (
+        bool(cfg.get_server_network_config().get("proxy_enabled", False))
+        if cfg
+        else False
+    )
     return templates.TemplateResponse(
         "admin/groups.html",
         {
@@ -873,7 +905,31 @@ async def list_groups(
             "groups": data,
             "title": "Groups",
             "user_group_options": user_group_options,
+            "proxies": [
+                {"id": p.id, "name": p.name, "network": str(p.network)}
+                for p in service.list_proxies()
+            ],
+            "proxy_enabled": proxy_enabled,
         },
+    )
+
+
+@admin_router.get("/proxies")
+async def proxies_page(
+    request: Request,
+    service: DeviceService = Depends(get_device_service),
+    _: None = Depends(admin_guard),
+):
+    cfg = monitoring_get_config()
+    if not cfg or not bool(cfg.get_server_network_config().get("proxy_enabled", False)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    items = [
+        {"id": p.id, "name": p.name, "network": str(p.network)}
+        for p in service.list_proxies()
+    ]
+    return templates.TemplateResponse(
+        "admin/proxies.html",
+        {"request": request, "title": "Proxies", "proxies": items},
     )
 
 
@@ -896,6 +952,8 @@ async def create_group(
             tacacs_secret=payload.get("tacacs_secret"),
             device_config=payload.get("device_config"),
             allowed_user_groups=payload.get("allowed_user_groups"),
+            proxy_network=payload.get("proxy_network"),
+            proxy_id=payload.get("proxy_id"),
         )
         logger.info(
             "Admin UI: created device group id=%s name=%s",
@@ -937,6 +995,10 @@ async def update_group(
             else UNSET,
             allowed_user_groups=payload.get("allowed_user_groups")
             if "allowed_user_groups" in payload
+            else UNSET,
+            proxy_id=payload.get("proxy_id") if "proxy_id" in payload else UNSET,
+            proxy_network=payload.get("proxy_network")
+            if "proxy_network" in payload
             else UNSET,
         )
         logger.info("Admin UI: updated device group id=%s", group_id)
@@ -982,10 +1044,26 @@ async def get_group_details(
 ):
     try:
         group = service.get_group(group_id)
+        proxy_id_val = None
+        try:
+            items = service.list_proxies()
+            for p in items or []:
+                try:
+                    if str(p.network) == str(
+                        getattr(group, "proxy_network", None) or ""
+                    ):
+                        proxy_id_val = p.id
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            proxy_id_val = None
         return {
             "id": group.id,
             "name": group.name,
             "description": group.description,
+            "proxy_network": getattr(group, "proxy_network", None),
+            "proxy_id": proxy_id_val,
             "metadata": group.metadata,
             "radius_secret": group.radius_secret,
             "tacacs_secret": group.tacacs_secret,
@@ -1180,10 +1258,11 @@ async def list_users(
     ]
 
     accept = request.headers.get("accept", "")
-    wants_html = request.query_params.get("format") == "html" or (
-        "text/html" in accept and "application/json" not in accept
-    )
-    if not wants_html:
+    # Default to HTML for admin UI; return JSON only when explicitly requested
+    wants_json = (
+        request.query_params.get("format") == "json" or "application/json" in accept
+    ) and "text/html" not in accept
+    if wants_json:
         return {
             "users": data,
             "total": len(all_users),

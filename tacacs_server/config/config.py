@@ -82,6 +82,8 @@ class TacacsConfig:
             "log_level": "INFO",
             "max_connections": "50",
             "socket_timeout": "30",
+            "accept_proxy_protocol": "true",
+            "proxy_enabled": "false",
             # Additional server/network tuning
             "listen_backlog": "128",
             "client_timeout": "15",
@@ -147,12 +149,29 @@ class TacacsConfig:
             "max_log_size": "10MB",
             "backup_count": "5",
         }
+        # Optional syslog output
+        self.config["syslog"] = {
+            "enabled": "false",
+            "host": "127.0.0.1",
+            "port": "514",
+            "protocol": "udp",
+            "facility": "local0",
+            "severity": "info",
+            "format": "rfc5424",
+            "app_name": "tacacs_server",
+            "include_hostname": "true",
+        }
         self.config["command_authorization"] = {
             "default_action": "deny",
             # Seed with a sensible read-only rule example
             "rules_json": "[{'action':'permit','match_type':'prefix','pattern':'show ','min_privilege':1}]".replace(
                 "'", '"'
             ),
+            # Privilege check order relative to command policy: before | after | none
+            # - before (legacy): enforce requested priv-lvl <= user privilege before policy
+            # - after: evaluate command policy first; do not pre-block on priv mismatch
+            # - none: disable explicit priv-level enforcement; policy decides entirely
+            "privilege_check_order": "before",
         }
         self.config["admin"] = {
             "username": os.environ.get("ADMIN_USERNAME", "admin"),
@@ -162,6 +181,9 @@ class TacacsConfig:
         self.config["devices"] = {
             "database": "data/devices.db",
             "default_group": "default",
+            # Lookup/cache tuning
+            "identity_cache_ttl_seconds": "60",
+            "identity_cache_size": "10000",
         }
         self.config["radius"] = {
             "enabled": "false",
@@ -180,6 +202,15 @@ class TacacsConfig:
             "enabled": "false",
             "web_host": "127.0.0.1",
             "web_port": "8080",
+        }
+        # PROXY protocol configuration
+        self.config["proxy_protocol"] = {
+            "enabled": "true",
+            "accept_headers": "true",
+            "validate_sources": "true",
+            # When a PROXY v2 signature is present but the header is invalid/unsupported,
+            # reject the connection instead of ignoring it.
+            "reject_invalid": "true",
         }
 
     def save_config(self):
@@ -233,7 +264,64 @@ class TacacsConfig:
             "tcp_keepcnt": int(s.get("tcp_keepcnt", 5)),
             "thread_pool_max": int(s.get("thread_pool_max", 100)),
             "use_thread_pool": str(s.get("use_thread_pool", "true")).lower() != "false",
+            "accept_proxy_protocol": str(s.get("accept_proxy_protocol", "true")).lower()
+            != "false",
+            "proxy_enabled": str(s.get("proxy_enabled", "false")).lower() == "true",
         }
+
+    @staticmethod
+    def _to_bool(val: object) -> bool:
+        if isinstance(val, bool):
+            return val
+        if val is None:
+            return False
+        s = str(val).strip().lower()
+        return s in ("1", "true", "yes", "on")
+
+    def get_proxy_protocol_config(self) -> dict:
+        """
+        Return normalized proxy_protocol config:
+          {
+            "enabled": bool,
+            "accept_proxy_protocol": bool,
+            "validate_sources": bool,
+          }
+        Accepts legacy keys like "accept_headers" as alias for accept_proxy_protocol.
+        """
+        defaults = {
+            "enabled": False,
+            "accept_proxy_protocol": False,
+            "validate_sources": False,
+            "reject_invalid": True,
+        }
+        try:
+            cfg = getattr(self, "config", None)
+            if cfg is None:
+                return defaults
+
+            # Prefer mapping access if available (ConfigParser supports it)
+            if hasattr(cfg, "items") and cfg.has_section("proxy_protocol"):
+                sec = dict(cfg.items("proxy_protocol"))
+                enabled = self._to_bool(sec.get("enabled"))
+                # legacy key names: accept_headers -> accept_proxy_protocol
+                accept = self._to_bool(
+                    sec.get(
+                        "accept_proxy_protocol",
+                        sec.get("accept_headers", sec.get("accept_proxy", None)),
+                    )
+                )
+                validate = self._to_bool(sec.get("validate_sources"))
+                reject_invalid = self._to_bool(sec.get("reject_invalid", True))
+                return {
+                    "enabled": enabled,
+                    "accept_proxy_protocol": accept,
+                    "validate_sources": validate,
+                    "reject_invalid": reject_invalid,
+                }
+        except Exception:
+            # on any error, fall back to safe defaults
+            return defaults
+        return defaults
 
     def get_monitoring_config(self) -> dict[str, Any]:
         """Get monitoring configuration if present."""
@@ -389,6 +477,12 @@ class TacacsConfig:
             "default_group": self.config.get(
                 "devices", "default_group", fallback="default"
             ),
+            "identity_cache_ttl_seconds": int(
+                self.config.get("devices", "identity_cache_ttl_seconds", fallback="60")
+            ),
+            "identity_cache_size": int(
+                self.config.get("devices", "identity_cache_size", fallback="10000")
+            ),
         }
 
     def get_admin_auth_config(self) -> dict[str, Any]:
@@ -418,10 +512,28 @@ class TacacsConfig:
                 rules = []
         except Exception:
             rules = []
-        return {"default_action": default_action, "rules": rules}
+        # Response mode controls whether successful authorization returns
+        # PASS_ADD (append attributes) or PASS_REPL (replace all attributes).
+        response_mode = str(section.get("response_mode", "pass_add")).strip().lower()
+        if response_mode not in ("pass_add", "pass_repl"):
+            response_mode = "pass_add"
+        # Privilege enforcement order
+        order = str(section.get("privilege_check_order", "before")).strip().lower()
+        if order not in ("before", "after", "none"):
+            order = "before"
+        return {
+            "default_action": default_action,
+            "rules": rules,
+            "response_mode": response_mode,
+            "privilege_check_order": order,
+        }
 
     def update_command_authorization_config(
-        self, *, default_action: str | None = None, rules: list[dict] | None = None
+        self,
+        *,
+        default_action: str | None = None,
+        rules: list[dict] | None = None,
+        privilege_check_order: str | None = None,
     ) -> None:
         if "command_authorization" not in self.config:
             self.config.add_section("command_authorization")
@@ -432,6 +544,10 @@ class TacacsConfig:
             section["default_action"] = str(default_action)
         if rules is not None:
             section["rules_json"] = _json.dumps(rules)
+        if privilege_check_order is not None:
+            pco = str(privilege_check_order).strip().lower()
+            if pco in ("before", "after", "none"):
+                section["privilege_check_order"] = pco
         try:
             self.save_config()
         except Exception as e:
@@ -478,6 +594,33 @@ class TacacsConfig:
             "max_log_size": self.config.get("logging", "max_log_size"),
             "backup_count": self.config.getint("logging", "backup_count"),
             "log_level": self.config.get("server", "log_level"),
+        }
+
+    def get_syslog_config(self) -> dict[str, Any]:
+        """Get syslog configuration (optional)."""
+        sec = self.config["syslog"] if "syslog" in self.config else {}
+        enabled = str(sec.get("enabled", "false")).lower() == "true"
+        host = sec.get("host", "127.0.0.1")
+        try:
+            port = int(sec.get("port", 514))
+        except Exception:
+            port = 514
+        proto = str(sec.get("protocol", "udp")).strip().lower()
+        facility = str(sec.get("facility", "local0")).strip().lower()
+        severity = str(sec.get("severity", "info")).strip().lower()
+        fmt = str(sec.get("format", "rfc5424"))
+        app_name = str(sec.get("app_name", "tacacs_server"))
+        include_hostname = str(sec.get("include_hostname", "true")).lower() == "true"
+        return {
+            "enabled": enabled,
+            "host": host,
+            "port": port,
+            "protocol": proto,
+            "facility": facility,
+            "severity": severity,
+            "format": fmt,
+            "app_name": app_name,
+            "include_hostname": include_hostname,
         }
 
     def get_webhook_config(self) -> dict[str, Any]:
@@ -866,8 +1009,21 @@ def setup_logging(config: TacacsConfig):
     log_level = getattr(logging, log_config["log_level"].upper(), logging.INFO)
     handlers: list[logging.Handler] = []
 
-    console_handler = logging.StreamHandler()
-    handlers.append(console_handler)
+    add_console = True
+    try:
+        # Avoid duplicate logs when stdout/stderr is redirected (non-interactive)
+        # In such cases, a console handler would write to the same destination as
+        # the subprocess redirection, causing duplicate entries alongside the
+        # configured file handler.
+        import sys as _sys
+
+        add_console = bool(getattr(_sys.stdout, "isatty", lambda: False)())
+    except Exception:
+        add_console = True
+
+    if add_console:
+        console_handler = logging.StreamHandler()
+        handlers.append(console_handler)
 
     if log_file:
         try:
@@ -899,3 +1055,87 @@ def setup_logging(config: TacacsConfig):
         log_config["log_level"],
         log_file or "console-only",
     )
+
+    # Configure optional syslog handler per configuration
+    try:
+        syslog_cfg = config.get_syslog_config()
+        if syslog_cfg.get("enabled"):
+            import socket as _socket
+            from logging.handlers import SysLogHandler
+
+            address = (syslog_cfg["host"], int(syslog_cfg["port"]))
+            socktype = (
+                _socket.SOCK_DGRAM
+                if syslog_cfg.get("protocol") == "udp"
+                else _socket.SOCK_STREAM
+            )
+            # Facility mapping
+            try:
+                facility_map = {
+                    "kern": SysLogHandler.LOG_KERN,
+                    "user": SysLogHandler.LOG_USER,
+                    "mail": SysLogHandler.LOG_MAIL,
+                    "daemon": SysLogHandler.LOG_DAEMON,
+                    "auth": SysLogHandler.LOG_AUTH,
+                    "syslog": SysLogHandler.LOG_SYSLOG,
+                    "lpr": SysLogHandler.LOG_LPR,
+                    "news": SysLogHandler.LOG_NEWS,
+                    "uucp": SysLogHandler.LOG_UUCP,
+                    "cron": SysLogHandler.LOG_CRON,
+                    "authpriv": getattr(
+                        SysLogHandler, "LOG_AUTHPRIV", SysLogHandler.LOG_AUTH
+                    ),
+                    "ftp": getattr(SysLogHandler, "LOG_FTP", SysLogHandler.LOG_USER),
+                    "local0": SysLogHandler.LOG_LOCAL0,
+                    "local1": SysLogHandler.LOG_LOCAL1,
+                    "local2": SysLogHandler.LOG_LOCAL2,
+                    "local3": SysLogHandler.LOG_LOCAL3,
+                    "local4": SysLogHandler.LOG_LOCAL4,
+                    "local5": SysLogHandler.LOG_LOCAL5,
+                    "local6": SysLogHandler.LOG_LOCAL6,
+                    "local7": SysLogHandler.LOG_LOCAL7,
+                }
+                facility = facility_map.get(
+                    str(syslog_cfg.get("facility", "local0")).lower(),
+                    SysLogHandler.LOG_LOCAL0,
+                )
+            except Exception:
+                facility = SysLogHandler.LOG_LOCAL0
+
+            sh = SysLogHandler(address=address, facility=facility, socktype=socktype)
+
+            # Level mapping to approximate syslog severity threshold
+            level_map = {
+                "debug": logging.DEBUG,
+                "info": logging.INFO,
+                "notice": logging.INFO,
+                "warning": logging.WARNING,
+                "err": logging.ERROR,
+                "error": logging.ERROR,
+                "crit": logging.CRITICAL,
+                "alert": logging.CRITICAL,
+                "emerg": logging.CRITICAL,
+            }
+            sh.setLevel(
+                level_map.get(
+                    str(syslog_cfg.get("severity", "info")).lower(), logging.INFO
+                )
+            )
+
+            # Simple formatter; SysLogHandler prepends PRI/header. Prefix app name.
+            app = syslog_cfg.get("app_name") or "tacacs_server"
+            sh.setFormatter(logging.Formatter(f"{app}: %(message)s"))
+
+            # Attach to root to capture all server logs to syslog (as required)
+            root = logging.getLogger()
+            root.addHandler(sh)
+            logger.info(
+                "Syslog configured: %s:%s proto=%s facility=%s severity=%s",
+                syslog_cfg.get("host"),
+                syslog_cfg.get("port"),
+                syslog_cfg.get("protocol"),
+                syslog_cfg.get("facility"),
+                syslog_cfg.get("severity"),
+            )
+    except Exception as e:
+        logger.warning("Failed to configure syslog handler: %s", e)

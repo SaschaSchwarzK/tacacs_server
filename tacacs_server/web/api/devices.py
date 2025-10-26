@@ -100,13 +100,23 @@ async def get_device(
     description="Register a new network device",
 )
 async def create_device(device: DeviceCreate):
-    """Create a new network device."""
+    """Create a new network device (strict schema)."""
     try:
         service = get_device_service()
+        # Resolve group id: accept int id or string name
+        group_id: int
+        if isinstance(device.device_group_id, str):
+            group = service.store.get_group_by_name(device.device_group_id)
+            if not group:
+                raise HTTPException(status_code=404, detail="Device group not found")
+            group_id = group.id
+        else:
+            group_id = int(device.device_group_id)
+
         new_device = service.create_device_from_dict(
             name=device.name,
             ip_address=device.ip_address,
-            device_group_id=device.device_group_id,
+            device_group_id=group_id,
             enabled=device.enabled,
             metadata=device.metadata,
         )

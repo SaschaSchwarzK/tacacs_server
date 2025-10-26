@@ -45,6 +45,10 @@ class CommandRule:
     description: str | None = None
     user_groups: list[str] | None = None
     device_groups: list[str] | None = None
+    # Optional per-rule response mode: "pass_add" or "pass_repl"
+    response_mode: str | None = None
+    # Optional attributes to include on permit decisions
+    attrs: dict[str, str] | None = None
 
     # Compiled pattern cache (for regex/wildcard), None otherwise
     _compiled_pattern: Pattern[str] | None = field(init=False, default=None)
@@ -115,6 +119,9 @@ class CommandAuthorizationEngine:
         description: str | None = None,
         user_groups: list[str] | None = None,
         device_groups: list[str] | None = None,
+        *,
+        response_mode: str | None = None,
+        attrs: dict[str, str] | None = None,
     ) -> CommandRule:
         """Add authorization rule"""
         rule = CommandRule(
@@ -127,6 +134,8 @@ class CommandAuthorizationEngine:
             description=description,
             user_groups=user_groups,
             device_groups=device_groups,
+            response_mode=response_mode,
+            attrs=attrs,
         )
         self.rules.append(rule)
         self._rule_id_counter += 1
@@ -146,7 +155,7 @@ class CommandAuthorizationEngine:
         privilege_level: int = 15,
         user_groups: list[str] | None = None,
         device_group: str | None = None,
-    ) -> tuple[bool, str | None]:
+    ) -> tuple[bool, str | None, dict[str, str] | None, str | None]:
         """
         Authorize command execution
         Returns: (authorized: bool, reason: str)
@@ -156,12 +165,19 @@ class CommandAuthorizationEngine:
             if rule.matches(command, privilege_level, user_groups, device_group):
                 authorized = rule.action == ActionType.PERMIT
                 reason = rule.description or f"Rule {rule.id}: {rule.action.value}"
-                return authorized, reason
+                # Normalize response_mode
+                resp_mode = None
+                if isinstance(rule.response_mode, str):
+                    rm = rule.response_mode.strip().lower()
+                    if rm in ("pass_add", "pass_repl"):
+                        resp_mode = rm
+                attrs = dict(rule.attrs) if isinstance(rule.attrs, dict) else None
+                return authorized, reason, attrs, resp_mode
 
         # No matching rule, use default action
         authorized = self.default_action == ActionType.PERMIT
         reason = f"Default action: {self.default_action.value}"
-        return authorized, reason
+        return authorized, reason, None, None
 
     def get_allowed_commands(
         self,
@@ -188,17 +204,50 @@ class CommandAuthorizationEngine:
     def load_from_config(self, config: list[dict]):
         """Load rules from configuration"""
         self.rules.clear()
+
+        def _parse_action(val) -> ActionType:
+            if isinstance(val, ActionType):
+                return val
+            try:
+                s = str(val).strip().lower()
+                return ActionType.PERMIT if s == "permit" else ActionType.DENY
+            except Exception:
+                return ActionType.DENY
+
+        def _parse_match_type(val) -> CommandMatchType:
+            if isinstance(val, CommandMatchType):
+                return val
+            try:
+                s = str(val).strip().lower()
+                if s == "exact":
+                    return CommandMatchType.EXACT
+                if s == "prefix":
+                    return CommandMatchType.PREFIX
+                if s == "regex":
+                    return CommandMatchType.REGEX
+                if s == "wildcard":
+                    return CommandMatchType.WILDCARD
+            except Exception:
+                pass
+            return CommandMatchType.EXACT
+
         for rule_config in config:
-            self.add_rule(
-                action=ActionType(rule_config["action"]),
-                match_type=CommandMatchType(rule_config["match_type"]),
-                pattern=rule_config["pattern"],
-                min_privilege=rule_config.get("min_privilege", 0),
-                max_privilege=rule_config.get("max_privilege", 15),
-                description=rule_config.get("description"),
-                user_groups=rule_config.get("user_groups"),
-                device_groups=rule_config.get("device_groups"),
-            )
+            try:
+                self.add_rule(
+                    action=_parse_action(rule_config.get("action")),
+                    match_type=_parse_match_type(rule_config.get("match_type")),
+                    pattern=str(rule_config.get("pattern", "")),
+                    min_privilege=rule_config.get("min_privilege", 0),
+                    max_privilege=rule_config.get("max_privilege", 15),
+                    description=rule_config.get("description"),
+                    user_groups=rule_config.get("user_groups"),
+                    device_groups=rule_config.get("device_groups"),
+                    response_mode=rule_config.get("response_mode"),
+                    attrs=rule_config.get("attrs"),
+                )
+            except Exception:
+                # Skip invalid rule entries gracefully
+                continue
 
     def export_config(self) -> list[dict]:
         """Export rules to configuration format"""
@@ -213,6 +262,8 @@ class CommandAuthorizationEngine:
                 "description": rule.description,
                 "user_groups": rule.user_groups,
                 "device_groups": rule.device_groups,
+                "response_mode": rule.response_mode,
+                "attrs": rule.attrs,
             }
             for rule in self.rules
         ]
@@ -365,7 +416,7 @@ class EnhancedAuthorizationService:
         Authorize TACACS+ command with enhanced rules
         Returns TACACS+ authorization response attributes
         """
-        authorized, reason = self.command_engine.authorize_command(
+        authorized, reason, _attrs, _mode = self.command_engine.authorize_command(
             command, privilege_level, user_groups, device_group
         )
 
@@ -447,10 +498,11 @@ async def check_command_authorization(request: CommandAuthRequest):
     # Get command engine from app state
     engine = get_command_engine()
     if engine is None:
-        engine = CommandAuthorizationEngine()
-        engine.load_from_config(CommandRuleTemplates.cisco_network_admin())
+        raise HTTPException(
+            status_code=503, detail="Command authorization engine not initialized"
+        )
 
-    authorized, reason = engine.authorize_command(
+    authorized, reason, _, _ = engine.authorize_command(
         request.command,
         request.privilege_level,
         request.user_groups,

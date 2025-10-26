@@ -5,7 +5,7 @@ TACACS+ AAA Request Handlers
 import os
 import struct
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 try:
     import json as _json
@@ -15,6 +15,11 @@ except Exception:  # pragma: no cover - stdlib always present
     _HAS_JSON = False
 
 from tacacs_server.auth.base import AuthenticationBackend
+
+if TYPE_CHECKING:
+    from tacacs_server.authorization.command_authorization import (
+        CommandAuthorizationEngine,
+    )
 
 from ..accounting.models import AccountingRecord
 from ..utils.constants import MAX_PASSWORD_LENGTH
@@ -59,7 +64,12 @@ class AAAHandlers:
         self.rate_limiter = AuthRateLimiter()
         self.session_device: dict[int, Any] = {}
         self.session_usernames: dict[int, str] = {}
+        # Optional command authorization engine injected by main
+        self.command_engine: CommandAuthorizationEngine | None = None
         self.local_user_group_service = None
+        # Defaults injected from main; ensure attributes exist for type checkers
+        self.command_response_mode_default: str | None = None
+        self.privilege_check_order: str = "before"
         # Per-backend authentication timeout (seconds) to avoid slow backend DoS
         if backend_timeout is not None:
             try:
@@ -807,7 +817,9 @@ class AAAHandlers:
         # 'service' argument (e.g., service=shell) is not considered a
         # command request for the purposes of minimal authorization flows.
         command = args.get("cmd", "")
-        if priv_lvl > user_priv:
+        # Privilege level enforcement order can be configured. Default: 'before'.
+        _priv_order = getattr(self, "privilege_check_order", "before")
+        if _priv_order == "before" and (priv_lvl > user_priv):
             self.cleanup_session(packet.session_id)
             try:
                 import json as _json
@@ -849,124 +861,45 @@ class AAAHandlers:
                 f"Insufficient privilege level (required: {priv_lvl}, "
                 f"user: {user_priv})",
             )
-        # Deprecated: user-bound shell_command allowlist removed in favor of policy engine
-        # Optional enhanced command authorization hook
-        try:
-            from ..web.monitoring import get_command_authorizer
-
-            authorizer = get_command_authorizer()
-        except Exception:
-            authorizer = None
-
-        if command and authorizer is not None:
-            user_groups_list = user_attrs.get("groups") or []
-            device_group_name = getattr(getattr(device, "group", None), "name", None)
-            allowed, reason = authorizer(
-                command, user_priv, user_groups_list, device_group_name
+        # Command authorization evaluation (engine/external/defaults)
+        if command:
+            return self._evaluate_command_authorization(
+                packet,
+                user,
+                user_priv,
+                priv_lvl,
+                command,
+                user_attrs,
+                args,
+                device,
             )
-            if not allowed:
-                self.cleanup_session(packet.session_id)
-                try:
-                    import json as _json
-
-                    logger.warning(
-                        _json.dumps(
-                            {
-                                "event": "authorization_denied",
-                                "session": f"0x{packet.session_id:08x}",
-                                "user": user,
-                                "reason": f"cmd_not_authorized:{command}:{reason}",
-                                "command": command,
-                                "required_priv": priv_lvl,
-                                "user_priv": user_priv,
-                                "device_group": getattr(
-                                    getattr(device, "group", None), "name", None
-                                ),
-                            }
-                        )
-                    )
-                except Exception:
-                    pass
-                try:
-                    from ..utils.webhook import notify
-
-                    notify(
-                        "authorization_failure",
-                        {
-                            "username": user,
-                            "client_ip": getattr(device, "ip", None),
-                            "reason": f"cmd_not_authorized:{command}:{reason}",
-                        },
-                    )
-                except Exception:
-                    pass
-                return self._create_author_response(
-                    packet,
-                    TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
-                    f"Command '{command}' not authorized",
-                )
-        elif command:
-            # No policy engine configured:
-            # - Allow read-only commands starting with 'show' for any user_priv >= 1
-            # - Require privilege 15 for other commands (e.g., 'configure')
-            cmd_str = (command or "").strip().lower()
-            if cmd_str.startswith("show"):
-                pass  # allow
-            elif user_priv < 15:
-                self.cleanup_session(packet.session_id)
-                try:
-                    import json as _json
-
-                    logger.warning(
-                        _json.dumps(
-                            {
-                                "event": "authorization_denied",
-                                "session": f"0x{packet.session_id:08x}",
-                                "user": user,
-                                "reason": "cmd_not_permitted_at_priv",
-                                "command": command,
-                                "required_priv": 15,
-                                "user_priv": user_priv,
-                                "device_group": getattr(
-                                    getattr(device, "group", None), "name", None
-                                ),
-                            }
-                        )
-                    )
-                except Exception:
-                    pass
-                return self._create_author_response(
-                    packet,
-                    TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
-                    "Command not permitted at current privilege",
-                )
-
+        # No command -> grant base attributes
         auth_attrs = self._build_authorization_attributes(user_attrs, args)
         self.cleanup_session(packet.session_id)
         try:
-            import json as _json
-
-            logger.info(
-                _json.dumps(
-                    {
-                        "event": "authorization_granted",
-                        "session": f"0x{packet.session_id:08x}",
-                        "user": user,
-                        "command": args.get("cmd"),
-                        "user_priv": user_priv,
-                        "device_group": getattr(
-                            getattr(device, "group", None), "name", None
-                        ),
-                        "attrs": auth_attrs,
-                    }
+            if _HAS_JSON:
+                logger.info(
+                    _json.dumps(
+                        {
+                            "event": "authorization_granted",
+                            "mode": "pass_add",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user,
+                            "command": args.get("cmd"),
+                            "user_priv": user_priv,
+                            "required_priv": priv_lvl,
+                            "device_group": getattr(
+                                getattr(device, "group", None), "name", None
+                            ),
+                        }
+                    )
                 )
-            )
         except Exception:
             pass
         return self._create_author_response(
             packet,
             TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
-            "Authorization successful",
+            "Authorization granted",
             auth_attrs,
         )
 
@@ -1331,6 +1264,270 @@ class AAAHandlers:
             session_id=request_packet.session_id,
             length=len(body),
             body=body,
+        )
+
+    def _evaluate_command_authorization(
+        self,
+        packet: TacacsPacket,
+        user: str,
+        user_priv: int,
+        requested_priv: int,
+        command: str,
+        user_attrs: dict[str, Any],
+        args: dict[str, str],
+        device: Any | None,
+    ) -> TacacsPacket:
+        """Consolidated command authorization evaluation.
+
+        Tries built-in engine (preferred), then external authorizer, then simple defaults.
+        Returns a ready TACACS+ author response packet, or None to fall through.
+        """
+        # Prefer built-in engine when available
+        _engine = getattr(self, "command_engine", None)
+        if _engine is None:
+            try:
+                from ..web.monitoring import get_command_engine as _get_engine
+
+                _engine = _get_engine()
+            except Exception:
+                _engine = None
+        if _engine is not None:
+            try:
+                user_groups_list = user_attrs.get("groups") or []
+                device_group_name = getattr(
+                    getattr(device, "group", None), "name", None
+                )
+                allowed, reason, provided_attrs, rule_mode = _engine.authorize_command(
+                    command,
+                    privilege_level=user_priv,
+                    user_groups=user_groups_list,
+                    device_group=device_group_name,
+                )
+                if not allowed:
+                    self.cleanup_session(packet.session_id)
+                    # Structured denial log
+                    try:
+                        if _HAS_JSON:
+                            logger.warning(
+                                _json.dumps(
+                                    {
+                                        "event": "authorization_denied",
+                                        "session": f"0x{packet.session_id:08x}",
+                                        "user": user,
+                                        "command": command,
+                                        "reason": reason
+                                        if (isinstance(reason, str) and reason)
+                                        else "policy_denied",
+                                        "user_priv": user_priv,
+                                        "required_priv": requested_priv,
+                                        "device_group": getattr(
+                                            getattr(device, "group", None), "name", None
+                                        ),
+                                    }
+                                )
+                            )
+                    except Exception:
+                        pass
+                    return self._create_author_response(
+                        packet,
+                        TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
+                        reason
+                        if (isinstance(reason, str) and reason)
+                        else f"Command '{command}' not authorized",
+                    )
+                base_attrs = self._build_authorization_attributes(user_attrs, args)
+                _default_mode = str(
+                    getattr(self, "command_response_mode_default", "pass_add")
+                ).lower()
+                response_mode = str(rule_mode or _default_mode).lower()
+                if response_mode == "pass_repl":
+                    auth_attrs = dict(provided_attrs or {})
+                else:
+                    auth_attrs = dict(base_attrs)
+                    if isinstance(provided_attrs, dict):
+                        auth_attrs.update(
+                            {str(k): str(v) for k, v in provided_attrs.items()}
+                        )
+                self.cleanup_session(packet.session_id)
+                status_allowed = (
+                    TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_REPL
+                    if response_mode == "pass_repl"
+                    else TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD
+                )
+                # Structured grant log
+                try:
+                    if _HAS_JSON:
+                        logger.info(
+                            _json.dumps(
+                                {
+                                    "event": "authorization_granted",
+                                    "mode": response_mode,
+                                    "session": f"0x{packet.session_id:08x}",
+                                    "user": user,
+                                    "command": command,
+                                    "user_priv": user_priv,
+                                    "required_priv": requested_priv,
+                                    "device_group": getattr(
+                                        getattr(device, "group", None), "name", None
+                                    ),
+                                }
+                            )
+                        )
+                except Exception:
+                    pass
+                return self._create_author_response(
+                    packet,
+                    status_allowed,
+                    "Authorization granted",
+                    auth_attrs,
+                )
+            except Exception:
+                # Fall through to external authorizer or simple defaults
+                pass
+        # External authorizer (compat)
+        try:
+            from ..web.monitoring import get_command_authorizer
+
+            authorizer = get_command_authorizer()
+        except Exception:
+            authorizer = None
+        if authorizer is not None:
+            user_groups_list = user_attrs.get("groups") or []
+            device_group_name = getattr(getattr(device, "group", None), "name", None)
+            result = authorizer(command, user_priv, user_groups_list, device_group_name)
+            if isinstance(result, tuple) and len(result) >= 2:
+                allowed = bool(result[0])
+                reason = result[1]
+                provided_attrs = {}
+                if len(result) >= 3 and isinstance(result[2], dict):
+                    provided_attrs = {str(k): str(v) for k, v in result[2].items()}
+                response_mode = (
+                    str(result[3]).lower()
+                    if len(result) >= 4
+                    else (
+                        str(result[2]).lower()
+                        if len(result) == 3 and isinstance(result[2], str)
+                        else "pass_add"
+                    )
+                )
+            else:
+                allowed = bool(result)
+                reason = ""
+                response_mode = "pass_add"
+                provided_attrs = {}
+            if not allowed:
+                self.cleanup_session(packet.session_id)
+                return self._create_author_response(
+                    packet,
+                    TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
+                    reason
+                    if (isinstance(reason, str) and reason)
+                    else f"Command '{command}' not authorized",
+                )
+            base_attrs = self._build_authorization_attributes(user_attrs, args)
+            auth_attrs = (
+                dict(provided_attrs)
+                if response_mode == "pass_repl"
+                else {**base_attrs, **provided_attrs}
+            )
+            self.cleanup_session(packet.session_id)
+            status_allowed = (
+                TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_REPL
+                if response_mode == "pass_repl"
+                else TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD
+            )
+            try:
+                if _HAS_JSON:
+                    logger.info(
+                        _json.dumps(
+                            {
+                                "event": "authorization_granted",
+                                "mode": response_mode,
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "command": command,
+                                "user_priv": user_priv,
+                                "required_priv": requested_priv,
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
+                    )
+            except Exception:
+                pass
+            return self._create_author_response(
+                packet,
+                status_allowed,
+                "Authorization granted",
+                auth_attrs,
+            )
+        # Simple defaults when no engine/authorizer
+        cmd_str = (command or "").strip().lower()
+        if cmd_str.startswith("show"):
+            auth_attrs = self._build_authorization_attributes(user_attrs, args)
+            self.cleanup_session(packet.session_id)
+            try:
+                if _HAS_JSON:
+                    logger.info(
+                        _json.dumps(
+                            {
+                                "event": "authorization_granted",
+                                "mode": "pass_add",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "command": command,
+                                "user_priv": user_priv,
+                                "required_priv": requested_priv,
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
+                    )
+            except Exception:
+                pass
+            return self._create_author_response(
+                packet,
+                TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
+                "Authorization granted",
+                auth_attrs,
+            )
+        if user_priv < 15:
+            self.cleanup_session(packet.session_id)
+            return self._create_author_response(
+                packet,
+                TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
+                "Command not permitted at current privilege",
+            )
+        # Else allow at priv 15
+        auth_attrs = self._build_authorization_attributes(user_attrs, args)
+        self.cleanup_session(packet.session_id)
+        try:
+            if _HAS_JSON:
+                logger.info(
+                    _json.dumps(
+                        {
+                            "event": "authorization_granted",
+                            "mode": "pass_add",
+                            "session": f"0x{packet.session_id:08x}",
+                            "user": user,
+                            "command": command,
+                            "user_priv": user_priv,
+                            "required_priv": requested_priv,
+                            "device_group": getattr(
+                                getattr(device, "group", None), "name", None
+                            ),
+                        }
+                    )
+                )
+        except Exception:
+            pass
+        return self._create_author_response(
+            packet,
+            TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
+            "Authorization granted",
+            auth_attrs,
         )
 
     def _create_acct_response(

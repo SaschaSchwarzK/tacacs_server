@@ -11,6 +11,9 @@ class ServerConfigSchema(BaseModel):
     log_level: str = Field(default="INFO")
     max_connections: int = Field(default=50, ge=1)
     socket_timeout: int = Field(default=30, ge=1)
+    accept_proxy_protocol: bool = Field(
+        default=True, description="Accept HAProxy PROXY v2 headers"
+    )
 
 
 class AuthConfigSchema(BaseModel):

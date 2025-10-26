@@ -16,12 +16,14 @@ class InputValidator:
     """Centralized input validation with security-focused checks."""
 
     # Regex patterns for common validations
-    USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+    # Allow '@' in usernames (common for UPN/email-style identities)
+    USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.@-]{1,64}$")
     HOSTNAME_PATTERN = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
     EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
     # Character sets for validation
-    SAFE_CHARS = set(string.ascii_letters + string.digits + "_.-")
+    # Safe character set for generic names/text in the UI/API
+    SAFE_CHARS = set(string.ascii_letters + string.digits + " _.@-")
     SQL_INJECTION_PATTERNS = [
         r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\b)",
         r"(--|#|/\*|\*/)",
@@ -46,7 +48,7 @@ class InputValidator:
 
         if not cls.USERNAME_PATTERN.match(username):
             raise ValidationError(
-                "Username can only contain letters, numbers, underscore, dot, and dash"
+                "Username may only contain letters, numbers, '_', '-', '.', and '@'"
             )
 
         # Check for SQL injection patterns
@@ -127,6 +129,12 @@ class InputValidator:
         - Checks LDAP and shell metacharacters (allow benign words like 'select')
         """
         value = cls.validate_string_length(value, field_name, min_len, max_len)
+        # Enforce whitelist of safe characters to avoid command/code injection
+        for ch in value:
+            if ch not in cls.SAFE_CHARS:
+                raise ValidationError(
+                    f"{field_name} contains disallowed character: '{ch}'"
+                )
         # Check for injection patterns
         cls._check_ldap_injection(value, field_name)
         cls._check_shell_injection(value, field_name)

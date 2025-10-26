@@ -23,8 +23,6 @@ from tacacs_server.web.admin.auth import (
 from tacacs_server.web.monitoring import (
     set_admin_auth_dependency,
     set_admin_session_manager,
-    set_command_authorizer,
-    set_command_engine,
     set_device_service,
     set_local_user_group_service,
     set_local_user_service,
@@ -82,6 +80,20 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
+        # Configure accounting database logger path from config
+        try:
+            from tacacs_server.accounting.database import DatabaseLogger as _DBL
+
+            db_cfg = self.config.get_database_config()
+            acct_path = db_cfg.get("accounting_db")
+            if acct_path:
+                self.server.db_logger = _DBL(acct_path)
+                # Rebind handlers to use the new logger
+                if hasattr(self.server, "handlers") and self.server.handlers:
+                    self.server.handlers.db_logger = self.server.db_logger
+        except Exception:
+            # Fall back to default path if config/bind fails; server remains usable
+            pass
         # Apply extended server/network tuning
         try:
             net_cfg = self.config.get_server_network_config()
@@ -97,6 +109,35 @@ class TacacsServerManager:
                 net_cfg.get("thread_pool_max", 100)
             )
             self.server.use_thread_pool = bool(net_cfg.get("use_thread_pool", True))
+            # Legacy PROXY protocol toggles from [server]
+            self.server.accept_proxy_protocol = bool(
+                net_cfg.get("accept_proxy_protocol", True)
+            )
+            # Wire proxy_enabled into server instance for request handling & stats
+            try:
+                self.server.proxy_enabled = bool(net_cfg.get("proxy_enabled", False))
+            except Exception:
+                self.server.proxy_enabled = False
+            # New proxy protocol config overrides
+            try:
+                pxy = self.config.get_proxy_protocol_config()
+                self.server.proxy_enabled = bool(
+                    pxy.get("enabled", self.server.proxy_enabled)
+                )
+                self.server.accept_proxy_protocol = bool(
+                    pxy.get("accept_proxy_protocol", self.server.accept_proxy_protocol)
+                )
+                self.server.proxy_validate_sources = bool(
+                    pxy.get("validate_sources", True)
+                )
+                try:
+                    self.server.proxy_reject_invalid = bool(
+                        pxy.get("reject_invalid", True)
+                    )
+                except Exception:
+                    self.server.proxy_reject_invalid = True
+            except Exception:
+                pass
         except Exception:
             pass
         # Initialize webhook runtime config from file
@@ -118,15 +159,33 @@ class TacacsServerManager:
         try:
             sec_cfg = self.config.get_security_config()
             per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
-            if per_ip_cap >= 1:
+            if per_ip_cap >= 1 and self.server:
                 self.server.max_connections_per_ip = per_ip_cap
+            # Propagate encryption policy to TACACS server for runtime enforcement
+            if self.server is not None:
+                try:
+                    self.server.encryption_required = bool(
+                        sec_cfg.get("encryption_required", True)
+                    )
+                except Exception:
+                    self.server.encryption_required = True
         except Exception:
             pass
 
         # Initialize device inventory
         try:
             self.device_store_config = self.config.get_device_store_config()
-            self.device_store = DeviceStore(self.device_store_config["database"])
+            net_cfg = self.config.get_server_network_config()
+            self.device_store = DeviceStore(
+                self.device_store_config["database"],
+                identity_cache_ttl_seconds=self.device_store_config.get(
+                    "identity_cache_ttl_seconds"
+                ),
+                identity_cache_maxsize=self.device_store_config.get(
+                    "identity_cache_size"
+                ),
+                proxy_enabled=bool(net_cfg.get("proxy_enabled", False)),
+            )
             default_group = self.device_store_config.get("default_group")
             if default_group:
                 self.device_store.ensure_group(
@@ -261,6 +320,68 @@ class TacacsServerManager:
         if self.radius_server and radius_config.get("share_backends", False):
             shared = len(getattr(self.radius_server, "auth_backends", []))
             logger.info("RADIUS: Sharing %d auth backends with TACACS+", shared)
+        # Always initialize command authorization engine for TACACS handlers
+        try:
+            from tacacs_server.authorization.command_authorization import (
+                ActionType,
+                CommandAuthorizationEngine,
+            )
+            from tacacs_server.web.monitoring import (
+                set_command_authorizer as _set_authz,
+            )
+            from tacacs_server.web.monitoring import (
+                set_command_engine as _set_engine,
+            )
+
+            ca_cfg = self.config.get_command_authorization_config()
+            engine = CommandAuthorizationEngine()
+            engine.load_from_config(ca_cfg.get("rules") or [])
+            engine.default_action = (
+                ActionType.PERMIT
+                if (ca_cfg.get("default_action") == "permit")
+                else ActionType.DENY
+            )
+            default_mode = ca_cfg.get("response_mode", "pass_add")
+            priv_order = ca_cfg.get("privilege_check_order", "before")
+
+            def authorizer(cmd: str, priv: int, groups, device_group):
+                allowed, reason, attrs, rule_mode = engine.authorize_command(
+                    cmd,
+                    privilege_level=priv,
+                    user_groups=groups,
+                    device_group=device_group,
+                )
+                mode = rule_mode or default_mode
+                return allowed, reason, (attrs or {}), mode
+
+            _set_engine(engine)
+            _set_authz(authorizer)
+            # Also inject engine into TACACS handlers directly for deterministic use
+            try:
+                if (
+                    self.server
+                    and hasattr(self.server, "handlers")
+                    and self.server.handlers
+                ):
+                    self.server.handlers.command_engine = engine
+                    # Provide default response mode for handler fallback (when rule has none)
+                    try:
+                        self.server.handlers.command_response_mode_default = str(
+                            default_mode
+                        )
+                    except Exception:
+                        pass
+                    # Pass privilege check ordering preference to handlers
+                    try:
+                        self.server.handlers.privilege_check_order = str(priv_order)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            # Do not fail startup if command authorization engine fails
+            pass
+
         # Enable monitoring if configured (tolerate missing section)
         # read monitoring section safely: prefer helper API, fallback to RawConfigParser
         # items()
@@ -287,36 +408,9 @@ class TacacsServerManager:
                 web_port,
             )
             try:
-                # Initialize command authorization engine from config
-                try:
-                    from tacacs_server.authorization.command_authorization import (
-                        ActionType,
-                        CommandAuthorizationEngine,
-                    )
-
-                    ca_cfg = self.config.get_command_authorization_config()
-                    engine = CommandAuthorizationEngine()
-                    engine.load_from_config(ca_cfg.get("rules") or [])
-                    # set default action
-                    engine.default_action = (
-                        ActionType.PERMIT
-                        if (ca_cfg.get("default_action") == "permit")
-                        else ActionType.DENY
-                    )
-
-                    def authorizer(cmd: str, priv: int, groups, device_group):
-                        allowed, reason = engine.authorize_command(
-                            cmd,
-                            privilege_level=priv,
-                            user_groups=groups,
-                            device_group=device_group,
-                        )
-                        return allowed, reason
-
-                    set_command_engine(engine)
-                    set_command_authorizer(authorizer)
-                except Exception as e:
-                    logger.warning("Command authorization initialization failed: %s", e)
+                # Web monitoring relies on engine already initialized above.
+                # Do not reinitialize the command engine here to avoid overwriting
+                # any runtime/test-injected rules.
                 started = False
                 if self.server:
                     started = self.server.enable_web_monitoring(

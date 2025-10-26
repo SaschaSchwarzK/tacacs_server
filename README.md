@@ -21,6 +21,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Shared backends**: Both protocols can use the same authentication sources
 - **Per-device secrets**: Device groups define their own shared secrets
 - **Rate limiting**: Configurable request rate limiting and connection management
+- **PROXY protocol v2 (TCP)**: Original client IP is extracted when behind LBs; proxied vs direct connections are tracked ([detailed documentation](docs/PROXY_PROTOCOL_V2.md))
 
 ### **Device & Network Management**
 - **Device inventory**: Centralized device database with grouping
@@ -28,6 +29,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Device groups**: Organize devices with shared configurations and secrets
 - **Metadata support**: Custom attributes and configuration per device/group
 - **Change notifications**: Real-time updates when device configurations change
+- **Proxy-aware multi-tenant**: Optional `proxy_network` per group enforces tenant isolation by proxy/load balancer
 
 ### **Web Administration Console**
 - **Real-time dashboard**: WebSocket-powered live metrics and system health
@@ -39,6 +41,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 
 ### **Monitoring & Observability**
 - **Prometheus metrics**: `/metrics` endpoint with comprehensive server statistics
+  - Includes proxied vs direct connections and identity cache hit/miss metrics
 - **Real-time WebSocket**: Live dashboard updates without page refreshes
 - **Historical data**: Metrics history with configurable retention
 - **Health checks**: System health monitoring with memory and CPU metrics
@@ -64,7 +67,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 
 ### **Configuration & Deployment**
 - **Flexible configuration**: File-based or URL-based configuration loading
-- **Environment integration**: Environment variable support for secrets
+- **Credential handling**: Only credentials/secrets come from environment variables; all other parameters MUST be set in the config file
 - **Docker support**: Container-ready with docker-compose configuration
 - **Configuration validation**: Pre-deployment validation with detailed error reporting
 - **Backup & restore**: Automatic configuration backups on changes
@@ -77,6 +80,37 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Client tools**: TACACS+ and RADIUS client scripts for testing
 - **API documentation**: Complete REST API documentation
 - **Type safety**: Full mypy type checking
+
+## 🧪 Testing
+
+This repository ships comprehensive tests under `tests/` covering unit, integration, functional, security, performance and chaos scenarios.
+
+### Structure
+
+See also: FAQ.md for common issues, environment limitations (e.g., UDP on cloud platforms), and troubleshooting tips.
+
+```
+tests/
+  unit/                             # Small, fast tests
+  integration/
+    rate_limit/                     # TACACS/RADIUS/web limiter checks (logs + behavior)
+    tacacs/                         # TACACS features (e.g., command authorization)
+    admin/                          # Admin API CRUD (e.g., webhooks config)
+  functional/
+    webhooks/                       # Webhook delivery (E2E + injected transport)
+  security/                         # Security/pentest checks
+  chaos/                            # Chaos experiments (opt‑in)
+  README.md, QUICK_START.md         # Test docs & examples
+```
+
+### Markers and examples
+
+- Only integration tests: `pytest -m integration -v`
+- Security suite: `pytest -m security -v`
+- Chaos suite (opt‑in): `pytest tests/chaos/test_chaos.py -m chaos -v`
+- Everything quickly: `pytest -q`
+
+See `tests/README.md` and `tests/QUICK_START.md` for details, including how to run webhook delivery tests in restricted environments and how to use the injected transport to validate payloads deterministically.
 
 ## 🚀 Quick Start
 
@@ -115,6 +149,36 @@ pytest -q
 
 Notes
 - Deactivate the venv when done: `deactivate`
+
+## Configuration
+
+### Server and Networking
+- `proxy_enabled` — enable proxy-aware device matching (requires configured proxies)
+- `accept_proxy_protocol` — accept HAProxy PROXY v2 headers on inbound connections
+
+### PROXY Protocol
+You can control proxy-aware behavior via a dedicated section. These settings override legacy keys under `[server]` when present.
+
+```
+[proxy_protocol]
+# Enable proxy-aware device matching
+enabled = true
+
+# Accept HAProxy PROXY v2 headers on inbound connections
+accept_proxy_protocol = true
+
+# Validate that PROXY headers come from registered proxies only
+validate_sources = true
+
+# When a PROXY v2 signature is present but the header is invalid/unsupported,
+# reject the connection instead of ignoring it (recommended for production)
+reject_invalid = true
+```
+
+- `enabled`: Toggles proxy-aware device matching end-to-end.
+- `accept_proxy_protocol`: If true, the server consumes and uses PROXY v2 headers.
+- `validate_sources`: If true, proxied connections are only allowed when the source IP matches a configured proxy network; when false, proxied connections are accepted without source validation.
+- `reject_invalid`: If true, connections with an invalid/unsupported PROXY header are rejected and logged; set to false to ignore and continue (legacy compatibility).
 - Windows PowerShell equivalents:
   - Create venv: `py -3.13 -m venv .venv`
   - Activate: `.venv\\Scripts\\Activate.ps1`
@@ -135,6 +199,46 @@ tacacs-server
 # Validate configuration before starting
 python scripts/validate_config.py
 ```
+
+### Quick Proxy-aware Device Matching Example
+
+1. Configure a proxied tenant group with required proxy network:
+
+```ini
+[devices]
+database = data/devices.db
+identity_cache_ttl_seconds = 120
+identity_cache_size = 20000
+```
+
+2. Create a device group with `proxy_network` and add devices:
+
+```bash
+# Using Admin API (X-API-Token for simplicity in local dev)
+curl -H 'X-API-Token: test' -H 'Content-Type: application/json' \
+  -d '{
+        "name": "Tenant-A",
+        "description": "Tenant A edge",
+        "proxy_network": "10.0.0.0/8",
+        "tacacs_secret": "TacacsSecret123!"
+      }' \
+  http://127.0.0.1:8080/api/device-groups
+
+# Add a device to the group (via Admin UI or Devices API)
+```
+
+3. Place the server behind an LB that sends PROXY v2. Traffic with:
+- Original client IP in `192.168.100.0/24`
+- Proxy (LB) IP in `10.1.2.3`
+
+…will match `Tenant-A` devices (exact match: client ∈ device.network AND proxy ∈ group.proxy_network). Direct connections without PROXY will fall back to groups without `proxy_network`, selecting the most specific matching device network.
+
+### Metrics
+
+Prometheus `/metrics` includes:
+- `tacacs_connections_proxied_total`, `tacacs_connections_direct_total`
+- `tacacs_device_identity_cache_hits`, `_misses`, `_evictions` (gauges)
+- `tacacs_device_identity_cache_hits_total`, `_misses_total`, `_evictions_total` (counters)
 
 ### Web Interface Access
 
@@ -169,7 +273,17 @@ python scripts/tacacs_client.py --batch scripts/example_credentials.csv
 The web console provides comprehensive management capabilities with real-time monitoring:
 
 Important
-- The admin web UI is disabled unless an admin bcrypt password hash is configured via `[admin].password_hash` or `ADMIN_PASSWORD_HASH`. When not configured, `/admin/*` returns `503` and the login page shows a banner explaining that admin auth is not configured. The local TACACS+/RADIUS user database does not grant web admin access.
+- The admin web UI is disabled unless an admin bcrypt password hash is configured via `[admin].password_hash` or `ADMIN_PASSWORD_HASH`. When not configured, `/admin/*` requires authentication and the UI is unavailable. The local TACACS+/RADIUS user database does not grant web admin access.
+- All `/admin/*` endpoints, including redirects like `/admin` and `/admin/config/`, require authentication.
+- Security headers are set by default (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, X-XSS-Protection). The `Server` banner header is removed.
+
+### Command Authorization Policy
+- Default action: configured under `[command_authorization].default_action` (`permit` or `deny`). When no rule matches, this action applies.
+- Response mode: `[command_authorization].response_mode` controls PASS_ADD vs PASS_REPL for allowed decisions when a rule does not specify `response_mode`.
+- Privilege enforcement order: `[command_authorization].privilege_check_order` (`before` | `after` | `none`).
+  - `before` (default): deny if requested `priv-lvl` exceeds user privilege before rule evaluation.
+  - `after`: evaluate command policy first, enabling holistic policy decisions per RFC 8907.
+  - `none`: disable the pre-check; rules fully decide.
 
 ### **Real-time Dashboard**
 - Live-updating metrics tiles with WebSocket connectivity
@@ -502,120 +616,119 @@ rate(radius_packets_dropped_total{reason="invalid_message_authenticator"}[5m])
 
 ```
 tacacs_server/
-├── auth/                    # Authentication backends
-│   ├── base.py             # Abstract backend interface
-│   ├── local.py            # Local SQLite authentication
-│   ├── ldap_auth.py        # LDAP integration
-│   ├── okta_auth.py        # Okta SSO integration
-│   ├── local_store.py      # Local user database
-│   ├── local_user_service.py      # User management service
+├── auth/                         # Authentication backends
+│   ├── base.py                  # Abstract backend interface
+│   ├── local.py                 # Local SQLite authentication
+│   ├── ldap_auth.py             # LDAP integration
+│   ├── okta_auth.py             # Okta SSO integration
+│   ├── local_store.py           # Local user database
+│   ├── local_user_service.py    # User management service
 │   └── local_user_group_service.py # User group management
-├── tacacs/                  # TACACS+ protocol implementation
-│   ├── server.py           # TACACS+ server core
-│   ├── handlers.py         # AAA request handlers
-│   ├── packet.py           # TACACS+ packet encoding/decoding
-│   └── constants.py        # Protocol constants
-├── radius/                  # RADIUS protocol implementation
-│   ├── server.py           # RADIUS server core
-│   └── constants.py        # RADIUS constants
-├── devices/                 # Device management
-│   ├── store.py            # Device database operations
-│   └── service.py          # Device management service
-├── accounting/              # Accounting and logging
-│   ├── models.py           # Data models
-│   ├── database.py         # Database operations
-│   └── async_database.py   # High-performance async logging(not yet used)
-├── config/                  # Configuration management
-│   ├── config.py           # Configuration loader
-│   └── schema.py           # Pydantic validation schemas
-├── web/                     # Web interface and APIs (FastAPI)
-│   ├── monitoring.py       # Dashboard app + Prometheus + router composition
-│   ├── api_models.py       # Pydantic v2 models used by public API
-│   ├── openapi_config.py   # OpenAPI schema + Swagger/ReDoc/RapiDoc UIs
-│   ├── app_setup.py        # Example FastAPI app wiring with custom OpenAPI
-│   ├── api/                # REST API routers
-│   │   ├── devices.py      # /api/devices endpoints
-│   │   ├── device_groups.py# /api/device-groups endpoints
-│   │   ├── users.py        # /api/users endpoints
-│   │   └── usergroups.py   # /api/user-groups endpoints
-│   └── admin/              # Admin interface
-│       ├── auth.py         # Admin authentication
-│       └── routers.py      # Admin UI routes and handlers
-├── utils/                   # Utility modules
-│   ├── logger.py           # Structured logging
-│   ├── metrics.py          # Metrics collection
-│   ├── policy.py           # Authorization policies
-│   ├── security.py         # Security utilities
-│   ├── validation.py       # Input validation
-│   ├── crypto.py           # Cryptographic functions
-│   ├── rate_limiter.py     # Rate limiting
-│   └── audit_logger.py     # Audit trail logging
-├── static/                  # Web assets (served by FastAPI StaticFiles)
-│   └── css/                # Stylesheets
-├── templates/               # HTML templates (Jinja2)
-│   ├── dashboard.html      # Main dashboard
-│   └── admin/              # Admin interface templates
-├── cli.py                   # Command-line interface
-└── main.py                  # Application entry point
+├── authorization/
+│   └── command_authorization.py # Command policy engine (rules, export/import)
+├── tacacs/                       # TACACS+ protocol implementation
+│   ├── server.py                # TACACS+ server (PROXY v2, health, metrics)
+│   ├── handlers.py              # AAA request handlers (auth/author/acct)
+│   ├── packet.py                # TACACS+ packet encoding/decoding
+│   └── constants.py             # Protocol constants
+├── radius/                       # RADIUS protocol implementation
+│   ├── server.py                # RADIUS server core
+│   └── constants.py             # RADIUS constants
+├── devices/                      # Device and proxy-aware matching
+│   ├── store.py                 # SQLite store (devices, groups, proxies)
+│   └── service.py               # Device management service
+├── accounting/                   # Accounting and logging
+│   ├── models.py                # Data models
+│   ├── database.py              # Synchronous DB logging
+│   └── async_database.py        # Async logging utilities (optional)
+├── config/                       # Configuration management
+│   ├── config.py                # Loader, validation, persistence
+│   └── schema.py                # Pydantic validation schemas
+├── web/                          # Web interface and APIs (FastAPI)
+│   ├── monitoring.py            # App composition (admin UI + API + metrics)
+│   ├── middleware.py            # Security headers (CSP, XSS, no Server banner)
+│   ├── api_models.py            # Pydantic v2 models used by public API
+│   ├── openapi_config.py        # OpenAPI schema and UI wiring
+│   ├── app_setup.py             # Example custom FastAPI wiring
+│   ├── api/                     # REST API routers
+│   │   ├── devices.py           # /api/devices endpoints
+│   │   ├── device_groups.py     # /api/device-groups endpoints
+│   │   ├── users.py             # /api/users endpoints
+│   │   └── usergroups.py        # /api/user-groups endpoints
+│   └── admin/                   # Admin interface
+│       ├── auth.py              # Admin authentication/session
+│       └── routers.py           # Admin UI routes and handlers
+├── utils/                        # Utility modules
+│   ├── logger.py                # Structured logging
+│   ├── metrics.py               # Metrics collection
+│   ├── security.py              # Security utilities (rate-limiter, username)
+│   ├── rate_limiter.py          # Token-bucket limiter
+│   ├── proxy_protocol.py        # PROXY v2 parser and helpers
+│   └── audit_logger.py          # Audit trail logging
+├── static/                       # Web assets (served by FastAPI StaticFiles)
+│   └── css/                     # Stylesheets
+├── templates/                    # HTML templates (Jinja2)
+│   ├── dashboard.html           # Main dashboard
+│   └── admin/                   # Admin UI templates
+├── cli.py                        # Command-line interface
+└── main.py                       # Application entry point
 
-tests/                       # Test suite
-├── __init__.py                           # Package marker
-├── conftest.py                           # Pytest fixtures and server helpers
-├── test_admin_api.py                     # Admin API endpoint tests
-├── test_admin_login_smoke.py             # Admin login smoke tests
-├── test_admin_session_manager.py         # Admin session manager tests
-├── test_admin_tuning_api.py              # Server tuning API tests
-├── test_api_functionality.py             # REST API functionality tests
-├── test_api_simple.py                    # Basic API sanity tests
-├── test_auth.py                          # Authentication flow tests
-├── test_authorization.py                 # Authorization and policy tests
-├── test_benchmark.py                     # Benchmark/perf smoke tests
-├── test_client_script.py                 # TACACS+/RADIUS client scripts
-├── test_config_env.py                    # Env/config loading tests
-├── test_debug_syspath.py                 # Dev env and sys.path checks
-├── test_device_service.py                # Device service unit tests
-├── test_input_validation.py              # Pydantic/model input validation
-├── test_ldap.py                          # LDAP backend tests
-├── test_local_user_group_service.py      # Local user group service
-├── test_local_user_service.py            # Local user service tests
-├── test_okta.py                          # Okta backend tests
-├── test_radius.py                        # RADIUS protocol tests
-├── test_server.py                        # Server lifecycle and endpoints
-├── test_tacacs_authorizer_integration.py # TACACS authorizer integration
-├── test_web_api_endpoints.py             # Web API endpoint coverage
-├── chaos/                                # Chaos engineering tests
-│   └── test_chaos.py                     # Network/resource chaos scenarios
-├── contract/                             # API contract/schema tests
-│   └── test_api_contracts.py             # OpenAPI schema and contracts
-├── e2e/                                  # End-to-end integration tests
-│   ├── test_command_authorization_live.py # Live command authorization
-│   ├── test_e2e_integration.py           # Full workflow tests
-│   └── test_tacacs_authorization_wire.py # Wire-level TACACS+ auth
-├── golden/                               # Golden files/regression suites
-│   └── test_tacacs_malformed.py          # Malformed TACACS packet cases
-├── performance/                          # Load/performance suites
-│   ├── locustfile.py                     # Locust scenarios
-│   └── test_auth_throughput.py           # Auth throughput tests
-├── property/                             # Property-based testing
-│   ├── test_tacacs_packet_props.py       # TACACS packet properties
-│   └── test_validation_props.py          # Validation properties
-├── radius/                               # RADIUS integration suites
-│   ├── client.py                         # Test client helpers
-│   ├── test_accounting_authenticator.py  # Accounting authenticator tests
-│   ├── test_integration_live_accounting.py # Live accounting integration
-│   ├── test_integration_live_ma.py       # Message-Authenticator (live)
-│   ├── test_integration_live_server.py   # Live server integration
-│   └── test_message_authenticator.py     # Message-Authenticator checks
-├── security/                             # Security and pentest suites
-│   ├── test_security_advanced.py         # Advanced security checks
-│   └── test_security_pentest.py          # Penetration tests
-└── tacacs/                               # TACACS protocol tests
-    ├── test_integration_auth.py          # Integration auth flows
-    ├── test_integration_author_acct.py   # Authorization + accounting
-    ├── test_integration_malformed.py     # Malformed requests handling
-    ├── test_packet_and_header.py         # Packet + header correctness
-    ├── test_server_limits.py             # Server limits/rate limiting
-    └── test_structures.py                # Low-level structures
+tests/                        # Test suite
+├── __init__.py
+├── chaos/
+│   └── test_chaos.py
+├── conftest.py
+├── functional/
+│   ├── admin/
+│   │   ├── test_admin_web.py
+│   │   ├── test_admin_web_crud.py
+│   │   └── test_admin_web_forms.py
+│   ├── api/
+│   │   ├── test_admin_api.py
+│   │   └── test_crud_all.py
+│   ├── radius/
+│   │   └── test_radius_basic.py
+│   ├── syslog/
+│   │   └── test_syslog_delivery.py
+│   ├── tacacs/
+│   │   ├── test_auth_pap_unencrypted.py
+│   │   ├── test_encryption_cases.py
+│   │   ├── test_packet_edge_cases.py
+│   │   ├── test_packet_header_and_crypto.py
+│   │   ├── test_proxy_protocol.py
+│   │   ├── test_server_limits.py
+│   │   └── test_tacacs_basic.py
+│   └── webhooks/
+│       ├── test_webhook_delivery.py
+│       └── test_webhook_utils_delivery.py
+├── integration/
+│   ├── admin/
+│   │   └── test_webhooks_api.py
+│   ├── performance/
+│   │   └── test_auth_throughput.py
+│   ├── rate_limit/
+│   │   ├── test_rate_limit_radius.py
+│   │   ├── test_rate_limit_tacacs.py
+│   │   └── test_rate_limit_web.py
+│   ├── tacacs/
+│   │   ├── test_accounting_service.py
+│   │   ├── test_authorization_service.py
+│   │   ├── test_command_authorization.py
+│   │   ├── test_command_authorization_rules.py
+│   │   ├── test_command_authorization_rules_tacacs.py
+│   │   └── test_missing_cases_command_authorization.py
+│   └── test_full_stack.py
+├── performance/
+│   └── locustfile.py
+├── security/
+│   ├── test_security_advanced.py
+│   └── test_security_pentest.py
+├── unit/
+│   ├── test_command_engine_export_import.py
+│   ├── test_command_engine_group_match.py
+│   └── test_rate_limiter_units.py
+└── utils/
+    └── logs.py
 
 scripts/                     # Utility scripts
 ├── setup_project.py        # Project setup

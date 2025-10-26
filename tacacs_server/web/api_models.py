@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any
 from typing import Any as _Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, model_validator
 from pydantic import Field as _Field
 
 
@@ -233,8 +233,19 @@ class DeviceBase(BaseModel):
         description="Device name",
         example="router-01",
     )
-    ip_address: str = Field(..., description="Device IP or CIDR", example="192.168.1.1")
-    device_group_id: int = Field(..., description="Device group ID", example=1)
+    ip_address: str = Field(
+        ...,
+        description="Device IP or CIDR",
+        example="192.168.1.1",
+        validation_alias=AliasChoices("ip_address", "address", "network"),
+    )
+    # Accept either numeric ID or legacy group name (validated in route)
+    device_group_id: int | str = Field(
+        ...,
+        description="Device group ID or name",
+        example=1,
+        validation_alias=AliasChoices("device_group_id", "group"),
+    )
     enabled: bool = Field(default=True, description="Device enabled", example=True)
     metadata: dict[str, Any] | None = Field(
         default={},
@@ -321,6 +332,11 @@ class DeviceGroupBase(BaseModel):
     description: str | None = Field(
         None, description="Group description", example="All core routers"
     )
+    proxy_id: int | None = Field(
+        None,
+        description="Proxy ID linked to this group",
+        example=1,
+    )
 
 
 class DeviceGroupCreate(DeviceGroupBase):
@@ -341,6 +357,7 @@ class DeviceGroupCreate(DeviceGroupBase):
             "example": {
                 "name": "Core-Routers",
                 "description": "All core network routers",
+                "proxy_id": 1,
                 "tacacs_secret": "TacacsSecret123!",
                 "radius_secret": "RadiusSecret123!",
                 "allowed_user_groups": [1, 2],
@@ -359,8 +376,18 @@ class DeviceGroupUpdate(BaseModel):
         description="Updated name",
         example="Core-Routers-New",
     )
+    proxy_id: int | None = Field(
+        None,
+        description="Updated proxy id to link",
+        example=2,
+    )
     description: str | None = Field(
         None, description="Updated description", example="Updated description"
+    )
+    proxy_network: str | None = Field(
+        None,
+        description="Set or clear proxy network CIDR",
+        example="10.0.0.0/8",
     )
     tacacs_secret: str | None = Field(
         None, min_length=8, description="New TACACS+ secret", example="NewSecret123!"
@@ -514,7 +541,10 @@ class DetailedServerStatus(BaseModel):
     timestamp: str = Field(
         ..., description="Status timestamp", example="2025-10-04T17:26:55.876784"
     )
-    radius: RADIUSStats = Field(..., description="RADIUS server statistics")
+    # RADIUS statistics are optional because a deployment might not enable RADIUS
+    radius: RADIUSStats | None = Field(
+        None, description="RADIUS server statistics (if RADIUS is enabled)"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

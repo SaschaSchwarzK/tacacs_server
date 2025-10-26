@@ -1,7 +1,9 @@
-"""
-Web monitoring interface for TACACS+ server
+"""Web subsystem for TACACS+ server.
+
+Avoid heavy imports at package import time to prevent circular import issues
+during test collection. Import submodules directly, e.g.:
+
+    from tacacs_server.web.monitoring import TacacsMonitoringAPI
 """
 
-from .monitoring import PrometheusIntegration, TacacsMonitoringAPI
-
-__all__ = ["TacacsMonitoringAPI", "PrometheusIntegration"]
+__all__ = []

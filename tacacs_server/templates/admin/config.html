@@ -56,6 +56,26 @@
     <div style="font-size:0.85rem;color:#6b7280;">Enable TCP keepalive (applies to new connections)</div>
     </div>
 
+    <label for="accept_proxy_protocol">accept_proxy_protocol</label>
+    <div>
+    <select id="accept_proxy_protocol" name="accept_proxy_protocol">
+      {% set pp_val = (server_section.get('accept_proxy_protocol','true') | string).lower() %}
+      <option value="true" {% if pp_val=='true' %}selected{% endif %}>true</option>
+      <option value="false" {% if pp_val=='false' %}selected{% endif %}>false</option>
+    </select>
+    <div style="font-size:0.85rem;color:#6b7280;">Accept HAProxy PROXY v2 headers for proxied connections</div>
+    </div>
+
+    <label for="proxy_enabled">proxy_enabled</label>
+    <div>
+    <select id="proxy_enabled" name="proxy_enabled">
+      {% set pxy_val = (server_section.get('proxy_enabled','false') | string).lower() %}
+      <option value="true" {% if pxy_val=='true' %}selected{% endif %}>true</option>
+      <option value="false" {% if pxy_val=='false' %}selected{% endif %}>false</option>
+    </select>
+    <div style="font-size:0.85rem;color:#6b7280;">Enable proxy-aware device matching (requires configured proxies)</div>
+    </div>
+
     <label for="use_thread_pool">use_thread_pool</label>
     <div>
     <select id="use_thread_pool" name="use_thread_pool">
@@ -133,6 +153,8 @@
       setIfNonEmpty('max_packet_length', document.getElementById('max_packet_length').value);
       setIfNonEmpty('ipv6_enabled', document.getElementById('ipv6_enabled').value);
       setIfNonEmpty('tcp_keepalive', document.getElementById('tcp_keepalive').value);
+      setIfNonEmpty('accept_proxy_protocol', document.getElementById('accept_proxy_protocol').value);
+      setIfNonEmpty('proxy_enabled', document.getElementById('proxy_enabled').value);
       setIfNonEmpty('use_thread_pool', document.getElementById('use_thread_pool').value);
       // Advanced settings: only considered if advanced view is visible and values are non-empty
       if(isVisible(document.getElementById('advanced-settings'))){

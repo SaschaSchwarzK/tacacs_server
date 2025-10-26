@@ -46,6 +46,7 @@ class WebhookConfig:
 
 
 _cfg = WebhookConfig()
+_sender: Callable[[str, dict[str, Any], float], None] | None = None
 _fail_counts: dict[str, list[float]] = {}
 
 
@@ -112,13 +113,26 @@ def _post(url: str, payload: dict[str, Any], timeout: float) -> None:
         logger.warning("Webhook delivery failed to %s: %s", url, e)
 
 
+def set_webhook_sender(
+    sender: Callable[[str, dict[str, Any], float], None] | None,
+) -> None:
+    """Override the transport used to send webhooks.
+
+    Tests can inject a local in-process sender to avoid network constraints
+    and capture payloads reliably. Pass None to restore default HTTP sender.
+    """
+    global _sender
+    _sender = sender
+
+
 def notify(event: str, payload: dict[str, Any]) -> None:
     if not _cfg.urls:
         return
     body = _render_payload(event, payload)
+    send_func = _sender or _post
     for url in _cfg.urls:
         threading.Thread(
-            target=_post, args=(url, body, _cfg.timeout), daemon=True
+            target=send_func, args=(url, body, _cfg.timeout), daemon=True
         ).start()
 
 
