@@ -39,7 +39,7 @@ def _to_resp(p) -> ProxyResponse:
 def _get_config_lazy():
     """Lazily import monitoring.get_config to avoid circular imports."""
     try:
-        mon = import_module("tacacs_server.web.monitoring")
+        mon = import_module("tacacs_server.web.web")
         return getattr(mon, "get_config", lambda: None)()
     except Exception:
         return None

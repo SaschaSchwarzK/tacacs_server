@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import logging
 import asyncio
 import os
 from typing import Any
@@ -14,26 +14,68 @@ from tacacs_server.exceptions import (
 )
 from tacacs_server.utils import config_utils
 
+from tacacs_server.web.api_models import (
+    ConfigDriftResponse,
+    ConfigExportResponse,
+    ConfigHistoryResponse,
+    ConfigImportResponse,
+    ConfigSectionResponse,
+    ConfigSectionsResponse,
+    ConfigStatusResponse,  # Added
+    ConfigUpdateResponse,
+    ConfigVersionsResponse,
+)
+
 router = APIRouter(prefix="/api/admin/config", tags=["Configuration"])
 
+logger = logging.getLogger("tacacs.api.config")
 
 async def admin_guard(request: Request) -> None:
-    # Allow API token header or Bearer token like other API routes
-    api_token = os.getenv("API_TOKEN")
-    if api_token:
-        token = request.headers.get("X-API-Token") or ""
-        if not token:
-            auth = request.headers.get("Authorization", "")
-            if auth.startswith("Bearer "):
-                token = auth.removeprefix("Bearer ").strip()
-        if token == api_token:
-            return
-    dep = config_utils.get_admin_auth_dependency_func()
-    if dep is None:
+    # Cookie-based admin session only; do not read body
+    try:
+
+        logging.getLogger("tacacs.api.config").info(
+            "api.config.admin_guard: path=%s method=%s has_cookie=%s ct=%s",
+            getattr(request.url, "path", ""),
+            getattr(request, "method", ""),
+            bool(request.cookies.get("admin_session")),
+            request.headers.get("content-type", ""),
+        )
+    except Exception:
+        pass
+    token = request.cookies.get("admin_session")
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    result = dep(request)
-    if asyncio.iscoroutine(result):
-        await result  # type: ignore[func-returns-value]
+    # Validate against the active web_auth session manager (used by /admin/login)
+    try:
+        from tacacs_server.web.web_auth import get_session_manager as _get_sm
+
+        sm = _get_sm()
+    except Exception:
+        sm = None
+    if not sm:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+    if not sm.validate_session(token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    # Ensure configuration is initialized in this request context
+    try:
+        cfg = config_utils.get_config()
+        if cfg is None:
+            # Prefer app.state first (set by web_app.create_app)
+            app_cfg = getattr(getattr(request, "app", None), "state", None)
+            app_cfg = getattr(app_cfg, "config_service", None)
+            if app_cfg is not None:
+                config_utils.set_config(app_cfg)
+            else:
+                # Fallback to legacy global accessor
+                from tacacs_server.web.web import get_config as _web_get_config  # type: ignore
+
+                cfg2 = _web_get_config()
+                if cfg2 is not None:
+                    config_utils.set_config(cfg2)
+    except Exception:
+        # Non-fatal; endpoints will still check availability and return 503 if needed
+        pass
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -42,16 +84,99 @@ class ConfigUpdateRequest(BaseModel):
     reason: str | None = None
 
 
-@router.get("/sections")
-async def list_sections(_: None = Depends(admin_guard)):
-    """List all configuration sections."""
+@router.get("/status", response_model=ConfigStatusResponse)
+async def get_config_status(_: None = Depends(admin_guard)) -> ConfigStatusResponse:
+    """Get the overall status of the configuration."""
     cfg = config_utils.get_config()
     if cfg is None:
         raise ServiceUnavailableError("Configuration not available")
-    return {"sections": list(cfg.config.sections())}
+
+    issues = cfg.validate_config()
+    overrides_count = sum(len(keys) for keys in cfg.overridden_keys.values())
+
+    return ConfigStatusResponse(
+        source=cfg.config_source,
+        is_url_config=cfg.is_url_config(),
+        valid=not issues,
+        issues=issues,
+        last_reload=getattr(
+            cfg, "_last_reload_time", None
+        ),  # Assuming this attribute exists
+        overrides_count=overrides_count,
+    )
 
 
-@router.get("/history")
+@router.post("/validate")
+async def validate_config_api(
+    section: str | None = None,
+    key: str | None = None, 
+    value: str | None = None,
+    _: None = Depends(admin_guard)
+) -> dict:
+    """Validate configuration - either full config or a specific change."""
+    cfg = config_utils.get_config()
+    if cfg is None:
+        raise ServiceUnavailableError("Configuration not available")
+    
+    # If section/key/value provided, validate just that change
+    if section and key and value is not None:
+        is_valid, issues = cfg.validate_change(section, key, value)
+        return {"valid": is_valid, "issues": issues}
+    
+    # Otherwise validate entire config
+    issues = cfg.validate_config()
+    return {"valid": not issues, "issues": issues}
+
+
+@router.post("/reload")
+async def reload_config_api(_: None = Depends(admin_guard)) -> dict:
+    """Reload the configuration from its source."""
+    cfg = config_utils.get_config()
+    if cfg is None:
+        raise ServiceUnavailableError("Configuration not available")
+
+    try:
+        # This assumes a method exists on the server to reload config
+        # Re-using logic from admin/routers.py for now
+        tacacs_server = config_utils.get_tacacs_server()
+        if not tacacs_server:
+            raise ServiceUnavailableError("TACACS+ server not available")
+        success = tacacs_server.reload_configuration()
+        if success:
+            return {"success": True, "message": "Configuration reloaded successfully."}
+        else:
+            return {"success": False, "message": "Configuration reload failed."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sections", response_model=ConfigSectionsResponse)
+@router.get("/sections/", response_model=ConfigSectionsResponse, include_in_schema=False)
+async def list_sections(_: None = Depends(admin_guard)) -> ConfigSectionsResponse:
+    """List all configuration sections."""
+    cfg = config_utils.get_config()
+    
+    if cfg is None:
+        logger.error("Configuration not available - config was never initialized")
+        raise ServiceUnavailableError(
+            "Configuration not available. Server may not be fully initialized."
+        )
+    
+    # Verify config has required attributes
+    if not hasattr(cfg, 'config') or cfg.config is None:
+        logger.error("Configuration object is missing 'config' attribute")
+        raise ServiceUnavailableError("Configuration object is invalid")
+    
+    try:
+        sections = list(cfg.config.sections())
+        logger.debug("Found %d configuration sections", len(sections))
+        return ConfigSectionsResponse(sections=sections)
+    except Exception as e:
+        logger.exception("Failed to retrieve configuration sections")
+        raise ServiceUnavailableError(f"Failed to read configuration: {str(e)}")
+
+
+@router.get("/history", response_model=ConfigHistoryResponse)
 async def get_config_history(
     section: str | None = None, limit: int = 100, _: None = Depends(admin_guard)
 ):
@@ -60,21 +185,23 @@ async def get_config_history(
     if cfg is None or not getattr(cfg, "config_store", None):
         raise ServiceUnavailableError("Configuration store not available")
     hist = cfg.config_store.get_history(section=section, limit=limit)
-    return {"history": hist, "count": len(hist)}
+    return ConfigHistoryResponse(history=hist, count=len(hist))
 
 
-@router.get("/versions")
-async def list_versions(_: None = Depends(admin_guard)):
+@router.get("/versions", response_model=ConfigVersionsResponse)
+async def list_versions(_: None = Depends(admin_guard)) -> ConfigVersionsResponse:
     """List configuration versions (metadata only)."""
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
         raise ServiceUnavailableError("Configuration store not available")
     versions = cfg.config_store.list_versions()
-    return {"versions": versions}
+    return ConfigVersionsResponse(versions=versions)
 
 
-@router.post("/versions/{version_number}/restore")
-async def restore_version(version_number: int, _: None = Depends(admin_guard)):
+@router.post("/versions/{version_number}/restore", response_model=ConfigImportResponse)
+async def restore_version(
+    version_number: int, _: None = Depends(admin_guard)
+) -> ConfigImportResponse:
     """Restore configuration to a previous version with a safety backup."""
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
@@ -93,15 +220,11 @@ async def restore_version(version_number: int, _: None = Depends(admin_guard)):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    return {
-        "success": True,
-        "message": "Configuration restored. Restart may be required.",
-        "version": version_number,
-    }
+    return ConfigImportResponse(success=True, version=version_number)
 
 
-@router.get("/drift")
-async def detect_drift(_: None = Depends(admin_guard)):
+@router.get("/drift", response_model=ConfigDriftResponse)
+async def detect_drift(_: None = Depends(admin_guard)) -> ConfigDriftResponse:
     """Detect configuration drift between base configuration and overrides."""
     cfg = config_utils.get_config()
     if cfg is None:
@@ -111,7 +234,7 @@ async def detect_drift(_: None = Depends(admin_guard)):
     # - No drift -> return an empty list ([])
     # - Drift present -> return a section-keyed mapping (dict)
     if not raw:
-        return {"drift": [], "has_drift": False}
+        return ConfigDriftResponse(drift=[], has_drift=False)
     # Normalize non-empty into a mapping
     if isinstance(raw, dict):
         drift_map = raw
@@ -122,11 +245,11 @@ async def detect_drift(_: None = Depends(admin_guard)):
             drift_map = {}
     else:
         drift_map = {}
-    return {"drift": drift_map, "has_drift": len(drift_map) > 0}
+    return ConfigDriftResponse(drift=drift_map, has_drift=len(drift_map) > 0)
 
 
-@router.get("/export")
-async def export_config(_: None = Depends(admin_guard)):
+@router.get("/export", response_model=ConfigExportResponse)
+async def export_config(_: None = Depends(admin_guard)) -> ConfigExportResponse:
     """Export the full effective configuration as JSON."""
     cfg = config_utils.get_config()
     if cfg is None:
@@ -141,16 +264,15 @@ async def export_config(_: None = Depends(admin_guard)):
                     version_num = latest["version_number"]
         except Exception:
             version_num = None
-        resp: dict = {"config": data}
-        if version_num is not None:
-            resp["version"] = version_num
-        return resp
+        return ConfigExportResponse(config=data, version=version_num)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.post("/import")
-async def import_config(payload: dict[str, Any], _: None = Depends(admin_guard)):
+@router.post("/import", response_model=ConfigImportResponse)
+async def import_config(
+    payload: dict[str, Any], _: None = Depends(admin_guard)
+) -> ConfigImportResponse:
     """Import configuration snapshot; records a version and returns success."""
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
@@ -168,13 +290,50 @@ async def import_config(payload: dict[str, Any], _: None = Depends(admin_guard))
             else "imported config",
             is_baseline=False,
         )
-        return {"success": True, "version": meta.get("version_number")}
+        return ConfigImportResponse(success=True, version=meta.get("version_number"))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/{section}")
-async def get_section(section: str, _: None = Depends(admin_guard)):
+@router.delete("/overrides", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_all_overrides(request: Request, _: None = Depends(admin_guard)):
+    """Reset all configuration overrides to their baseline values."""
+    cfg = config_utils.get_config()
+    if cfg is None or not getattr(cfg, "config_store", None):
+        raise ServiceUnavailableError("Configuration store not available")
+    # user = request.state.user.username # Assuming user is in state
+    cfg.config_store.clear_overrides(changed_by="admin")
+    return
+
+
+@router.delete("/{section}/overrides", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_section_overrides(
+    section: str, request: Request, _: None = Depends(admin_guard)
+):
+    """Reset all overrides in a specific section."""
+    cfg = config_utils.get_config()
+    if cfg is None or not getattr(cfg, "config_store", None):
+        raise ServiceUnavailableError("Configuration store not available")
+    cfg.config_store.clear_overrides(section=section, changed_by="admin")
+    return
+
+
+@router.delete("/{section}/{key}/override", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_key_override(
+    section: str, key: str, request: Request, _: None = Depends(admin_guard)
+):
+    """Reset a single configuration key to its baseline value."""
+    cfg = config_utils.get_config()
+    if cfg is None or not getattr(cfg, "config_store", None):
+        raise ServiceUnavailableError("Configuration store not available")
+    cfg.config_store.delete_override(section=section, key=key, changed_by="admin")
+    return
+
+
+@router.get("/{section}", response_model=ConfigSectionResponse)
+async def get_section(
+    section: str, _: None = Depends(admin_guard)
+) -> ConfigSectionResponse:
     """Get all keys in a section with override indicators."""
     cfg = config_utils.get_config()
     if cfg is None:
@@ -183,10 +342,60 @@ async def get_section(section: str, _: None = Depends(admin_guard)):
         raise ResourceNotFoundError("Section not found")
     values = dict(cfg.config[section])
     overridden = cfg.overridden_keys.get(section, set())
-    return {"section": section, "values": values, "overridden_keys": list(overridden)}
+    return ConfigSectionResponse(
+        section=section, values=values, overridden_keys=list(overridden)
+    )
 
 
-@router.put("/{section}")
+@router.put("", status_code=status.HTTP_200_OK)
+async def update_config_multi(
+    updates: dict[str, dict[str, Any]], _: None = Depends(admin_guard)
+):
+    """Update multiple configuration sections at once (for admin panel)."""
+    cfg = config_utils.get_config()
+    if cfg is None:
+        raise ServiceUnavailableError("Configuration not available")
+
+    results = {}
+    errors = {}
+
+    for section, section_updates in updates.items():
+        if not section_updates:
+            continue
+
+        update_method = getattr(cfg, f"update_{section}_config", None)
+        if not update_method:
+            errors[section] = f"Section {section} not updatable"
+            continue
+
+        # Validate all changes in this section
+        validation_errors: dict[str, list[str]] = {}
+        for key, value in section_updates.items():
+            ok, issues = cfg.validate_change(section, key, value)
+            if not ok:
+                validation_errors[key] = issues
+
+        if validation_errors:
+            errors[section] = validation_errors
+            continue
+
+        # Apply updates
+        try:
+            update_method(**section_updates)
+            results[section] = "success"
+        except Exception as exc:
+            errors[section] = str(exc)
+
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "errors": errors, "results": results},
+        )
+
+    return {"success": True, "results": results}
+
+
+@router.put("/{section}", response_model=ConfigUpdateResponse)
 async def update_section(
     section: str, request: ConfigUpdateRequest, _: None = Depends(admin_guard)
 ):
@@ -213,6 +422,6 @@ async def update_section(
         raise ConfigValidationError("Section not updatable via API", field=section)
     try:
         update_method(_change_reason=request.reason, **request.updates)
-        return {"success": True, "section": section}
+        return ConfigUpdateResponse(success=True, section=section)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

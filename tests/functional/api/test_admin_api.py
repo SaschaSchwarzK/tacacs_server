@@ -8,13 +8,39 @@ Each test creates its own server with admin API enabled.
 import requests
 
 
-def test_admin_api_login_success(server_factory):
-    """Test successful admin login via API"""
+def test_admin_api_login_success(server_factory, monkeypatch):
+    """Test successful admin login via API.
+
+    This test verifies that the admin API login endpoint works correctly
+    with valid credentials and establishes a proper session.
+
+    Test Steps:
+    1. Start server with admin API enabled
+    2. Send login request with valid credentials
+    3. Verify successful response and session cookie
+
+    Expected Result:
+    - Should return HTTP 200 on success
+    - Should set session cookie
+    - Should log the login event
+    """
+
+    # Set up admin user
+    test_username = "admin"
+    test_password = "SecurePass123!"
+
+    import bcrypt
+
+    password_hash = bcrypt.hashpw(
+        test_password.encode("utf-8"), bcrypt.gensalt()
+    ).decode("utf-8")
+
+    monkeypatch.setenv("ADMIN_USERNAME", test_username)
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", password_hash)
+
     server = server_factory(
-        config={
-            "admin_username": "admin",
-            "admin_password": "SecurePass123!",
-        },
+        config={"admin_web": True},
+        enable_admin_web=True,
         enable_admin_api=True,
     )
 
@@ -42,7 +68,21 @@ def test_admin_api_login_success(server_factory):
 
 
 def test_admin_api_login_failure(server_factory):
-    """Test failed admin login with wrong password"""
+    """Test failed admin login with wrong password.
+
+    This test verifies that the admin API properly handles failed login
+    attempts with incorrect credentials.
+
+    Test Steps:
+    1. Start server with admin API enabled
+    2. Attempt login with incorrect password
+    3. Verify access is denied
+
+    Expected Result:
+    - Should return HTTP 401/403 on failure
+    - Should not set session cookie
+    - Should log failed attempt
+    """
     server = server_factory(
         config={
             "admin_username": "admin",
@@ -72,7 +112,20 @@ def test_admin_api_login_failure(server_factory):
 
 
 def test_admin_api_health_check(server_factory):
-    """Test admin API health check endpoint"""
+    """Test admin API health check endpoint.
+
+    This test verifies that the health check endpoint returns the expected
+    system status information.
+
+    Test Steps:
+    1. Access health check endpoint
+    2. Verify response format and status
+
+    Expected Result:
+    - Should return HTTP 200
+    - Should include system status info
+    - Should include service status
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -96,7 +149,20 @@ def test_admin_api_health_check(server_factory):
 
 
 def test_admin_api_stats_endpoint(server_factory):
-    """Test admin API stats endpoint"""
+    """Test admin API statistics endpoint.
+
+    This test verifies that the statistics endpoint returns the expected
+    system and service metrics.
+
+    Test Steps:
+    1. Access statistics endpoint
+    2. Verify response format and data
+
+    Expected Result:
+    - Should return HTTP 200
+    - Should include request counters
+    - Should include resource usage stats
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -121,7 +187,22 @@ def test_admin_api_stats_endpoint(server_factory):
 
 
 def test_admin_api_user_management(server_factory):
-    """Test creating and managing users via Admin API"""
+    """Test user management operations via Admin API.
+
+    This test verifies CRUD operations for user management through the
+    admin API endpoints.
+
+    Test Steps:
+    1. Create a new user
+    2. Retrieve user details
+    3. Update user attributes
+    4. Delete the user
+
+    Expected Result:
+    - All operations should complete successfully
+    - Changes should be persisted
+    - Should enforce access controls
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -159,7 +240,22 @@ def test_admin_api_user_management(server_factory):
 
 
 def test_admin_api_device_management(server_factory):
-    """Test device management endpoints"""
+    """Test device management via Admin API.
+
+    This test verifies CRUD operations for device management through
+    the admin API endpoints.
+
+    Test Steps:
+    1. Add a new device
+    2. Update device configuration
+    3. Test device connectivity
+    4. Remove device
+
+    Expected Result:
+    - Device operations should succeed
+    - Configuration should be validated
+    - Connectivity tests should verify access
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -173,8 +269,8 @@ def test_admin_api_device_management(server_factory):
 
         # Create a device group
         group_payload = {
-            "name": "default",
-            "description": "Default group",
+            "name": "test-group",
+            "description": "Test group",
             "tacacs_secret": "TacacsSecret123!",
         }
         response = session.post(
@@ -209,7 +305,19 @@ def test_admin_api_device_management(server_factory):
 
 
 def test_admin_api_without_auth(server_factory):
-    """Test that Admin API requires authentication"""
+    """Test Admin API authentication requirements.
+
+    This test verifies that unauthenticated access to protected
+    admin API endpoints is properly rejected.
+
+    Test Steps:
+    1. Attempt to access protected endpoints without auth
+    2. Verify access is denied
+
+    Expected Result:
+    - Should return HTTP 401/403
+    - Should not expose sensitive data
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -226,7 +334,21 @@ def test_admin_api_without_auth(server_factory):
 
 
 def test_admin_api_session_timeout(server_factory):
-    """Test that admin sessions have proper timeout configuration"""
+    """Test admin session timeout behavior.
+
+    This test verifies that admin sessions expire after the configured
+    timeout period and require re-authentication.
+
+    Test Steps:
+    1. Log in and obtain session
+    2. Wait for session to expire
+    3. Attempt to use expired session
+
+    Expected Result:
+    - Session should expire after timeout
+    - Expired sessions should be rejected
+    - Should require re-authentication
+    """
     server = server_factory(
         config={
             "admin_username": "admin",
@@ -254,7 +376,20 @@ def test_admin_api_session_timeout(server_factory):
 
 
 def test_admin_api_disabled_by_default(server_factory):
-    """Test that Admin API is disabled when no password is configured"""
+    """Test Admin API security defaults.
+
+    This test verifies that the Admin API is disabled by default
+    when no admin password is configured.
+
+    Test Steps:
+    1. Start server without admin credentials
+    2. Attempt to access admin API
+
+    Expected Result:
+    - Admin API should be disabled
+    - Access attempts should be rejected
+    - Should log security event
+    """
     server = server_factory(
         config={
             "admin_username": "admin",
@@ -273,7 +408,21 @@ def test_admin_api_disabled_by_default(server_factory):
 
 
 def test_admin_api_logout(server_factory):
-    """Test admin logout functionality"""
+    """Test admin logout functionality.
+
+    This test verifies that the logout endpoint properly terminates
+    the admin session and invalidates the session token.
+
+    Test Steps:
+    1. Log in to obtain session
+    2. Call logout endpoint
+    3. Verify session is invalidated
+
+    Expected Result:
+    - Logout should succeed
+    - Session should be invalidated
+    - Subsequent requests should be rejected
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -299,7 +448,20 @@ def test_admin_api_logout(server_factory):
 
 
 def test_admin_api_logs_collected(server_factory):
-    """Test that Admin API activity is logged"""
+    """Test Admin API audit logging.
+
+    This test verifies that all admin API activities are properly
+    logged for security and auditing purposes.
+
+    Test Steps:
+    1. Perform various admin operations
+    2. Check server logs for audit entries
+
+    Expected Result:
+    - All admin actions should be logged
+    - Logs should include user and action details
+    - Timestamps should be accurate
+    """
     server = server_factory(
         config={
             "log_level": "DEBUG",

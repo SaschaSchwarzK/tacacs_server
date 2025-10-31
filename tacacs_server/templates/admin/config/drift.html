@@ -1,0 +1,138 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Configuration Drift - TACACS+ Server Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/config" class="text-blue-600 hover:underline">Configuration</a> &gt;
+<span class="font-semibold">Drift</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <!-- Page Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Configuration Drift</h1>
+            <p class="text-lg text-gray-600 mt-1">View differences between baseline and current configuration.</p>
+            <p class="text-sm text-yellow-600 mt-2">Note: This feature is only applicable for URL-based configurations.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+            <button onclick="refreshBaseline()" class="text-gray-700 bg-white border-gray-300 hover:bg-gray-50 focus:ring-blue-500 inline-flex items-center border font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Refresh Baseline</button>
+            <button onclick="resetAllOverrides()" class="text-white bg-red-600 hover:bg-red-700 focus:ring-red-500 inline-flex items-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Reset All Overrides</button>
+        </div>
+    </div>
+
+    <!-- Drift Summary -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {% include "admin/components/card.html" with {'title': 'Total Overrides', 'subtitle': 'Count of settings different from baseline'} %}
+        <div class="text-4xl font-bold p-6">{{ drift | length }}</div>
+
+        {% include "admin/components/card.html" with {'title': 'Overrides by Section', 'subtitle': 'Distribution of configuration drift'} %}
+        <div id="drift-chart-container" class="p-6">
+            <!-- A charting library like Chart.js or ApexCharts would be used to render a chart here -->
+            <canvas id="drift-chart"></canvas>
+        </div>
+
+        {% include "admin/components/card.html" with {'title': 'Baseline Status', 'subtitle': 'Last fetch from configuration URL'} %}
+        <div class="p-6">
+            <p class="text-lg">Last Fetched:</p>
+            <p class="font-semibold">{{ last_baseline_fetch }}</p>
+        </div>
+    </div>
+
+    <!-- Drift Details Table -->
+    <div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">Drift Details</h2>
+        {% include "admin/components/table.html" with {
+            'headers': ['Section', 'Setting', 'Baseline Value', 'Override Value', 'Changed By', 'Changed At'],
+            'rows': drift_rows,
+            'searchable': true
+        } %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- A charting library would be included here, e.g., Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    const api = new AdminAPI();
+    let driftData = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadDrift();
+    });
+
+    async function loadDrift() {
+        try {
+            const response = await api.get('/admin/config/drift');
+            if (!response.has_drift) {
+                document.getElementById('drift-details-table').innerHTML = '<p class="text-center text-gray-500 py-8">No configuration drift detected.</p>';
+                return;
+            }
+            driftData = response.drift;
+            // In a real app, you would render the table rows dynamically here
+            console.log('Drift data:', driftData);
+            renderDriftChart(driftData);
+        } catch (error) {
+            console.error('Failed to load drift data:', error);
+        }
+    }
+
+    function renderDriftChart(data) {
+        const ctx = document.getElementById('drift-chart').getContext('2d');
+        const overridesBySection = data.reduce((acc, item) => {
+            acc[item.section] = (acc[item.section] || 0) + 1;
+            return acc;
+        }, {});
+
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(overridesBySection),
+                datasets: [{
+                    data: Object.values(overridesBySection),
+                    backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6B7280'],
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    }
+                }
+            }
+        });
+    }
+
+    async function resetAllOverrides() {
+        if (!confirm(`Are you sure you want to reset all ${driftData.length} configuration overrides? This will revert all settings to their baseline values.`)) {
+            return;
+        }
+
+        try {
+            await api.delete('/admin/config/overrides');
+            showFlash('All overrides have been reset to baseline', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            console.error('Failed to reset overrides:', error);
+        }
+    }
+
+    async function refreshBaseline() {
+        if (!confirm('Are you sure you want to refresh the baseline configuration from the source URL? Any unsaved changes may be lost.')) {
+            return;
+        }
+        try {
+            await api.post('/admin/config/refresh-baseline');
+            showFlash('Baseline configuration is being refreshed.', 'info');
+            setTimeout(() => location.reload(), 2000);
+        } catch (error) {
+            console.error('Failed to refresh baseline:', error);
+        }
+    }
+
+</script>
+{% endblock %}

@@ -160,7 +160,7 @@ def _ensure_engine_ready(server) -> None:
     deadline = time.time() + 3
     while time.time() < deadline:
         try:
-            r = sess.get(f"{base}/api/command-authorization/rules", timeout=0.5)
+            r = sess.get(f"{base}/api/command-authorization/", timeout=0.5)
             if r.status_code in (200, 401):
                 break
         except requests.exceptions.RequestException:

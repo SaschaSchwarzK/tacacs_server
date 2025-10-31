@@ -61,9 +61,13 @@ class TacacsConfig:
         self.config = configparser.ConfigParser(interpolation=None)
         # Initialize the configuration override store (creates DB/tables on first run)
         try:
+            # Ensure data directory exists before creating store
+            os.makedirs("data", exist_ok=True)
             self.config_store = ConfigStore("data/config_overrides.db")
-        except Exception:
-            # Fail soft; consumers can still operate without overrides DB
+            logger.info("Configuration store initialized successfully")
+        except Exception as e:
+            # Log the actual error but allow server to continue
+            logger.error("Failed to initialize configuration store: %s", e, exc_info=True)
             self.config_store = None
         # Track baseline (pre-override) snapshot and which keys were overridden
         self._baseline_snapshot: dict[str, dict[str, str]] = {}
@@ -105,9 +109,6 @@ class TacacsConfig:
             "log_level": "INFO",
             "max_connections": "50",
             "socket_timeout": "30",
-            "accept_proxy_protocol": "true",
-            "proxy_enabled": "false",
-            # Additional server/network tuning
             "listen_backlog": "128",
             "client_timeout": "15",
             "max_packet_length": "4096",
@@ -201,9 +202,19 @@ class TacacsConfig:
             "enabled": "true",
             "create_on_startup": "false",
             "temp_directory": "data/backup_temp",
+            # Encryption
             "encryption_enabled": "false",
             "encryption_passphrase": "",
+            # Default retention policy
+            "default_retention_strategy": "simple",
             "default_retention_days": "30",
+            # GFS defaults (if strategy=gfs)
+            "gfs_keep_daily": "7",
+            "gfs_keep_weekly": "4",
+            "gfs_keep_monthly": "12",
+            "gfs_keep_yearly": "3",
+            # Compression (1=fastest, 9=best)
+            "compression_level": "6",
         }
         self.config["admin"] = {
             "username": os.environ.get("ADMIN_USERNAME", "admin"),
@@ -237,11 +248,8 @@ class TacacsConfig:
         }
         # PROXY protocol configuration
         self.config["proxy_protocol"] = {
-            "enabled": "true",
-            "accept_headers": "true",
+            "enabled": "false",
             "validate_sources": "true",
-            # When a PROXY v2 signature is present but the header is invalid/unsupported,
-            # reject the connection instead of ignoring it.
             "reject_invalid": "true",
         }
 
@@ -296,9 +304,6 @@ class TacacsConfig:
             "tcp_keepcnt": int(s.get("tcp_keepcnt", 5)),
             "thread_pool_max": int(s.get("thread_pool_max", 100)),
             "use_thread_pool": str(s.get("use_thread_pool", "true")).lower() != "false",
-            "accept_proxy_protocol": str(s.get("accept_proxy_protocol", "true")).lower()
-            != "false",
-            "proxy_enabled": str(s.get("proxy_enabled", "false")).lower() == "true",
         }
 
     @staticmethod
@@ -311,49 +316,23 @@ class TacacsConfig:
         return s in ("1", "true", "yes", "on")
 
     def get_proxy_protocol_config(self) -> dict:
-        """
-        Return normalized proxy_protocol config:
-          {
-            "enabled": bool,
-            "accept_proxy_protocol": bool,
-            "validate_sources": bool,
-          }
-        Accepts legacy keys like "accept_headers" as alias for accept_proxy_protocol.
-        """
+        """Return proxy_protocol config: enabled, validate_sources, reject_invalid"""
         defaults = {
             "enabled": False,
-            "accept_proxy_protocol": False,
-            "validate_sources": False,
+            "validate_sources": True,
             "reject_invalid": True,
         }
         try:
-            cfg = getattr(self, "config", None)
-            if cfg is None:
+            if not self.config.has_section("proxy_protocol"):
                 return defaults
-
-            # Prefer mapping access if available (ConfigParser supports it)
-            if hasattr(cfg, "items") and cfg.has_section("proxy_protocol"):
-                sec = dict(cfg.items("proxy_protocol"))
-                enabled = self._to_bool(sec.get("enabled"))
-                # legacy key names: accept_headers -> accept_proxy_protocol
-                accept = self._to_bool(
-                    sec.get(
-                        "accept_proxy_protocol",
-                        sec.get("accept_headers", sec.get("accept_proxy", None)),
-                    )
-                )
-                validate = self._to_bool(sec.get("validate_sources"))
-                reject_invalid = self._to_bool(sec.get("reject_invalid", True))
-                return {
-                    "enabled": enabled,
-                    "accept_proxy_protocol": accept,
-                    "validate_sources": validate,
-                    "reject_invalid": reject_invalid,
-                }
+            sec = dict(self.config.items("proxy_protocol"))
+            return {
+                "enabled": self._to_bool(sec.get("enabled", False)),
+                "validate_sources": self._to_bool(sec.get("validate_sources", True)),
+                "reject_invalid": self._to_bool(sec.get("reject_invalid", True)),
+            }
         except Exception:
-            # on any error, fall back to safe defaults
             return defaults
-        return defaults
 
     def get_monitoring_config(self) -> dict[str, Any]:
         """Get monitoring configuration if present."""
@@ -759,6 +738,256 @@ class TacacsConfig:
         except Exception as e:
             logger.warning("Failed to persist webhook config: %s", e)
 
+    def update_proxy_protocol_config(self, **kwargs):
+        """Update proxy_protocol configuration with validation and history tracking"""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        old_values: dict[str, str] = {
+            k: self.config.get("proxy_protocol", k, fallback="") for k in kwargs.keys()
+        }
+        temp_config = self._create_temp_config_with_updates("proxy_protocol", kwargs)
+        self._validate_temp_config(temp_config)
+        self._apply_config_updates("proxy_protocol", kwargs)
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="proxy_protocol",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="proxy_protocol",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated proxy_protocol config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
+
+    def update_monitoring_config(self, **kwargs):
+        """Update monitoring configuration with validation and history tracking"""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        old_values: dict[str, str] = {
+            k: self.config.get("monitoring", k, fallback="") for k in kwargs.keys()
+        }
+        temp_config = self._create_temp_config_with_updates("monitoring", kwargs)
+        self._validate_temp_config(temp_config)
+        self._apply_config_updates("monitoring", kwargs)
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="monitoring",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="monitoring",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated monitoring config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
+
+    def update_radius_config(self, **kwargs):
+        """Update radius configuration with validation and history tracking"""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        old_values: dict[str, str] = {
+            k: self.config.get("radius", k, fallback="") for k in kwargs.keys()
+        }
+        temp_config = self._create_temp_config_with_updates("radius", kwargs)
+        self._validate_temp_config(temp_config)
+        self._apply_config_updates("radius", kwargs)
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="radius",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="radius",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated radius config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
+
+    def update_okta_config(self, **kwargs):
+        """Update okta configuration with validation and history tracking"""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        old_values: dict[str, str] = {
+            k: self.config.get("okta", k, fallback="") for k in kwargs.keys()
+        }
+        temp_config = self._create_temp_config_with_updates("okta", kwargs)
+        self._validate_temp_config(temp_config)
+        self._apply_config_updates("okta", kwargs)
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="okta",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="okta",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated okta config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
+
+    def update_backup_config(self, **kwargs):
+        """Update backup configuration with validation and history tracking"""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        old_values: dict[str, str] = {
+            k: self.config.get("backup", k, fallback="") for k in kwargs.keys()
+        }
+        temp_config = self._create_temp_config_with_updates("backup", kwargs)
+        self._validate_temp_config(temp_config)
+        self._apply_config_updates("backup", kwargs)
+        if getattr(self, "config_store", None) is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    self.config_store.set_override(
+                        section="backup",
+                        key=key,
+                        value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.config_store.record_change(
+                        section="backup",
+                        key=key,
+                        old_value=old_values.get(key),
+                        new_value=new_value,
+                        value_type=vtype,
+                        changed_by=user,
+                        reason=reason,
+                        source_ip=source_ip,
+                    )
+                except Exception:
+                    pass
+            try:
+                self.config_store.create_version(
+                    config_dict=self._export_full_config(),
+                    created_by=user,
+                    description=f"Updated backup config: {', '.join(kwargs.keys())}",
+                )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
+
     def update_server_config(self, **kwargs):
         """Update server configuration with validation and history tracking"""
         # Extract context hints (not real keys)
@@ -1084,6 +1313,14 @@ class TacacsConfig:
             summary["devices"] = dict(self.config["devices"])
         if "radius" in self.config:
             summary["radius"] = dict(self.config["radius"])
+        if "proxy_protocol" in self.config:
+            summary["proxy_protocol"] = dict(self.config["proxy_protocol"])
+        if "monitoring" in self.config:
+            summary["monitoring"] = dict(self.config["monitoring"])
+        if "okta" in self.config:
+            summary["okta"] = dict(self.config["okta"])
+        if "backup" in self.config:
+            summary["backup"] = dict(self.config["backup"])
 
         # Add validation status
         validation_issues = self.validate_config()
@@ -1496,14 +1733,24 @@ class TacacsConfig:
         return True
 
     def _is_private_network(self, hostname: str) -> bool:
-        """Check if hostname is in private network range"""
+        """Check if hostname resolves to a private, loopback, or unspecified IP address."""
+        import ipaddress
+        import socket
+
         if not hostname:
             return True
 
-        private_hosts = {"localhost", "127.0.0.1", "0.0.0.0"}
-        private_prefixes = ("192.168.", "10.", "172.")
+        if hostname.lower() == "localhost":
+            return True
 
-        return hostname in private_hosts or hostname.startswith(private_prefixes)
+        try:
+            # Resolve hostname to IP address
+            ip_str = socket.gethostbyname(hostname)
+            ip = ipaddress.ip_address(ip_str)
+            return ip.is_private or ip.is_loopback or ip.is_unspecified
+        except (socket.gaierror, ValueError):
+            # If hostname can't be resolved, deny for safety
+            return True
 
     def _fetch_url_content(self, source: str) -> str | None:
         """Fetch and validate URL content"""

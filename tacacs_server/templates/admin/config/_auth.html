@@ -1,0 +1,161 @@
+<!-- Authentication Backends -->
+<div class="card config-section">
+  <div class="section-header"><h2 class="section-title">Authentication Backends</h2></div>
+  
+  <div class="subsection">
+    <div class="subsection-header">General Settings</div>
+    <form id="auth-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="auth_backends">Backends</label>
+        <div class="input-wrapper">
+          <input type="text" id="auth_backends" name="backends" value="{{ (configuration.get('auth') or {}).get('backends','') }}" />
+          <span class="field-hint">Comma-separated (local,ldap,okta)</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="auth_local_db">Local Auth DB</label>
+        <div class="input-wrapper">
+          <input type="text" id="auth_local_db" name="local_auth_db" value="{{ (configuration.get('auth') or {}).get('local_auth_db','') }}" />
+          <span class="field-hint">Database path</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="auth_require_all">Require All</label>
+        <div class="input-wrapper">
+          <select id="auth_require_all" name="require_all_backends">
+            {% set require_all = ((configuration.get('auth') or {}).get('require_all_backends','false') | string).lower() %}
+            <option value="false" {% if require_all=='false' %}selected{% endif %}>No</option>
+            <option value="true" {% if require_all=='true' %}selected{% endif %}>Yes</option>
+          </select>
+          <span class="field-hint">All backends must succeed</span>
+        </div>
+      </div>
+    </form>
+
+    <div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="toggle-auth-advanced" onchange="toggleSection('auth-advanced')" />
+        <span>Show Advanced Settings</span>
+      </label>
+      <div id="auth-advanced" class="advanced-settings">
+        <form id="auth-advanced-form" onsubmit="return false;" class="form-grid">
+          <div class="form-field">
+            <label for="auth_cache_ttl">Cache TTL</label>
+            <div class="input-wrapper">
+              <input type="number" id="auth_cache_ttl" name="local_auth_cache_ttl_seconds" min="0" value="{{ (configuration.get('auth') or {}).get('local_auth_cache_ttl_seconds','') }}" />
+              <span class="field-hint">Cache TTL (seconds)</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="auth_backend_timeout">Backend Timeout</label>
+            <div class="input-wrapper">
+              <input type="number" step="0.1" id="auth_backend_timeout" name="backend_timeout" min="0.1" value="{{ (configuration.get('auth') or {}).get('backend_timeout','') }}" />
+              <span class="field-hint">Timeout (seconds)</span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn" onclick="saveAuthSettings()">Save Auth Settings</button>
+      <span id="auth-status" class="status-message"></span>
+    </div>
+  </div>
+  
+  <!-- LDAP Backend -->
+  <div class="subsection">
+    <div class="subsection-header">LDAP Backend</div>
+    <form id="ldap-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="ldap_server">Server</label>
+        <div class="input-wrapper">
+          <input type="text" id="ldap_server" name="server" value="{{ (configuration.get('ldap') or {}).get('server','') }}" />
+          <span class="field-hint">LDAP URL</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="ldap_base_dn">Base DN</label>
+        <div class="input-wrapper">
+          <input type="text" id="ldap_base_dn" name="base_dn" value="{{ (configuration.get('ldap') or {}).get('base_dn','') }}" />
+          <span class="field-hint">Base DN</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="ldap_user_attribute">User Attribute</label>
+        <div class="input-wrapper">
+          <input type="text" id="ldap_user_attribute" name="user_attribute" value="{{ (configuration.get('ldap') or {}).get('user_attribute','') }}" />
+          <span class="field-hint">Search attribute</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="ldap_bind_dn">Bind DN</label>
+        <div class="input-wrapper">
+          <input type="text" id="ldap_bind_dn" name="bind_dn" value="{{ (configuration.get('ldap') or {}).get('bind_dn','') }}" />
+          <span class="field-hint">Bind DN (optional)</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="ldap_bind_password">Bind Password</label>
+        <div class="input-wrapper">
+          <input type="password" id="ldap_bind_password" name="bind_password" value="{{ (configuration.get('ldap') or {}).get('bind_password','') }}" />
+          <span class="field-hint">Password (optional)</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="ldap_use_tls">Use TLS</label>
+        <div class="input-wrapper">
+          <select id="ldap_use_tls" name="use_tls">
+            {% set use_tls = ((configuration.get('ldap') or {}).get('use_tls','false') | string).lower() %}
+            <option value="false" {% if use_tls=='false' %}selected{% endif %}>No</option>
+            <option value="true" {% if use_tls=='true' %}selected{% endif %}>Yes</option>
+          </select>
+          <span class="field-hint">Use TLS</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="ldap_timeout">Timeout</label>
+        <div class="input-wrapper">
+          <input type="number" id="ldap_timeout" name="timeout" min="1" value="{{ (configuration.get('ldap') or {}).get('timeout','') }}" />
+          <span class="field-hint">Timeout (seconds)</span>
+        </div>
+      </div>
+    </form>
+    <div class="btn-group">
+      <button class="btn" onclick="saveLdapSettings()">Save LDAP Settings</button>
+      <span id="ldap-status" class="status-message"></span>
+    </div>
+  </div>
+
+  <!-- Okta Backend -->
+  <div class="subsection">
+    <div class="subsection-header">Okta Backend</div>
+    <form id="okta-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="okta_domain">Domain</label>
+        <div class="input-wrapper">
+          <input type="text" id="okta_domain" name="domain" value="{{ (configuration.get('okta') or {}).get('domain','') }}" />
+          <span class="field-hint">Okta domain</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="okta_api_token">API Token</label>
+        <div class="input-wrapper">
+          <input type="password" id="okta_api_token" name="api_token" value="{{ (configuration.get('okta') or {}).get('api_token','') }}" />
+          <span class="field-hint">API token</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="okta_timeout">Timeout</label>
+        <div class="input-wrapper">
+          <input type="number" id="okta_timeout" name="timeout" min="1" value="{{ (configuration.get('okta') or {}).get('timeout','') }}" />
+          <span class="field-hint">Timeout (seconds)</span>
+        </div>
+      </div>
+    </form>
+    <div class="btn-group">
+      <button class="btn" onclick="saveOktaSettings()">Save Okta Settings</button>
+      <span id="okta-status" class="status-message"></span>
+    </div>
+  </div>
+</div>

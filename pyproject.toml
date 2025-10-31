@@ -25,6 +25,7 @@ prometheus-client = "^0.23.1"
 aiosqlite = "^0.21.0"
 bcrypt = "^5.0.0"
 pydantic = {extras = ["email"], version = "^2.11.9"}
+pyftpdlib = "^2.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4"
@@ -53,6 +54,8 @@ ruff = "^0.13.3"
 schemathesis = "^4.1.4"
 mutmut = "^2.4.4"
 types-requests = "^2.32.4.20250913"
+pyftpdlib = "^2.1.0"
+beautifulsoup4 = "^4.14.2"
 
 [tool.poetry.scripts]
 tacacs-server = "tacacs_server.cli:main"

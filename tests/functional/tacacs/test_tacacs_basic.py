@@ -128,7 +128,21 @@ def tacacs_authenticate(
 
 
 def test_tacacs_basic_auth_success(server_factory):
-    """Test successful TACACS+ authentication with local user"""
+    """Test successful TACACS+ authentication with local user.
+
+    This test verifies that the TACACS+ server can successfully authenticate a user
+    with correct credentials. It tests the basic authentication flow using PAP.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Attempt to authenticate with correct credentials
+    3. Verify authentication succeeds
+
+    Expected Result:
+    - Authentication should be successful
+    - Server should return success status
+    - Session should be properly established
+    """
     # Create server with local auth
     server = server_factory(
         config={
@@ -180,7 +194,21 @@ def test_tacacs_basic_auth_success(server_factory):
 
 
 def test_tacacs_basic_auth_failure(server_factory):
-    """Test failed TACACS+ authentication with wrong password"""
+    """Test failed TACACS+ authentication with wrong password.
+
+    This test verifies that the TACACS+ server properly handles failed authentication
+    attempts when an incorrect password is provided.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Attempt to authenticate with incorrect password
+    3. Verify authentication fails
+
+    Expected Result:
+    - Authentication should fail
+    - Server should return failure status
+    - No session should be established
+    """
     server = server_factory(
         config={"auth_backends": "local"},
         enable_tacacs=True,
@@ -229,7 +257,21 @@ def test_tacacs_basic_auth_failure(server_factory):
 
 
 def test_tacacs_nonexistent_user(server_factory):
-    """Test TACACS+ authentication with non-existent user"""
+    """Test TACACS+ authentication with non-existent user.
+
+    This test verifies the server's behavior when attempting to authenticate
+    a user that doesn't exist in the system.
+
+    Test Steps:
+    1. Start a TACACS+ server with predefined test users
+    2. Attempt to authenticate with a non-existent username
+    3. Verify proper error handling
+
+    Expected Result:
+    - Authentication should fail
+    - Server should return appropriate error status
+    - Should not allow authentication for non-existent users
+    """
     server = server_factory(
         config={"auth_backends": "local"},
         enable_tacacs=True,
@@ -269,7 +311,22 @@ def test_tacacs_nonexistent_user(server_factory):
 
 
 def test_tacacs_multiple_users(server_factory):
-    """Test TACACS+ authentication with multiple users"""
+    """Test TACACS+ authentication with multiple users.
+
+    This test verifies that the server can handle multiple user authentications
+    in sequence, ensuring there's no state leakage between sessions.
+
+    Test Steps:
+    1. Start a TACACS+ server with multiple test users
+    2. Authenticate first user and verify success
+    3. Authenticate second user and verify success
+    4. Verify both sessions are independent
+
+    Expected Result:
+    - Both authentications should succeed
+    - Sessions should be independent
+    - No cross-contamination between user sessions
+    """
     server = server_factory(
         config={"auth_backends": "local"},
         enable_tacacs=True,
@@ -323,7 +380,21 @@ def test_tacacs_multiple_users(server_factory):
 
 
 def test_tacacs_server_logs_collected(server_factory):
-    """Test that server logs are properly collected"""
+    """Test that server logs are properly collected.
+
+    This test verifies that the TACACS+ server correctly logs authentication
+    attempts and their outcomes to the server logs.
+
+    Test Steps:
+    1. Start a TACACS+ server with logging enabled
+    2. Perform multiple authentication attempts (success and failure)
+    3. Verify logs contain expected authentication events
+
+    Expected Result:
+    - All authentication attempts should be logged
+    - Logs should contain success/failure status
+    - Logs should include relevant user and timestamp information
+    """
     server = server_factory(
         config={"log_level": "DEBUG"},
         enable_tacacs=True,

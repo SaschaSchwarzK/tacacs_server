@@ -23,6 +23,24 @@ def _session_login(base_url: str, username: str, password: str) -> requests.Sess
 
 
 def test_users_page_forms_and_flow(server_factory):
+    """Test user management forms and workflow in the admin web interface.
+
+    This test verifies that the user management page contains all required form elements
+    and that the user creation/update workflow functions correctly.
+
+    Test Steps:
+    1. Log in to admin interface
+    2. Load users page and verify form elements
+    3. Create a new user via API
+    4. Update user details
+    5. Verify changes are reflected
+
+    Expected Result:
+    - All form elements should be present
+    - User creation should succeed
+    - Updates should be persisted
+    - Form validation should work as expected
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_web=True,
@@ -75,6 +93,23 @@ def test_users_page_forms_and_flow(server_factory):
 
 
 def test_groups_page_forms_and_flow(server_factory):
+    """Test group management forms and workflow in the admin web interface.
+
+    This test verifies that the group management page contains all required form elements
+    and that group operations work as expected.
+
+    Test Steps:
+    1. Log in to admin interface
+    2. Load groups page and verify form elements
+    3. Create a new group
+    4. Add/remove users from group
+    5. Update group details
+
+    Expected Result:
+    - Group management forms should be present
+    - Group operations should complete successfully
+    - Changes should be reflected in the UI
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_web=True,
@@ -111,6 +146,24 @@ def test_groups_page_forms_and_flow(server_factory):
 
 
 def test_devices_page_forms_and_flow(server_factory):
+    """Test device management forms and workflow in the admin web interface.
+
+    This test verifies that the device management page contains all required form elements
+    and that device operations work as expected.
+
+    Test Steps:
+    1. Log in to admin interface
+    2. Load devices page and verify form elements
+    3. Add a new device
+    4. Update device configuration
+    5. Test device connectivity
+
+    Expected Result:
+    - Device management forms should be present
+    - Device operations should complete successfully
+    - Configuration changes should be applied
+    - Connectivity tests should verify device access
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_web=True,

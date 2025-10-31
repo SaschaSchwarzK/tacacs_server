@@ -31,6 +31,19 @@ from tacacs_server.tacacs.packet import TacacsPacket
 
 
 def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes:
+    """Read exactly 'length' bytes from socket with timeout.
+
+    Args:
+        sock: Connected socket to read from
+        length: Number of bytes to read
+        timeout: Socket timeout in seconds
+
+    Returns:
+        bytes: Data read from socket
+
+    Raises:
+        socket.timeout: If read operation times out
+    """
     sock.settimeout(timeout)
     buf = bytearray()
     while len(buf) < length:
@@ -42,6 +55,15 @@ def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes
 
 
 def _mk_auth_start_body(username: str, password: str) -> bytes:
+    """Create TACACS+ authentication start packet body for PAP.
+
+    Args:
+        username: Username for authentication
+        password: Password for authentication
+
+    Returns:
+        bytes: Packed authentication start body
+    """
     user_b = username.encode()
     port_b = b""
     rem_b = b""
@@ -61,6 +83,16 @@ def _mk_auth_start_body(username: str, password: str) -> bytes:
 
 
 def _seed_state(server) -> tuple[str, str, int]:
+    """Initialize test environment with test user and device configuration.
+
+    Creates a test user, device group, and loopback device for authentication testing.
+
+    Args:
+        server: Test server instance
+
+    Returns:
+        tuple: (username, password, port) for testing
+    """
     """Create user and device group + loopback device. Returns (username, password, port)."""
     # Read paths from the generated config file (no mocks)
     cfg = configparser.ConfigParser(interpolation=None)
@@ -89,6 +121,19 @@ def _seed_state(server) -> tuple[str, str, int]:
 
 
 def _try_auth_unencrypted(host: str, port: int, username: str, password: str) -> bool:
+    """Attempt unencrypted TACACS+ PAP authentication.
+
+    Tests the authentication flow when UNENCRYPTED_FLAG is set.
+
+    Args:
+        host: Server hostname or IP
+        port: Server port
+        username: Username for authentication
+        password: Password for authentication
+
+    Returns:
+        bool: True if authentication was successful, False otherwise
+    """
     """Attempt unencrypted PAP auth. Returns True if PASS."""
     session_id = int(time.time()) & 0xFFFFFFFF
     pkt = TacacsPacket(
@@ -126,6 +171,20 @@ def _try_auth_unencrypted(host: str, port: int, username: str, password: str) ->
 def _try_auth_encrypted(
     host: str, port: int, username: str, password: str, secret: str = "testing123"
 ) -> bool:
+    """Attempt encrypted TACACS+ PAP authentication.
+
+    Tests the authentication flow with XOR encryption using shared secret.
+
+    Args:
+        host: Server hostname or IP
+        port: Server port
+        username: Username for authentication
+        password: Password for authentication
+        secret: Shared secret for encryption (default: "testing123")
+
+    Returns:
+        bool: True if authentication was successful, False otherwise
+    """
     """Attempt encrypted PAP auth. Returns True if PASS."""
     session_id = int(time.time()) & 0xFFFFFFFF
     pkt = TacacsPacket(
@@ -185,6 +244,24 @@ def _try_auth_encrypted(
 
 
 def test_auth_pap_respects_encryption_required(server_factory):
+    """Test TACACS+ PAP authentication respects encryption requirements.
+
+    Verifies that:
+    1. Authentication fails when encryption is required but not used
+    2. Authentication succeeds with proper encryption
+    3. Server enforces encryption policy correctly
+
+    Test Steps:
+    1. Start server with encryption required
+    2. Attempt unencrypted authentication (should fail)
+    3. Attempt encrypted authentication (should succeed)
+    4. Verify authentication results match expectations
+
+    Expected Result:
+    - Unencrypted attempts should be rejected when encryption is required
+    - Properly encrypted authentication should succeed
+    - Server should log appropriate security events
+    """
     # Two scenarios: encryption_required=false (allow unencrypted), true (reject unencrypted)
     for require_enc in (False, True):
         server = server_factory(

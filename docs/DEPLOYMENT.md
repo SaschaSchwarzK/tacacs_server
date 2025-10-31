@@ -75,10 +75,18 @@ services:
     volumes:
       - ./config:/app/config
       - ./data:/app/data
-      - ./logs:/app/logs
+  - ./logs:/app/logs
     environment:
       - TACACS_CONFIG=/app/config/tacacs.conf
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      # Backup encryption
+      - BACKUP_ENCRYPTION_PASSPHRASE=${BACKUP_ENCRYPTION_PASSPHRASE}
+      # Destination credentials (optional; prefer secret managers)
+      - FTP_PASSWORD=${FTP_PASSWORD}
+      - SSH_KEY_PASSPHRASE=${SSH_KEY_PASSPHRASE}
+      # Azure auth choices (pick one):
+      - AZURE_CONNECTION_STRING=${AZURE_CONNECTION_STRING}
+      - AZURE_ACCOUNT_KEY=${AZURE_ACCOUNT_KEY}
       # Optional runtime tuning
       - TACACS_LISTEN_BACKLOG=512
       - TACACS_CLIENT_TIMEOUT=15

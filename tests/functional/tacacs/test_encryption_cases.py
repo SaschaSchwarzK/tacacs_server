@@ -26,6 +26,20 @@ from tacacs_server.tacacs.constants import (
 def _md5_pad(
     session_id: int, key: str, version: int, seq_no: int, length: int
 ) -> bytes:
+    """Generate MD5 padding for TACACS+ packet encryption.
+
+    Creates a deterministic byte sequence for XOR-based encryption using MD5 hashing.
+
+    Args:
+        session_id: TACACS+ session identifier
+        key: Shared secret for encryption
+        version: Protocol version
+        seq_no: Sequence number
+        length: Desired length of padding
+
+    Returns:
+        bytes: Pseudo-random byte sequence for encryption
+    """
     pad = bytearray()
     sid = struct.pack("!L", session_id)
     key_b = key.encode("utf-8")
@@ -41,6 +55,20 @@ def _md5_pad(
 
 
 def _xor_body(body: bytes, session_id: int, key: str, version: int, seq: int) -> bytes:
+    """Apply XOR encryption to TACACS+ packet body.
+
+    Encrypts or decrypts packet body using MD5-based XOR encryption.
+
+    Args:
+        body: Packet body to encrypt/decrypt
+        session_id: TACACS+ session identifier
+        key: Shared secret for encryption
+        version: Protocol version
+        seq: Sequence number
+
+    Returns:
+        bytes: Encrypted/decrypted packet body
+    """
     if not key:
         return body
     pad = _md5_pad(session_id, key, version, seq, len(body))
@@ -50,11 +78,33 @@ def _xor_body(body: bytes, session_id: int, key: str, version: int, seq: int) ->
 def _mk_header(
     version_major: int, ptype: int, seq: int, flags: int, session: int, length: int
 ) -> bytes:
+    """Create TACACS+ packet header.
+
+    Args:
+        version_major: Major version of the protocol
+        ptype: TACACS+ packet type
+        seq: Sequence number
+        flags: Packet flags (e.g., TAC_PLUS_UNENCRYPTED_FLAG)
+        session: Session identifier
+        length: Length of packet body
+
+    Returns:
+        bytes: Packed TACACS+ header
+    """
     version = ((version_major & 0x0F) << 4) | 0
     return struct.pack("!BBBBLL", version, ptype, seq, flags, session, length)
 
 
 def _mk_auth_body(username: str, password: str) -> bytes:
+    """Create authentication packet body for TACACS+.
+
+    Args:
+        username: Authentication username
+        password: Authentication password
+
+    Returns:
+        bytes: Packed authentication body
+    """
     user_b = username.encode("utf-8")
     port_b = b"console"
     rem_b = b"127.0.0.1"
@@ -71,6 +121,14 @@ def _mk_auth_body(username: str, password: str) -> bytes:
 
 
 def _setup_device_and_user(server, username: str, password: str, secret: str) -> None:
+    """Configure test environment with device and user.
+
+    Args:
+        server: Test server instance
+        username: Username for test authentication
+        password: Password for test authentication
+        secret: Shared secret for TACACS+ communication
+    """
     from tacacs_server.auth.local_user_service import LocalUserService
     from tacacs_server.devices.store import DeviceStore
 
@@ -95,6 +153,22 @@ def _auth_once(
     seq: int,
     flags: int = 0,
 ) -> tuple[bool, str]:
+    """Perform a single TACACS+ authentication attempt.
+
+    Args:
+        host: Server hostname or IP
+        port: Server port
+        secret: Shared secret for encryption
+        username: Authentication username
+        password: Authentication password
+        session_id: TACACS+ session identifier
+        seq: Sequence number
+        flags: TACACS+ packet flags
+
+    Returns:
+        bool: True if authentication was successful, False otherwise
+        str: Status message
+    """
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(2)
     version = ((TAC_PLUS_MAJOR_VER & 0x0F) << 4) | 0
@@ -151,6 +225,21 @@ def _auth_on_socket(
     seq: int,
     flags: int = 0,
 ) -> tuple[bool, int]:
+    """Perform TACACS+ authentication on an existing socket.
+
+    Args:
+        sock: Connected socket to server
+        secret: Shared secret for encryption
+        username: Authentication username
+        password: Authentication password
+        session_id: TACACS+ session identifier
+        seq: Sequence number
+        flags: TACACS+ packet flags
+
+    Returns:
+        bool: True if authentication was successful, False otherwise
+        int: Sequence number
+    """
     version = ((TAC_PLUS_MAJOR_VER & 0x0F) << 4) | 0
     body = _mk_auth_body(username, password)
     enc = (
@@ -187,6 +276,20 @@ def _auth_on_socket(
 
 @pytest.mark.integration
 def test_encryption_with_special_characters_secret(server_factory):
+    """Test TACACS+ authentication with special characters in shared secret.
+
+    Verifies that special characters in the shared secret are handled correctly
+    during the encryption/decryption process.
+
+    Test Steps:
+    1. Configure server with secret containing special characters
+    2. Attempt authentication with the same secret
+    3. Verify successful authentication
+
+    Expected Result:
+    - Authentication should succeed with special characters in secret
+    - No encryption/decryption errors should occur
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         secret = "a!@#$%^&*()_+-=[]{}|;:'\",.<>/?~` complicated"
@@ -205,6 +308,20 @@ def test_encryption_with_special_characters_secret(server_factory):
 
 @pytest.mark.integration
 def test_encryption_with_very_long_secret(server_factory):
+    """Test TACACS+ authentication with very long shared secret.
+
+    Verifies that long shared secrets (exceeding 256 characters) are handled
+    correctly during the encryption/decryption process.
+
+    Test Steps:
+    1. Configure server with a very long secret
+    2. Attempt authentication with the same secret
+    3. Verify successful authentication
+
+    Expected Result:
+    - Authentication should succeed with long secrets
+    - No truncation or corruption of secret should occur
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         secret = ("long-SECRET-🛡️-" * 30)[:320]
@@ -224,6 +341,20 @@ def test_encryption_with_very_long_secret(server_factory):
 
 @pytest.mark.integration
 def test_encryption_with_non_ascii_secret(server_factory):
+    """Test TACACS+ authentication with non-ASCII characters in shared secret.
+
+    Verifies that non-ASCII characters in the shared secret are handled correctly
+    during the encryption/decryption process.
+
+    Test Steps:
+    1. Configure server with secret containing non-ASCII characters
+    2. Attempt authentication with the same secret
+    3. Verify successful authentication
+
+    Expected Result:
+    - Authentication should succeed with non-ASCII secrets
+    - Character encoding should be handled correctly
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         secret = "пароль-秘密-كلمةالسر-şifre-密钥-🔑"
@@ -242,6 +373,20 @@ def test_encryption_with_non_ascii_secret(server_factory):
 
 @pytest.mark.integration
 def test_mixed_encrypted_unencrypted_sessions(server_factory):
+    """Test handling of mixed encrypted and unencrypted TACACS+ sessions.
+
+    Verifies that the server can handle both encrypted and unencrypted
+    sessions simultaneously when encryption is not strictly required.
+
+    Test Steps:
+    1. Start server with encryption not required
+    2. Establish both encrypted and unencrypted sessions
+    3. Verify both session types work as expected
+
+    Expected Result:
+    - Both encrypted and unencrypted sessions should work
+    - No interference between different session types
+    """
     # Allow unencrypted for this test
     server = server_factory(
         enable_tacacs=True, config={"security": {"encryption_required": "false"}}
@@ -284,6 +429,23 @@ def test_mixed_encrypted_unencrypted_sessions(server_factory):
 
 @pytest.mark.integration
 def test_unencrypted_rejected_when_required(server_factory):
+    """Test that unencrypted sessions are rejected when encryption is required.
+
+    Verifies that the server enforces encryption requirements when configured
+    to require encrypted sessions.
+
+    Test Steps:
+    1. Start server with encryption required
+    2. Attempt unencrypted authentication
+    3. Verify authentication is rejected
+    4. Attempt encrypted authentication
+    5. Verify encrypted authentication succeeds
+
+    Expected Result:
+    - Unencrypted sessions should be rejected
+    - Encrypted sessions should be accepted
+    - Appropriate error messages should be logged
+    """
     # Enforce encryption
     server = server_factory(
         enable_tacacs=True, config={"security": {"encryption_required": "true"}}
@@ -326,6 +488,24 @@ def test_unencrypted_rejected_when_required(server_factory):
 
 @pytest.mark.integration
 def test_encryption_key_rotation_session_cache(server_factory):
+    """Test TACACS+ encryption key rotation and session caching.
+
+    Verifies that the server handles encryption key rotation correctly
+    and maintains session state during the process.
+
+    Test Steps:
+    1. Start server with initial secret
+    2. Authenticate with initial secret
+    3. Rotate to new secret
+    4. Verify old sessions continue to work
+    5. Verify new sessions use new secret
+    6. Test session persistence after secret rotation
+
+    Expected Result:
+    - Existing sessions should remain valid after key rotation
+    - New sessions should use the new secret
+    - No authentication failures during rotation
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         # Initial secret S1

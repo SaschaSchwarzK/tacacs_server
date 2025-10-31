@@ -72,6 +72,8 @@ class BackupExecutionStore:
                     enabled INTEGER NOT NULL DEFAULT 1,
                     config_json TEXT NOT NULL,
                     retention_days INTEGER NOT NULL DEFAULT 30,
+                    retention_strategy TEXT DEFAULT 'simple',
+                    retention_config_json TEXT,
                     created_at TEXT NOT NULL,
                     created_by TEXT NOT NULL,
                     last_backup_at TEXT,
@@ -79,6 +81,19 @@ class BackupExecutionStore:
                 )
                 """
             )
+            # Backfill columns for existing installations (best-effort)
+            try:
+                self._conn.execute(
+                    "ALTER TABLE backup_destinations ADD COLUMN retention_strategy TEXT DEFAULT 'simple'"
+                )
+            except Exception:
+                pass
+            try:
+                self._conn.execute(
+                    "ALTER TABLE backup_destinations ADD COLUMN retention_config_json TEXT"
+                )
+            except Exception:
+                pass
 
     # --- executions ---
     def create_execution(
@@ -163,18 +178,33 @@ class BackupExecutionStore:
 
     # --- destinations ---
     def create_destination(
-        self, name: str, dest_type: str, config: dict, created_by: str, **kwargs
+        self,
+        name: str,
+        dest_type: str,
+        config: dict,
+        created_by: str,
+        *,
+        retention_days: int = 30,
+        retention_strategy: str = "simple",
+        retention_config: dict | None = None,
+        **kwargs,
     ) -> str:
         dest_id = str(uuid.uuid4())
         created_at = _now_iso()
         cfg_json = json.dumps(config or {})
         enabled = int(bool(kwargs.get("enabled", 1)))
-        retention_days = int(kwargs.get("retention_days", 30))
+        retention_days = int(retention_days)
+        retention_strategy = str(retention_strategy or "simple").lower()
+        if retention_config is None:
+            retention_config = {"keep_days": retention_days}
+        retention_cfg_json = json.dumps(retention_config)
         with self._conn:
             self._conn.execute(
                 """
-                INSERT INTO backup_destinations(id, name, type, enabled, config_json, retention_days, created_at, created_by)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO backup_destinations(
+                    id, name, type, enabled, config_json, retention_days, retention_strategy, retention_config_json, created_at, created_by
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     dest_id,
@@ -183,6 +213,8 @@ class BackupExecutionStore:
                     enabled,
                     cfg_json,
                     retention_days,
+                    retention_strategy,
+                    retention_cfg_json,
                     created_at,
                     created_by,
                 ),
@@ -196,9 +228,10 @@ class BackupExecutionStore:
         params = []
         for k, v in updates.items():
             keys.append(f"{k}=?")
-            params.append(
-                json.dumps(v) if k == "config_json" and not isinstance(v, str) else v
-            )
+            if k in ("config_json", "retention_config_json") and not isinstance(v, str):
+                params.append(json.dumps(v))
+            else:
+                params.append(v)
         params.append(dest_id)
         with self._conn:
             self._conn.execute(

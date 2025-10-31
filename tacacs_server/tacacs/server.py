@@ -40,7 +40,7 @@ from .packet import TacacsPacket
 
 if TYPE_CHECKING:
     from ..devices import DeviceStore
-    from ..web.monitoring import TacacsMonitoringAPI
+    from ..web.web import WebServer
 
 logger = get_logger(__name__)
 
@@ -95,7 +95,7 @@ class TacacsServer:
         }
         self.start_time = time.time()
         self.metrics = MetricsCollector()
-        self.monitoring_api: TacacsMonitoringAPI | None = None
+        self.monitoring_api: WebServer | None = None
         self.enable_monitoring = False
         # Whether proxy-aware identity matching is enabled (configured in main)
         self.proxy_enabled: bool = True
@@ -141,7 +141,7 @@ class TacacsServer:
         # Cache Prometheus update callable if available
         self._prom_update_active: Callable[[int], None] | None = None
         try:
-            from ..web.monitoring import PrometheusIntegration as _PM
+            from ..web.web import PrometheusIntegration as _PM
 
             self._prom_update_active = getattr(_PM, "update_active_connections", None)
         except Exception:
@@ -170,50 +170,61 @@ class TacacsServer:
     ):
         """Enable web monitoring interface"""
         try:
-            from ..web.monitoring import TacacsMonitoringAPI
-
-            logger.info(
-                "Attempting to enable web monitoring on %s:%s", web_host, web_port
-            )
-            self.monitoring_api = TacacsMonitoringAPI(
-                self, host=web_host, port=web_port, radius_server=radius_server
-            )
-            started = False
-            try:
-                self.monitoring_api.start()
-                started = True
-            except Exception as e:
-                logger.exception("Exception while starting monitoring API: %s", e)
-            # give the monitoring thread a short moment to start
+            import os
+            import threading
             import time
+            import uvicorn
+            from ..web.web_app import create_app
 
-            time.sleep(0.1)
-            if (
-                started
-                and self.monitoring_api is not None
-                and getattr(self.monitoring_api, "server_thread", None)
-            ):
-                # mypy: guard against Optional and missing attribute
-                _thr = getattr(self.monitoring_api, "server_thread", None)
-                alive = bool(getattr(_thr, "is_alive", lambda: False)())
-            else:
-                alive = False
-            if alive:
-                self.enable_monitoring = True
-                logger.info(
-                    "Web monitoring enabled at http://%s:%s", web_host, web_port
-                )
-                return True
-            else:
-                logger.error("Web monitoring thread failed to start")
-                # cleanup
+            logger.info("Starting web monitoring on %s:%s", web_host, web_port)
+
+            # Get admin credentials from environment or config
+            admin_username = os.getenv("ADMIN_USERNAME", "admin")
+            admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
+            api_token = os.getenv("API_TOKEN")
+
+            # If no password hash, try to get from config
+            if not admin_password_hash and hasattr(self, "config"):
                 try:
-                    self.monitoring_api.stop()
-                except Exception:
+                    admin_config = self.config.get_admin_auth_config()
+                    admin_username = admin_config.get("username", "admin")
+                    admin_password_hash = admin_config.get("password_hash", "")
+                except:
                     pass
-                self.monitoring_api = None
-                self.enable_monitoring = False
-                return False
+
+            # Create FastAPI app with credentials
+            app = create_app(
+                admin_username=admin_username,
+                admin_password_hash=admin_password_hash,
+                api_token=api_token,
+                tacacs_server=self,
+                radius_server=radius_server,
+                device_service=getattr(self, "device_service", None),
+                user_service=getattr(self, "local_user_service", None),
+                user_group_service=getattr(self, "local_user_group_service", None),
+                config_service=getattr(self, "config", None),
+            )
+
+            # Run uvicorn in background thread
+            def run_server():
+                config = uvicorn.Config(
+                    app,
+                    host=web_host,
+                    port=web_port,
+                    log_level="warning",
+                    access_log=False,
+                )
+                server = uvicorn.Server(config)
+                server.run()
+
+            thread = threading.Thread(target=run_server, daemon=True)
+            thread.start()
+            time.sleep(0.2)
+
+            self.enable_monitoring = True
+            logger.info("Web monitoring enabled at http://%s:%s", web_host, web_port)
+            return True
+
         except Exception as e:
             logger.exception(f"Failed to enable web monitoring: {e}")
             return False
@@ -273,7 +284,7 @@ class TacacsServer:
                 "Authentication backends: %s", [b.name for b in self.auth_backends]
             )
             logger.debug(
-                "Per-device secrets configured; avoiding logging secret details"
+                "Device-group secrets supported; secret values are never logged"
             )
             # Start thread pool if configured
             if self.use_thread_pool and self._executor is None:
@@ -1141,7 +1152,7 @@ class TacacsServer:
                             self.stats["author_success"] += 1
                         # Record command authorization metric
                         try:
-                            from ..web.monitoring import PrometheusIntegration as _PM
+                            from ..web.web import PrometheusIntegration as _PM
 
                             _PM.record_command_authorization("granted")
                         except Exception:
@@ -1151,7 +1162,7 @@ class TacacsServer:
                             self.stats["author_failures"] += 1
                         # Record command authorization metric
                         try:
-                            from ..web.monitoring import PrometheusIntegration as _PM
+                            from ..web.web import PrometheusIntegration as _PM
 
                             _PM.record_command_authorization("denied")
                         except Exception:

@@ -32,6 +32,23 @@ def _json(session, method, url, **kwargs):
 
 
 def test_crud_device_groups(server_factory):
+    """Test CRUD operations for device groups via Admin API.
+
+    This test verifies the complete lifecycle of device group management
+    including creation, retrieval, updating, and deletion of device groups.
+
+    Test Steps:
+    1. Create a new device group
+    2. Retrieve and verify the device group
+    3. Update the device group details
+    4. Delete the device group
+    5. Verify deletion
+
+    Expected Result:
+    - All CRUD operations should complete successfully
+    - Device group data should be persisted correctly
+    - Changes should be reflected in subsequent API calls
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -70,6 +87,23 @@ def test_crud_device_groups(server_factory):
 
 
 def test_crud_devices(server_factory):
+    """Test CRUD operations for network devices via Admin API.
+
+    This test verifies the complete lifecycle of device management
+    including creation, configuration, and removal of network devices.
+
+    Test Steps:
+    1. Create a new device with basic configuration
+    2. Retrieve and verify device details
+    3. Update device configuration
+    4. Test device connectivity
+    5. Remove the device
+
+    Expected Result:
+    - Device operations should complete successfully
+    - Configuration changes should be applied
+    - Device status should be accurately reported
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -126,6 +160,23 @@ def test_crud_devices(server_factory):
 
 
 def test_crud_users(server_factory):
+    """Test CRUD operations for user accounts via Admin API.
+
+    This test verifies the complete lifecycle of user account management
+    including creation, modification, and removal of user accounts.
+
+    Test Steps:
+    1. Create a new user with basic attributes
+    2. Retrieve and verify user details
+    3. Update user attributes and permissions
+    4. Test user authentication
+    5. Remove the user account
+
+    Expected Result:
+    - User operations should complete successfully
+    - Authentication should work with updated credentials
+    - Permission changes should be enforced
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -157,6 +208,23 @@ def test_crud_users(server_factory):
 
 
 def test_crud_user_groups(server_factory):
+    """Test CRUD operations for user groups via Admin API.
+
+    This test verifies the complete lifecycle of user group management
+    including creation, modification, and removal of user groups.
+
+    Test Steps:
+    1. Create a new user group
+    2. Add/remove users from the group
+    3. Update group permissions
+    4. Verify group membership
+    5. Remove the group
+
+    Expected Result:
+    - Group operations should complete successfully
+    - Membership changes should be reflected immediately
+    - Permission inheritance should work as expected
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,
@@ -190,6 +258,23 @@ def test_crud_user_groups(server_factory):
 
 
 def test_crud_proxies(server_factory):
+    """Test CRUD operations for proxy configuration via Admin API.
+
+    This test verifies the complete lifecycle of proxy management
+    including creation, configuration, and testing of proxy settings.
+
+    Test Steps:
+    1. Configure a new proxy
+    2. Test proxy connectivity
+    3. Update proxy settings
+    4. Verify proxy usage in requests
+    5. Remove proxy configuration
+
+    Expected Result:
+    - Proxy configuration should be saved
+    - Connectivity tests should pass
+    - Proxy should be used for outbound requests
+    """
     server = server_factory(
         config={
             "admin_username": "admin",
@@ -233,6 +318,24 @@ def test_crud_proxies(server_factory):
 
 
 def test_webhooks_config(server_factory):
+    """Test webhook configuration and notification system via Admin API.
+
+    This test verifies the configuration and functionality of webhooks
+    for event notifications and system integration.
+
+    Test Steps:
+    1. Configure webhook endpoints
+    2. Test webhook delivery
+    3. Verify payload format
+    4. Test error handling
+    5. Clean up webhook configuration
+
+    Expected Result:
+    - Webhooks should be properly configured
+    - Notifications should be delivered to endpoints
+    - Payload should match expected format
+    - Error cases should be handled gracefully
+    """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
         enable_admin_api=True,

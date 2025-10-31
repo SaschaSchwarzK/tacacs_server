@@ -1,3 +1,13 @@
+"""
+Webhook Utils Delivery Tests
+
+This module contains unit and functional tests for the webhook utilities.
+It verifies the core functionality of the webhook notification system,
+including template processing, threshold handling, and delivery mechanisms.
+
+Tests focus on the webhook utility functions rather than end-to-end delivery.
+"""
+
 import http.server
 import json
 import threading
@@ -15,34 +25,82 @@ from tacacs_server.utils.webhook import (
 
 
 class _RecHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP request handler for capturing webhook test requests.
+
+    This handler stores all received requests in memory for later verification.
+    It's used by the test webhook server to capture and validate webhook deliveries.
+    """
+
     store: list[dict[str, Any]] = []
 
     def do_POST(self):  # noqa: N802
+        """Handle HTTP POST requests and store the received data.
+
+        Extracts the request body and headers, then stores them for test verification.
+        Always returns 200 OK response.
+        """
         length = int(self.headers.get("Content-Length", "0") or 0)
         body = self.rfile.read(length) if length else b""
         try:
             payload = json.loads(body.decode("utf-8")) if body else {}
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             payload = {"_raw": body.decode("utf-8", errors="replace")}
         _RecHandler.store.append({"path": self.path, "payload": payload})
         self.send_response(200)
         self.end_headers()
 
-    def log_message(self, fmt, *args):
-        return
+    def log_message(self, format_str: str, *args, **kwargs) -> None:
+        """Override default logging to reduce test output noise.
+
+        Args:
+            format_str: Format string for the log message (unused in test output)
+            *args: Format arguments (unused in test output)
+            **kwargs: Additional keyword arguments for compatibility
+        """
+        # This method intentionally does nothing to reduce test output noise
+        # The parameters are kept for compatibility with the parent class
+        pass
 
 
-def _start_srv():
+def _start_srv() -> tuple[
+    http.server.HTTPServer, threading.Thread, int, list[dict[str, Any]]
+]:
+    """Start a test HTTP server to receive webhook notifications.
+
+    Returns:
+        Tuple containing:
+        - The HTTP server instance
+        - The port number the server is listening on
+        - Reference to the request store for test verification
+    """
     srv = http.server.HTTPServer(("127.0.0.1", 0), _RecHandler)
     port = srv.server_port
-    _RecHandler.store = []
+    _RecHandler.store = []  # Reset store for each test
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     return srv, port, _RecHandler.store
 
 
 @pytest.mark.functional
-def test_webhook_utils_template_and_threshold():
+def test_webhook_utils_template_and_threshold() -> None:
+    """Test webhook template processing and rate limiting functionality.
+
+    This test verifies:
+    - Template variables are correctly substituted in webhook payloads
+    - Rate limiting works as expected with different threshold settings
+    - Webhook delivery respects the rate limit configuration
+
+    Test Steps:
+    1. Configure webhook with template and threshold settings
+    2. Simulate multiple events in quick succession
+    3. Verify rate limiting behavior
+
+    Expected Results:
+    - First event within threshold is delivered immediately
+    - Subsequent events are rate limited
+    - Template variables are correctly substituted
+    - Correct number of deliveries based on threshold settings
+    """
     # Inject a transport stub to capture deliveries without relying on OS networking
     captured: list[tuple[str, dict, float]] = []
 

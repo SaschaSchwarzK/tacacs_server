@@ -15,6 +15,17 @@ def _poll(predicate, timeout=10.0, interval=0.3):
 
 @pytest.mark.integration
 def test_backup_end_to_end(server_factory):
+    from tacacs_server.backup.service import initialize_backup_service
+    from tacacs_server.config.config import TacacsConfig
+    
+    # Create a minimal config for the backup service
+    config = TacacsConfig()
+    config.logging = {"level": "INFO", "file": "/tmp/tacacs_test.log"}
+    config.backup = {"enabled": True, "default_retention_days": 7}
+    
+    # Initialize the backup service
+    initialize_backup_service(config)
+    
     server = server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -68,6 +79,16 @@ def test_backup_end_to_end(server_factory):
 
 @pytest.mark.integration
 def test_restore_end_to_end(server_factory):
+    from tacacs_server.backup.service import initialize_backup_service
+    from tacacs_server.config.config import TacacsConfig
+    
+    # Create a minimal config for the backup service
+    config = TacacsConfig()
+    config.logging = {"level": "INFO", "file": "/tmp/tacacs_test.log"}
+    config.backup = {"enabled": True, "default_retention_days": 7}
+    
+    # Initialize the backup service
+    initialize_backup_service(config)
     server = server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -127,6 +148,16 @@ def test_restore_end_to_end(server_factory):
 
 @pytest.mark.integration
 def test_scheduled_backups_and_manual_trigger(server_factory):
+    from tacacs_server.backup.service import initialize_backup_service
+    from tacacs_server.config.config import TacacsConfig
+    
+    # Create a minimal config for the backup service
+    config = TacacsConfig()
+    config.logging = {"level": "INFO", "file": "/tmp/tacacs_test.log"}
+    config.backup = {"enabled": True, "default_retention_days": 7}
+    
+    # Initialize the backup service
+    initialize_backup_service(config)
     server = server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -187,6 +218,16 @@ def test_scheduled_backups_and_manual_trigger(server_factory):
 
 @pytest.mark.integration
 def test_multiple_destinations(server_factory):
+    from tacacs_server.backup.service import initialize_backup_service
+    from tacacs_server.config.config import TacacsConfig
+    
+    # Create a minimal config for the backup service
+    config = TacacsConfig()
+    config.logging = {"level": "INFO", "file": "/tmp/tacacs_test.log"}
+    config.backup = {"enabled": True, "default_retention_days": 7}
+    
+    # Initialize the backup service
+    initialize_backup_service(config)
     server = server_factory(
         enable_tacacs=True,
         enable_admin_api=True,

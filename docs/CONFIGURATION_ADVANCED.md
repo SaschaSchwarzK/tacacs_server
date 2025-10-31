@@ -1,23 +1,47 @@
 # Advanced Configuration Management
 
+This document covers advanced configuration management features including versioning, drift detection, and automation.
+
 ## Table of Contents
-- [Configuration Store Schema](#configuration-store-schema)
-- [Common Operations](#common-operations)
+- [Configuration Store](#configuration-store)
 - [Configuration Versioning](#configuration-versioning)
 - [Drift Detection](#drift-detection)
+- [Automation & API](#automation--api)
 - [Best Practices](#best-practices)
 
-## Configuration Store Schema
+## Configuration Store
 
 The configuration management system uses a SQLite database (`data/config_overrides.db`) with the following schema:
 
-### 1. `config_overrides` Table
+### Database Schema
+
+#### `config_overrides` Table
 Stores active configuration overrides.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Primary key |
-| section | TEXT | Configuration section (e.g., 'server', 'auth') |
+| section | TEXT | Configuration section |
+| key | TEXT | Configuration key |
+| value | TEXT | Configuration value |
+| created_at | TIMESTAMP | When override was created |
+| created_by | TEXT | User/process that created the override |
+| comment | TEXT | Optional description |
+
+#### `config_history` Table
+Tracks all configuration changes for audit and rollback.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| operation | TEXT | 'CREATE', 'UPDATE', or 'DELETE' |
+| section | TEXT | Configuration section |
+| key | TEXT | Configuration key |
+| old_value | TEXT | Previous value (for updates) |
+| new_value | TEXT | New value |
+| timestamp | TIMESTAMP | When change occurred |
+| user | TEXT | User who made the change |
+| comment | TEXT | Change description |
 | key | TEXT | Configuration key |
 | value | TEXT | Serialized value (JSON for complex types) |
 | value_type | TEXT | Type of value ('string', 'integer', 'boolean', 'json', 'list') |

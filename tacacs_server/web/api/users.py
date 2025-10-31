@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/users", tags=["Users"])
 
 
 def get_user_service() -> LocalUserService:
-    from tacacs_server.web.monitoring import get_local_user_service
+    from tacacs_server.web.web import get_local_user_service
 
     service = get_local_user_service()
     if not service:

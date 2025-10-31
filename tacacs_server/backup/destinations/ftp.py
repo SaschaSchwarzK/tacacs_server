@@ -5,11 +5,13 @@ import re
 import ssl
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any
-
+from typing import Any, List, Optional, BinaryIO
+from ftplib import FTP, FTP_TLS
 from tacacs_server.utils.logger import get_logger
+from pathlib import Path
 
 from .base import BackupDestination, BackupMetadata
+from tacacs_server.utils.retry import retry
 
 _logger = get_logger(__name__)
 
@@ -18,36 +20,60 @@ class FTPBackupDestination(BackupDestination):
     """Store backups on FTP/FTPS server."""
 
     def __init__(self, config: dict[str, Any]):
+        # Set port and other attributes before calling parent's __init__
+        self.host: str = str(config.get("host", "localhost"))
+        self.use_tls: bool = bool(config.get("use_tls", False))
+        self.username: str = str(config.get("username", ""))
+        self.password: str = str(config.get("password", ""))
+        self.base_path: str = str(config.get("base_path", "/"))
+        self.passive: bool = bool(config.get("passive", True))
+        self.verify_ssl: bool = bool(config.get("verify_ssl", True))
+        self.timeout: int = int(config.get("timeout", 30))
+
+        # Set default port based on TLS setting if not provided
+        default_port = 990 if self.use_tls else 21
+
+        # Get port from config or use default
+        port = config.get("port")
+        if port is not None:
+            try:
+                self.port = int(port)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Invalid port: {port}") from e
+        else:
+            self.port = default_port
+
+        # Validate port range
+        if not (1 <= self.port <= 65535):
+            raise ValueError(f"Invalid FTP port: {self.port}; must be 1-65535")
+
+        # Now call parent's __init__ which will call validate_config()
         super().__init__(config)
-        self.host: str = str(self.config.get("host", ""))
-        self.port: int = int(
-            self.config.get("port", 0)
-            or (990 if self.config.get("use_tls", True) else 21)
-        )
-        self.username: str = str(self.config.get("username", ""))
-        self.password: str = str(self.config.get("password", ""))
-        self.base_path: str = str(self.config.get("base_path", "/"))
-        self.use_tls: bool = bool(self.config.get("use_tls", True))
-        self.passive: bool = bool(self.config.get("passive", True))
-        self.verify_ssl: bool = bool(self.config.get("verify_ssl", True))
-        self.timeout: int = int(self.config.get("timeout", 30))
 
     def validate_config(self) -> None:
-        missing = [
-            k
-            for k in ("host", "username", "password", "base_path")
-            if not self.config.get(k)
-        ]
+        # Check for missing required fields
+        missing = []
+        if not self.host:
+            missing.append("host")
+        if not self.username:
+            missing.append("username")
+        if not self.password:
+            missing.append("password")
+        if not self.base_path:
+            missing.append("base_path")
+
         if missing:
             raise ValueError(f"Missing required config: {', '.join(missing)}")
-        try:
-            if self.port < 1 or self.port > 65535:
-                raise ValueError
-        except Exception:
+
+        # Port validation is already done in __init__
+        if not hasattr(self, "port") or not (1 <= self.port <= 65535):
             raise ValueError("Invalid FTP port; must be 1-65535")
-        bp = self.base_path
-        if "\x00" in bp or ".." in bp.replace("\\", "/"):
+
+        # Validate base path
+        if "\x00" in self.base_path or ".." in self.base_path.replace("\\", "/"):
             raise ValueError("Invalid base_path")
+
+        # Log security-related warnings
         if not self.use_tls:
             _logger.warning("FTP destination configured without TLS (use_tls=false)")
         if self.use_tls and not self.verify_ssl:
@@ -118,6 +144,7 @@ class FTPBackupDestination(BackupDestination):
             except Exception:
                 pass
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
         try:
             with self._connect() as ftp:
@@ -134,6 +161,7 @@ class FTPBackupDestination(BackupDestination):
         except Exception as exc:
             return False, str(exc)
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._validate_no_traversal(remote_filename)
         rp = self._normalize_remote_path(os.path.join(self.base_path, remote_filename))
@@ -176,6 +204,7 @@ class FTPBackupDestination(BackupDestination):
             _logger.warning("ftp_upload_verify_failed", error=str(exc))
         return rp
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         try:
             self._validate_no_traversal(remote_path)
@@ -192,6 +221,7 @@ class FTPBackupDestination(BackupDestination):
             )
             return False
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def list_backups(self, prefix: str | None = None) -> list[BackupMetadata]:
         items: list[BackupMetadata] = []
         try:
@@ -254,6 +284,7 @@ class FTPBackupDestination(BackupDestination):
             items = [i for i in items if prefix in i.path]
         return sorted(items, key=lambda m: m.timestamp, reverse=True)
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def delete_backup(self, remote_path: str) -> bool:
         try:
             self._validate_no_traversal(remote_path)

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
+import json
+
+from tacacs_server.utils.logger import get_logger
 
 
 @dataclass
@@ -21,6 +24,7 @@ class BackupDestination(ABC):
     def __init__(self, config: dict[str, Any]):
         self.config = config or {}
         self.validate_config()
+        self._logger = get_logger(__name__)
 
     @abstractmethod
     def validate_config(self) -> None:
@@ -60,25 +64,79 @@ class BackupDestination(ABC):
         """Get metadata about a specific backup"""
         raise NotImplementedError
 
-    def apply_retention_policy(self, retention_days: int) -> int:
+    def apply_retention_policy(
+        self,
+        retention_days: int | None = None,
+        retention_rule: "RetentionRule" | None = None,
+    ) -> int:
         """
-        Delete backups older than retention_days.
-        Returns: Number of backups deleted
-        """
-        from datetime import datetime, timedelta
+        Apply retention policy to delete old backups.
 
-        cutoff = datetime.now(UTC) - timedelta(days=max(0, int(retention_days)))
-        deleted = 0
+        Args:
+            retention_days: Simple days-based retention (backwards compat)
+            retention_rule: Advanced retention rule (GFS, Hanoi, etc.)
+
+        Returns:
+            Number of backups deleted
+        """
+        # Backwards compatible mapping: days -> simple rule
+        if retention_rule is None and retention_days is not None:
+            try:
+                from tacacs_server.backup.retention import (
+                    RetentionRule as _Rule,
+                    RetentionStrategy as _Strat,
+                )
+
+                retention_rule = _Rule(
+                    strategy=_Strat.SIMPLE, keep_days=int(retention_days)
+                )
+            except Exception:
+                retention_rule = None
+
+        if retention_rule is None:
+            return 0
+
+        # Compute deletions per policy
         try:
-            for meta in self.list_backups():
-                try:
-                    ts = datetime.fromisoformat(meta.timestamp)
-                except Exception:
-                    # If timestamp not parseable, skip
-                    continue
-                if ts < cutoff:
-                    if self.delete_backup(meta.path):
-                        deleted += 1
+            backups = self.list_backups()
+            from tacacs_server.backup.retention import RetentionPolicy as _Policy
+
+            policy = _Policy(retention_rule)  # type: ignore[arg-type]
+            to_delete = policy.apply(backups)
         except Exception:
-            return deleted
-        return deleted
+            return 0
+
+        # Delete selected backups
+        deleted_count = 0
+        for b in to_delete:
+            try:
+                if self.delete_backup(b.path):
+                    deleted_count += 1
+                    try:
+                        age_days = 0
+                        try:
+                            ts = (
+                                b.timestamp.replace("Z", "+00:00")
+                                if isinstance(b.timestamp, str)
+                                else str(b.timestamp)
+                            )
+                            bt = datetime.fromisoformat(ts)
+                            if bt.tzinfo is None:
+                                bt = bt.replace(tzinfo=UTC)
+                            age_days = (datetime.now(UTC) - bt).days
+                        except Exception:
+                            pass
+                        self._logger.info(
+                            json.dumps(
+                                {
+                                    "event": "backup_deleted_by_retention",
+                                    "path": b.path,
+                                    "age_days": age_days,
+                                }
+                            )
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                self._logger.error(f"Failed to delete backup {b.path}: {e}")
+        return deleted_count

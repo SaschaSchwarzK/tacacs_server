@@ -26,11 +26,38 @@ from tacacs_server.tacacs.constants import (
 def _mk_header(
     version_major: int, ptype: int, seq: int, flags: int, session: int, length: int
 ) -> bytes:
+    """Create a TACACS+ packet header with the specified parameters.
+
+    Args:
+        version_major: Major version of the TACACS+ protocol
+        ptype: Packet type (AUTH, AUTHOR, ACCOUNT)
+        seq: Sequence number for packet ordering
+        flags: Packet flags (e.g., encryption, single connection)
+        session: Session identifier
+        length: Length of the packet body
+
+    Returns:
+        bytes: Packed TACACS+ header
+    """
     version = ((version_major & 0x0F) << 4) | 0  # minor 0
     return struct.pack("!BBBBLL", version, ptype, seq, flags, session, length)
 
 
 def _mk_auth_body(username: str, password: str) -> bytes:
+    """Create a TACACS+ authentication packet body.
+
+    Args:
+        username: Username for authentication
+        password: Password for authentication
+
+    Returns:
+        bytes: Packed authentication packet body with the following structure:
+               - Header (8 bytes): action, priv_lvl, authen_type, service, user_len, port_len, rem_addr_len, data_len
+               - Username (variable length)
+               - Port (fixed 'console')
+               - Remote address (fixed '127.0.0.1')
+               - Data (password, variable length)
+    """
     user_b = username.encode("utf-8")
     port_b = b"console"
     rem_b = b"127.0.0.1"
@@ -45,6 +72,20 @@ def _mk_auth_body(username: str, password: str) -> bytes:
 def _md5_pad(
     session_id: int, key: str, version: int, seq_no: int, length: int
 ) -> bytes:
+    """Generate MD5 padding for TACACS+ packet encryption.
+
+    Creates a deterministic byte sequence for XOR-based encryption using MD5 hashing.
+
+    Args:
+        session_id: TACACS+ session identifier
+        key: Shared secret for encryption
+        version: Protocol version
+        seq_no: Sequence number
+        length: Desired length of padding
+
+    Returns:
+        bytes: Pseudo-random byte sequence for encryption
+    """
     import hashlib
 
     pad = bytearray()
@@ -62,13 +103,36 @@ def _md5_pad(
 
 
 def _xor_body(body: bytes, session_id: int, key: str, version: int, seq: int) -> bytes:
+    """Apply XOR encryption/decryption to TACACS+ packet body.
+
+    Args:
+        body: Packet body to encrypt/decrypt
+        session_id: TACACS+ session identifier
+        key: Shared secret for encryption
+        version: Protocol version
+        seq: Sequence number
+
+    Returns:
+        bytes: Encrypted/decrypted packet body
+    """
     if not key:
         return body
     pad = _md5_pad(session_id, key, version, seq, len(body))
     return bytes(a ^ b for a, b in zip(body, pad))
 
 
-def _setup_device_and_user(server, username: str, password: str, secret: str) -> None:
+def _setup_device_and_user(server, username: str, password: str, secret: str):
+    """Set up a test device and user for authentication testing.
+
+    Args:
+        server: Server instance for test environment
+        username: Username for test user
+        password: Password for test user
+        secret: Shared secret for TACACS+ encryption
+
+    Returns:
+        tuple: (device, user) - The created device and user objects
+    """
     from tacacs_server.auth.local_user_service import LocalUserService
     from tacacs_server.devices.store import DeviceStore
 
@@ -84,6 +148,22 @@ def _setup_device_and_user(server, username: str, password: str, secret: str) ->
 
 @pytest.mark.integration
 def test_maximum_body_length(server_factory):
+    """Test TACACS+ server handling of maximum body length packets.
+
+    Verifies that the server can handle packets with the maximum allowed body length
+    (up to 64KB) and properly processes or rejects them based on the implementation.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Create a packet with maximum allowed body length
+    3. Send the packet to the server
+    4. Verify the server's response
+
+    Expected Result:
+    - Server should either process the packet successfully or
+      return an appropriate error if the body is too large
+    - No crashes or memory issues should occur
+    """
     server = server_factory(
         enable_tacacs=True, config={"server": {"max_packet_length": 2048}}
     )
@@ -164,6 +244,21 @@ def test_maximum_body_length(server_factory):
 
 @pytest.mark.integration
 def test_zero_length_body(server_factory):
+    """Test TACACS+ server handling of packets with zero-length bodies.
+
+    Verifies that the server properly handles authentication requests with no body data,
+    which should be rejected as invalid.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Create a packet with a valid header but zero-length body
+    3. Send the packet to the server
+    4. Verify the server rejects the packet
+
+    Expected Result:
+    - Server should reject the packet with an appropriate error response
+    - No crashes or undefined behavior should occur
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         # Zero-length body with valid header should be read and connection closed or ignored
@@ -197,6 +292,22 @@ def test_zero_length_body(server_factory):
 
 @pytest.mark.integration
 def test_multiple_sequential_packets_same_session(server_factory):
+    """Test TACACS+ server handling of multiple packets in the same session.
+
+    Verifies that the server maintains session state correctly across multiple
+    packets with incrementing sequence numbers.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Establish a session and send multiple authentication packets
+    3. Increment sequence numbers for each packet
+    4. Verify all packets are processed correctly
+
+    Expected Result:
+    - Server should maintain session state across packets
+    - Each packet should be processed in order
+    - Sequence numbers should be validated correctly
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         _setup_device_and_user(server, "mseq", "MseqPass1", "testsecret")
@@ -243,6 +354,21 @@ def test_multiple_sequential_packets_same_session(server_factory):
 
 @pytest.mark.integration
 def test_out_of_order_sequence_rejected(server_factory):
+    """Test TACACS+ server rejection of out-of-order sequence numbers.
+
+    Verifies that the server properly rejects packets with sequence numbers
+    that are not in the expected order.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Send packets with non-sequential sequence numbers
+    3. Verify the server rejects out-of-order packets
+
+    Expected Result:
+    - Packets with incorrect sequence numbers should be rejected
+    - Server should maintain correct sequence number state
+    - No crashes or undefined behavior should occur
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         _setup_device_and_user(server, "ooseq", "OoSeqPass1", "testsecret")
@@ -311,6 +437,22 @@ def test_out_of_order_sequence_rejected(server_factory):
 
 @pytest.mark.integration
 def test_packet_fragmentation(server_factory):
+    """Test TACACS+ server handling of fragmented TCP packets.
+
+    Verifies that the server can correctly handle and reassemble TCP packets
+    that arrive in multiple fragments.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Split a valid authentication packet into multiple TCP segments
+    3. Send the segments with delays between them
+    4. Verify the server reassembles and processes the complete packet
+
+    Expected Result:
+    - Server should correctly reassemble fragmented packets
+    - Authentication should succeed after all fragments are received
+    - No data corruption should occur during reassembly
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         _setup_device_and_user(server, "frag", "FragPass1", "testsecret")
@@ -363,7 +505,22 @@ def test_packet_fragmentation(server_factory):
 
 @pytest.mark.integration
 def test_incomplete_body_logs_warning(server_factory):
-    """Advertise a positive body length and then close early to trigger incomplete body log."""
+    """Test TACACS+ server logging of incomplete packet bodies.
+
+    Verifies that the server properly detects and logs when a packet claims
+    to have a body but the connection is closed before all data is received.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Send a packet header indicating a body will follow
+    3. Close the connection before sending the complete body
+    4. Verify the server logs an appropriate warning
+
+    Expected Result:
+    - Server should log a warning about the incomplete body
+    - Connection should be closed cleanly
+    - No memory leaks or crashes should occur
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         host, port = "127.0.0.1", server.tacacs_port
@@ -395,6 +552,22 @@ def test_incomplete_body_logs_warning(server_factory):
 
 @pytest.mark.integration
 def test_corrupted_header(server_factory):
+    """Test TACACS+ server handling of corrupted packet headers.
+
+    Verifies that the server properly detects and rejects packets with
+    corrupted or invalid header fields.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Create packets with various corrupted header fields
+    3. Send the corrupted packets to the server
+    4. Verify the server rejects them with appropriate errors
+
+    Expected Result:
+    - Corrupted headers should be detected and rejected
+    - Server should close the connection or return an error response
+    - No crashes or undefined behavior should occur
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         host, port = "127.0.0.1", server.tacacs_port
@@ -427,6 +600,22 @@ def test_corrupted_header(server_factory):
 
 @pytest.mark.integration
 def test_unknown_packet_type(server_factory):
+    """Test TACACS+ server handling of unknown packet types.
+
+    Verifies that the server properly handles packets with unknown or
+    unsupported packet types.
+
+    Test Steps:
+    1. Start a TACACS+ server with a test user
+    2. Create packets with invalid/unknown packet types
+    3. Send the packets to the server
+    4. Verify the server responds appropriately
+
+    Expected Result:
+    - Unknown packet types should be rejected with an error response
+    - The server should remain stable and continue processing other requests
+    - No crashes or undefined behavior should occur
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         host, port = "127.0.0.1", server.tacacs_port

@@ -196,6 +196,7 @@ async function submitUser(event) {
     }
     const password = document.getElementById('formPassword').value;
     const errorBox = document.getElementById('userError');
+    errorBox.style.display = 'none';
 
     try {
         if (action === 'create') {
@@ -210,8 +211,12 @@ async function submitUser(event) {
                 body: JSON.stringify(payload),
             });
             if (!resp.ok) {
-                const data = await resp.json().catch(() => ({}));
-                throw new Error(data.detail || 'Request failed');
+                const data = await resp.json().catch(() => null);
+                if (data && data.detail && Array.isArray(data.detail)) {
+                    const errors = data.detail.map(e => e.msg || e.detail || String(e)).join(', ');
+                    throw new Error(errors);
+                }
+                throw new Error((data && data.detail) || `HTTP ${resp.status}`);
             }
         } else {
             const resp = await fetch(`/admin/users/${username}`, {
@@ -220,8 +225,12 @@ async function submitUser(event) {
                 body: JSON.stringify(payload),
             });
             if (!resp.ok) {
-                const data = await resp.json().catch(() => ({}));
-                throw new Error(data.detail || 'Request failed');
+                const data = await resp.json().catch(() => null);
+                if (data && data.detail && Array.isArray(data.detail)) {
+                    const errors = data.detail.map(e => e.msg || e.detail || String(e)).join(', ');
+                    throw new Error(errors);
+                }
+                throw new Error((data && data.detail) || `HTTP ${resp.status}`);
             }
             if (password) {
                 await updatePassword(username, password);
@@ -230,9 +239,10 @@ async function submitUser(event) {
         showToast(action === 'create' ? 'User created' : 'User updated');
         setTimeout(() => window.location.reload(), 500);
     } catch (err) {
-        errorBox.innerText = err.message;
+        const msg = (err && err.message) ? err.message : String(err);
+        errorBox.innerText = msg;
         errorBox.style.display = 'block';
-        showToast(err.message || 'Request failed', 'error');
+        showToast(msg || 'Request failed', 'error');
     }
 }
 
@@ -271,8 +281,12 @@ async function updatePassword(username, password) {
         body: JSON.stringify({ password }),
     });
     if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.detail || 'Password update failed');
+        const data = await resp.json().catch(() => null);
+        if (data && data.detail && Array.isArray(data.detail)) {
+            const errors = data.detail.map(e => e.msg || e.detail || String(e)).join(', ');
+            throw new Error(errors);
+        }
+        throw new Error((data && data.detail) || `HTTP ${resp.status}`);
     }
 }
 

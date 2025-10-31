@@ -21,14 +21,14 @@ from tacacs_server.web.admin.auth import (
     AdminSessionManager,
     get_admin_auth_dependency,
 )
-from tacacs_server.web.monitoring import (
+from tacacs_server.web.web import (
     set_admin_auth_dependency,
     set_admin_session_manager,
     set_device_service,
     set_local_user_group_service,
     set_local_user_service,
 )
-from tacacs_server.web.monitoring import (
+from tacacs_server.web.web import (
     set_config as monitoring_set_config,
 )
 
@@ -44,8 +44,11 @@ class TacacsServerManager:
         # Mirror into utils accessor so API modules using config_utils see it
         try:
             utils_set_config(self.config)
-        except Exception:
-            pass
+            logger.info("Configuration registered with utilities module")
+        except Exception as e:
+            logger.error("Failed to register config with utilities: %s", e, exc_info=True)
+            # This is critical - if utils can't access config, API will fail
+            raise
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
         from tacacs_server.devices.service import DeviceService as _DSe
@@ -132,6 +135,7 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
+        self.server.config = self.config
         # Configure accounting database logger path from config
         try:
             from tacacs_server.accounting.database import DatabaseLogger as _DBL
@@ -411,10 +415,10 @@ class TacacsServerManager:
                 ActionType,
                 CommandAuthorizationEngine,
             )
-            from tacacs_server.web.monitoring import (
+            from tacacs_server.web.web import (
                 set_command_authorizer as _set_authz,
             )
-            from tacacs_server.web.monitoring import (
+            from tacacs_server.web.web import (
                 set_command_engine as _set_engine,
             )
 

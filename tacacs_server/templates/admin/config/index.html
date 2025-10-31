@@ -1,0 +1,228 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Configuration Management - TACACS+ Server Admin{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <!-- Page Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Configuration Management</h1>
+            <p class="text-lg text-gray-600 mt-1">Manage server configuration and settings.</p>
+        </div>
+        <div>
+            {% include "admin/components/button.html" with {'text': 'View History', 'type': 'secondary'} %}
+            {% include "admin/components/button.html" with {'text': 'Create Snapshot', 'type': 'primary', 'size': 'md', 'html_type': 'button'} %}
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Main Content: Config Sections -->
+        <div class="lg:col-span-2">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Configuration Sections</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {% set sections = [
+                    {'name': 'Server Settings', 'icon': 'M...Z', 'settings': 12, 'overridden': true, 'modified': '2 days ago'},
+                    {'name': 'Authentication', 'icon': 'M...Z', 'settings': 8, 'overridden': false, 'modified': '1 week ago'},
+                    {'name': 'Authorization', 'icon': 'M...Z', 'settings': 23, 'overridden': false, 'modified': '1 week ago'},
+                    {'name': 'Devices & Groups', 'icon': 'M...Z', 'settings': 5, 'overridden': true, 'modified': '3 hours ago'},
+                    {'name': 'Backup & Recovery', 'icon': 'M...Z', 'settings': 6, 'overridden': false, 'modified': '1 month ago'},
+                    {'name': 'Security', 'icon': 'M...Z', 'settings': 15, 'overridden': true, 'modified': '5 days ago'},
+                    {'name': 'Logging & Monitoring', 'icon': 'M...Z', 'settings': 9, 'overridden': false, 'modified': '1 month ago'},
+                    {'name': 'Proxy Support', 'icon': 'M...Z', 'settings': 4, 'overridden': false, 'modified': 'never'}
+                ] %}
+                {% for section in sections %}
+                    {% if section.name == 'Proxy Support' %}
+                        <!-- Proxy Support Card -->
+                        <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+                            <div class="p-5">
+                                <h3 class="text-lg font-semibold text-gray-800">{{ section.name }}</h3>
+                                <p class="text-sm text-gray-500">{{ section.settings }} settings</p>
+                            </div>
+                            <div class="px-5 pb-5">
+                                <form id="proxy-form">
+                                    <div class="space-y-4">
+                                        <!-- Main Toggle -->
+                                        <label for="proxy_enabled" class="flex items-center justify-between cursor-pointer">
+                                            <span class="font-medium text-gray-700">Enable Proxy Protocol</span>
+                                            <div class="relative">
+                                                <input type="checkbox" id="proxy_enabled" class="sr-only peer" data-testid="proxy_enabled">
+                                                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                            </div>
+                                        </label>
+
+                                        <!-- Dependent Toggles -->
+                                        <div id="dependent-proxy-settings" class="pl-4 pt-4 border-t border-gray-200 space-y-4 hidden">
+                                            <h4 class="text-md font-semibold text-gray-700">Proxy Protocol Settings</h4>
+                                            <label for="accept_headers" class="flex items-center justify-between cursor-pointer">
+                                                <span class="font-medium text-gray-600">Accept Proxy Headers</span>
+                                                <div class="relative">
+                                                    <input type="checkbox" id="accept_headers" class="sr-only peer" disabled data-testid="accept_headers">
+                                                    <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                                </div>
+                                            </label>
+                                            <label for="validate_sources" class="flex items-center justify-between cursor-pointer">
+                                                <span class="font-medium text-gray-600">Validate Proxy Sources</span>
+                                                <div class="relative">
+                                                    <input type="checkbox" id="validate_sources" class="sr-only peer" disabled data-testid="validate_sources">
+                                                    <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                                </div>
+                                            </label>
+                                            <label for="accept_client_protocol" class="flex items-center justify-between cursor-pointer">
+                                                <span class="font-medium text-gray-600">Accept Client Protocol</span>
+                                                <div class="relative">
+                                                    <input type="checkbox" id="accept_client_protocol" class="sr-only peer" disabled data-testid="accept_client_protocol">
+                                                    <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                                </div>
+                                            </label>
+                                            <label for="limit_to_configured_proxies" class="flex items-center justify-between cursor-pointer">
+                                                <span class="font-medium text-gray-600">Limit to Configured Proxies</span>
+                                                <div class="relative">
+                                                    <input type="checkbox" id="limit_to_configured_proxies" class="sr-only peer" disabled data-testid="limit_to_configured_proxies">
+                                                    <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="mt-6 text-right">
+                                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Save Changes</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    {% else %}
+                        {% include "admin/components/card.html" with {
+                            'title': section.name,
+                            'subtitle': section.settings ~ ' settings',
+                            'actions': '<a href="#" class="text-blue-600 hover:text-blue-800">Edit</a>'
+                        } %}
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Sidebar: Status & Overrides -->
+        <div>
+            <!-- Configuration Status Widget -->
+            <div class="mb-8">
+                {% include "admin/components/card.html" with {'title': 'Configuration Status'} %}
+                <div class="p-4">
+                    <p><strong>Validation:</strong> <span id="config-validation-status" class="font-mono">Checking...</span></p>
+                    <p><strong>Source:</strong> <span id="config-source" class="font-mono">N/A</span></p>
+                    <p><strong>Last Reload:</strong> <span id="config-last-reload">N/A</span></p>
+                    <div class="mt-4 flex flex-col space-y-2">
+                        <button onclick="validateConfig()" class="w-full text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 inline-flex items-center justify-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Validate Configuration</button>
+                        <button onclick="reloadConfig()" class="w-full text-blue-700 bg-blue-100 hover:bg-blue-200 focus:ring-blue-500 inline-flex items-center justify-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Reload Configuration</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Overrides Summary -->
+            <div>
+                {% include "admin/components/card.html" with {'title': 'Active Overrides'} %}
+                <div class="p-4">
+                    <p>Total Overrides: <span class="font-bold">3</span></p>
+                    <ul class="list-disc list-inside mt-2 text-sm">
+                        <li>Security: <strong>2</strong></li>
+                        <li>Server Settings: <strong>1</strong></li>
+                    </ul>
+                    <a href="#" class="text-blue-600 hover:text-blue-800 mt-4 inline-block">View All Overrides &rarr;</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const api = new AdminAPI(); // Assumes global AdminAPI class from admin.js
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadConfigStatus();
+        // Initialize proxy settings state
+        const proxyEnabledCheckbox = document.getElementById('proxy_enabled');
+        // TODO: Set checkbox state based on actual config values
+        // proxyEnabledCheckbox.checked = ...;
+        toggleProxySettings();
+
+        proxyEnabledCheckbox.addEventListener('change', toggleProxySettings);
+    });
+
+    function toggleProxySettings() {
+        const proxyEnabled = document.getElementById('proxy_enabled').checked;
+        const dependentSettings = document.getElementById('dependent-proxy-settings');
+        const dependentInputs = dependentSettings.querySelectorAll('input[type="checkbox"]');
+
+        if (proxyEnabled) {
+            dependentSettings.classList.remove('hidden');
+            dependentInputs.forEach(input => input.disabled = false);
+        } else {
+            dependentSettings.classList.add('hidden');
+            dependentInputs.forEach(input => {
+                input.disabled = true;
+                input.checked = false; // Optionally reset state
+            });
+        }
+    }
+
+    // Load configuration status
+    async function loadConfigStatus() {
+        try {
+            const response = await api.get('/admin/config/status'); // Assuming this endpoint exists
+            updateStatusWidget(response);
+        } catch (error) {
+            console.error('Failed to load config status:', error);
+            document.getElementById('config-validation-status').textContent = 'Error';
+        }
+    }
+
+    function updateStatusWidget(response) {
+        const statusEl = document.getElementById('config-validation-status');
+        if (response.valid) {
+            statusEl.innerHTML = `<span class="text-green-600 font-bold">Valid</span>`;
+        } else {
+            statusEl.innerHTML = `<span class="text-red-600 font-bold">Invalid</span> (${response.issues.length} issues)`;
+        }
+        document.getElementById('config-source').textContent = response.source;
+        document.getElementById('config-last-reload').textContent = new Date(response.last_reload).toLocaleString();
+    }
+
+    // Validate configuration
+    async function validateConfig() {
+        try {
+            const response = await api.post('/admin/config/validate');
+            if (response.valid) {
+                showFlash('Configuration is valid', 'success');
+            } else {
+                // For a real implementation, you'd want to show these in a modal or a dedicated area
+                showFlash(`Configuration is invalid with ${response.issues.length} issues.`, 'error');
+                console.log('Validation Issues:', response.issues);
+            }
+        } catch (error) {
+            console.error('Validation failed:', error);
+        }
+    }
+
+    // Reload configuration
+    async function reloadConfig() {
+        // Using the JS confirm dialog for simplicity, but our custom modal is better for production
+        if (!confirm('Reload configuration from source? Unsaved changes may be lost.')) {
+            return;
+        }
+        
+        try {
+            const response = await api.post('/admin/config/reload');
+            if (response.success) {
+                showFlash('Configuration reloaded successfully', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showFlash(response.message || 'Failed to reload configuration.', 'error');
+            }
+        } catch (error) {
+            console.error('Reload failed:', error);
+        }
+    }
+
+</script>
+{% endblock %}

@@ -1,0 +1,98 @@
+<!-- Backup Settings -->
+<div class="card config-section">
+  <div class="section-header"><h2 class="section-title">Backup Settings</h2></div>
+  
+  <div class="subsection">
+    <div class="subsection-header">Basic Settings</div>
+    <form id="backup-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="backup_enabled">Enabled</label>
+        <div class="input-wrapper">
+          <select id="backup_enabled" name="enabled">
+            {% set backup_enabled = ((configuration.get('backup') or {}).get('enabled','true') | string).lower() %}
+            <option value="false" {% if backup_enabled=='false' %}selected{% endif %}>Disabled</option>
+            <option value="true" {% if backup_enabled=='true' %}selected{% endif %}>Enabled</option>
+          </select>
+          <span class="field-hint">Enable backup system</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="backup_create_on_startup">Create on Startup</label>
+        <div class="input-wrapper">
+          <select id="backup_create_on_startup" name="create_on_startup">
+            {% set create_startup = ((configuration.get('backup') or {}).get('create_on_startup','false') | string).lower() %}
+            <option value="false" {% if create_startup=='false' %}selected{% endif %}>No</option>
+            <option value="true" {% if create_startup=='true' %}selected{% endif %}>Yes</option>
+          </select>
+          <span class="field-hint">Auto-backup on start</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="backup_temp_directory">Temp Directory</label>
+        <div class="input-wrapper">
+          <input type="text" id="backup_temp_directory" name="temp_directory" value="{{ (configuration.get('backup') or {}).get('temp_directory','') }}" />
+          <span class="field-hint">Temporary path</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="backup_retention_days">Retention Days</label>
+        <div class="input-wrapper">
+          <input type="number" id="backup_retention_days" name="default_retention_days" min="1" value="{{ (configuration.get('backup') or {}).get('default_retention_days','') }}" />
+          <span class="field-hint">Retention period</span>
+        </div>
+      </div>
+    </form>
+
+    <div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="toggle-backup-advanced" onchange="toggleSection('backup-advanced')" />
+        <span>Show Advanced Settings</span>
+      </label>
+      <div id="backup-advanced" class="advanced-settings">
+        <form id="backup-advanced-form" onsubmit="return false;" class="form-grid">
+          <div class="form-field">
+            <label for="backup_encryption_enabled">Encryption</label>
+            <div class="input-wrapper">
+              <select id="backup_encryption_enabled" name="encryption_enabled">
+                {% set enc_enabled = ((configuration.get('backup') or {}).get('encryption_enabled','false') | string).lower() %}
+                <option value="false" {% if enc_enabled=='false' %}selected{% endif %}>Disabled</option>
+                <option value="true" {% if enc_enabled=='true' %}selected{% endif %}>Enabled</option>
+              </select>
+              <span class="field-hint">Encrypt backups</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="backup_encryption_passphrase">Passphrase</label>
+            <div class="input-wrapper">
+              <input type="password" id="backup_encryption_passphrase" name="encryption_passphrase" value="{{ (configuration.get('backup') or {}).get('encryption_passphrase','') }}" />
+              <span class="field-hint">Encryption key</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="backup_compression_level">Compression</label>
+            <div class="input-wrapper">
+              <input type="number" id="backup_compression_level" name="compression_level" min="1" max="9" value="{{ (configuration.get('backup') or {}).get('compression_level','') }}" />
+              <span class="field-hint">1=fast, 9=best</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="backup_retention_strategy">Strategy</label>
+            <div class="input-wrapper">
+              <select id="backup_retention_strategy" name="default_retention_strategy">
+                {% set strategy = ((configuration.get('backup') or {}).get('default_retention_strategy','simple') | string).lower() %}
+                <option value="simple" {% if strategy=='simple' %}selected{% endif %}>Simple</option>
+                <option value="gfs" {% if strategy=='gfs' %}selected{% endif %}>GFS</option>
+              </select>
+              <span class="field-hint">Retention strategy</span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn" onclick="saveBackupSettings()">Save Backup Settings</button>
+      <span id="backup-status" class="status-message"></span>
+    </div>
+  </div>
+</div>

@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/devices", tags=["Devices"])
 
 def get_device_service() -> DeviceService:
     """Get device service instance (validated non-None)."""
-    from tacacs_server.web.monitoring import get_device_service as _get
+    from tacacs_server.web.web import get_device_service as _get
 
     service = _get()
     if service is None:

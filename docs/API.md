@@ -1,31 +1,275 @@
-# API and Protocol Notes
+# TACACS+ Server API Documentation
 
-## OpenAPI
+This document provides comprehensive documentation for all API endpoints available in the TACACS+ server.
 
-The REST API is documented via the generated OpenAPI schema. Key categories:
-- Status & Health, Devices, Device Groups, Users, User Groups, Authentication, Accounting, RADIUS
+## Table of Contents
+- [Base URL](#base-url)
+- [Authentication](#authentication)
+- [Rate Limiting](#rate-limiting)
+- [Error Handling](#error-handling)
+- [API Endpoints](#api-endpoints)
+  - [Server Management](#server-management)
+  - [Device Management](#device-management)
+  - [Device Groups](#device-groups)
+  - [User Management](#user-management)
+  - [Authentication](#authentication-1)
+  - [Logging & Monitoring](#logging--monitoring)
+  - [Backup & Restore](#backup--restore)
+- [OpenAPI Documentation](#openapi-documentation)
+- [Examples](#examples)
 
-To view:
-- Swagger UI: `/docs`
-- ReDoc: `/redoc`
+## Base URL
 
-## Device Groups API (Proxy-aware)
+All API endpoints are prefixed with `/admin` and require authentication.
 
-### Create Device Group
+```
+Base URL: http://localhost:8080/admin
+```
 
-`POST /api/device-groups`
+## Authentication
 
-Request body:
+### Login
+```http
+POST /admin/login
+Content-Type: application/json
 
+{
+  "username": "admin",
+  "password": "your-password"
+}
+```
+
+**Response:**
 ```json
 {
-  "name": "Core-Routers",
-  "description": "All core network routers",
-  "proxy_network": "10.0.0.0/8",
-  "tacacs_secret": "TacacsSecret123!",
-  "radius_secret": "RadiusSecret123!",
-  "allowed_user_groups": [1, 2]
+  "success": true,
+  "token": "your-jwt-token"
 }
+```
+
+### Using API Tokens
+Include the token in the `Authorization` header:
+```
+Authorization: Bearer your-jwt-token
+```
+
+## Rate Limiting
+- 100 requests per minute per IP address
+- 10 login attempts per minute per IP
+- Headers included in responses:
+  - `X-RateLimit-Limit`: Request limit
+  - `X-RateLimit-Remaining`: Remaining requests
+  - `X-RateLimit-Reset`: Time when limit resets (UTC timestamp)
+
+## Error Handling
+
+### Common Error Responses
+
+**400 Bad Request**
+```json
+{
+  "error": "validation_error",
+  "message": "Invalid input data",
+  "details": {
+    "field_name": ["Error message"]
+  }
+}
+```
+
+**401 Unauthorized**
+```json
+{
+  "error": "unauthorized",
+  "message": "Authentication required"
+}
+```
+
+**403 Forbidden**
+```json
+{
+  "error": "forbidden",
+  "message": "Insufficient permissions"
+}
+```
+
+**404 Not Found**
+```json
+{
+  "error": "not_found",
+  "message": "Resource not found"
+}
+```
+
+## API Endpoints
+
+### Server Management
+
+#### Get Server Status
+```
+GET /admin/server/status
+```
+
+#### Reload Configuration
+```
+POST /admin/server/reload-config
+```
+
+### Device Management
+
+#### List Devices
+```
+GET /admin/devices
+```
+
+#### Create Device
+```
+POST /admin/devices
+```
+
+#### Get Device
+```
+GET /admin/devices/{id}
+```
+
+#### Update Device
+```
+PUT /admin/devices/{id}
+```
+
+#### Delete Device
+```
+DELETE /admin/devices/{id}
+```
+
+### Device Groups
+
+#### List Device Groups
+```
+GET /admin/device-groups
+```
+
+#### Create Device Group
+```
+POST /admin/device-groups
+```
+
+#### Get Device Group
+```
+GET /admin/device-groups/{id}
+```
+
+#### Update Device Group
+```
+PUT /admin/device-groups/{id}
+```
+
+#### Delete Device Group
+```
+DELETE /admin/device-groups/{id}
+```
+
+### User Management
+
+#### List Users
+```
+GET /admin/users
+```
+
+#### Create User
+```
+POST /admin/users
+```
+
+#### Get User
+```
+GET /admin/users/{id}
+```
+
+#### Update User
+```
+PUT /admin/users/{id}
+```
+
+#### Delete User
+```
+DELETE /admin/users/{id}
+```
+
+### Authentication
+
+#### Login
+```
+POST /admin/login
+```
+
+#### Logout
+```
+POST /admin/logout
+```
+
+### Logging & Monitoring
+
+#### Get Logs
+```
+GET /admin/logs
+```
+
+### Backup & Restore
+
+#### Create Backup
+```
+POST /admin/backup
+```
+
+#### List Backups
+```
+GET /admin/backup
+```
+
+#### Restore Backup
+```
+POST /admin/backup/restore
+```
+
+## OpenAPI Documentation
+
+The complete API specification is available via OpenAPI:
+- **Swagger UI**: `/docs`
+- **ReDoc**: `/redoc`
+
+## Examples
+
+### Create a New Device
+```http
+POST /admin/devices
+Content-Type: application/json
+Authorization: Bearer your-jwt-token
+
+{
+  "name": "core-switch-01",
+  "ip_address": "192.168.1.1",
+  "description": "Core network switch",
+  "enabled": true
+}
+```
+
+### Update Device Group
+```http
+PUT /admin/device-groups/1
+Content-Type: application/json
+Authorization: Bearer your-jwt-token
+
+{
+  "name": "Core-Devices",
+  "description": "Updated description",
+  "enabled": true
+}
+```
+
+### Get Server Logs
+```http
+GET /admin/logs?limit=100&level=error
+Authorization: Bearer your-jwt-token
 ```
 
 ### Update Device Group

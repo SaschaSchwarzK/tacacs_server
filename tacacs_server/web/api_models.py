@@ -341,7 +341,6 @@ class DeviceGroupBase(BaseModel):
 
 class DeviceGroupCreate(DeviceGroupBase):
     """Model for creating device group"""
-
     tacacs_secret: str = Field(
         ..., min_length=8, description="TACACS+ secret", example="TacacsSecret123!"
     )
@@ -1127,6 +1126,82 @@ class BackupScheduleTriggerResponse(BaseModel):
     status: str
     message: str
 
+
+class BackupStatsResponse(BaseModel):
+    total_backups: int
+    total_size_bytes: int
+    success_rate: float
+    oldest_backup_at: str | None
+    newest_backup_at: str | None
+
+
+# ============================================================================
+# Config API Models
+# ============================================================================
+
+
+class ConfigSectionsResponse(BaseModel):
+    sections: list[str]
+
+
+class ConfigHistoryResponse(BaseModel):
+    history: list[dict[str, Any]]
+    count: int
+
+
+class ConfigVersionsResponse(BaseModel):
+    versions: list[dict[str, Any]]
+
+
+class ConfigDriftResponse(BaseModel):
+    drift: dict[str, Any] | list
+    has_drift: bool
+
+
+class ConfigExportResponse(BaseModel):
+    config: dict[str, Any]
+    version: int | None = None
+
+
+class ConfigImportResponse(BaseModel):
+    success: bool
+    version: int | None = None
+
+
+class ConfigSectionResponse(BaseModel):
+    section: str
+    values: dict[str, Any]
+    overridden_keys: list[str]
+
+
+class ConfigUpdateResponse(BaseModel):
+    success: bool
+    section: str
+
+
+class ConfigStatusResponse(BaseModel):
+    """Response model for overall configuration status."""
+
+    source: str
+    is_url_config: bool
+    valid: bool
+    issues: list[str] = []
+    last_reload: str | None = None
+    overrides_count: int
+
+
+class RetentionPolicyUpdate(BaseModel):
+    """Model to update destination retention policy."""
+
+    strategy: str  # simple, gfs, hanoi
+    keep_daily: int | None = None
+    keep_weekly: int | None = None
+    keep_monthly: int | None = None
+    keep_yearly: int | None = None
+    keep_count: int | None = None
+    keep_days: int | None = None
+
+
 class AccountingResponse(BaseModel):
     """Accounting records response"""
 
@@ -1416,4 +1491,6 @@ __all__ = [
     "SessionsResponse",
     "AccountingRecordDetail",
     "AccountingResponse",
+    "ConfigStatusResponse",
+    "BackupStatsResponse",
 ]

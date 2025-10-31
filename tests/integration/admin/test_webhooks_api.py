@@ -84,39 +84,30 @@ def test_webhooks_admin_api_crud(server_factory):
 
         # Note: This CRUD-focused test intentionally does not trigger webhooks.
 
-        # Validate persistence to tacacs.conf (after runtime tweak below, the
-        # timeout/thresholds will reflect the latest values)
-        import configparser
-        import json as _json
+        # Verify runtime configuration via the admin API (same process as server)
+        resp_api = session.get(f"{base}/api/admin/webhooks-config", timeout=5)
+        assert resp_api.status_code == 200
+        runtime_cfg = resp_api.json()
+        assert runtime_cfg.get("urls") == new_cfg["urls"]
+        assert runtime_cfg.get("headers") == new_cfg["headers"]
+        assert runtime_cfg.get("template") == new_cfg["template"]
+        assert abs(float(runtime_cfg.get("timeout", 0.0)) - 2.5) < 1e-6
+        assert runtime_cfg.get("threshold_count") == 3
+        assert runtime_cfg.get("threshold_window") == 60
 
-        parser = configparser.ConfigParser(interpolation=None)
-        parser.read(server.config_path)
-        assert parser.has_section("webhooks"), "webhooks section missing in config file"
-        wh_section = parser["webhooks"]
-
-        # urls stored as comma-separated string
-        urls_raw = wh_section.get("urls", "")
-        urls_list = [u.strip() for u in urls_raw.split(",") if u.strip()]
-        assert urls_list == new_cfg["urls"]
-
-        # headers/template stored as JSON
-        headers_json = wh_section.get("headers_json", "{}")
-        template_json = wh_section.get("template_json", "{}")
-        try:
-            headers_parsed = _json.loads(headers_json) if headers_json else {}
-        except Exception:
-            headers_parsed = {}
-        try:
-            template_parsed = _json.loads(template_json) if template_json else {}
-        except Exception:
-            template_parsed = {}
-        assert headers_parsed == new_cfg["headers"]
-        assert template_parsed == new_cfg["template"]
-
-        # Numeric fields (reflect the most recent PUT we performed)
-        expected_timeout = new_cfg["timeout"]
-        expected_tc = new_cfg["threshold_count"]
-        expected_tw = new_cfg["threshold_window"]
-        assert abs(float(wh_section.get("timeout", "0")) - expected_timeout) < 1e-6
-        assert int(wh_section.get("threshold_count", "0")) == expected_tc
-        assert int(wh_section.get("threshold_window", "0")) == expected_tw
+        # Update again via API to ensure changes take effect
+        tweak = {
+            "urls": ["http://127.0.0.1:8888/only"],
+            "threshold_count": 2,
+            "threshold_window": 30,
+            "timeout": 1.0,
+        }
+        resp_put2 = session.put(
+            f"{base}/api/admin/webhooks-config", json=tweak, timeout=5
+        )
+        assert resp_put2.status_code == 200
+        runtime_cfg2 = resp_put2.json()
+        assert runtime_cfg2.get("urls") == tweak["urls"]
+        assert runtime_cfg2.get("threshold_count") == tweak["threshold_count"]
+        assert runtime_cfg2.get("threshold_window") == tweak["threshold_window"]
+        assert abs(float(runtime_cfg2.get("timeout", 0.0)) - tweak["timeout"]) < 1e-6

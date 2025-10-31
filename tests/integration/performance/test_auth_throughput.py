@@ -1,8 +1,22 @@
 """
-TACACS+ authentication throughput (real server, no mocks).
+TACACS+ Authentication Throughput Tests
 
-This test is opt-in (RUN_PERF_TESTS=1) and exercises a live server
-instance created via server_factory.
+This module contains performance tests for TACACS+ authentication operations.
+These tests are designed to measure and validate the authentication throughput
+under various load conditions.
+
+Test Environment:
+- Uses real server instances (no mocks)
+- Requires explicit opt-in via RUN_PERF_TESTS=1
+- Measures authentication latency and throughput
+
+Performance Thresholds:
+- Target: 100+ authentications/second
+- Max latency (p95): < 100ms
+- Error rate: < 0.1%
+
+Note: These tests are resource-intensive and should be run in a controlled
+environment with sufficient resources.
 """
 
 import os
@@ -88,6 +102,24 @@ def _tacacs_auth(host: str, port: int, key: str, username: str, password: str) -
 
 @pytest.mark.performance
 def test_authentication_throughput(server_factory):
+    """Test TACACS+ authentication throughput under load.
+
+    This test verifies that the TACACS+ server can handle a high volume of
+    authentication requests with acceptable performance characteristics.
+
+    Test Steps:
+    1. Start a TACACS+ server with test user credentials
+    2. Simulate multiple concurrent authentication requests
+    3. Measure request latencies and success rates
+    4. Verify performance meets defined thresholds
+
+    Success Criteria:
+    - Success rate >= 99.9%
+    - 95th percentile latency < 100ms
+    - No authentication failures due to server overload
+
+    Note: This test is skipped unless RUN_PERF_TESTS=1 is set.
+    """
     # Bring up a real server with TACACS enabled and seed auth + device
     server = server_factory(
         config={"auth_backends": "local"},

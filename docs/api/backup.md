@@ -60,6 +60,31 @@ Response 200:
 { "success": true, "message": "OK", "tested_at": "<ISO8601>" }
 ```
 
+### PUT /destinations/{id}/retention
+Update retention policy for destination.
+
+Request Body (examples):
+```
+{ "strategy": "simple", "keep_days": 30 }
+
+{ "strategy": "gfs", "keep_daily": 7, "keep_weekly": 4, "keep_monthly": 12, "keep_yearly": 3 }
+
+{ "strategy": "hanoi" }
+```
+
+Response 200:
+```
+{ "success": true, "retention_policy": { ... } }
+```
+
+### POST /destinations/{id}/apply-retention
+Manually trigger retention enforcement for a destination.
+
+Response 202:
+```
+{ "success": true, "message": "Retention policy enforcement started in background" }
+```
+
 ## Backups
 
 ### POST /trigger
@@ -153,4 +178,3 @@ No explicit rate limits are enforced by the API. General server rate limiting (i
 ## Examples
 
 See the Backup & Restore Guide for step‑by‑step examples.
-

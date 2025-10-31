@@ -1,5 +1,15 @@
 """
-Fixed webhook delivery test with improved reliability and debugging
+Webhook Delivery End-to-End Tests
+
+This module contains functional tests for verifying webhook delivery from the TACACS+ server.
+It tests the end-to-end flow of webhook notifications, including:
+- HTTP POST request formatting
+- Payload structure and content
+- Multiple webhook endpoint support
+- Error handling and retries
+- Authentication event notifications
+
+Tests use local HTTP servers to capture and validate webhook deliveries.
 """
 
 import http.server
@@ -11,19 +21,23 @@ import time
 from typing import Any
 
 import pytest
+import requests
 
 
 class _RecordingHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP handler that records all POST requests"""
+    """HTTP handler that records all POST requests.
 
-    store: list[dict[str, Any]] = []
+    Uses a per-server store attached to the HTTPServer instance to avoid
+    cross-test interference between multiple receivers running in the same
+    process.
+    """
 
     def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length", "0") or 0)
         body = self.rfile.read(length) if length else b""
         try:
             payload = json.loads(body.decode("utf-8")) if body else {}
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             payload = {"_raw": body.decode("utf-8", errors="replace")}
 
         record = {
@@ -32,7 +46,14 @@ class _RecordingHandler(http.server.BaseHTTPRequestHandler):
             "payload": payload,
             "timestamp": time.time(),
         }
-        _RecordingHandler.store.append(record)
+        # Append to per-server store (initialized in _start_http_server)
+        try:
+            self.server.store.append(record)  # type: ignore[attr-defined]
+        except Exception:
+            # Fallback to a transient attribute if not initialized (shouldn't happen)
+            if not hasattr(self.server, "store"):
+                setattr(self.server, "store", [])  # type: ignore[attr-defined]
+            self.server.store.append(record)  # type: ignore[attr-defined]
         print(f"[WebhookReceiver] Received POST to {self.path}: {payload}")
 
         self.send_response(200)
@@ -40,18 +61,24 @@ class _RecordingHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps({"status": "ok"}).encode())
 
-    def log_message(self, fmt, *args):
-        # Log to stdout for debugging
+    def log_message(self, fmt, *args) -> None:
+        """Log message to stdout for debugging.
+
+        Args:
+            fmt: Format string
+            *args: Format arguments
+        """
         print(f"[WebhookReceiver] {fmt % args}")
 
 
 def _start_http_server() -> tuple[
     http.server.HTTPServer, threading.Thread, int, list[dict[str, Any]]
 ]:
-    """Start HTTP server and return server, thread, port, and storage"""
+    """Start HTTP server and return server, thread, port, and per-server storage"""
     srv = http.server.HTTPServer(("127.0.0.1", 0), _RecordingHandler)
     port = srv.server_port
-    _RecordingHandler.store = []
+    # Attach a per-instance store to avoid class-level shared state
+    srv.store = []  # type: ignore[attr-defined]
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
 
@@ -65,12 +92,15 @@ def _start_http_server() -> tuple[
                 sock.close()
                 break
             sock.close()
-        except Exception:
-            pass
+        except OSError as e:
+            # Expected errors when server is not yet ready
+            # OSError can occur on socket creation/closure
+            # socket.error is a legacy alias for OSError
+            print(f"[Test] Socket error during connection check: {e}")
         time.sleep(0.1)
 
     print(f"[Test] HTTP server started on port {port}")
-    return srv, thread, port, _RecordingHandler.store
+    return srv, thread, port, srv.store  # type: ignore[attr-defined]
 
 
 def _send_bad_tacacs_auth(
@@ -143,18 +173,35 @@ def _send_bad_tacacs_auth(
                 print("[Test] Received FAIL response as expected")
                 return True
         return False
-    except Exception as e:
-        print(f"[Test] Error during TACACS auth: {e}")
+    except (socket.error, OSError) as e:
+        print(f"Failed to connect to {host}:{port}: {e}")
         return False
     finally:
         try:
             s.close()
-        except Exception:
+        except (AttributeError, OSError):
             pass
 
 
 @pytest.mark.functional
 def test_webhook_delivery_end_to_end(server_factory):
+    """Test end-to-end webhook delivery with real HTTP servers.
+
+    This test verifies that the TACACS+ server correctly sends webhook notifications
+    for authentication events to configured webhook endpoints.
+
+    Test Steps:
+    1. Start local HTTP servers to receive webhooks
+    2. Configure TACACS+ server with webhook URLs
+    3. Trigger authentication failures to generate webhook events
+    4. Verify webhooks are received with correct payloads
+
+    Expected Results:
+    - Webhook servers receive POST requests for each event
+    - Payloads contain correct event details
+    - Headers include proper content-type
+    - Response handling works as expected
+    """
     """
     Test webhook delivery with real HTTP servers.
 
@@ -165,8 +212,8 @@ def test_webhook_delivery_end_to_end(server_factory):
     4. Verifies the webhooks were received with correct payload
     """
     # Start two HTTP servers to receive webhooks
-    srv1, t1, port1, rec1 = _start_http_server()
-    srv2, t2, port2, rec2 = _start_http_server()
+    srv1, _, port1, records1 = _start_http_server()
+    srv2, _, port2, records2 = _start_http_server()
 
     print(f"\n[Test] Started webhook receivers on ports {port1} and {port2}")
 
@@ -266,8 +313,14 @@ def test_webhook_delivery_end_to_end(server_factory):
                 )
                 print(f"[Test] Webhook config update: {update_r.status_code}")
 
-            except Exception as e:
+            except (requests.RequestException, json.JSONDecodeError, ValueError) as e:
+                # Handle potential errors during webhook configuration:
+                # - RequestException: Network-related errors (connection, timeout, etc.)
+                # - JSONDecodeError: Invalid JSON response
+                # - ValueError: Invalid URL or other request parameter issues
                 print(f"[Test] Error configuring webhooks via API: {e}")
+                # Re-raise as we can't proceed without proper webhook configuration
+                raise
 
             # Wait a bit more for configuration to propagate
             time.sleep(0.5)
@@ -289,14 +342,14 @@ def test_webhook_delivery_end_to_end(server_factory):
             deadline = time.time() + 15
             received_count = 0
             while time.time() < deadline:
-                received_count = len(rec1) + len(rec2)
+                received_count = len(records1) + len(records2)
                 if received_count >= 2:  # At least one per server
                     print(f"[Test] Received {received_count} webhooks")
                     break
                 time.sleep(0.5)
 
             print(
-                f"\n[Test] Final webhook count: {len(rec1)} on port {port1}, {len(rec2)} on port {port2}"
+                f"\n[Test] Final webhook count: {len(records1)} on port {port1}, {len(records2)} on port {port2}"
             )
 
             # Check server logs for webhook activity
@@ -357,7 +410,9 @@ def test_webhook_delivery_end_to_end(server_factory):
 
             # Validate payload content
             print("\n[Test] Validating webhook payloads...")
-            all_payloads = [r["payload"] for r in rec1] + [r["payload"] for r in rec2]
+            all_payloads = [r["payload"] for r in records1] + [
+                r["payload"] for r in records2
+            ]
 
             for i, payload in enumerate(all_payloads):
                 print(f"[Test] Payload {i + 1}: {json.dumps(payload, indent=2)}")
@@ -381,17 +436,45 @@ def test_webhook_delivery_end_to_end(server_factory):
                 f"\n[Test] SUCCESS: Received and validated {len(all_payloads)} webhooks"
             )
 
+            # Check that both servers received at least one webhook
+            # Note: Multiple deliveries can occur (e.g., direct event + threshold events)
+            assert (
+                len(records1) >= 1
+            ), f"Expected >=1 webhook on receiver 1, got {len(records1)}"
+            assert (
+                len(records2) >= 1
+            ), f"Expected >=1 webhook on receiver 2, got {len(records2)}"
+
+            assert records1[0]["payload"]["event"] == "auth_failure"
+            assert records2[0]["payload"]["event"] == "auth_failure"
+
     finally:
         # Cleanup: shutdown HTTP servers
         try:
             srv1.shutdown()
             srv2.shutdown()
-        except Exception:
+        except (AttributeError, OSError):
+            # Server already shut down or not properly initialized
             pass
 
 
 @pytest.mark.functional
 def test_webhook_delivery_with_multiple_events(server_factory):
+    """Test webhook delivery for different types of authentication events.
+
+    This test verifies that the TACACS+ server sends appropriate webhook notifications
+    for various authentication scenarios, including success and failure cases.
+
+    Test Steps:
+    1. Configure webhook endpoint
+    2. Trigger multiple authentication events
+    3. Verify each event generates correct webhook
+
+    Expected Results:
+    - Each event type generates appropriate webhook
+    - Payloads contain correct event types and details
+    - Event ordering is preserved
+    """
     """Test that different event types trigger webhooks correctly"""
     srv, thread, port, records = _start_http_server()
 
@@ -456,7 +539,8 @@ def test_webhook_delivery_with_multiple_events(server_factory):
     finally:
         try:
             srv.shutdown()
-        except Exception:
+        except (AttributeError, OSError):
+            # Server already shut down or not properly initialized
             pass
 
 

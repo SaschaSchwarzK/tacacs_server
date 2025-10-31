@@ -19,7 +19,7 @@ def get_device_service() -> DeviceService:
     """
     # This will be injected from your main app
     # Placeholder for now - you'll need to implement proper dependency injection
-    from tacacs_server.web.monitoring import get_device_service as _get
+    from tacacs_server.web.web import get_device_service as _get
 
     service = _get()
     if service is None:

@@ -106,7 +106,21 @@ def radius_authenticate(
 
 
 def test_radius_basic_auth_success(server_factory):
-    """Test successful RADIUS authentication with local user"""
+    """Test successful RADIUS authentication with local user.
+
+    This test verifies that the RADIUS server can successfully authenticate a user
+    with correct credentials. It tests the basic authentication flow using PAP.
+
+    Test Steps:
+    1. Start a RADIUS server with a test user and shared secret
+    2. Send a valid Access-Request with correct credentials
+    3. Verify the server responds with Access-Accept
+
+    Expected Result:
+    - Server should respond with Access-Accept (code 2)
+    - Authentication should be successful
+    - Session should be properly established
+    """
     server = server_factory(
         config={
             "log_level": "DEBUG",
@@ -153,7 +167,21 @@ def test_radius_basic_auth_success(server_factory):
 
 
 def test_radius_auth_failure(server_factory):
-    """Test failed RADIUS authentication with wrong password"""
+    """Test failed RADIUS authentication with wrong password.
+
+    This test verifies that the RADIUS server properly handles failed authentication
+    attempts when an incorrect password is provided.
+
+    Test Steps:
+    1. Start a RADIUS server with a test user
+    2. Send an Access-Request with incorrect password
+    3. Verify the server responds with Access-Reject
+
+    Expected Result:
+    - Server should respond with Access-Reject (code 3)
+    - Authentication should fail
+    - No session should be established
+    """
     server = server_factory(
         config={
             "auth_backends": "local",
@@ -198,7 +226,22 @@ def test_radius_auth_failure(server_factory):
 
 
 def test_radius_with_tacacs_shared_backend(server_factory):
-    """Test RADIUS with shared TACACS+ authentication backend"""
+    """Test RADIUS with shared TACACS+ authentication backend.
+
+    This test verifies that the RADIUS server can use TACACS+ as an authentication
+    backend, allowing for shared user credentials between both protocols.
+
+    Test Steps:
+    1. Start server with both RADIUS and TACACS+ enabled
+    2. Configure TACACS+ as the authentication backend
+    3. Attempt RADIUS authentication with TACACS+ credentials
+    4. Verify successful authentication
+
+    Expected Result:
+    - RADIUS server should successfully use TACACS+ backend
+    - Authentication should succeed with valid TACACS+ credentials
+    - Logs should reflect the authentication flow
+    """
     server = server_factory(
         config={
             "auth_backends": "local",
@@ -245,7 +288,21 @@ def test_radius_with_tacacs_shared_backend(server_factory):
 
 
 def test_radius_multiple_clients(server_factory):
-    """Test RADIUS with multiple client devices"""
+    """Test RADIUS with multiple client devices.
+
+    This test verifies that the RADIUS server can handle authentication requests
+    from multiple client devices with different shared secrets.
+
+    Test Steps:
+    1. Start RADIUS server with multiple client configurations
+    2. Send authentication requests from different client IPs
+    3. Verify each client can authenticate with its own shared secret
+
+    Expected Result:
+    - All configured clients should be able to authenticate
+    - Each client should only work with its own shared secret
+    - Authentication should fail for unknown clients
+    """
     server = server_factory(
         config={
             "auth_backends": "local",
@@ -289,7 +346,22 @@ def test_radius_multiple_clients(server_factory):
 
 
 def test_radius_server_logs_collected(server_factory):
-    """Test that RADIUS server logs are properly collected"""
+    """Test that RADIUS server logs are properly collected.
+
+    This test verifies that the RADIUS server correctly logs authentication
+    attempts and their outcomes to the server logs.
+
+    Test Steps:
+    1. Start a RADIUS server with debug logging enabled
+    2. Perform multiple authentication attempts (success and failure)
+    3. Verify logs contain expected authentication events
+
+    Expected Result:
+    - All authentication attempts should be logged
+    - Logs should contain Access-Accept/Access-Reject status
+    - Logs should include relevant user and client information
+    - Debug logs should show detailed authentication process
+    """
     server = server_factory(
         config={
             "log_level": "DEBUG",
@@ -345,7 +417,21 @@ def test_radius_server_logs_collected(server_factory):
 
 
 def test_radius_disabled_by_config(server_factory):
-    """Test that RADIUS is properly disabled when not enabled in config"""
+    """Test that RADIUS is properly disabled when not enabled in config.
+
+    This test verifies that the RADIUS server doesn't accept connections
+    when explicitly disabled in the configuration.
+
+    Test Steps:
+    1. Start server with RADIUS explicitly disabled
+    2. Attempt to authenticate via RADIUS
+    3. Verify connection is refused
+
+    Expected Result:
+    - RADIUS port should not be listening
+    - Connection attempts should be refused
+    - Logs should indicate RADIUS is disabled
+    """
     server = server_factory(
         config={"auth_backends": "local"},
         enable_tacacs=True,

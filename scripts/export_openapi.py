@@ -18,7 +18,7 @@ import json
 import os
 from pathlib import Path
 
-from tacacs_server.web.monitoring import TacacsMonitoringAPI
+from tacacs_server.web.web import TacacsMonitoringAPI
 
 
 def export_schema(output_path: str = "docs/openapi.json") -> str:

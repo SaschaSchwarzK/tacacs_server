@@ -1,0 +1,24 @@
+{% set base_classes = 'inline-flex items-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2' %}
+{% set type_classes = {
+    'primary': 'text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+    'secondary': 'text-blue-700 bg-blue-100 hover:bg-blue-200 focus:ring-blue-500',
+    'danger': 'text-white bg-red-600 hover:bg-red-700 focus:ring-red-500',
+    'white': 'text-gray-700 bg-white border-gray-300 hover:bg-gray-50 focus:ring-blue-500'
+} %}
+{% set size_classes = {
+    'xs': 'px-2.5 py-1.5 text-xs',
+    'sm': 'px-3 py-2 text-sm leading-4',
+    'md': 'px-4 py-2 text-sm',
+    'lg': 'px-4 py-2 text-base',
+    'xl': 'px-6 py-3 text-base'
+} %}
+
+<button type="{{ html_type|default('button') }}" class="{{ base_classes }} {{ type_classes[type|default('primary')] }} {{ size_classes[size|default('md')] }} {% if loading %}opacity-75 cursor-not-allowed{% endif %}" {% if loading %}disabled{% endif %}>
+    {% if loading %}
+    <svg class="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    {% endif %}
+    {{ text }}
+</button>

@@ -17,6 +17,9 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 # Registry to avoid pickling bound methods (APScheduler jobstores pickle callables)
 _SCHEDULERS: dict[str, BackupScheduler] = {}
+from tacacs_server.utils.logger import get_logger
+
+_log = get_logger(__name__)
 
 
 def _execute_job_static(
@@ -83,8 +86,26 @@ class BackupScheduler:
 
     # --- lifecycle ---
     def start(self) -> None:
+        """Start the scheduler and add system jobs."""
         if not self.scheduler.running:
             self.scheduler.start()
+        # Daily retention enforcement at 04:00
+        try:
+            self.scheduler.add_job(
+                func=self._run_retention_enforcement,
+                trigger=CronTrigger(hour=4, minute=0, timezone=UTC),
+                id="retention_enforcement",
+                name="Daily Retention Policy Enforcement",
+                replace_existing=True,
+                max_instances=1,
+            )
+            try:
+                _log.info("Scheduled daily retention policy enforcement at 04:00")
+            except Exception:
+                pass
+        except Exception:
+            # Don't prevent startup if scheduling fails
+            pass
 
     def stop(self) -> None:
         try:
@@ -227,6 +248,60 @@ class BackupScheduler:
                 item["next_run"] = None
                 jobs.append(item)
         return sorted(jobs, key=lambda x: x.get("job_id", ""))
+
+    # --- retention enforcement ---
+    def _run_retention_enforcement(self) -> None:
+        """Run retention policy enforcement for all enabled destinations."""
+        try:
+            destinations = self.backup_service.execution_store.list_destinations(
+                enabled_only=True
+            )
+            for dest in destinations or []:
+                try:
+                    # Lazy imports to avoid heavy deps on scheduler import
+                    from tacacs_server.backup.destinations import (
+                        create_destination as _create_dest,
+                    )
+                    from tacacs_server.backup.retention import (
+                        RetentionRule as _Rule,
+                        RetentionStrategy as _Strat,
+                    )
+
+                    destination = _create_dest(
+                        dest["type"], json.loads(dest.get("config_json") or "{}")
+                    )
+
+                    strat = _Strat(dest.get("retention_strategy", "simple"))
+                    cfg_raw = dest.get("retention_config_json") or "{}"
+                    retention_cfg = (
+                        json.loads(cfg_raw)
+                        if isinstance(cfg_raw, str)
+                        else (cfg_raw or {})
+                    )
+                    rule = _Rule(strategy=strat, **(retention_cfg or {}))
+                    deleted_count = destination.apply_retention_policy(
+                        retention_rule=rule
+                    )
+                    try:
+                        _log.info(
+                            json.dumps(
+                                {
+                                    "event": "retention_enforcement_completed",
+                                    "destination_id": dest.get("id"),
+                                    "destination_name": dest.get("name"),
+                                    "deleted_count": deleted_count,
+                                }
+                            )
+                        )
+                    except Exception:
+                        pass
+                except Exception as e:
+                    _log.error(
+                        f"Retention enforcement failed for {dest.get('name')}: {e}"
+                    )
+                    continue
+        except Exception as e:  # pragma: no cover - logging path
+            _log.exception("Global retention enforcement failed: %s", e)
 
     # --- execution handler ---
     def _execute_job_impl(

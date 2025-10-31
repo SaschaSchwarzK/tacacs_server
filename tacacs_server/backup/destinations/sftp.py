@@ -11,6 +11,7 @@ from typing import Any
 from tacacs_server.utils.logger import get_logger
 
 from .base import BackupDestination, BackupMetadata
+from tacacs_server.utils.retry import retry
 
 _logger = get_logger(__name__)
 
@@ -197,6 +198,7 @@ class SFTPBackupDestination(BackupDestination):
                 # already exists
                 pass
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
         try:
             with self._get_sftp_client() as sftp:
@@ -213,6 +215,7 @@ class SFTPBackupDestination(BackupDestination):
         except Exception as exc:
             return False, str(exc)
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         rp = self._normalize_remote_path(os.path.join(self.base_path, remote_filename))
         with self._get_sftp_client() as sftp:
@@ -249,6 +252,7 @@ class SFTPBackupDestination(BackupDestination):
                 _logger.warning("sftp_upload_verify_failed", error=str(exc))
         return rp
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         try:
             rp = self._normalize_remote_path(remote_path)
@@ -262,6 +266,7 @@ class SFTPBackupDestination(BackupDestination):
             )
             return False
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def list_backups(self, prefix: str | None = None) -> list[BackupMetadata]:
         items: list[BackupMetadata] = []
         try:
@@ -304,6 +309,7 @@ class SFTPBackupDestination(BackupDestination):
             items = [i for i in items if prefix in i.path]
         return sorted(items, key=lambda m: m.timestamp, reverse=True)
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def delete_backup(self, remote_path: str) -> bool:
         try:
             rp = self._normalize_remote_path(remote_path)

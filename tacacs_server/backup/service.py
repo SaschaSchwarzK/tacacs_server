@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 import hashlib
 import json
 import os
 import platform
 import shutil
 import socket
+import tarfile
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,33 +14,43 @@ from typing import Any
 from tacacs_server.config.config import TacacsConfig
 from tacacs_server.utils.logger import get_logger
 
-from .archive_utils import create_tarball as create_tar
 from .archive_utils import extract_tarball as extract_tar
 from .database_utils import (
     count_database_records as db_count_tables,
-)
-from .database_utils import (
     export_database_with_retry as db_export,
-)
-from .database_utils import (
     import_database as db_import,
-)
-from .database_utils import (
     verify_database_integrity as db_verify,
 )
 from .destinations import create_destination
-from .encryption import decrypt_file, encrypt_file
+from .encryption import BackupEncryption, decrypt_file, encrypt_file
 from .execution_store import BackupExecutionStore
 from .scheduler import BackupScheduler
 
 _logger = get_logger("tacacs_server.backup.service", component="backup")
 
+# Try to import humanize, but provide fallback
+try:
+    import humanize
+
+    HAS_HUMANIZE = True
+except ImportError:
+    HAS_HUMANIZE = False
+    _logger.warning("humanize library not available, size formatting will be basic")
+
 
 class BackupService:
-    def __init__(self, config: TacacsConfig, execution_store: BackupExecutionStore):
+    """Service for managing backups."""
+
+    def __init__(self, config, execution_store):
+        """Initialize the backup service.
+
+        Args:
+            config: Configuration object
+            execution_store: Store for backup executions
+        """
         self.config = config
         self.execution_store = execution_store
-        # Use temp directory from backup config if available
+
         try:
             bcfg = getattr(self.config, "get_backup_config", None)
             if callable(bcfg):
@@ -72,13 +82,34 @@ class BackupService:
 
     # --- helpers ---
     def _export_database(self, src_path: str, dst_path: str) -> None:
-        db_export(src_path, dst_path)
+        """Export a SQLite database from src_path to dst_path with verification.
+
+        Args:
+            src_path: Source database path
+            dst_path: Destination path for the exported database
+        """
+        try:
+            db_export(src_path, dst_path)
+            if not os.path.exists(dst_path):
+                raise RuntimeError(f"Export failed: {dst_path} was not created")
+        except Exception as e:
+            _logger.error(f"Database export failed: {e}")
+            raise
 
     def _create_manifest(
         self, backup_dir: str, backup_type: str, triggered_by: str
     ) -> dict:
-        """Create manifest.json with metadata, checksums, and DB record counts."""
-        manifest: dict[str, Any] = {
+        """Create a backup manifest.
+
+        Args:
+            backup_dir: Directory containing the backup files
+            backup_type: Reason/type for backup (e.g. "manual", "scheduled")
+            triggered_by: Initiator for audit trail
+
+        Returns:
+            Manifest dictionary suitable for JSON serialization
+        """
+        manifest = {
             "backup_metadata": {
                 "instance_id": self.instance_id,
                 "instance_name": self.instance_name,
@@ -101,8 +132,13 @@ class BackupService:
             },
             "contents": [],
             "total_size_bytes": 0,
+            # Encryption fields (populated when encryption is applied)
+            "encrypted": False,
+            "encryption_algorithm": None,
+            "encryption_metadata": None,
         }
 
+        # Scan backup directory and add file entries to manifest
         for filename in os.listdir(backup_dir):
             if filename == "manifest.json":
                 continue
@@ -177,9 +213,106 @@ class BackupService:
         except Exception:
             return "unknown"
 
-    def _create_tarball(self, src_dir: str, archive_path: str) -> None:
-        # Backwards-compatible wrapper; uses archive_utils
-        create_tar(src_dir, archive_path, compression="gz")
+    def _create_tarball(self, src_dir: str, archive_path: str) -> int:
+        """Create a tarball from the source directory.
+
+        Args:
+            src_dir: Source directory to compress
+            archive_path: Path where the tarball will be created
+
+        Returns:
+            int: Size of the created tarball in bytes
+        """
+        try:
+            compression_level = getattr(
+                self.config, "get_backup_config", lambda: {}
+            )().get("compression_level", 6)
+        except Exception:
+            compression_level = 6
+
+        # Ensure directory exists
+        Path(archive_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Create the tarball
+        with tarfile.open(
+            archive_path, "w:gz", compresslevel=int(compression_level)
+        ) as tar:
+            tar.add(src_dir, arcname=".")
+        return os.path.getsize(archive_path)
+
+    def _upload_with_progress(
+        self,
+        local_path: str,
+        destination,
+        remote_filename: str,
+        execution_id: str,
+    ) -> str:
+        """Upload with periodic progress logs (best-effort callback).
+
+        Args:
+            local_path: Path to the local file to upload
+            destination: Destination object with upload method
+            remote_filename: Filename to use at the destination
+            execution_id: ID of the backup execution
+
+        Returns:
+            str: Remote path where the file was uploaded
+        """
+        file_size = os.path.getsize(local_path)
+        last_log_time = 0.0
+        bytes_uploaded = 0
+
+        def progress_callback(chunk):
+            nonlocal bytes_uploaded, last_log_time
+            bytes_uploaded += len(chunk)
+
+            # Log progress at most once per second
+            current_time = time.time()
+            if current_time - last_log_time >= 1.0:
+                last_log_time = current_time
+                percent = (bytes_uploaded / file_size) * 100 if file_size > 0 else 0
+                try:
+                    if HAS_HUMANIZE:
+                        size_str = f"{humanize.naturalsize(bytes_uploaded, binary=True)}/{humanize.naturalsize(file_size, binary=True)}"
+                    else:
+                        size_str = f"{bytes_uploaded}/{file_size} bytes"
+                    _logger.info(
+                        f"Backup upload progress: {percent:.1f}% ({size_str})",
+                        extra={
+                            "event": "backup_upload_progress",
+                            "execution_id": execution_id,
+                            "bytes_uploaded": bytes_uploaded,
+                            "total_bytes": file_size,
+                            "percent_complete": round(percent, 2),
+                        },
+                    )
+                except Exception as e:
+                    _logger.warning("Failed to log upload progress: %s", e)
+
+        # Try to pass progress_callback if destination supports it
+        try:
+            if hasattr(destination, "upload"):
+                return destination.upload(
+                    local_path,
+                    remote_filename=remote_filename,
+                )
+            elif hasattr(destination, "upload_backup"):
+                return destination.upload_backup(
+                    local_path, remote_filename=remote_filename
+                )
+            else:
+                # Fallback to simple upload if neither method is available
+                _logger.warning(
+                    "Destination doesn't support progress callbacks, using simple upload"
+                )
+                if hasattr(destination, "upload"):
+                    return destination.upload(local_path, remote_filename)
+                else:
+                    return destination.upload_backup(local_path, remote_filename)
+
+        except Exception as e:
+            _logger.error("Upload failed: %s", str(e))
+            raise
 
     def execute_backup(
         self,
@@ -188,7 +321,27 @@ class BackupService:
         backup_type: str = "manual",
         execution_id: str | None = None,
     ) -> str:
-        """Execute complete backup workflow and return execution_id."""
+        """Execute a backup operation.
+
+        Args:
+            destination_id: ID of the destination where the backup will be stored
+            triggered_by: Identifier for who/what triggered the backup
+            backup_type: Type of backup (e.g., 'manual', 'scheduled')
+            execution_id: Optional ID for this backup execution (will generate one if not provided)
+
+        Returns:
+            str: The execution ID of the backup
+
+        Raises:
+            ValueError: If any of the input parameters are invalid
+        """
+        if not isinstance(destination_id, str) or not destination_id.strip():
+            raise ValueError("destination_id must be a non-empty string")
+        if not isinstance(triggered_by, str) or not triggered_by.strip():
+            raise ValueError("triggered_by must be a non-empty string")
+        if not isinstance(backup_type, str) or not backup_type.strip():
+            raise ValueError("backup_type must be a non-empty string")
+
         execution_id = execution_id or str(uuid.uuid4())
         backup_dir = os.path.join(str(self.temp_dir), execution_id)
         archive_path = None
@@ -277,17 +430,118 @@ class BackupService:
             archive_path = os.path.join(str(self.temp_dir), filename)
             self._create_tarball(backup_dir, archive_path)
 
-            # Optional encryption
-            passphrase = self._get_encryption_passphrase()
-            if passphrase:
-                enc_path = archive_path + ".enc"
-                encrypt_file(archive_path, enc_path, passphrase)
+            # Get encryption settings from config
+            encryption_enabled = False
+            passphrase_cfg = None
+
+            # Try to get config from different possible locations
+            try:
+                # First try the backup config section
+                bcfg = getattr(self.config, "get_backup_config", None)
+                if callable(bcfg):
+                    b = bcfg() or {}
+                    encryption_enabled = b.get("encryption_enabled", False)
+                    if isinstance(encryption_enabled, str):
+                        encryption_enabled = encryption_enabled.lower() == "true"
+                    passphrase_cfg = b.get("encryption_passphrase")
+
+                # If not found, try direct config access
+                if not encryption_enabled or not passphrase_cfg:
+                    try:
+                        if hasattr(self.config, "config"):
+                            if hasattr(self.config.config, "get"):
+                                backup_section = self.config.config.get("backup", {})
+                                if not encryption_enabled:
+                                    val = backup_section.get(
+                                        "encryption_enabled", False
+                                    )
+                                    if isinstance(val, str):
+                                        encryption_enabled = val.lower() == "true"
+                                    else:
+                                        encryption_enabled = bool(val)
+                                if not passphrase_cfg:
+                                    passphrase_cfg = backup_section.get(
+                                        "encryption_passphrase"
+                                    )
+                    except Exception as e:
+                        _logger.warning(f"Error reading direct config: {e}")
+
+                # If encryption is enabled but no passphrase, log a warning
+                if encryption_enabled and not passphrase_cfg:
+                    _logger.warning("Encryption enabled but no passphrase configured")
+
+            except Exception as e:
+                _logger.warning(f"Error getting encryption settings: {e}")
+                encryption_enabled = False
+
+            if encryption_enabled:
+                if not passphrase_cfg:
+                    raise ValueError("Encryption enabled but no passphrase configured")
+                try:
+                    _logger.info(
+                        json.dumps(
+                            {
+                                "event": "backup_encrypting",
+                                "execution_id": execution_id,
+                                "file": filename,
+                            }
+                        )
+                    )
+                except Exception:
+                    pass
+
+                encrypted_path = archive_path + ".enc"
+                enc_info = BackupEncryption.encrypt_file(
+                    archive_path, encrypted_path, passphrase_cfg
+                )
+
+                # Update manifest with encryption info
+                try:
+                    manifest["encrypted"] = True
+                    encryption_algorithm = "Fernet-AES128-CBC"
+                    manifest["encryption_algorithm"] = encryption_algorithm
+                    manifest["original_checksum"] = enc_info.get("original_checksum")
+                    manifest["encryption_metadata"] = {
+                        "salt_hex": enc_info.get("salt_hex"),
+                        "encrypted_size_bytes": enc_info.get("encrypted_size"),
+                    }
+                    # Also track compressed size pre-encryption for reporting
+                    manifest["compressed_size_bytes"] = os.path.getsize(archive_path)
+                except Exception:
+                    pass
+
+                # Replace archive with encrypted version
                 try:
                     os.remove(archive_path)
                 except Exception:
                     pass
-                archive_path = enc_path
-                filename = filename + ".enc"
+                archive_path = encrypted_path
+                # Ensure filename has .enc extension
+                if not filename.endswith(".enc"):
+                    filename = f"{filename}.enc"
+
+                try:
+                    _logger.info(
+                        json.dumps(
+                            {
+                                "event": "backup_encrypted",
+                                "execution_id": execution_id,
+                                "original_size": enc_info.get("original_size"),
+                                "encrypted_size": enc_info.get("encrypted_size"),
+                                "size_increase_percent": round(
+                                    (
+                                        enc_info.get("encrypted_size", 0)
+                                        / max(1, enc_info.get("original_size", 1))
+                                        - 1
+                                    )
+                                    * 100,
+                                    2,
+                                ),
+                            }
+                        )
+                    )
+                except Exception:
+                    pass
 
             # Step 7: Upload to destination
             dest_config = self.execution_store.get_destination(destination_id)
@@ -300,16 +554,28 @@ class BackupService:
             if not ok:
                 raise RuntimeError(f"Destination test failed: {msg}")
 
+            # Update filename to include .enc extension if encrypted
+            if encryption_enabled and not filename.endswith(".enc"):
+                filename = f"{filename}.enc"
+
             remote_path = f"{self.instance_name}/{backup_type}/{filename}"
-            uploaded_path = destination.upload_backup(archive_path, remote_path)
+            uploaded_path = self._upload_with_progress(
+                archive_path, destination, remote_path, execution_id
+            )
 
             # Step 8: Update execution record
             archive_size = (
                 os.path.getsize(archive_path) if os.path.exists(archive_path) else 0
             )
+
+            # Ensure backup_filename has .enc extension if encrypted
+            backup_filename = filename
+            if encryption_enabled and not backup_filename.endswith(".enc"):
+                backup_filename = f"{backup_filename}.enc"
+
             self.execution_store.update_execution(
                 execution_id,
-                backup_filename=filename,
+                backup_filename=backup_filename,
                 backup_path=uploaded_path,
                 status="completed",
                 size_bytes=manifest["total_size_bytes"],
@@ -383,9 +649,29 @@ class BackupService:
                     destination = create_destination(
                         dest_config["type"], json.loads(dest_config["config_json"])
                     )
-                    destination.apply_retention_policy(
-                        int(dest_config.get("retention_days", 30))
-                    )
+                    # Prefer advanced retention strategy if configured
+                    strat = str(dest_config.get("retention_strategy", "simple")).lower()
+                    cfg_raw = dest_config.get("retention_config_json") or "{}"
+                    try:
+                        retention_cfg = (
+                            json.loads(cfg_raw)
+                            if isinstance(cfg_raw, str)
+                            else (cfg_raw or {})
+                        )
+                    except Exception:
+                        retention_cfg = {}
+                    try:
+                        from tacacs_server.backup.retention import (
+                            RetentionRule as _Rule,
+                            RetentionStrategy as _Strat,
+                        )
+
+                        rule = _Rule(strategy=_Strat(strat), **retention_cfg)
+                        destination.apply_retention_policy(retention_rule=rule)
+                    except Exception:
+                        # Fallback to days if strategy invalid
+                        rd = int(dest_config.get("retention_days", 30))
+                        destination.apply_retention_policy(retention_days=rd)
             except Exception:
                 pass
 
@@ -396,84 +682,90 @@ class BackupService:
         components: list[str] | None = None,
     ) -> tuple[bool, str]:
         """
-        Restore from backup archive or remote path.
-        components: ["config", "devices", "users", "accounting", "metrics", "audit"]
+        Restore from backup.
+        components: List of what to restore ["config", "devices", "users", "accounting"]
         Returns: (success, message)
         """
-        local_archive = source_path
-        restore_root = None
-        emergency_exec_id: str | None = None
         t0 = datetime.now(UTC)
+        allowed = {"config", "devices", "users", "accounting", "metrics", "audit"}
+        if components is not None and not all(c in allowed for c in components):
+            return False, f"Invalid component. Must be one of: {', '.join(allowed)}"
+
+        local_archive = None
+        archive_for_extract = None
+        restore_root = None
+        emergency_exec_id = None
+
         try:
-            try:
+            # Step 1: Download backup if remote
+            if destination_id:
+                dest_config = self.execution_store.get_destination(destination_id)
+                if not dest_config:
+                    return False, f"Destination {destination_id} not found"
+                destination = create_destination(
+                    dest_config["type"], json.loads(dest_config["config_json"])
+                )
                 _logger.info(
                     json.dumps(
                         {
-                            "event": "restore_started",
-                            "source_path": source_path,
+                            "event": "restore_downloading",
+                            "source": source_path,
                             "destination_id": destination_id,
-                            "components": components or [],
                         }
                     )
                 )
-            except Exception:
-                pass
-            # Step 1: Validation / optional download
-            if destination_id:
-                dest_cfg = self.execution_store.get_destination(destination_id)
-                if not dest_cfg:
-                    return False, "Destination not found"
-                destination = create_destination(
-                    dest_cfg["type"], json.loads(dest_cfg["config_json"])
+                local_archive = os.path.join(
+                    str(self.temp_dir), os.path.basename(source_path)
                 )
-                tmp_name = f"restore_{uuid.uuid4()}.tar.gz"
-                local_archive = os.path.join(str(self.temp_dir), tmp_name)
-                ok = destination.download_backup(source_path, local_archive)
-                if not ok:
-                    return False, "Failed to download backup from destination"
+                destination.download_backup(source_path, local_archive)
+                _logger.info(
+                    json.dumps(
+                        {
+                            "event": "restore_downloaded",
+                            "source": source_path,
+                            "size_bytes": os.path.getsize(local_archive),
+                        }
+                    )
+                )
+            else:
+                local_archive = source_path
 
-            if not os.path.exists(local_archive):
-                return False, "Local archive not found"
-
-            # Step 2: Decrypt if needed, then extract and verify
-            # Handle optional encryption by extension .enc
+            # Step 2: Decrypt if necessary
+            is_encrypted = local_archive.endswith(".enc")
             archive_for_extract = local_archive
-            if str(local_archive).endswith(".enc"):
+
+            if is_encrypted:
                 passphrase = self._get_encryption_passphrase()
                 if not passphrase:
-                    return (
-                        False,
-                        "Encrypted backup requires BACKUP_ENCRYPTION_PASSPHRASE",
-                    )
-                dec_path = local_archive[:-4]
-                decrypt_file(local_archive, dec_path, passphrase)
-                archive_for_extract = dec_path
+                    return False, "Backup is encrypted but no passphrase configured"
+                if not BackupEncryption.verify_passphrase(local_archive, passphrase):
+                    return False, "Incorrect encryption passphrase"
 
-            restore_dir = os.path.join(str(self.temp_dir), f"restore_{uuid.uuid4()}")
-            os.makedirs(restore_dir, exist_ok=True)
-            restore_root = self._extract_tarball(archive_for_extract, restore_dir)
+                decrypted_path = local_archive[:-4]
+                _logger.info(f"Decrypting {local_archive} to {decrypted_path}")
+                if not decrypt_file(local_archive, decrypted_path, passphrase):
+                    return False, "Decryption failed - file may be corrupted"
+                archive_for_extract = decrypted_path
+
+            # Step 3: Extract and verify archive
+            restore_root = os.path.join(str(self.temp_dir), f"restore_{uuid.uuid4()}")
+            self._extract_tarball(archive_for_extract, restore_root)
 
             manifest_path = os.path.join(restore_root, "manifest.json")
             if not os.path.exists(manifest_path):
                 return False, "Manifest not found in backup"
+
             with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
 
             for file_entry in manifest.get("contents", []):
-                rel = file_entry.get("file") or file_entry.get("path")
-                if not rel:
-                    continue
-                fp = os.path.join(restore_root, rel)
+                fp = os.path.join(restore_root, file_entry["file"])
                 if os.path.isfile(fp):
                     actual = self._calculate_sha256(fp)
-                    if (
-                        actual
-                        and file_entry.get("checksum_sha256")
-                        and actual != file_entry.get("checksum_sha256")
-                    ):
-                        raise ValueError(f"Checksum mismatch for {rel}")
+                    if actual != file_entry["checksum_sha256"]:
+                        return False, f"Checksum mismatch for {file_entry['file']}"
 
-            # Step 3: Safety backup of current state (best-effort)
+            # Step 4: Pre-restore safety backup
             try:
                 emergency_dest_id = (
                     destination_id or self._pick_fallback_destination_id()
@@ -484,206 +776,155 @@ class BackupService:
                         triggered_by="system:pre-restore",
                         backup_type="emergency",
                     )
-                else:
-                    _logger.warning("no_destination_for_emergency_backup")
-            except Exception:
-                _logger.warning("emergency_backup_failed")
+            except Exception as e:
+                _logger.warning(f"Emergency pre-restore backup failed: {e}")
 
-            # Step 4: Stop server components - handled by caller; log warning
-            _logger.warning("server_restart_required_after_restore")
+            _logger.warning(
+                "A server restart is required to apply all restored settings."
+            )
 
-            # Step 5: Restore selected components
-            if components is None:
-                components = [
-                    "config",
-                    "devices",
-                    "users",
-                    "accounting",
-                    "metrics",
-                    "audit",
-                ]
-
-            db_map = {
-                "devices": (
-                    os.path.join(restore_root, "devices.db"),
-                    self.config.get_device_store_config()["database"],
-                ),
-                "users": (
-                    os.path.join(restore_root, "local_auth.db"),
-                    self.config.get_local_auth_db(),
-                ),
-                "accounting": (
-                    os.path.join(restore_root, "tacacs_accounting.db"),
-                    self.config.get_database_config()["accounting_db"],
-                ),
-                "metrics": (
-                    os.path.join(restore_root, "metrics_history.db"),
-                    self.config.get_database_config()["metrics_history_db"],
-                ),
-                "audit": (
-                    os.path.join(restore_root, "audit_trail.db"),
-                    self.config.get_database_config()["audit_trail_db"],
-                ),
-                "overrides": (
-                    os.path.join(restore_root, "config_overrides.db"),
-                    "data/config_overrides.db",
-                ),
-            }
-
-            databases_restored: list[str] = []
-
-            if "config" in components:
-                src_cfg = os.path.join(restore_root, "tacacs.conf")
-                try:
-                    if os.path.exists(src_cfg) and getattr(
-                        self.config, "config_file", None
-                    ):
-                        os.makedirs(
-                            os.path.dirname(self.config.config_file), exist_ok=True
-                        )
-                        shutil.copy2(src_cfg, self.config.config_file)
-                except Exception as exc:
-                    _logger.warning("config_restore_failed", error=str(exc))
-                # Restore overrides DB if present
-                src_db, dst_db = db_map["overrides"]
-                if os.path.exists(src_db):
-                    self._restore_database(src_db, dst_db)
-                    databases_restored.append(dst_db)
-
-            for comp in ("devices", "users", "accounting", "metrics", "audit"):
-                if comp in components:
-                    src_db, dst_db = db_map[comp]
-                    if os.path.exists(src_db):
-                        self._restore_database(src_db, dst_db)
-                        databases_restored.append(dst_db)
+            # Step 5: Restore components
+            components_to_restore = components or list(allowed)
+            databases_restored = self._perform_component_restore(
+                components_to_restore, restore_root
+            )
 
             # Step 6: Verify restored data
-            for db_file in databases_restored:
-                try:
-                    self._verify_database_integrity(db_file)
-                except Exception as exc:
-                    _logger.error("db_integrity_failed", db=db_file, error=str(exc))
-                    raise
+            for db_path in databases_restored:
+                db_verify(db_path)
 
-            try:
-                issues = self.config.validate_config()
-                if issues:
-                    raise ValueError("; ".join(issues))
-            except Exception as e:
-                _logger.error("restored_config_invalid", error=str(e))
-                # A full rollback from emergency backup could be triggered here
-                raise
-
-            # Step 7: Cleanup (handled in finally)
-
-            # Step 8: Log restore event
-            try:
-                if getattr(self.config, "config_store", None):
-                    self.config.config_store.record_change(
-                        section="system",
-                        key="restore",
-                        old_value=None,
-                        new_value=source_path,
-                        value_type="string",
-                        changed_by="admin",
-                        reason=f"Restored from backup: {manifest.get('backup_metadata', {}).get('timestamp_utc', '')}",
-                    )
-            except Exception:
-                pass
-
-            try:
-                dur = (datetime.now(UTC) - t0).total_seconds()
-                _logger.info(
-                    json.dumps(
-                        {
-                            "event": "restore_completed",
-                            "source_path": source_path,
-                            "destination_id": destination_id,
-                            "components": components or [],
-                            "duration_seconds": dur,
-                            "emergency_execution_id": emergency_exec_id,
-                        }
-                    )
+            # Step 7: Log completion
+            dur = (datetime.now(UTC) - t0).total_seconds()
+            _logger.info(
+                json.dumps(
+                    {
+                        "event": "restore_completed",
+                        "source_path": source_path,
+                        "duration_seconds": dur,
+                        "components": components_to_restore,
+                        "emergency_backup_id": emergency_exec_id,
+                    }
                 )
-            except Exception:
-                pass
-            return True, "Restore completed"
+            )
+            return True, "Restore completed successfully. A restart is required."
+
         except Exception as exc:
-            try:
-                _logger.exception(
-                    json.dumps(
-                        {
-                            "event": "restore_failed",
-                            "source_path": source_path,
-                            "destination_id": destination_id,
-                            "error": str(exc),
-                            "error_type": type(exc).__name__,
-                        }
-                    )
+            _logger.exception(
+                json.dumps(
+                    {
+                        "event": "restore_failed",
+                        "source_path": source_path,
+                        "error": str(exc),
+                    }
                 )
-            except Exception:
-                pass
+            )
             return False, f"Restore failed: {exc}"
         finally:
-            try:
-                if restore_root and os.path.isdir(restore_root):
-                    shutil.rmtree(restore_root)
-            except Exception:
-                pass
-            try:
-                if destination_id and local_archive and os.path.exists(local_archive):
-                    os.remove(local_archive)
-                # Remove decrypted temp if created
-                dec_tmp = None
-                if isinstance(local_archive, str) and local_archive.endswith(".enc"):
-                    dec_tmp = local_archive[:-4]
-                if dec_tmp and os.path.exists(dec_tmp):
-                    os.remove(dec_tmp)
-            except Exception:
-                pass
+            # Step 8: Cleanup temporary files
+            if restore_root and os.path.isdir(restore_root):
+                shutil.rmtree(restore_root, ignore_errors=True)
+            if archive_for_extract and archive_for_extract != local_archive:
+                if os.path.exists(archive_for_extract):
+                    os.remove(archive_for_extract)
+            if destination_id and local_archive and os.path.exists(local_archive):
+                os.remove(local_archive)
+
+    def _perform_component_restore(
+        self, components: list[str], restore_root: str
+    ) -> list[str]:
+        """Helper to restore specific components from the extracted backup."""
+        databases_restored: list[str] = []
+        db_map = {
+            "devices": (
+                "devices.db",
+                self.config.get_device_store_config()["database"],
+            ),
+            "users": ("local_auth.db", self.config.get_local_auth_db()),
+            "accounting": (
+                "tacacs_accounting.db",
+                self.config.get_database_config()["accounting_db"],
+            ),
+            "metrics": (
+                "metrics_history.db",
+                self.config.get_database_config()["metrics_history_db"],
+            ),
+            "audit": (
+                "audit_trail.db",
+                self.config.get_database_config()["audit_trail_db"],
+            ),
+            "overrides": ("config_overrides.db", "data/config_overrides.db"),
+        }
+
+        if "config" in components:
+            src_cfg = os.path.join(restore_root, "tacacs.conf")
+            if os.path.exists(src_cfg) and getattr(self.config, "config_file", None):
+                os.makedirs(os.path.dirname(self.config.config_file), exist_ok=True)
+                shutil.copy2(src_cfg, self.config.config_file)
+                _logger.info("Restored main configuration file.")
+
+        for comp, (src_name, dest_path) in db_map.items():
+            if comp in components:
+                src_db = os.path.join(restore_root, src_name)
+                if os.path.exists(src_db):
+                    self._restore_database(src_db, dest_path)
+                    databases_restored.append(dest_path)
+                    _logger.info(f"Restored {comp} database.")
+        return databases_restored
 
     def create_manual_backup(self, destination_id: str, created_by: str) -> str:
-        """Trigger manual backup, returns execution_id"""
+        """Trigger manual backup and return execution_id."""
+        if not destination_id:
+            raise ValueError("destination_id required")
+        if not created_by:
+            raise ValueError("created_by required")
         return self.execute_backup(
             destination_id, triggered_by=created_by, backup_type="manual"
         )
 
     def get_backup_status(self, execution_id: str) -> dict:
-        """Get status of ongoing or completed backup"""
+        """Get status of an ongoing or completed backup by execution_id."""
+        if not execution_id:
+            raise ValueError("execution_id required")
         return self.execution_store.get_execution(execution_id) or {}
 
     @staticmethod
     def _parse_json(v: Any) -> dict:
-        import json
-
         if isinstance(v, dict):
             return v
         try:
             return json.loads(v) if isinstance(v, str) else {}
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             return {}
 
     # --- restore helpers ---
     @staticmethod
     def _extract_tarball(archive_path: str, dest_dir: str) -> str:
-        # Delegate to secure extractor
-        extract_tar(archive_path, dest_dir)
-        # If there is a single top-level directory, return it; else dest_dir
-        entries = [os.path.join(dest_dir, e) for e in os.listdir(dest_dir)]
-        tops = [e for e in entries if os.path.isdir(e)]
-        if len(tops) == 1 and os.path.exists(os.path.join(tops[0], "manifest.json")):
-            return tops[0]
+        """Securely extract tarball to the destination directory."""
+        os.makedirs(dest_dir, exist_ok=True)
+        with tarfile.open(archive_path, "r:gz") as tar:
+            tar.extractall(path=dest_dir)
         return dest_dir
 
     @staticmethod
     def _restore_database(src_db_path: str, dest_db_path: str) -> None:
-        db_import(src_db_path, dest_db_path, verify=True)
+        """Restore a database file with verification."""
+        if not os.path.exists(src_db_path):
+            _logger.warning(f"Source DB for restore not found: {src_db_path}")
+            return
+        try:
+            # Verify the backup database before importing
+            db_verify(src_db_path)
 
-    @staticmethod
-    def _verify_database_integrity(db_path: str) -> None:
-        ok, msg = db_verify(db_path)
-        if not ok:
-            raise ValueError(f"Integrity check failed for {db_path}: {msg}")
+            # Ensure destination directory exists
+            dest_dir = os.path.dirname(dest_db_path)
+            os.makedirs(dest_dir, exist_ok=True)
+
+            # Import the database
+            db_import(src_db_path, dest_db_path)
+            _logger.info(f"Successfully restored database to {dest_db_path}")
+        except Exception as e:
+            _logger.error(f"Failed to restore database to {dest_db_path}: {e}")
+            raise RuntimeError(f"Database restore failed for {dest_db_path}") from e
 
     def _pick_fallback_destination_id(self) -> str | None:
         try:
@@ -698,10 +939,32 @@ class BackupService:
         except Exception:
             return None
 
-    @staticmethod
-    def _get_encryption_passphrase() -> str | None:
+    def _get_encryption_passphrase(self) -> str | None:
         # Prefer environment variable to avoid storing secrets in DB
-        return os.getenv("BACKUP_ENCRYPTION_PASSPHRASE") or None
+        env_passphrase = os.getenv("BACKUP_ENCRYPTION_PASSPHRASE")
+        if env_passphrase:
+            return env_passphrase
+
+        # Fallback to config
+        try:
+            bcfg = getattr(self.config, "get_backup_config", None)
+            if callable(bcfg):
+                b = bcfg() or {}
+                passphrase_cfg = b.get("encryption_passphrase")
+                if passphrase_cfg:
+                    return passphrase_cfg
+
+            # If not found, try direct config access
+            if hasattr(self.config, "config"):
+                if hasattr(self.config.config, "get"):
+                    backup_section = self.config.config.get("backup", {})
+                    passphrase_cfg = backup_section.get("encryption_passphrase")
+                    if passphrase_cfg:
+                        return passphrase_cfg
+        except Exception as e:
+            _logger.warning(f"Error getting encryption passphrase from config: {e}")
+
+        return None
 
 
 # --- Service singleton (explicit init) ---
@@ -721,8 +984,8 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
     return _backup_service_instance
 
 
-def get_backup_service() -> BackupService:
-    """Get global backup service instance"""
+def get_backup_service() -> "BackupService":
+    """Get global backup service instance."""
     if _backup_service_instance is None:
         raise RuntimeError("Backup service not initialized")
     return _backup_service_instance

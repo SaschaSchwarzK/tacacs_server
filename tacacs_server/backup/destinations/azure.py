@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.retry import retry
 
 from .base import BackupDestination, BackupMetadata
 
@@ -176,6 +177,7 @@ class AzureBlobBackupDestination(BackupDestination):
         return tags
 
     # --- API methods ---
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
         try:
             # Initialize and ensure container exists
@@ -284,6 +286,7 @@ class AzureBlobBackupDestination(BackupDestination):
 
         return blob_client.url  # type: ignore[attr-defined]
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         try:
             self._ensure_clients()
@@ -310,6 +313,7 @@ class AzureBlobBackupDestination(BackupDestination):
             )
             return False
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def list_backups(self, prefix: str | None = None) -> list[BackupMetadata]:
         items: list[BackupMetadata] = []
         try:
@@ -346,6 +350,7 @@ class AzureBlobBackupDestination(BackupDestination):
             return []
         return sorted(items, key=lambda m: m.timestamp, reverse=True)
 
+    @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def delete_backup(self, remote_path: str) -> bool:
         try:
             self._ensure_clients()

@@ -1,6 +1,11 @@
 # Backup System Architecture
 
-This document describes the backup system components, data flows, persistence, and extension points.
+This document describes the backup system components, data flows, persistence, and extension points. For user-facing documentation, see [Backup and Restore Guide](../BACKUP.md).
+
+> **Related Documentation**
+> - [Configuration Management](../CONFIGURATION.md) - How configuration is loaded and managed
+> - [Backup and Restore Guide](../BACKUP.md) - User guide for backup operations
+> - [API Documentation](../API.md#backup--restore) - API reference for backup operations
 
 ## Components
 
@@ -69,9 +74,38 @@ This document describes the backup system components, data flows, persistence, a
 
 ## Security Considerations
 
-- Path traversal protection for local destinations `_safe_join`
-- Config export may contain sensitive values; secure destination access
-- Encryption (optional) recommended for off‑box storage
-- API requires admin auth; endpoints are protected via admin_guard
-- Scheduler persistence should reside on secure, durable storage volumes
+- **Access Control**:
+  - All backup operations require admin authentication
+  - API endpoints are protected via `admin_guard`
+  - File operations use `_safe_join` to prevent path traversal attacks
+
+- **Data Protection**:
+  - Configuration exports may contain sensitive values
+  - Encryption is strongly recommended for off‑box storage
+  - Backup files should be stored with restricted permissions (600)
+  - Consider using separate credentials for backup destinations
+
+- **Operational Security**:
+  - Scheduler persistence should be on secure, durable storage
+  - Temporary files are created in a secure directory with restricted permissions
+  - Backup operations are logged for audit purposes
+
+## Integration with Configuration System
+
+The backup system works closely with the [configuration management system](../CONFIGURATION.md) to ensure consistent state:
+
+1. **Configuration Backup**:
+   - Backs up both file-based and database-stored configuration
+   - Preserves configuration history and versioning
+   - Maintains relationships between configuration items
+
+2. **Restore Process**:
+   - Validates configuration before applying
+   - Supports partial restores of configuration components
+   - Maintains configuration integrity across restores
+
+3. **Synchronization**:
+   - Backup schedules can be configured via the main configuration
+   - Configuration changes trigger backup operations when needed
+   - Backup status is exposed in the admin interface
 

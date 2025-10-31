@@ -93,7 +93,10 @@ def _render_payload(event: str, payload: dict[str, Any]) -> dict[str, Any]:
             merged.setdefault("event", event)
             for k, v in list(merged.items()):
                 tmpl_json = tmpl_json.replace(f"{{{{{k}}}}}", str(v))
-            return cast(dict[str, Any], json.loads(tmpl_json))
+            result = cast(dict[str, Any], json.loads(tmpl_json))
+            # Ensure canonical 'event' key is present for downstream consumers/tests
+            result.setdefault("event", event)
+            return result
         except Exception:
             pass
     out = dict(payload)

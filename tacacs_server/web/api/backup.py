@@ -26,6 +26,7 @@ from tacacs_server.web.api_models import (
     BackupTestResponse,
     BackupTriggerResponse,
     BackupItem,
+    RetentionPolicyUpdate,
 )
 
 from .config import admin_guard
@@ -104,7 +105,9 @@ async def create_destination_api(
     description="Return all configured backup destinations with their parsed configuration.",
     response_model=BackupDestinationListResponse,
 )
-async def list_destinations(_: None = Depends(admin_guard)) -> BackupDestinationListResponse:
+async def list_destinations(
+    _: None = Depends(admin_guard),
+) -> BackupDestinationListResponse:
     """List all backup destinations"""
     service = get_backup_service()
     db_rows = service.execution_store.list_destinations()
@@ -148,6 +151,96 @@ async def get_destination_api(dest_id: str, _: None = Depends(admin_guard)):
         dest["config"] = {}
     dest.pop("config_json", None)
     return dest
+
+
+@router.put(
+    "/destinations/{dest_id}/retention",
+    summary="Update retention policy",
+    description=(
+        "Update retention policy for a destination. Strategies: simple, gfs, hanoi."
+    ),
+)
+async def update_retention_policy(
+    dest_id: str, policy: RetentionPolicyUpdate, _: None = Depends(admin_guard)
+):
+    """Update retention policy for destination"""
+    service = get_backup_service()
+    dest = service.execution_store.get_destination(dest_id)
+    if not dest:
+        raise HTTPException(status_code=404, detail="Destination not found")
+
+    # Validate
+    try:
+        from tacacs_server.backup.retention import RetentionRule, RetentionStrategy
+
+        strategy = RetentionStrategy(policy.strategy)
+        rule_dict = policy.model_dump(exclude_none=True)
+        rule_dict.pop("strategy", None)
+        _ = RetentionRule(strategy=strategy, **rule_dict)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid retention configuration: {e}"
+        )
+
+    # Persist
+    service.execution_store.update_destination(
+        dest_id,
+        retention_strategy=str(policy.strategy),
+        retention_config_json=rule_dict,
+    )
+    return {
+        "success": True,
+        "retention_policy": {"strategy": policy.strategy, **rule_dict},
+    }
+
+
+@router.post(
+    "/destinations/{dest_id}/apply-retention",
+    summary="Trigger retention now",
+    description="Manually trigger retention policy enforcement for a destination.",
+)
+async def apply_retention_now(
+    dest_id: str, background_tasks: BackgroundTasks, _: None = Depends(admin_guard)
+):
+    """Manually trigger retention policy enforcement"""
+    service = get_backup_service()
+    dest = service.execution_store.get_destination(dest_id)
+    if not dest:
+        raise HTTPException(status_code=404, detail="Destination not found")
+
+    def run_retention():
+        try:
+            destination = create_destination(
+                dest["type"], json.loads(dest["config_json"])
+            )
+            from tacacs_server.backup.retention import RetentionStrategy, RetentionRule
+
+            strategy = RetentionStrategy(dest.get("retention_strategy", "simple"))
+            cfg_raw = dest.get("retention_config_json") or "{}"
+            retention_config = (
+                json.loads(cfg_raw) if isinstance(cfg_raw, str) else (cfg_raw or {})
+            )
+            rule = RetentionRule(strategy=strategy, **(retention_config or {}))
+            deleted_count = destination.apply_retention_policy(retention_rule=rule)
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "retention_policy_applied",
+                        "destination_id": dest_id,
+                        "deleted_count": deleted_count,
+                    }
+                )
+            )
+        except Exception as e:
+            logger.exception("Retention policy enforcement failed: %s", e)
+
+    background_tasks.add_task(run_retention)
+    return {
+        "success": True,
+        "message": "Retention policy enforcement started in background",
+    }
 
 
 @router.put(
@@ -205,7 +298,9 @@ async def delete_destination(dest_id: str, _: None = Depends(admin_guard)):
     description="Run a connectivity check against the specified destination and return the result.",
     response_model=BackupTestResponse,
 )
-async def test_destination(dest_id: str, _: None = Depends(admin_guard)) -> BackupTestResponse:
+async def test_destination(
+    dest_id: str, _: None = Depends(admin_guard)
+) -> BackupTestResponse:
     """Test destination connectivity"""
     service = get_backup_service()
     dest = service.execution_store.get_destination(dest_id)
@@ -257,7 +352,9 @@ async def trigger_backup(
 
     background_tasks.add_task(run_backup)
     return BackupTriggerResponse(
-        execution_id=execution_id, status="started", message="Backup job started in background"
+        execution_id=execution_id,
+        status="started",
+        message="Backup job started in background",
     )
 
 
@@ -287,7 +384,9 @@ async def list_executions(
     description="Return a single execution, including parsed manifest if present.",
     response_model=BackupExecutionDetail,
 )
-async def get_execution(execution_id: str, _: None = Depends(admin_guard)) -> BackupExecutionDetail:
+async def get_execution(
+    execution_id: str, _: None = Depends(admin_guard)
+) -> BackupExecutionDetail:
     """Get execution status and details"""
     service = get_backup_service()
     execution = service.execution_store.get_execution(execution_id)
@@ -358,7 +457,9 @@ async def list_backups(
     ),
     response_model=BackupRestoreResponse,
 )
-async def restore_backup_api(request: RestoreRequest, _: None = Depends(admin_guard)) -> BackupRestoreResponse:
+async def restore_backup_api(
+    request: RestoreRequest, _: None = Depends(admin_guard)
+) -> BackupRestoreResponse:
     """Restore from backup"""
     if not request.confirm:
         raise HTTPException(
@@ -384,7 +485,9 @@ async def restore_backup_api(request: RestoreRequest, _: None = Depends(admin_gu
             components=request.components,
         )
         if success:
-            return BackupRestoreResponse(success=True, message=message, restart_required=True)
+            return BackupRestoreResponse(
+                success=True, message=message, restart_required=True
+            )
         raise HTTPException(status_code=500, detail=message)
     except Exception as e:
         logger.exception("Restore failed: %s", e)
@@ -497,7 +600,9 @@ async def create_scheduled_backup(
     description="Remove a scheduled backup job by ID.",
     response_model=BackupScheduleStateResponse,
 )
-async def delete_scheduled_backup(job_id: str, _: None = Depends(admin_guard)) -> BackupScheduleStateResponse:
+async def delete_scheduled_backup(
+    job_id: str, _: None = Depends(admin_guard)
+) -> BackupScheduleStateResponse:
     """Delete scheduled backup job"""
     service = get_backup_service()
     scheduler = getattr(service, "scheduler", None)
@@ -514,7 +619,9 @@ async def delete_scheduled_backup(job_id: str, _: None = Depends(admin_guard)) -
     description="Pause a scheduled job without removing it.",
     response_model=BackupScheduleStateResponse,
 )
-async def pause_scheduled_backup(job_id: str, _: None = Depends(admin_guard)) -> BackupScheduleStateResponse:
+async def pause_scheduled_backup(
+    job_id: str, _: None = Depends(admin_guard)
+) -> BackupScheduleStateResponse:
     """Pause scheduled backup job"""
     service = get_backup_service()
     scheduler = getattr(service, "scheduler", None)
@@ -531,7 +638,9 @@ async def pause_scheduled_backup(job_id: str, _: None = Depends(admin_guard)) ->
     description="Resume a paused scheduled job.",
     response_model=BackupScheduleStateResponse,
 )
-async def resume_scheduled_backup(job_id: str, _: None = Depends(admin_guard)) -> BackupScheduleStateResponse:
+async def resume_scheduled_backup(
+    job_id: str, _: None = Depends(admin_guard)
+) -> BackupScheduleStateResponse:
     """Resume scheduled backup job"""
     service = get_backup_service()
     scheduler = getattr(service, "scheduler", None)
@@ -548,7 +657,9 @@ async def resume_scheduled_backup(job_id: str, _: None = Depends(admin_guard)) -
     description="Immediately run a scheduled job and return the execution id.",
     response_model=BackupScheduleTriggerResponse,
 )
-async def trigger_scheduled_job(job_id: str, _: None = Depends(admin_guard)) -> BackupScheduleTriggerResponse:
+async def trigger_scheduled_job(
+    job_id: str, _: None = Depends(admin_guard)
+) -> BackupScheduleTriggerResponse:
     """Manually trigger a scheduled job immediately"""
     service = get_backup_service()
     scheduler = getattr(service, "scheduler", None)
@@ -557,4 +668,41 @@ async def trigger_scheduled_job(job_id: str, _: None = Depends(admin_guard)) -> 
     execution_id = scheduler.trigger_job_now(job_id)
     return BackupScheduleTriggerResponse(
         execution_id=execution_id, status="triggered", message="Job triggered manually"
+    )
+
+
+@router.get("/stats", response_model=BackupStatsResponse)
+async def get_backup_stats(_: None = Depends(admin_guard)) -> BackupStatsResponse:
+    """Get high-level statistics about all backups."""
+    service = get_backup_service()
+    executions = service.execution_store.list_executions(
+        limit=10000
+    )  # Get all for stats
+
+    total_backups = len(executions)
+    if total_backups == 0:
+        return BackupStatsResponse(
+            total_backups=0,
+            total_size_bytes=0,
+            success_rate=100.0,
+            oldest_backup_at=None,
+            newest_backup_at=None,
+        )
+
+    total_size = sum(e.get("compressed_size_bytes", 0) or 0 for e in executions)
+    successful_backups = sum(1 for e in executions if e["status"] == "completed")
+    success_rate = (
+        (successful_backups / total_backups) * 100 if total_backups > 0 else 100.0
+    )
+
+    sorted_executions = sorted(executions, key=lambda e: e["started_at"])
+    oldest = sorted_executions[0]["started_at"]
+    newest = sorted_executions[-1]["started_at"]
+
+    return BackupStatsResponse(
+        total_backups=total_backups,
+        total_size_bytes=total_size,
+        success_rate=round(success_rate, 2),
+        oldest_backup_at=oldest,
+        newest_backup_at=newest,
     )

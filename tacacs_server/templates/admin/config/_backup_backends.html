@@ -1,0 +1,158 @@
+<!-- Backup Backends -->
+<div class="card config-section">
+  <div class="section-header"><h2 class="section-title">Backup Backends</h2></div>
+  
+  <div class="subsection">
+    <div class="subsection-header">Backend Configuration</div>
+    <form id="backup-backend-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="backup_backend_type" title="Select where backups should be stored">Backend Type</label>
+        <div class="input-wrapper">
+          <select id="backup_backend_type" name="backend_type" onchange="toggleBackupBackend()">
+            {% set backend_type = ((configuration.get('backup') or {}).get('backend_type','none') | string).lower() %}
+            <option value="none" {% if backend_type=='none' %}selected{% endif %}>None (Local Only)</option>
+            <option value="ftp" {% if backend_type=='ftp' %}selected{% endif %}>FTP</option>
+            <option value="sftp" {% if backend_type=='sftp' %}selected{% endif %}>SFTP</option>
+            <option value="azure" {% if backend_type=='azure' %}selected{% endif %}>Azure Blob</option>
+          </select>
+          <span class="field-hint">Remote backup storage type</span>
+        </div>
+      </div>
+    </form>
+
+    <!-- FTP Backend -->
+    <div id="backup-backend-ftp" class="advanced-settings">
+      <div class="subsection-header" style="margin-top: 1rem;">FTP Settings</div>
+      <form id="ftp-form" onsubmit="return false;" class="form-grid">
+        <div class="form-field">
+          <label for="ftp_host" title="FTP server hostname or IP address">Host</label>
+          <div class="input-wrapper">
+            <input type="text" id="ftp_host" name="ftp_host" value="{{ (configuration.get('backup') or {}).get('ftp_host','') }}" />
+            <span class="field-hint">FTP server address</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="ftp_port" title="FTP server port (default 21)">Port</label>
+          <div class="input-wrapper">
+            <input type="number" id="ftp_port" name="ftp_port" min="1" max="65535" value="{{ (configuration.get('backup') or {}).get('ftp_port','21') }}" />
+            <span class="field-hint">FTP port</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="ftp_username" title="FTP authentication username">Username</label>
+          <div class="input-wrapper">
+            <input type="text" id="ftp_username" name="ftp_username" value="{{ (configuration.get('backup') or {}).get('ftp_username','') }}" />
+            <span class="field-hint">FTP username</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="ftp_password" title="FTP authentication password">Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="ftp_password" name="ftp_password" value="{{ (configuration.get('backup') or {}).get('ftp_password','') }}" />
+            <span class="field-hint">FTP password</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="ftp_path" title="Remote directory path for backups">Remote Path</label>
+          <div class="input-wrapper">
+            <input type="text" id="ftp_path" name="ftp_path" value="{{ (configuration.get('backup') or {}).get('ftp_path','/backups') }}" />
+            <span class="field-hint">Remote directory</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="ftp_use_tls" title="Use FTP over TLS (FTPS)">Use TLS</label>
+          <div class="input-wrapper">
+            <select id="ftp_use_tls" name="ftp_use_tls">
+              {% set ftp_tls = ((configuration.get('backup') or {}).get('ftp_use_tls','false') | string).lower() %}
+              <option value="false" {% if ftp_tls=='false' %}selected{% endif %}>No</option>
+              <option value="true" {% if ftp_tls=='true' %}selected{% endif %}>Yes</option>
+            </select>
+            <span class="field-hint">Enable FTPS</span>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- SFTP Backend -->
+    <div id="backup-backend-sftp" class="advanced-settings">
+      <div class="subsection-header" style="margin-top: 1rem;">SFTP Settings</div>
+      <form id="sftp-form" onsubmit="return false;" class="form-grid">
+        <div class="form-field">
+          <label for="sftp_host" title="SFTP server hostname or IP address">Host</label>
+          <div class="input-wrapper">
+            <input type="text" id="sftp_host" name="sftp_host" value="{{ (configuration.get('backup') or {}).get('sftp_host','') }}" />
+            <span class="field-hint">SFTP server address</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="sftp_port" title="SFTP server port (default 22)">Port</label>
+          <div class="input-wrapper">
+            <input type="number" id="sftp_port" name="sftp_port" min="1" max="65535" value="{{ (configuration.get('backup') or {}).get('sftp_port','22') }}" />
+            <span class="field-hint">SFTP port</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="sftp_username" title="SFTP authentication username">Username</label>
+          <div class="input-wrapper">
+            <input type="text" id="sftp_username" name="sftp_username" value="{{ (configuration.get('backup') or {}).get('sftp_username','') }}" />
+            <span class="field-hint">SFTP username</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="sftp_password" title="SFTP password (if not using key)">Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="sftp_password" name="sftp_password" value="{{ (configuration.get('backup') or {}).get('sftp_password','') }}" />
+            <span class="field-hint">SFTP password (optional)</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="sftp_private_key" title="Path to SSH private key file">Private Key Path</label>
+          <div class="input-wrapper">
+            <input type="text" id="sftp_private_key" name="sftp_private_key" value="{{ (configuration.get('backup') or {}).get('sftp_private_key','') }}" />
+            <span class="field-hint">SSH key path (optional)</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="sftp_path" title="Remote directory path for backups">Remote Path</label>
+          <div class="input-wrapper">
+            <input type="text" id="sftp_path" name="sftp_path" value="{{ (configuration.get('backup') or {}).get('sftp_path','/backups') }}" />
+            <span class="field-hint">Remote directory</span>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- Azure Backend -->
+    <div id="backup-backend-azure" class="advanced-settings">
+      <div class="subsection-header" style="margin-top: 1rem;">Azure Blob Storage Settings</div>
+      <form id="azure-form" onsubmit="return false;" class="form-grid">
+        <div class="form-field">
+          <label for="azure_connection_string" title="Azure Storage account connection string">Connection String</label>
+          <div class="input-wrapper">
+            <input type="password" id="azure_connection_string" name="azure_connection_string" value="{{ (configuration.get('backup') or {}).get('azure_connection_string','') }}" />
+            <span class="field-hint">Azure connection string</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="azure_container" title="Azure Blob container name">Container Name</label>
+          <div class="input-wrapper">
+            <input type="text" id="azure_container" name="azure_container" value="{{ (configuration.get('backup') or {}).get('azure_container','') }}" />
+            <span class="field-hint">Blob container</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="azure_path" title="Path prefix within the container">Blob Path Prefix</label>
+          <div class="input-wrapper">
+            <input type="text" id="azure_path" name="azure_path" value="{{ (configuration.get('backup') or {}).get('azure_path','backups/') }}" />
+            <span class="field-hint">Path prefix (optional)</span>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div class="btn-group" style="margin-top: 1rem;">
+      <button class="btn" onclick="saveBackupBackendSettings()">Save Backup Backend</button>
+      <span id="backup-backend-status" class="status-message"></span>
+    </div>
+  </div>
+</div>

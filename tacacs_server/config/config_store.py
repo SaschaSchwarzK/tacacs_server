@@ -721,14 +721,6 @@ class ConfigStore:
                             kv[k] = env
         return base
 
-    # Back-compat: accept optional reason param
-    def restore_version(
-        self, version_number: int, restored_by: str, reason: str | None = None
-    ) -> bool:
-        return super().restore_version(
-            version_number=version_number, restored_by=restored_by
-        )  # type: ignore[misc]
-
     def restore_version(
         self, version_number: int, restored_by: str, reason: str | None = None
     ) -> bool:
@@ -878,33 +870,7 @@ class ConfigStore:
         return self.get_metadata("instance_name") or self.ensure_instance_id()
 
     def set_instance_name(self, name: str) -> None:
-        """
-        Set the instance name.
-
-        Args:
-
-        Returns:
-            Number of versions deleted
-        """
-        with self._get_session() as session:
-            # Find the version number to keep (Nth most recent)
-            stmt = (
-                select(ConfigVersion.version_number)
-                .order_by(ConfigVersion.version_number.desc())
-                .offset(10 - 1)
-                .limit(1)
-            )
-            result = session.execute(stmt).scalar_one_or_none()
-
-            if not result:
-                return 0
-
-            # Delete versions older than the one we found
-            stmt = delete(ConfigVersion).where(ConfigVersion.version_number < result)
-            result = session.execute(stmt)
-            session.commit()
-
-            return result.rowcount or 0
+        self.set_metadata("instance_name", name)
 
     def cleanup_old_versions(self, keep_versions: int = 10) -> list[int]:
         """
@@ -929,56 +895,17 @@ class ConfigStore:
             if not result:
                 return []
 
+            # Get the version numbers to be deleted before deleting them
+            deleted_versions_stmt = select(ConfigVersion.version_number).where(
+                ConfigVersion.version_number < result
+            )
+            deleted_version_numbers = [
+                v[0] for v in session.execute(deleted_versions_stmt).all()
+            ]
+
             # Delete versions older than the one we found
             stmt = delete(ConfigVersion).where(ConfigVersion.version_number < result)
             session.execute(stmt)
             session.commit()
 
-            # Return the deleted version numbers
-            stmt = select(ConfigVersion.version_number).where(
-                ConfigVersion.version_number < result
-            )
-            return [v[0] for v in session.execute(stmt).all()]
-
-    def get_latest_version(self) -> dict[str, Any] | None:
-        cur = self._conn.execute(
-            "SELECT id, version_number, config_json, config_hash, created_at, created_by, description, is_baseline FROM config_versions ORDER BY version_number DESC LIMIT 1"
-        )
-        row = cur.fetchone()
-        return dict(row) if row else None
-
-    # --- System metadata ---
-    def set_metadata(self, key: str, value: str) -> None:
-        ts = _utc_now_iso()
-        with self._conn:
-            self._conn.execute(
-                "INSERT INTO system_metadata(key, value, updated_at) VALUES(?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-                (key, value, ts),
-            )
-
-    def get_metadata(self, key: str) -> str | None:
-        cur = self._conn.execute(
-            "SELECT value FROM system_metadata WHERE key=?", (key,)
-        )
-        row = cur.fetchone()
-        return str(row[0]) if row else None
-
-    def ensure_instance_id(self) -> str:
-        iid = self.get_metadata("instance_id")
-        if iid:
-            return iid
-        iid = str(uuid.uuid4())
-        self.set_metadata("instance_id", iid)
-        return iid
-
-    def get_instance_name(self) -> str:
-        name = self.get_metadata("instance_name")
-        return name or "tacacs-server"
-
-    def set_instance_name(self, name: str) -> None:
-        self.set_metadata("instance_name", name)
-
-    # --- Utilities ---
-    def execute(self, sql: str, params: Iterable[Any] | None = None) -> None:
-        with self._conn:
-            self._conn.execute(sql, tuple(params or ()))
+            return deleted_version_numbers

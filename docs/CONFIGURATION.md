@@ -1,40 +1,67 @@
-# Configuration Guide
+# TACACS+ Server Configuration
 
-This guide provides comprehensive information about configuring the TACACS+ server for various deployment scenarios.
+This document provides a comprehensive reference for configuring the TACACS+ server.
 
-## Configuration File Structure
+## Configuration Sources
+
+1. **Primary Configuration File** (`config/tacacs.conf` by default)
+   - Contains all default settings
+   - Can be version controlled
+   - Can be overridden using the `TACACS_CONFIG` environment variable
+   - Supports both local files and HTTPS URLs
+
+2. **Runtime Overrides** (`data/config_overrides.db`)
+   - SQLite database storing configuration overrides
+   - Takes precedence over file-based configuration
+   - Maintains history of changes
+   - Enables rollback to previous configurations
+
+## Configuration Structure
 
 The TACACS+ server uses INI-style configuration files with the following sections:
 
-- `[server]` - Core server settings
-- `[auth]` - Authentication backend configuration
-- `[ldap]` - LDAP integration settings
-- `[okta]` - Okta SSO integration
-- `[database]` - Database and storage configuration
-- `[security]` - Security and rate limiting
+### Core Components
+- `[server]` - Core server settings (bind address, ports, timeouts)
+- `[auth]` - Authentication backends and settings
+- `[security]` - Security policies and access controls
 - `[logging]` - Logging configuration
-- `[admin]` - Admin console settings
-- `[devices]` - Device inventory settings
+- `[database]` - Database and storage configuration
+
+### Authentication & Authorization
+- `[ldap]` - LDAP/Active Directory integration
+- `[okta]` - Okta SSO integration
+- `[command_authorization]` - Command authorization policies
+
+### Network Services
 - `[radius]` - RADIUS server configuration
-- `[monitoring]` - Monitoring and metrics
-- `[webhooks]` - Webhook notifications and thresholds
-- `[proxy_protocol]` - HAProxy PROXY v2 handling (when behind load balancers)
-- `[command_authorization]` - Command authorization policy engine
+- `[proxy_protocol]` - HAProxy PROXY v2 support
+- `[webhooks]` - Webhook notifications
 
-## Server Configuration
+### Administration
+- `[admin]` - Admin console settings
+- `[monitoring]` - Metrics and monitoring
+- `[devices]` - Device inventory management
 
-```ini
-[server]
-# Bind address (0.0.0.0 for all interfaces)
-host = 0.0.0.0
+## Environment Variables
 
-# TACACS+ port (standard is 49)
-port = 49
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `TACACS_CONFIG` | Override config file path/URL | `/path/to/config.conf` |
+| `ADMIN_USERNAME` | Web admin username | `admin` |
+| `ADMIN_PASSWORD_HASH` | Hashed admin password | `$2b$...` |
+| `CONFIG_REFRESH_SECONDS` | Config refresh interval | `300` |
 
-# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-log_level = INFO
+## Configuration Precedence
 
-# Maximum concurrent connections
+1. Runtime overrides (database)
+2. Environment variables
+3. Configuration file values
+4. Default values
+
+## Next Steps
+
+- [Advanced Configuration Management](CONFIGURATION_ADVANCED.md) - Versioning, drift detection, and advanced features
+- [Configuration Examples](CONFIGURATION_EXAMPLES.md) - Practical configuration examples and recipes
 max_connections = 50
 
 # Socket timeout in seconds

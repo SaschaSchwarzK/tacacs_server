@@ -16,7 +16,24 @@ import pytest
 
 
 class SyslogMessage:
-    """Parsed syslog message (RFC 3164 and RFC 5424)"""
+    """Parsed syslog message (RFC 3164 and RFC 5424)
+
+    This class parses and stores syslog messages received from the TACACS+ server.
+    It supports both the older BSD-syslog (RFC 3164) and newer syslog (RFC 5424) formats.
+
+    Attributes:
+        raw_data (bytes): The raw message data received from the socket
+        source_ip (str): IP address of the syslog sender
+        source_port (int): Source port of the syslog message
+        timestamp (float): When the message was received (Unix timestamp)
+        priority (int, optional): Syslog priority value (PRI)
+        facility (int, optional): Syslog facility number
+        severity (int, optional): Syslog severity level
+        hostname (str, optional): Hostname of the sender
+        app_name (str, optional): Application name that generated the message
+        message (str, optional): The actual log message content
+        structured_data (dict): Structured data elements (RFC 5424)
+    """
 
     def __init__(self, raw_data: bytes, source: tuple[str, int]):
         self.raw_data = raw_data
@@ -35,8 +52,19 @@ class SyslogMessage:
 
         self._parse()
 
-    def _parse(self):
-        """Parse syslog message (supports both RFC 3164 and RFC 5424)"""
+    def _parse(self) -> None:
+        """Parse syslog message (supports both RFC 3164 and RFC 5424)
+
+        This method parses the raw syslog message and extracts relevant fields
+        like priority, facility, severity, hostname, and the actual message.
+        It handles both RFC 3164 and RFC 5424 formatted messages.
+
+        The parsed data is stored in the instance variables for later access.
+
+        Note:
+            For malformed messages, the message will be stored as-is in the
+            message field with minimal parsing attempted.
+        """
         try:
             msg = self.raw_data.decode("utf-8", errors="replace").strip()
         except Exception:
@@ -144,37 +172,59 @@ class SyslogUDPHandler(socketserver.BaseRequestHandler):
             print(f"[SyslogReceiver]   Structured Data: {msg.structured_data}")
 
 
-class SyslogTCPHandler(socketserver.StreamRequestHandler):
-    """TCP handler for syslog messages (RFC 6587)"""
+class SyslogTCPHandler(socketserver.BaseRequestHandler):
+    """TCP handler for syslog messages (RFC 6587).
 
-    def handle(self):
-        """Handle TCP syslog connection (with framing)"""
-        while True:
-            try:
-                # RFC 6587: Can use octet counting or non-transparent framing
-                # Octet counting: <length><space><message>
-                # Non-transparent: messages separated by newline
+    This handler processes incoming TCP syslog messages with octet counting
+    framing as specified in RFC 6587. It handles both individual messages
+    and persistent connections with multiple messages.
 
-                # Try to read line (newline-delimited is more common)
-                data = self.rfile.readline()
+    Attributes:
+        request: The TCP socket connected to the client.
+        client_address: The address of the client that connected.
+        server: The server instance that received the connection.
+    """
 
-                if not data:
+    def handle(self) -> None:
+        """Handle TCP syslog connection with framing (RFC 6587).
+
+        This method reads messages from a TCP connection using the octet
+        counting framing method. Each message is prefixed with its length
+        as a 4-byte big-endian integer.
+
+        The method continues reading until the connection is closed or an
+        error occurs. Each complete message is parsed and added to the
+        server's messages list.
+        """
+        try:
+            while True:
+                # Read message length (first 4 bytes, network byte order)
+                len_bytes = self.request.recv(4)
+                if len(len_bytes) < 4:
                     break
+                msg_len = struct.unpack(">L", len_bytes)[0]
 
-                msg = SyslogMessage(data, self.client_address)
+                # Read the message
+                data = bytearray()
+                while len(data) < msg_len:
+                    chunk = self.request.recv(min(4096, msg_len - len(data)))
+                    if not chunk:
+                        break
+                    data.extend(chunk)
 
-                if not hasattr(SyslogTCPHandler, "messages"):
-                    SyslogTCPHandler.messages = []
-                SyslogTCPHandler.messages.append(msg)
+                if len(data) == msg_len:
+                    message = SyslogMessage(bytes(data), self.client_address)
+                    self.server.messages.append(message)
 
-                print(
-                    f"[SyslogReceiver-TCP] Received from {msg.source_ip}:{msg.source_port}"
-                )
-                print(f"[SyslogReceiver-TCP]   Message: {msg.message}")
+                    print(
+                        f"[SyslogReceiver-TCP] Received from {message.source_ip}:{message.source_port}"
+                    )
+                    print(f"[SyslogReceiver-TCP]   Message: {message.message}")
 
-            except Exception as e:
-                print(f"[SyslogReceiver-TCP] Error: {e}")
-                break
+        except (ConnectionResetError, BrokenPipeError) as e:
+            # Client disconnected or connection was reset
+            print(f"[SyslogReceiver-TCP] Connection closed: {e}")
+            return  # Use return instead of break since we're in a method, not a loop
 
 
 def _start_syslog_udp_server() -> tuple[

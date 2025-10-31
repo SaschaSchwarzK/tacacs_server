@@ -13,6 +13,11 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+import threading
+from pyftpdlib.authorizers import DummyAuthorizer
+from pyftpdlib.handlers import FTPHandler
+from pyftpdlib.servers import FTPServer
+
 import pytest
 import requests
 from requests.exceptions import RequestException
@@ -507,6 +512,64 @@ def full_server(server_factory):
         enable_admin_api=True,
         enable_admin_web=True,
     )
+
+
+@pytest.fixture(autouse=True)
+def setup_backup_service():
+    from tacacs_server.backup.service import initialize_backup_service
+    from tacacs_server.config.config import TacacsConfig
+
+    config = TacacsConfig()  # Or mock this
+    initialize_backup_service(config)
+    yield
+
+
+@pytest.fixture(scope="session")
+def ftp_server(tmp_path_factory):
+    """Fixture that sets up a test FTP server in a separate thread."""
+    import socket
+    from pyftpdlib.authorizers import DummyAuthorizer
+    from pyftpdlib.handlers import FTPHandler
+    from pyftpdlib.servers import FTPServer
+    import threading
+
+    # Create a temporary directory for the FTP server's root
+    ftp_root = tmp_path_factory.mktemp("ftp_root")
+
+    # Set up the FTP server
+    authorizer = DummyAuthorizer()
+    authorizer.add_user("testuser", "testpass", str(ftp_root), perm="elradfmw")
+
+    handler = FTPHandler
+    handler.authorizer = authorizer
+
+    # Find an available port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        port = s.getsockname()[1]
+        # The socket will be closed when exiting the context
+
+    address = ("127.0.0.1", port)
+    server = FTPServer(address, handler)
+
+    # Start the server in a separate thread
+    server_thread = threading.Thread(target=server.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Yield the server info
+    yield {
+        "host": "localhost",
+        "port": port,
+        "username": "testuser",
+        "password": "testpass",
+        "root": str(ftp_root),
+    }
+
+    # Cleanup
+    server.close_all()
+    if server_thread.is_alive():
+        server_thread.join(timeout=1.0)
 
 
 # Clean up all temporary files at the end of the session

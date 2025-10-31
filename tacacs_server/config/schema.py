@@ -130,3 +130,19 @@ class BackupConfigSchema(BaseModel):
     temp_directory: str = "data/backup_temp"
     encryption_enabled: bool = False
     default_retention_days: int = Field(ge=1, le=3650, default=30)
+    default_retention_strategy: str = Field(default="simple")
+    compression_level: int = Field(default=6, ge=1, le=9)
+
+    # GFS configuration
+    gfs_keep_daily: int = Field(default=7, ge=1)
+    gfs_keep_weekly: int = Field(default=4, ge=1)
+    gfs_keep_monthly: int = Field(default=12, ge=1)
+    gfs_keep_yearly: int = Field(default=3, ge=0)
+
+    @field_validator("default_retention_strategy")
+    @classmethod
+    def validate_strategy(cls, v: str) -> str:
+        valid = ["simple", "gfs", "hanoi"]
+        if v not in valid:
+            raise ValueError(f"Strategy must be one of: {valid}")
+        return v

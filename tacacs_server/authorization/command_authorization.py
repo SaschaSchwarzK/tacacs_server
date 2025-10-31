@@ -8,14 +8,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from re import Pattern
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from tacacs_server.web.monitoring import (
+from tacacs_server.web.web import (
     get_admin_auth_dependency_func,
     get_command_engine,
 )
-from tacacs_server.web.monitoring import (
+from tacacs_server.web.web import (
     get_config as monitoring_get_config,
 )
 
@@ -480,12 +480,29 @@ class CommandRuleCreate(BaseModel):
     device_groups: list[str] | None = None
 
 
-async def _admin_guard_dep():
-    dep = get_admin_auth_dependency_func()
-    # If admin auth is not configured, allow access (test/development mode)
-    if dep is None:
-        return
-    return
+async def _admin_guard_dep(request: Request):
+    # Enforce cookie-based admin session; do not consume body
+    from tacacs_server.utils import config_utils
+    import logging
+
+    try:
+        logging.getLogger("tacacs.command_auth").info(
+            "command_auth.admin_guard: path=%s method=%s has_cookie=%s",
+            getattr(request.url, "path", ""),
+            getattr(request, "method", ""),
+            bool(request.cookies.get("admin_session")),
+        )
+    except Exception:
+        pass
+
+    token = request.cookies.get("admin_session")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    mgr = config_utils.get_admin_session_manager()
+    if not mgr:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+    if not mgr.validate_session(token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
 
 
 @router.post(
