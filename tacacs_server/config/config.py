@@ -67,7 +67,9 @@ class TacacsConfig:
             logger.info("Configuration store initialized successfully")
         except Exception as e:
             # Log the actual error but allow server to continue
-            logger.error("Failed to initialize configuration store: %s", e, exc_info=True)
+            logger.error(
+                "Failed to initialize configuration store: %s", e, exc_info=True
+            )
             self.config_store = None
         # Track baseline (pre-override) snapshot and which keys were overridden
         self._baseline_snapshot: dict[str, dict[str, str]] = {}

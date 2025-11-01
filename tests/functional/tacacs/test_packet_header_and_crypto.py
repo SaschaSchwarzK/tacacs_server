@@ -145,7 +145,9 @@ def test_sequence_zero_invalid():
     """Sequence number 0 should be rejected (must be odd and >=1)."""
     server = TacacsServer()
     sess = 0x01020304
-    hdr = _mk_header(TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 0, 0, sess, 0)
+    hdr = _mk_header(
+        TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 0, 0, sess, 0
+    )
     pkt = TacacsPacket.unpack_header(hdr)
     assert server._validate_packet_header(pkt) is False
 
@@ -155,7 +157,9 @@ def test_non_sequential_numbers_odd_progression_valid():
     server = TacacsServer()
     sess = 0x0A0B0C0D
     for seq in (1, 3, 5):
-        hdr = _mk_header(TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, seq, 0, sess, 0)
+        hdr = _mk_header(
+            TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, seq, 0, sess, 0
+        )
         pkt = TacacsPacket.unpack_header(hdr)
         assert server._validate_packet_header(pkt) is True
 
@@ -165,15 +169,21 @@ def test_invalid_even_in_between():
     server = TacacsServer()
     sess = 0x0F0E0D0C
     # 1 accepted
-    hdr1 = _mk_header(TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0)
+    hdr1 = _mk_header(
+        TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0
+    )
     pkt1 = TacacsPacket.unpack_header(hdr1)
     assert server._validate_packet_header(pkt1) is True
     # 2 rejected (even)
-    hdr2 = _mk_header(TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 2, 0, sess, 0)
+    hdr2 = _mk_header(
+        TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 2, 0, sess, 0
+    )
     pkt2 = TacacsPacket.unpack_header(hdr2)
     assert server._validate_packet_header(pkt2) is False
     # 3 accepted (next odd step)
-    hdr3 = _mk_header(TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 3, 0, sess, 0)
+    hdr3 = _mk_header(
+        TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 3, 0, sess, 0
+    )
     pkt3 = TacacsPacket.unpack_header(hdr3)
     assert server._validate_packet_header(pkt3) is True
 
@@ -182,11 +192,15 @@ def test_duplicate_sequence_numbers_rejected():
     """Sending the same odd sequence twice within a session is rejected the second time."""
     server = TacacsServer()
     sess = 0xDEADBEEF
-    hdr1 = _mk_header(TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0)
+    hdr1 = _mk_header(
+        TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0
+    )
     pkt1 = TacacsPacket.unpack_header(hdr1)
     assert server._validate_packet_header(pkt1) is True
     # Duplicate 1 should be rejected
-    hdr1_dup = _mk_header(TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0)
+    hdr1_dup = _mk_header(
+        TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0
+    )
     pkt1_dup = TacacsPacket.unpack_header(hdr1_dup)
     assert server._validate_packet_header(pkt1_dup) is False
 

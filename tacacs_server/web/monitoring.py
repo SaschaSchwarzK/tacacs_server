@@ -4,6 +4,7 @@ Re-exports minimal interfaces expected by existing code:
 - PrometheusIntegration: static record_* methods used by handlers and RADIUS server
 - get_command_engine / get_command_authorizer: delegate to web_api or other modules if available
 """
+
 from __future__ import annotations
 
 import time
@@ -41,7 +42,9 @@ def _maybe_flush_snapshot() -> None:  # pragma: no cover
             import psutil  # type: ignore
 
             vm = psutil.virtual_memory()
-            snapshot["memory_usage_mb"] = round((getattr(vm, "used", 0) or 0) / (1024 * 1024), 2)
+            snapshot["memory_usage_mb"] = round(
+                (getattr(vm, "used", 0) or 0) / (1024 * 1024), 2
+            )
             # Non-blocking CPU percent (use last value if no interval)
             cpu = psutil.cpu_percent(interval=0.0)
             snapshot["cpu_percent"] = float(cpu or 0)
@@ -53,16 +56,20 @@ def _maybe_flush_snapshot() -> None:  # pragma: no cover
         pass
     _last_flush_ts = now
 
+
 try:
     from .web import get_tacacs_server  # legacy accessors
 except Exception:  # pragma: no cover
+
     def get_tacacs_server() -> Any | None:  # type: ignore[func-returns-value]
         return None
 
 
 class PrometheusIntegration:
     @staticmethod
-    def record_auth_request(status: str, backend: str, duration: float, reason: str = "") -> None:  # pragma: no cover
+    def record_auth_request(
+        status: str, backend: str, duration: float, reason: str = ""
+    ) -> None:  # pragma: no cover
         # Update in-memory counters for DB rollup
         try:
             _metrics["auth_requests"] += 1
@@ -105,7 +112,8 @@ class PrometheusIntegration:
             _metrics["connections_active"] = int(count) if count is not None else 0
             # Track max total as a rough counter when active increases
             _metrics["connections_total"] = max(
-                _metrics.get("connections_total", 0), _metrics.get("connections_active", 0)
+                _metrics.get("connections_total", 0),
+                _metrics.get("connections_active", 0),
             )
             _maybe_flush_snapshot()
         except Exception:

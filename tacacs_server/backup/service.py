@@ -51,29 +51,31 @@ class BackupService:
         self.config = config
         self.execution_store = execution_store
 
+        temp_dir = "data/backup_temp"
         try:
-            bcfg = getattr(self.config, "get_backup_config", None)
-            if callable(bcfg):
-                temp_dir = bcfg().get("temp_directory") or "data/backup_temp"
-            else:
-                temp_dir = "data/backup_temp"
-        except Exception:
-            temp_dir = "data/backup_temp"
+            if hasattr(self.config, "get_backup_config"):
+                bcfg = self.config.get_backup_config()
+                if bcfg and "temp_directory" in bcfg:
+                    temp_dir = bcfg["temp_directory"]
+        except Exception as e:
+            _logger.debug(f"Using default temp_dir: {e}")
+
         self.temp_dir = Path(str(temp_dir))
         self._ensure_temp_dir()
         self.instance_name = (
             self.config.config_store.get_instance_name()
-            if self.config.config_store
+            if self.config.config_store is not None
             else "tacacs-server"
         )
         # Initialize scheduler (not started by default)
         try:
             self.scheduler = BackupScheduler(self)
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"Scheduler initialization failed: {e}")
             self.scheduler = None  # type: ignore[assignment]
         self.instance_id = (
             self.config.config_store.get_metadata("instance_id")
-            if self.config.config_store
+            if self.config.config_store is not None
             else None
         )
 
@@ -89,12 +91,25 @@ class BackupService:
             dst_path: Destination path for the exported database
         """
         try:
+            # First verify source database is valid
+            if not db_verify(src_path)[0]:
+                _logger.warning(
+                    f"Source database {src_path} failed integrity check, attempting export anyway"
+                )
+
             db_export(src_path, dst_path)
+
             if not os.path.exists(dst_path):
                 raise RuntimeError(f"Export failed: {dst_path} was not created")
+
+            # Verify exported database
+            ok, msg = db_verify(dst_path)
+            if not ok:
+                _logger.warning(f"Exported database integrity issue: {msg}")
+                # Don't fail - continue with backup
+
         except Exception as e:
             _logger.error(f"Database export failed: {e}")
-            raise
 
     def _create_manifest(
         self, backup_dir: str, backup_type: str, triggered_by: str
@@ -387,16 +402,23 @@ class BackupService:
                 ),
                 ("audit_trail.db", self.config.get_database_config()["audit_trail_db"]),
             ]
+            databases_exported = 0
             for backup_name, source_path in databases_to_backup:
                 try:
                     if source_path and os.path.exists(source_path):
                         self._export_database(
                             source_path, os.path.join(backup_dir, backup_name)
                         )
+                        databases_exported += 1
                 except Exception as exc:
+                    # Log but don't fail entire backup
                     _logger.warning(
-                        "backup_db_export_failed", db=backup_name, error=str(exc)
+                        f"Failed to export {backup_name}: {exc}",
+                        extra={"db": backup_name, "error": str(exc)},
                     )
+
+            if databases_exported == 0:
+                raise RuntimeError("No databases were successfully exported")
 
             # Step 4: Export configuration
             try:
@@ -436,43 +458,13 @@ class BackupService:
 
             # Try to get config from different possible locations
             try:
-                # First try the backup config section
-                bcfg = getattr(self.config, "get_backup_config", None)
-                if callable(bcfg):
-                    b = bcfg() or {}
-                    encryption_enabled = b.get("encryption_enabled", False)
-                    if isinstance(encryption_enabled, str):
-                        encryption_enabled = encryption_enabled.lower() == "true"
-                    passphrase_cfg = b.get("encryption_passphrase")
-
-                # If not found, try direct config access
-                if not encryption_enabled or not passphrase_cfg:
-                    try:
-                        if hasattr(self.config, "config"):
-                            if hasattr(self.config.config, "get"):
-                                backup_section = self.config.config.get("backup", {})
-                                if not encryption_enabled:
-                                    val = backup_section.get(
-                                        "encryption_enabled", False
-                                    )
-                                    if isinstance(val, str):
-                                        encryption_enabled = val.lower() == "true"
-                                    else:
-                                        encryption_enabled = bool(val)
-                                if not passphrase_cfg:
-                                    passphrase_cfg = backup_section.get(
-                                        "encryption_passphrase"
-                                    )
-                    except Exception as e:
-                        _logger.warning(f"Error reading direct config: {e}")
-
-                # If encryption is enabled but no passphrase, log a warning
-                if encryption_enabled and not passphrase_cfg:
-                    _logger.warning("Encryption enabled but no passphrase configured")
-
+                backup_cfg = self.config.get_backup_config()
+                encryption_enabled = backup_cfg.get("encryption_enabled", False)
+                if isinstance(encryption_enabled, str):
+                    encryption_enabled = encryption_enabled.lower() == "true"
+                passphrase_cfg = backup_cfg.get("encryption_passphrase")
             except Exception as e:
-                _logger.warning(f"Error getting encryption settings: {e}")
-                encryption_enabled = False
+                _logger.debug(f"Encryption config not available: {e}")
 
             if encryption_enabled:
                 if not passphrase_cfg:
@@ -986,6 +978,19 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
 
 def get_backup_service() -> "BackupService":
     """Get global backup service instance."""
+    global _backup_service_instance
+
     if _backup_service_instance is None:
-        raise RuntimeError("Backup service not initialized")
+        # Lazy initialization fallback for testing/standalone web app
+        try:
+            from tacacs_server.utils.config_utils import get_config
+
+            config = get_config()
+            if config:
+                _backup_service_instance = initialize_backup_service(config)
+                _logger.info("Backup service lazy-initialized")
+        except Exception as e:
+            _logger.error(f"Backup service lazy-init failed: {e}")
+            raise RuntimeError("Backup service not initialized") from e
+
     return _backup_service_instance

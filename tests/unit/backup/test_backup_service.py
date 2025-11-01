@@ -94,6 +94,14 @@ def _mk_config(tmp: Path) -> TacacsConfig:
     cfg_path = tmp / "tacacs.conf"
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text("[server]\nport=49\n[auth]\nbackends=local\n", encoding="utf-8")
+
+    # Ensure data dir exists for config_store
+    (tmp / "data").mkdir(parents=True, exist_ok=True)
+
+    import os
+
+    os.chdir(tmp)  # So relative paths work
+
     return TacacsConfig(str(cfg_path))
 
 

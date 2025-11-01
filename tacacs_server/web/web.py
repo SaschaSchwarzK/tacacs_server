@@ -444,11 +444,15 @@ class WebServer:
         # Include backup router (admin-protected)
         try:
             from tacacs_server.web.api.backup import router as backup_router
+
             self.app.include_router(backup_router)
             logger.info("Backup router successfully included")
         except Exception as exc:  # noqa: BLE001
             import traceback
-            logger.error("Failed to include backup router: %s\n%s", exc, traceback.format_exc())
+
+            logger.error(
+                "Failed to include backup router: %s\n%s", exc, traceback.format_exc()
+            )
         # Include command authorization API (protected by admin guard inside router)
         try:
             from tacacs_server.authorization.command_authorization import (

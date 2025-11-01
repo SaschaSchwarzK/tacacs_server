@@ -514,14 +514,8 @@ def full_server(server_factory):
     )
 
 
-@pytest.fixture(autouse=True)
-def setup_backup_service():
-    from tacacs_server.backup.service import initialize_backup_service
-    from tacacs_server.config.config import TacacsConfig
-
-    config = TacacsConfig()  # Or mock this
-    initialize_backup_service(config)
-    yield
+# Backup service initialization is now handled per-test or via server_factory
+# The autouse fixture was causing issues with config isolation between tests
 
 
 @pytest.fixture(scope="session")

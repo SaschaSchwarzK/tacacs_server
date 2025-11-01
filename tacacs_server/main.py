@@ -46,7 +46,9 @@ class TacacsServerManager:
             utils_set_config(self.config)
             logger.info("Configuration registered with utilities module")
         except Exception as e:
-            logger.error("Failed to register config with utilities: %s", e, exc_info=True)
+            logger.error(
+                "Failed to register config with utilities: %s", e, exc_info=True
+            )
             # This is critical - if utils can't access config, API will fail
             raise
         self.server: TacacsServer | None = None

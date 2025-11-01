@@ -341,6 +341,7 @@ class DeviceGroupBase(BaseModel):
 
 class DeviceGroupCreate(DeviceGroupBase):
     """Model for creating device group"""
+
     tacacs_secret: str = Field(
         ..., min_length=8, description="TACACS+ secret", example="TacacsSecret123!"
     )

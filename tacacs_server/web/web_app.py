@@ -74,7 +74,7 @@ def create_app(
     # ========================================================================
     # EXCEPTION HANDLERS
     # ========================================================================
-    
+
     from tacacs_server.exceptions import (
         ConfigValidationError,
         AuthenticationError,
@@ -84,9 +84,11 @@ def create_app(
         ServiceUnavailableError,
         TacacsServerError,
     )
-    
+
     @app.exception_handler(ConfigValidationError)
-    async def config_validation_error_handler(request: Request, exc: ConfigValidationError):
+    async def config_validation_error_handler(
+        request: Request, exc: ConfigValidationError
+    ):
         """Handle configuration validation errors"""
         validation_errors = exc.details.get("errors", {})
         return JSONResponse(
@@ -101,7 +103,7 @@ def create_app(
                 },
             },
         )
-    
+
     @app.exception_handler(AuthenticationError)
     async def authentication_error_handler(request: Request, exc: AuthenticationError):
         """Handle authentication errors"""
@@ -113,7 +115,7 @@ def create_app(
                 "detail": exc.details,
             },
         )
-    
+
     @app.exception_handler(AuthorizationError)
     async def authorization_error_handler(request: Request, exc: AuthorizationError):
         """Handle authorization errors"""
@@ -125,7 +127,7 @@ def create_app(
                 "detail": exc.details,
             },
         )
-    
+
     @app.exception_handler(ResourceNotFoundError)
     async def resource_not_found_handler(request: Request, exc: ResourceNotFoundError):
         """Handle resource not found errors"""
@@ -137,9 +139,11 @@ def create_app(
                 "detail": exc.details,
             },
         )
-    
+
     @app.exception_handler(RateLimitExceededError)
-    async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceededError):
+    async def rate_limit_exceeded_handler(
+        request: Request, exc: RateLimitExceededError
+    ):
         """Handle rate limit exceeded errors"""
         return JSONResponse(
             status_code=exc.status_code,
@@ -149,9 +153,11 @@ def create_app(
                 "detail": exc.details,
             },
         )
-    
+
     @app.exception_handler(ServiceUnavailableError)
-    async def service_unavailable_handler(request: Request, exc: ServiceUnavailableError):
+    async def service_unavailable_handler(
+        request: Request, exc: ServiceUnavailableError
+    ):
         """Handle service unavailable errors"""
         return JSONResponse(
             status_code=exc.status_code,
@@ -161,7 +167,7 @@ def create_app(
                 "detail": exc.details,
             },
         )
-    
+
     @app.exception_handler(TacacsServerError)
     async def tacacs_server_error_handler(request: Request, exc: TacacsServerError):
         """Handle generic TACACS server errors"""
@@ -265,12 +271,12 @@ def create_app(
     if config_service:
         try:
             from tacacs_server.utils import config_utils
+
             config_utils.set_config(config_service)
             _set_config(config_service)
             logger.info("Configuration service registered with web app")
         except Exception as e:
             logger.error("Failed to register config service: %s", e)
-
 
     # Auto-provision device service if not provided
     if not device_service and tacacs_server is not None:
@@ -550,7 +556,9 @@ def create_app(
             data = generate_latest()
             return PlainTextResponse(content=data, media_type=CONTENT_TYPE_LATEST)
         except Exception as e:
-            return JSONResponse({"detail": f"Metrics unavailable: {e}"}, status_code=500)
+            return JSONResponse(
+                {"detail": f"Metrics unavailable: {e}"}, status_code=500
+            )
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
     async def metrics():
@@ -620,7 +628,9 @@ def create_app(
         # Log important mounted routes for diagnostics
         try:
             backup_routes = [
-                getattr(r, "path", "") for r in getattr(app, "routes", []) if "/api/admin/backup" in str(getattr(r, "path", ""))
+                getattr(r, "path", "")
+                for r in getattr(app, "routes", [])
+                if "/api/admin/backup" in str(getattr(r, "path", ""))
             ]
             logger.info(
                 "Routes mounted for backup API: count=%s sample=%s",
@@ -634,7 +644,9 @@ def create_app(
         try:
             usr = getattr(app.state, "user_service", None)
             dev = getattr(app.state, "device_service", None)
-            from_path = lambda obj, attr: getattr(getattr(obj, attr, None), "db_path", None) or getattr(obj, attr, None)
+            from_path = lambda obj, attr: getattr(
+                getattr(obj, attr, None), "db_path", None
+            ) or getattr(obj, attr, None)
             user_db = getattr(usr, "db_path", None)
             dev_store = getattr(dev, "store", None)
             dev_db = getattr(dev_store, "db_path", None) if dev_store else None

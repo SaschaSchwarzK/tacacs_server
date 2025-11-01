@@ -205,6 +205,7 @@ async def get_stats():
 # METRICS HISTORY
 # ============================================================================
 
+
 @router.get("/metrics/history", dependencies=[Depends(require_admin_or_api)])
 async def metrics_history(hours: int = Query(24, ge=1, le=168)):
     """Return historical metrics snapshots for the past N hours.
@@ -215,7 +216,9 @@ async def metrics_history(hours: int = Query(24, ge=1, le=168)):
         data = get_metrics_history().get_historical_data(hours=hours)
         return {"hours": hours, "count": len(data), "snapshots": data}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to read metrics history: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read metrics history: {exc}"
+        )
 
 
 @router.get("/metrics/summary", dependencies=[Depends(require_admin_or_api)])
@@ -225,7 +228,9 @@ async def metrics_summary(hours: int = Query(24, ge=1, le=168)):
         summary = get_metrics_history().get_summary_stats(hours=hours)
         return {"hours": hours, "summary": summary}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to compute metrics summary: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to compute metrics summary: {exc}"
+        )
 
 
 # ============================================================================
@@ -303,7 +308,11 @@ async def create_device(device: DeviceCreate):
             action="create_device",
             resource_type="device",
             resource_id=str(getattr(rec, "id", "")),
-            details={"name": rec.name, "network": str(rec.network), "group": group_name},
+            details={
+                "name": rec.name,
+                "network": str(rec.network),
+                "group": group_name,
+            },
             success=True,
         )
         return DeviceResponse(
@@ -794,7 +803,9 @@ async def update_webhooks_config(payload: dict):
         )
         return get_webhook_config_dict()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to update webhook config: {exc}")
+        raise HTTPException(
+            status_code=400, detail=f"Failed to update webhook config: {exc}"
+        )
 
 
 # ============================================================================
@@ -880,7 +891,9 @@ async def delete_command_rule(rule_id: int):
     return None
 
 
-@router.get("/command-authorization/settings", dependencies=[Depends(require_admin_or_api)])
+@router.get(
+    "/command-authorization/settings", dependencies=[Depends(require_admin_or_api)]
+)
 async def get_command_settings():
     """Return command authorization engine settings (e.g., default action)."""
     engine = _mon_get_command_engine()

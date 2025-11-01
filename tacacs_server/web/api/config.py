@@ -30,10 +30,10 @@ router = APIRouter(prefix="/api/admin/config", tags=["Configuration"])
 
 logger = logging.getLogger("tacacs.api.config")
 
+
 async def admin_guard(request: Request) -> None:
     # Cookie-based admin session only; do not read body
     try:
-
         logging.getLogger("tacacs.api.config").info(
             "api.config.admin_guard: path=%s method=%s has_cookie=%s ct=%s",
             getattr(request.url, "path", ""),
@@ -109,20 +109,20 @@ async def get_config_status(_: None = Depends(admin_guard)) -> ConfigStatusRespo
 @router.post("/validate")
 async def validate_config_api(
     section: str | None = None,
-    key: str | None = None, 
+    key: str | None = None,
     value: str | None = None,
-    _: None = Depends(admin_guard)
+    _: None = Depends(admin_guard),
 ) -> dict:
     """Validate configuration - either full config or a specific change."""
     cfg = config_utils.get_config()
     if cfg is None:
         raise ServiceUnavailableError("Configuration not available")
-    
+
     # If section/key/value provided, validate just that change
     if section and key and value is not None:
         is_valid, issues = cfg.validate_change(section, key, value)
         return {"valid": is_valid, "issues": issues}
-    
+
     # Otherwise validate entire config
     issues = cfg.validate_config()
     return {"valid": not issues, "issues": issues}
@@ -151,22 +151,24 @@ async def reload_config_api(_: None = Depends(admin_guard)) -> dict:
 
 
 @router.get("/sections", response_model=ConfigSectionsResponse)
-@router.get("/sections/", response_model=ConfigSectionsResponse, include_in_schema=False)
+@router.get(
+    "/sections/", response_model=ConfigSectionsResponse, include_in_schema=False
+)
 async def list_sections(_: None = Depends(admin_guard)) -> ConfigSectionsResponse:
     """List all configuration sections."""
     cfg = config_utils.get_config()
-    
+
     if cfg is None:
         logger.error("Configuration not available - config was never initialized")
         raise ServiceUnavailableError(
             "Configuration not available. Server may not be fully initialized."
         )
-    
+
     # Verify config has required attributes
-    if not hasattr(cfg, 'config') or cfg.config is None:
+    if not hasattr(cfg, "config") or cfg.config is None:
         logger.error("Configuration object is missing 'config' attribute")
         raise ServiceUnavailableError("Configuration object is invalid")
-    
+
     try:
         sections = list(cfg.config.sections())
         logger.debug("Found %d configuration sections", len(sections))

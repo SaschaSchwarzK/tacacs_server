@@ -23,6 +23,7 @@ from tacacs_server.web.api_models import (
     BackupScheduleListResponse,
     BackupScheduleStateResponse,
     BackupScheduleTriggerResponse,
+    BackupStatsResponse,
     BackupTestResponse,
     BackupTriggerResponse,
     BackupItem,

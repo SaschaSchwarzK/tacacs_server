@@ -51,32 +51,30 @@ group_attribute = memberOf
 
 ### Okta Integration
 
-#### API Token Setup
+The server integrates with Okta using the Authentication API (AuthN) for user authentication. Group membership can be fetched from the Management API to enforce device-scoped policies.
 
-1. Log into Okta Admin Console
-2. Navigate to Security > API > Tokens
-3. Create new token with appropriate permissions
-4. Configure in TACACS+ server
+For a complete guide on Okta integration, including MFA setup, the device-scoped authorization flow, and troubleshooting, please see the detailed [Okta Integration Guide](OKTA.md).
+
+#### Basic Configuration
+
+1.  Log into the Okta Admin Console, navigate to **Security > API > Tokens**, and create a token. This is required for the server to look up a user's group memberships.
+2.  Add `okta` to the `backends` list in the `[auth]` section of your configuration.
+3.  Configure the `[okta]` section with your organization's details.
 
 ```ini
 [okta]
+# Your Okta organization URL
 org_url = https://company.okta.com
+
+# Okta Management API token (required for group lookups)
 api_token = ${OKTA_API_TOKEN}
-timeout = 10
-group_filter = tacacs_
-default_privilege = 1
+
+# Optional: Require membership in an allowed Okta group for authentication to succeed.
+# See OKTA.md for details on the device-scoped enforcement.
+require_group_for_auth = false
 ```
 
-#### Group Mapping
-
-```python
-# Example group mapping configuration
-OKTA_GROUP_MAPPINGS = {
-    "tacacs_admin": 15,      # Full administrative access
-    "tacacs_operator": 7,    # Operator level access
-    "tacacs_readonly": 1,    # Read-only access
-}
-```
+**Note:** Unlike other backends, privilege levels are not directly mapped from Okta groups. Instead, privilege is determined by the server's policy engine based on the user's membership in local user groups, which can be linked to Okta groups. See `OKTA.md` for a detailed explanation.
 
 ## Network Device Integration
 

@@ -68,6 +68,9 @@ retention_days = 30
 ```
 
 ### SFTP (Recommended for Remote)
+
+**Note:** SFTP destination is not yet implemented.
+
 ```ini
 [backup.destinations.remote_sftp]
 type = sftp
@@ -88,6 +91,9 @@ retention_days = 90
 ```
 
 ### Using Built-in Scheduler
+
+While initial schedules can be defined in `tacacs.conf`, the primary method for managing backup jobs is via the API, which provides full control to create, delete, pause, and resume schedules dynamically.
+
 ```ini
 [backup.schedules.daily]
 destination = local_daily
@@ -121,10 +127,13 @@ retention_days = 30
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/admin/backup/trigger` | Start a new backup |
-| `GET`  | `/api/admin/backup/list` | List available backups |
-| `POST` | `/api/admin/backup/restore` | Restore from backup |
-| `GET`  | `/api/admin/backup/status` | Get backup status |
+| `POST` | `/api/admin/backup/trigger` | Start a new manual backup |
+| `GET`  | `/api/admin/backup/backups` | List available backups from a destination |
+| `GET`  | `/api/admin/backup/executions` | List all backup job executions |
+| `GET`  | `/api/admin/backup/executions/{exec_id}` | Get the status of a specific backup execution |
+| `POST` | `/api/admin/backup/backups/restore` | Restore from a specific backup |
+| `GET`  | `/api/admin/backup/schedules` | List all configured backup schedules |
+| `POST` | `/api/admin/backup/schedules` | Create a new backup schedule |
 
 > **Note:** For detailed API documentation including all available endpoints, parameters, and response formats, see the [Backup API Reference](../api/backup.md).
 

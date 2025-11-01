@@ -438,12 +438,12 @@ def test_webhook_delivery_end_to_end(server_factory):
 
             # Check that both servers received at least one webhook
             # Note: Multiple deliveries can occur (e.g., direct event + threshold events)
-            assert (
-                len(records1) >= 1
-            ), f"Expected >=1 webhook on receiver 1, got {len(records1)}"
-            assert (
-                len(records2) >= 1
-            ), f"Expected >=1 webhook on receiver 2, got {len(records2)}"
+            assert len(records1) >= 1, (
+                f"Expected >=1 webhook on receiver 1, got {len(records1)}"
+            )
+            assert len(records2) >= 1, (
+                f"Expected >=1 webhook on receiver 2, got {len(records2)}"
+            )
 
             assert records1[0]["payload"]["event"] == "auth_failure"
             assert records2[0]["payload"]["event"] == "auth_failure"
