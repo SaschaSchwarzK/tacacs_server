@@ -166,33 +166,35 @@ class AAAHandlers:
         group_name = getattr(getattr(device, "group", None), "name", None)
         context = group_name or device_name or "unknown"
         sess_hex = f"0x{session_id:08x}"
-        # Try to emit structured JSON; fall back to plain
+        # Structured log aligned with logging spec; avoid manual JSON
         backend_name = None
         try:
             if detail and "backend=" in detail:
                 backend_name = detail.split("backend=", 1)[1].split()[0]
         except Exception:
             backend_name = None
-        payload = {
-            "event": "auth_result",
-            "session": sess_hex,
-            "user": safe_user,
-            "device_group": group_name,
-            "device": device_name,
-            "backend": backend_name or "unknown",
-            "success": bool(success),
-            "detail": detail or "",
-        }
-        if _HAS_JSON:
-            try:
-                msg = _json.dumps(payload)
-                if success:
-                    logger.info(msg)
-                else:
-                    logger.warning(msg)
-            except Exception:
-                pass
-        if not _HAS_JSON:
+        try:
+            fields = {
+                "event": "auth.success" if success else "auth.failure",
+                "service": "tacacs",
+                "component": "handlers",
+                "session": sess_hex,
+                "correlation_id": sess_hex,
+                "user_ref": safe_user,
+                "device": device_name,
+                "device_group": group_name,
+                "auth": {
+                    "backend": backend_name or "unknown",
+                    "result": "success" if success else "failure",
+                },
+                "detail": detail or "",
+            }
+            if success:
+                logger.info("Authentication result", **fields)
+            else:
+                logger.warning("Authentication result", **fields)
+        except Exception:
+            # Fallback plain logs to avoid any crash due to logging
             if success:
                 logger.info(
                     "TACACS authentication success: user=%s detail=%s device=%s session=%s",

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
+from tacacs_server.utils.logger import get_logger
 from fastapi import HTTPException, Request, status
 
 from tacacs_server.web.web_auth import get_session_manager as get_admin_session_manager
 
-logger = logging.getLogger("tacacs.admin.auth")
+logger = get_logger("tacacs.admin.auth")
 
 
 def check_admin_auth(request: Request) -> None:

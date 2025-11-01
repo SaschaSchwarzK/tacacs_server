@@ -3,7 +3,7 @@ Simplified API Routes
 All JSON/REST API routes in one place
 """
 
-import logging
+from tacacs_server.utils.logger import get_logger
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -21,7 +21,7 @@ from tacacs_server.web.web import (
     get_local_user_group_service as _get_user_group_service,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Initialize router
 router = APIRouter(prefix="/api", tags=["API"])
@@ -829,9 +829,12 @@ async def get_command_rules():
         if engine and hasattr(engine, "list_rules"):
             rules = engine.list_rules()
         logger.info(
-            "api:command_auth:get_rules engine=%s count=%s",
-            bool(engine),
-            len(rules) if isinstance(rules, list) else 0,
+            "Command auth rules fetched",
+            event="command_auth.get_rules",
+            service="web",
+            component="web_api",
+            engine_available=bool(engine),
+            count=(len(rules) if isinstance(rules, list) else 0),
         )
         return {"rules": rules}
     except Exception:
@@ -856,12 +859,24 @@ async def create_command_rule(rule: dict):
     if engine and hasattr(engine, "create_rule"):
         try:
             rid = engine.create_rule(**rule)
-            logger.info("api:command_auth:create_rule ok id=%s", rid)
+            logger.info(
+                "Command auth rule created",
+                event="command_auth.create_rule",
+                service="web",
+                component="web_api",
+                id=rid,
+            )
             return {"id": rid}
         except Exception as exc:
             logger.warning("api:command_auth:create_rule failed: %s", exc)
             raise HTTPException(status_code=400, detail=str(exc))
-    logger.info("api:command_auth:create_rule engine_unavailable")
+    logger.info(
+        "Command auth create_rule engine unavailable",
+        event="command_auth.create_rule",
+        service="web",
+        component="web_api",
+        engine_available=False,
+    )
     return {"id": 1}
 
 
@@ -883,11 +898,24 @@ async def delete_command_rule(rule_id: int):
     if engine and hasattr(engine, "delete_rule"):
         try:
             engine.delete_rule(rule_id)
-            logger.info("api:command_auth:delete_rule ok id=%s", rule_id)
+            logger.info(
+                "Command auth rule deleted",
+                event="command_auth.delete_rule",
+                service="web",
+                component="web_api",
+                id=rule_id,
+            )
         except Exception:
             pass
     else:
-        logger.info("api:command_auth:delete_rule engine_unavailable id=%s", rule_id)
+        logger.info(
+            "Command auth delete_rule engine unavailable",
+            event="command_auth.delete_rule",
+            service="web",
+            component="web_api",
+            engine_available=False,
+            id=rule_id,
+        )
     return None
 
 
@@ -912,9 +940,12 @@ async def get_command_settings():
             settings = engine.get_settings()
             default_action = (settings or {}).get("default_action")
         logger.info(
-            "api:command_auth:get_settings engine=%s default_action=%s",
-            bool(engine),
-            default_action or "",
+            "Command auth settings fetched",
+            event="command_auth.get_settings",
+            service="web",
+            component="web_api",
+            engine_available=bool(engine),
+            default_action=default_action or "",
         )
         return {"default_action": default_action or "deny"}
     except Exception as exc:
@@ -951,11 +982,15 @@ async def check_command_authorization_api(req: CommandCheckRequest):
             engine = None
     if not engine or not hasattr(engine, "authorize_command"):
         logger.warning(
-            "api:command_auth:check engine_unavailable cmd=%s priv=%s groups=%s devgrp=%s",
-            req.command,
-            req.privilege_level,
-            req.user_groups,
-            req.device_group,
+            "Command auth check engine unavailable",
+            event="command_auth.check",
+            service="web",
+            component="web_api",
+            engine_available=False,
+            command=req.command,
+            privilege_level=req.privilege_level,
+            user_groups=req.user_groups,
+            device_group=req.device_group,
         )
         return CommandCheckResponse(
             authorized=False, reason="engine_unavailable", command=req.command
@@ -965,10 +1000,13 @@ async def check_command_authorization_api(req: CommandCheckRequest):
             req.command, req.privilege_level, req.user_groups, req.device_group
         )
         logger.info(
-            "api:command_auth:check cmd=%s allowed=%s reason=%s",
-            req.command,
-            bool(allowed),
-            str(reason or ""),
+            "Command auth check",
+            event="command_auth.check",
+            service="web",
+            component="web_api",
+            command=req.command,
+            allowed=bool(allowed),
+            reason=str(reason or ""),
         )
         return CommandCheckResponse(
             authorized=bool(allowed), reason=str(reason or ""), command=req.command

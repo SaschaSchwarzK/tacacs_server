@@ -3,7 +3,8 @@ Main Web Application - Simplified & Clean
 This is the main FastAPI application that ties everything together
 """
 
-import logging
+from tacacs_server.utils.logger import get_logger, bind_context, clear_context
+import uuid
 import os
 from pathlib import Path
 
@@ -24,16 +25,7 @@ from .web import (
 )
 from tacacs_server.utils.config_utils import set_config as utils_set_config
 
-logger = logging.getLogger(__name__)
-# Ensure INFO-level http req/resp logs are emitted even if uvicorn uses warning
-try:
-    if not logger.handlers:
-        # Do not add handlers here; rely on global config, but enforce level/propagation
-        pass
-    logger.setLevel(logging.INFO)
-    logger.propagate = True
-except Exception:
-    pass
+logger = get_logger(__name__)
 
 
 def create_app(
@@ -389,18 +381,33 @@ def create_app(
     async def add_security_headers(request: Request, call_next):
         # Unified request logging for Admin UI and API without consuming body
         started = None
+        _ctx_token = None
         try:
             import time as _t
 
             started = _t.time()
             path = str(getattr(request.url, "path", ""))
+            # Correlation: use incoming header else generate UUIDv4
+            corr = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+            try:
+                _ctx_token = bind_context(correlation_id=corr)
+            except Exception:
+                _ctx_token = None
             logger.debug(
-                "http:req method=%s path=%s ct=%s accept=%s from=%s",
-                getattr(request, "method", ""),
-                path,
-                request.headers.get("content-type", ""),
-                request.headers.get("accept", ""),
-                getattr(getattr(request, "client", None), "host", ""),
+                "HTTP request",
+                event="http.request",
+                service="web",
+                component="web_app",
+                method=getattr(request, "method", ""),
+                path=path,
+                headers_sample={
+                    "content-type": request.headers.get("content-type", ""),
+                    "accept": request.headers.get("accept", ""),
+                },
+                client={
+                    "ip": getattr(getattr(request, "client", None), "host", ""),
+                },
+                correlation_id=corr,
             )
         except Exception:
             pass
@@ -413,11 +420,15 @@ def create_app(
 
             dur_ms = int(((_t.time() - started) if started else 0) * 1000)
             logger.debug(
-                "http:res method=%s path=%s status=%s dur_ms=%s",
-                getattr(request, "method", ""),
-                str(getattr(request.url, "path", "")),
-                getattr(response, "status_code", ""),
-                dur_ms,
+                "HTTP response",
+                event="http.response",
+                service="web",
+                component="web_app",
+                method=getattr(request, "method", ""),
+                path=str(getattr(request.url, "path", "")),
+                status=getattr(response, "status_code", ""),
+                duration_ms=dur_ms,
+                correlation_id=(request.headers.get("X-Correlation-ID") or None),
             )
         except Exception:
             pass
@@ -448,6 +459,12 @@ def create_app(
         try:
             del response.headers["server"]
         except KeyError:
+            pass
+
+        try:
+            if _ctx_token is not None:
+                clear_context(_ctx_token)
+        except Exception:
             pass
 
         return response
@@ -608,26 +625,59 @@ def create_app(
     @app.on_event("startup")
     async def startup():
         """Application startup"""
-        logger.info("=== TACACS+ Server Web Interface Starting ===")
+        # Structured service start log
+        try:
+            logger.info(
+                "Web interface starting",
+                event="service.start",
+                service="web",
+                component="web_app",
+                version=getattr(app, "version", None),
+                env=os.getenv("ENV") or os.getenv("APP_ENV") or "dev",
+            )
+        except Exception:
+            pass
         logger.debug("Admin Interface: /admin/")
         logger.debug("API Documentation: /api/docs")
         logger.debug("Prometheus Metrics: /metrics")
 
         # API security notice
         if api_token:
-            logger.info("API: Enabled (token required)")
+            logger.info(
+                "API token configured",
+                event="api.config",
+                service="web",
+                component="web_app",
+                api_token_configured=True,
+            )
         else:
-            # Without an API token, token-only endpoints will return 503 and
-            # endpoints guarded by admin-or-api remain accessible with an admin session.
+            # Endpoints guarded by admin-or-api remain accessible with an admin session.
             logger.warning(
-                "API: No API token configured; token-only endpoints disabled, admin session required"
+                "No API token configured; admin session required for admin-or-api endpoints",
+                event="api.config",
+                service="web",
+                component="web_app",
+                api_token_configured=False,
             )
 
         # Check if admin is enabled
         if admin_password_hash:
-            logger.info(f"Admin Web: Enabled (username: {admin_username})")
+            logger.info(
+                "Admin web enabled",
+                event="admin.config",
+                service="web",
+                component="web_app",
+                admin_username=admin_username,
+                admin_enabled=True,
+            )
         else:
-            logger.warning("Admin Web: Disabled (no password hash configured)")
+            logger.warning(
+                "Admin web disabled (no password hash configured)",
+                event="admin.config",
+                service="web",
+                component="web_app",
+                admin_enabled=False,
+            )
 
         # Log important mounted routes for diagnostics
         try:
@@ -637,9 +687,12 @@ def create_app(
                 if "/api/admin/backup" in str(getattr(r, "path", ""))
             ]
             logger.debug(
-                "Routes mounted for backup API: count=%s sample=%s",
-                len(backup_routes),
-                backup_routes[:3],
+                "Backup API routes mounted",
+                event="routes.mounted",
+                service="web",
+                component="web_app",
+                count=len(backup_routes),
+                sample=backup_routes[:3],
             )
         except Exception:
             pass
@@ -655,10 +708,13 @@ def create_app(
             dev_store = getattr(dev, "store", None)
             dev_db = getattr(dev_store, "db_path", None) if dev_store else None
             logger.debug(
-                "DB paths: user_db=%s device_db=%s cwd=%s",
-                user_db,
-                dev_db,
-                os.getcwd(),
+                "Resolved DB paths",
+                event="startup.info",
+                service="web",
+                component="web_app",
+                user_db=user_db,
+                device_db=dev_db,
+                cwd=os.getcwd(),
             )
         except Exception:
             pass
@@ -666,7 +722,15 @@ def create_app(
     @app.on_event("shutdown")
     async def shutdown():
         """Application shutdown"""
-        logger.info("=== TACACS+ Server Web Interface Shutting Down ===")
+        try:
+            logger.info(
+                "Web interface stopping",
+                event="service.stop",
+                service="web",
+                component="web_app",
+            )
+        except Exception:
+            pass
 
     return app
 

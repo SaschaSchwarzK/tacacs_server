@@ -15,7 +15,7 @@ from tacacs_server.devices.service import DeviceService
 from tacacs_server.devices.store import DeviceStore
 from tacacs_server.tacacs.server import TacacsServer
 from tacacs_server.utils.config_utils import set_config as utils_set_config
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import get_logger, bind_context
 from tacacs_server.web.admin.auth import (
     AdminAuthConfig,
     AdminSessionManager,
@@ -97,6 +97,11 @@ class TacacsServerManager:
                     )
                     store.set_instance_name(name)
                     instance_name = name
+                # Bind instance identity into log context for all subsequent logs
+                try:
+                    bind_context(instance_id=instance_id, instance_name=instance_name)
+                except Exception:
+                    pass
                 logger.info(f"Instance: {instance_name} (ID: {instance_id[:8]}...)")
                 # Initial configuration snapshot
                 try:

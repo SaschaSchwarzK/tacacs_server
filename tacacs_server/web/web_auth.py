@@ -3,7 +3,7 @@ Simplified Authentication Module
 Handles both admin web sessions and API token authentication
 """
 
-import logging
+from tacacs_server.utils.logger import get_logger
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AuthConfig:
@@ -48,7 +48,14 @@ class SessionManager:
 
         token = secrets.token_urlsafe(32)
         self._sessions[token] = datetime.now(UTC) + self.config.session_timeout
-        logger.info(f"Session created for user: {username}")
+        logger.info(
+            "Admin session created",
+            event="admin.session.created",
+            service="web",
+            component="web_auth",
+            user_ref=username,
+            session_id="[opaque]",
+        )
         return token
 
     def validate_session(self, token: str) -> bool:
@@ -101,7 +108,14 @@ def init_auth(
         admin_username, admin_password_hash, api_token, session_timeout
     )
     _session_manager = SessionManager(_auth_config)
-    logger.info("Authentication system initialized")
+    logger.info(
+        "Authentication system initialized",
+        event="auth.init",
+        service="web",
+        component="web_auth",
+        admin_user=admin_username,
+        api_token_configured=bool(api_token or os.getenv("API_TOKEN")),
+    )
 
 
 def get_session_manager() -> Optional[SessionManager]:

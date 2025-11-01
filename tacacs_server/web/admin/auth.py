@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import logging
+from tacacs_server.utils.logger import get_logger
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -10,7 +10,7 @@ from fastapi import HTTPException, Request, status
 
 from tacacs_server.exceptions import AuthenticationError
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AdminAuthConfig:

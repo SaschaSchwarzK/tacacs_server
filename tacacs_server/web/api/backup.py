@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import logging
+from tacacs_server.utils.logger import get_logger
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -32,7 +32,7 @@ from tacacs_server.web.api_models import (
 
 from .config import admin_guard
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 router = APIRouter(prefix="/api/admin/backup", tags=["Backup"])

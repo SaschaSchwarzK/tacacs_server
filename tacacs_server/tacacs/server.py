@@ -240,13 +240,18 @@ class TacacsServer:
         """Add authentication backend"""
         self.auth_backends.append(backend)
         self.handlers.auth_backends = self.auth_backends
-        # Use a consistent format across services and prefer backend logical name
-        # (e.g., "local", "okta") rather than the repr that may include class.
+        # Use structured log with consistent fields across services
         try:
             name = getattr(backend, "name", None) or str(backend)
         except Exception:
             name = str(backend)
-        logger.info("TACACS: Added authentication backend: %s", name)
+        logger.info(
+            "Authentication backend added",
+            event="auth.backend.added",
+            service="tacacs",
+            component="tacacs_server",
+            backend=name,
+        )
 
     def remove_auth_backend(self, backend_name: str) -> bool:
         """Remove authentication backend by name"""
@@ -254,7 +259,13 @@ class TacacsServer:
             if backend.name == backend_name:
                 del self.auth_backends[i]
                 self.handlers.auth_backends = self.auth_backends
-                logger.info(f"Removed authentication backend: {backend_name}")
+                logger.info(
+                    "Authentication backend removed",
+                    event="auth.backend.removed",
+                    service="tacacs",
+                    component="tacacs_server",
+                    backend=backend_name,
+                )
                 return True
         return False
 
@@ -285,9 +296,14 @@ class TacacsServer:
                 bind_host = "::"
             self.server_socket.bind((bind_host, self.port))
             self.server_socket.listen(self.listen_backlog)
-            logger.debug("TACACS+ server started on %s:%s", bind_host, self.port)
-            logger.debug(
-                "Authentication backends: %s", [b.name for b in self.auth_backends]
+            logger.info(
+                "TACACS server listening",
+                event="service.start",
+                service="tacacs",
+                component="tacacs_server",
+                host=bind_host,
+                port=self.port,
+                backends=[b.name for b in self.auth_backends],
             )
             logger.debug(
                 "Device-group secrets supported; secret values are never logged"
@@ -374,25 +390,53 @@ class TacacsServer:
                     # Gauge is already updated in _update_active_connections
                 except OSError as e:
                     if self.running:
-                        logger.error("Socket error: %s", e)
+                        logger.error(
+                            "Socket error",
+                            event="socket.error",
+                            service="tacacs",
+                            component="tacacs_server",
+                            error=str(e),
+                        )
                     # continue accept loop unless stopping
                     continue
                 except Exception as e:
-                    logger.error("Unexpected error accepting connections: %s", e)
+                    logger.error(
+                        "Accept error",
+                        event="accept.error",
+                        service="tacacs",
+                        component="tacacs_server",
+                        error=str(e),
+                    )
                     continue
         except Exception as e:
-            logger.error("Server startup error: %s", e)
+            logger.error(
+                "Server startup error",
+                event="service.error",
+                service="tacacs",
+                component="tacacs_server",
+                error=str(e),
+            )
             raise
         finally:
             if self.server_socket:
                 self.server_socket.close()
-            logger.info("TACACS+ server stopped")
+            logger.info(
+                "TACACS server stopped",
+                event="service.stop",
+                service="tacacs",
+                component="tacacs_server",
+            )
 
     def stop(self):
         """Stop TACACS+ server"""
         if not self.running:
             return
-        logger.info("Stopping TACACS+ server...")
+        logger.info(
+            "Stopping TACACS server",
+            event="service.stop.requested",
+            service="tacacs",
+            component="tacacs_server",
+        )
         self.running = False
         if self.server_socket:
             try:
@@ -490,6 +534,11 @@ class TacacsServer:
                         except Exception:
                             pass
                         self._safe_close_socket(client_socket)
+                        try:
+                            from ..utils.logger import clear_context as _clr
+                            _clr(_ctx_token)
+                        except Exception:
+                            pass
                         return
                     # Otherwise, ignore invalid header and proceed as direct connection
                     try:
@@ -653,6 +702,11 @@ class TacacsServer:
         if not rate_limiter.allow_request(client_ip):
             conn_logger.warning("Rate limit exceeded for %s", client_ip)
             self._safe_close_socket(client_socket)
+            try:
+                from ..utils.logger import clear_context as _clr
+                _clr(_ctx_token)
+            except Exception:
+                pass
             return
 
         # Pre-resolve device once for performance
@@ -844,6 +898,12 @@ class TacacsServer:
             # Decrement active count and update gauge
             self._update_active_connections(-1)
             conn_logger.debug("Connection closed: %s", address)
+            # Clear per-connection logging context
+            try:
+                if '_ctx_token' in locals() and _ctx_token is not None:
+                    clear_context(_ctx_token)
+            except Exception:
+                pass
             try:
                 if threading.current_thread().daemon:
                     with self._client_threads_lock:

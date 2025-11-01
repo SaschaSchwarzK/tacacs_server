@@ -3,7 +3,7 @@ Simplified Admin Web Interface
 All HTML/browser-based admin routes in one place
 """
 
-import logging
+from tacacs_server.utils.logger import get_logger
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -14,7 +14,7 @@ from pathlib import Path
 from .web_auth import get_session_manager, require_admin_session
 from tacacs_server.auth.local_user_group_service import UNSET
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Initialize router
 router = APIRouter(prefix="/admin", include_in_schema=False)

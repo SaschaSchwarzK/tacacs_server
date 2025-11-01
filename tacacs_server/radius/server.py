@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from tacacs_server.auth.base import AuthenticationBackend
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import get_logger, bind_context, clear_context
+import uuid
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 from tacacs_server.utils.rate_limiter import get_rate_limiter
 
@@ -536,12 +537,27 @@ class RADIUSServer:
     def add_auth_backend(self, backend):
         """Add authentication backend (shared with TACACS+)"""
         self.auth_backends.append(backend)
-        logger.info(f"RADIUS: Added authentication backend: {backend.name}")
+        try:
+            name = getattr(backend, "name", None) or str(backend)
+        except Exception:
+            name = str(backend)
+        logger.info(
+            "Authentication backend added",
+            event="auth.backend.added",
+            service="radius",
+            component="radius_server",
+            backend=name,
+        )
 
     def set_accounting_logger(self, accounting_logger):
         """Set accounting logger (shared with TACACS+)"""
         self.accounting_logger = accounting_logger
-        logger.info("RADIUS: Accounting logger configured")
+        logger.info(
+            "Accounting logger configured",
+            event="accounting.logger.configured",
+            service="radius",
+            component="radius_server",
+        )
 
     def set_local_user_group_service(self, service) -> None:
         self.local_user_group_service = service
@@ -657,11 +673,15 @@ class RADIUSServer:
         )
         acct_thread.start()
 
-        logger.debug(
-            "RADIUS server started on %s:%s (auth) and %s (acct)",
-            self.host,
-            self.port,
-            self.accounting_port,
+        logger.info(
+            "RADIUS server listening",
+            event="service.start",
+            service="radius",
+            component="radius_server",
+            host=self.host,
+            auth_port=self.port,
+            acct_port=self.accounting_port,
+            workers=self.worker_count,
         )
 
     def stop(self):
@@ -687,7 +707,12 @@ class RADIUSServer:
             finally:
                 self._executor = None
 
-        logger.info("RADIUS server stopped")
+        logger.info(
+            "RADIUS server stopped",
+            event="service.stop",
+            service="radius",
+            component="radius_server",
+        )
 
     def _start_auth_server(self):
         """Start authentication server thread"""
@@ -794,6 +819,11 @@ class RADIUSServer:
     def _handle_auth_request(self, data: bytes, addr: tuple[str, int]):
         """Handle authentication request"""
         client_ip, client_port = addr
+        _ctx = None
+        try:
+            _ctx = bind_context(correlation_id=str(uuid.uuid4()), client={"ip": client_ip})
+        except Exception:
+            _ctx = None
 
         # Per-IP rate limiting to mitigate floods
         limiter = get_rate_limiter()
@@ -827,6 +857,23 @@ class RADIUSServer:
                 return
 
             self._inc("auth_requests")
+
+            # Detailed (DEBUG) request trace
+            try:
+                nas_ip = request.get_string(ATTR_NAS_IP_ADDRESS)
+                nas_port = request.get_integer(ATTR_NAS_PORT)
+                logger.debug(
+                    "RADIUS request",
+                    event="radius.request",
+                    service="radius",
+                    code=request.code,
+                    client={"ip": client_ip, "port": client_port},
+                    nas_ip=nas_ip,
+                    nas_port=nas_port,
+                    client_group=getattr(client_config, "group", None),
+                )
+            except Exception:
+                pass
 
             # Extract authentication info
             username = request.get_string(ATTR_USER_NAME)
@@ -936,10 +983,32 @@ class RADIUSServer:
 
             # Send response
             self._send_response(response, addr, client_secret, request.authenticator)
+            try:
+                status = (
+                    "accept" if response.code == RADIUS_ACCESS_ACCEPT else
+                    "reject" if response.code == RADIUS_ACCESS_REJECT else
+                    str(response.code)
+                )
+                logger.debug(
+                    "RADIUS response",
+                    event="radius.reply",
+                    service="radius",
+                    code=response.code,
+                    status=status,
+                    client={"ip": client_ip, "port": client_port},
+                )
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error("Error handling RADIUS auth request from %s: %s", client_ip, e)
             self._inc("invalid_packets")
+        finally:
+            try:
+                if _ctx is not None:
+                    clear_context(_ctx)
+            except Exception:
+                pass
 
     def _handle_acct_request(self, data: bytes, addr: tuple[str, int]):
         """Handle RADIUS accounting request with improved error handling.
@@ -949,6 +1018,11 @@ class RADIUSServer:
             addr: Client address tuple (ip, port)
         """
         client_ip, client_port = addr
+        _ctx = None
+        try:
+            _ctx = bind_context(correlation_id=str(uuid.uuid4()), client={"ip": client_ip})
+        except Exception:
+            _ctx = None
 
         # Per-IP rate limiting for accounting path
         limiter = get_rate_limiter()
@@ -1011,6 +1085,22 @@ class RADIUSServer:
                 client_config.network,
             )
 
+            # Detailed (DEBUG) accounting trace
+            try:
+                logger.debug(
+                    "RADIUS accounting request",
+                    event="radius.request",
+                    service="radius",
+                    code=RADIUS_ACCOUNTING_REQUEST,
+                    client={"ip": client_ip, "port": client_port},
+                    username=username,
+                    session=session_id,
+                    status=status_name,
+                    client_group=getattr(client_config, "group", None),
+                )
+            except Exception:
+                pass
+
             # Log to accounting database if available
             if self.accounting_logger:
                 self._log_accounting(request, client_ip)
@@ -1024,9 +1114,28 @@ class RADIUSServer:
 
             self._send_response(response, addr, client_secret, request.authenticator)
             self._inc("acct_responses")
+            try:
+                logger.debug(
+                    "RADIUS accounting response",
+                    event="radius.reply",
+                    service="radius",
+                    code=RADIUS_ACCOUNTING_RESPONSE,
+                    client={"ip": client_ip, "port": client_port},
+                    username=username,
+                    session=session_id,
+                    status=status_name,
+                )
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error("Error handling RADIUS acct request from %s: %s", client_ip, e)
+        finally:
+            try:
+                if _ctx is not None:
+                    clear_context(_ctx)
+            except Exception:
+                pass
 
     def _authenticate_user(
         self, username: str, password: str, **kwargs

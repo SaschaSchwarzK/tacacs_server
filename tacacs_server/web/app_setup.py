@@ -7,7 +7,7 @@ Location: tacacs_server/web/app_setup.py
 This file shows how to integrate OpenAPI documentation into your existing FastAPI app.
 """
 
-import logging
+from tacacs_server.utils.logger import get_logger
 import time
 from datetime import datetime
 
@@ -22,7 +22,7 @@ from .openapi_config import configure_openapi_ui, custom_openapi_schema
 from .middleware import install_security_headers
 from .errors import install_exception_handlers as _install_exc
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_app() -> FastAPI:

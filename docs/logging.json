@@ -1,0 +1,347 @@
+{
+  "document": {
+    "title": "Structured Logging Requirements",
+    "version": "1.0.0",
+    "applies_to": ["services", "workers", "CLIs", "tests"],
+    "goals": [
+      "Make logs machine-parseable and human-scannable",
+      "Enable reliable correlation across services and requests",
+      "Avoid logging secrets or sensitive data",
+      "Support multi-tenant auditing (per tenant/device/user)",
+      "Be stable across versions via explicit schema"
+    ]
+  },
+
+  "format": {
+    "encoding": "UTF-8",
+    "transport": "stdout-preferred",
+    "content_type": "application/json",
+    "newline_delimited_json": true,
+    "time": {
+      "timestamp_field": "ts",
+      "format": "RFC3339Nano",
+      "timezone": "UTC",
+      "monotonic_field": "t_monotonic_ms"
+    }
+  },
+
+  "levels": {
+    "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+    "default": "INFO",
+    "mappings": {
+      "TRACE": "diagnostic spans, verbose auth/command traces with redaction",
+      "DEBUG": "development troubleshooting; disabled in prod by default",
+      "INFO": "normal operation events (start/stop, auth success, allowed command)",
+      "WARN": "unexpected but handled conditions (retries, degraded mode, rate-limit)",
+      "ERROR": "request failed or action denied due to error or policy",
+      "FATAL": "service unusable; process will exit or requires immediate attention"
+    }
+  },
+
+  "structure": {
+    "required_fields": [
+      "ts", "level", "event", "message", "service", "env", "host",
+      "trace_id", "span_id", "correlation_id"
+    ],
+    "recommended_fields": [
+      "tenant_id", "device_id", "user_ref", "request_id", "session_id",
+      "client": { "ip": "", "port": 0, "user_agent": "" },
+      "auth": { "backend": "", "mfa": "", "result": "" },
+      "policy": { "id": "", "rule": "", "decision": "" },
+      "command": { "name": "", "args": [], "result": "" },
+      "resource": { "type": "", "id": "" },
+      "duration_ms", "retries", "component", "subsystem",
+      "metrics": { "cpu_pct": 0.0, "mem_mb": 0.0 }
+    ],
+    "error_object": {
+      "field": "error",
+      "shape": { "type": "", "code": "", "message": "", "stack": "" },
+      "stack_truncation": { "max_chars": 4000 }
+    },
+    "message_guidelines": [
+      "Short, action-first sentence",
+      "Put variable data in structured fields, not the message"
+    ]
+  },
+
+  "multi_tenancy": {
+    "tenant_field": "tenant_id",
+    "device_field": "device_id",
+    "requirements": [
+      "Include tenant_id for all user/device-scoped events",
+      "When unknown, use \"unknown\" not null"
+    ]
+  },
+
+  "security_and_privacy": {
+    "never_log_plaintext": true,
+    "denylisted_keys_case_insensitive": [
+      "password", "pass", "passwd",
+      "secret", "api_key", "token", "access_token", "refresh_token",
+      "authorization", "set-cookie",
+      "private_key", "client_secret", "tacacs_key", "radius_secret",
+      "otp", "mfa_code"
+    ],
+    "pattern_redactions": [
+      { "name": "JWT", "regex": "eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+", "replacement": "[REDACTED.JWT]" },
+      { "name": "PEM key", "regex": "-----BEGIN (?:RSA |EC |ED25519 )?PRIVATE KEY-----[\\s\\S]+?-----END (?:RSA |EC |ED25519 )?PRIVATE KEY-----", "replacement": "[REDACTED.PEM]" },
+      { "name": "IPv4 with maskable host", "regex": "\\b(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\.\\d{1,3}\\b", "replacement": "$1.xxx", "note": "apply only to client IPs, not device management IPs" },
+      { "name": "Basic auth header", "regex": "(?i)authorization:\\s*basic\\s+[A-Za-z0-9+/=]+", "replacement": "authorization: [REDACTED.BASIC]" }
+    ],
+    "pii_policy": {
+      "user_ref": "hashed (SHA-256 + per-env salt)",
+      "session_id": "opaque random; do not derive from secrets",
+      "email": "hash or omit",
+      "client.ip": "mask unless operationally required; see pattern_redactions",
+      "geo": "omit unless required for security analytics"
+    },
+    "field_hashing": {
+      "algorithm": "SHA-256",
+      "salt_source": "env-specific static salt from secret manager",
+      "fields": ["user_ref", "email"]
+    },
+    "payload_controls": {
+      "max_field_length": 4096,
+      "max_event_bytes": 65536,
+      "truncation_marker": "[TRUNCATED]",
+      "binary_detection": "base64 or hex encode; label as data_encoding"
+    }
+  },
+
+  "request_response_logging": {
+    "log_requests": true,
+    "log_responses": true,
+    "rules": [
+      "Never log full request/response bodies for auth endpoints",
+      "Headers are allowed but must pass denylist redaction",
+      "For CLI command auditing, log command name and normalized args; do not log unredacted arguments containing secrets"
+    ],
+    "sampling": {
+      "enabled": true,
+      "default_sample_rate": 1.0,
+      "high_volume_endpoints": [
+        { "pattern": "/health", "rate": 0.1 },
+        { "pattern": "/metrics", "rate": 0.1 }
+      ],
+      "always_sample_on": ["level in ['ERROR','FATAL']", "policy.decision == 'deny'"]
+    }
+  },
+
+  "domain_events": {
+    "auth": {
+      "events": [
+        "auth.request", "auth.success", "auth.failure",
+        "mfa.challenge", "mfa.success", "mfa.failure"
+      ],
+      "must_include": ["auth.backend", "auth.result", "tenant_id", "user_ref", "client.ip"]
+    },
+    "policy": {
+      "events": ["policy.decision"],
+      "must_include": ["policy.id", "policy.rule", "policy.decision", "reason"]
+    },
+    "tacacs_radius": {
+      "events": [
+        "tacacs.request", "tacacs.reply",
+        "radius.request", "radius.reply",
+        "command.authorize", "command.executed"
+      ],
+      "must_include": ["device_id", "command.name", "command.result", "policy.decision"]
+    },
+    "system": {
+      "events": ["service.start", "service.stop", "config.reload", "health.heartbeat"],
+      "must_include": ["service", "version", "env"]
+    }
+  },
+
+  "correlation": {
+    "trace_id": { "format": "uuid-v4 or 16-byte hex", "required": true },
+    "span_id": { "format": "8-byte hex", "required": true },
+    "correlation_id": {
+      "format": "free-form string, stable across retries",
+      "source": "incoming header X-Correlation-ID if present; otherwise generated",
+      "generation": {
+        "algorithm": "uuid-v4",
+        "scope": "per HTTP request; for TACACS events, use session hex as correlation_id"
+      },
+      "propagation": {
+        "http": "bind to logging context at request start and clear after response",
+        "tacacs": "bind per-connection correlation_id; include session hex in auth/policy events"
+      }
+    },
+    "request_id": { "format": "uuid-v4", "regenerate_on_retry": false }
+  },
+
+  "rotation_and_retention": {
+    "local_rotation": { "max_size_mb": 100, "max_backups": 3, "compress": true },
+    "central_sink": { "protocol": "OTLP/HTTP or JSON to log collector", "retry": { "backoff": "exponential", "max_delay_sec": 30 } },
+    "retention": {
+      "dev": { "days": 7 },
+      "staging": { "days": 30 },
+      "prod": { "days": 90, "legal_hold_supported": true }
+    }
+  },
+
+  "validation_and_schema": {
+    "schema_version_field": "schema",
+    "current_version": "log.v1",
+    "backward_compatibility": "additive-only changes in patch/minor",
+    "json_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://example.org/schemas/log.v1.json",
+      "type": "object",
+      "required": ["ts", "level", "event", "message", "service", "env", "host", "trace_id", "span_id", "correlation_id", "schema"],
+      "properties": {
+        "schema": { "const": "log.v1" },
+        "ts": { "type": "string", "format": "date-time" },
+        "t_monotonic_ms": { "type": "number" },
+        "level": { "type": "string", "enum": ["TRACE","DEBUG","INFO","WARN","ERROR","FATAL"] },
+        "event": { "type": "string", "minLength": 3 },
+        "message": { "type": "string" },
+        "service": { "type": "string" },
+        "env": { "type": "string", "enum": ["dev","staging","prod","test"] },
+        "host": { "type": "string" },
+        "trace_id": { "type": "string" },
+        "span_id": { "type": "string" },
+        "correlation_id": { "type": "string" },
+        "request_id": { "type": "string" },
+        "tenant_id": { "type": "string" },
+        "device_id": { "type": "string" },
+        "user_ref": { "type": "string", "description": "hashed identifier" },
+        "client": {
+          "type": "object",
+          "properties": {
+            "ip": { "type": "string" },
+            "port": { "type": "integer" },
+            "user_agent": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "backend": { "type": "string", "enum": ["okta","ldap","local","radius","none"] },
+            "mfa": { "type": "string", "enum": ["none","totp","push","u2f","sms","unknown"] },
+            "result": { "type": "string", "enum": ["success","failure","denied","error"] }
+          },
+          "additionalProperties": false
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "rule": { "type": "string" },
+            "decision": { "type": "string", "enum": ["allow","deny","defer"] },
+            "reason": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "command": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "result": { "type": "string", "enum": ["allowed","denied","error","skipped"] }
+          },
+          "additionalProperties": false
+        },
+        "duration_ms": { "type": "number" },
+        "retries": { "type": "integer", "minimum": 0 },
+        "error": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "stack": { "type": "string" }
+          },
+          "required": ["type","message"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+
+  "quality_gates": {
+    "linters": ["schema validation must pass", "keys must be lower_snake_case"],
+    "CI_checks": [
+      "Reject events that exceed max_event_bytes",
+      "Reject logs containing denylisted keys/regex",
+      "Enforce RFC3339 timestamps and UTC"
+    ],
+    "sampling_verification": "Emit counters for sampled/dropped events"
+  },
+
+  "operational_guidelines": {
+    "startup": [
+      "First line is service.start with version, config.hash (non-secret), pid, listening_ports (no secrets)."
+    ],
+    "shutdown": [
+      "Emit service.stop with uptime_sec and graceful=true/false."
+    ],
+    "health": [
+      "Emit health.heartbeat INFO every 60s with summarized metrics; do not include secrets."
+    ],
+    "redaction_fail_close": true,
+    "on_redaction_error": "drop the sensitive field, keep event, add field '_redaction_error': true"
+  },
+
+  "examples": {
+    "auth_success": {
+      "schema": "log.v1",
+      "ts": "2025-11-01T08:15:30.123456Z",
+      "t_monotonic_ms": 512345.7,
+      "level": "INFO",
+      "event": "auth.success",
+      "message": "User authenticated via Okta.",
+      "service": "tacacs-server",
+      "env": "prod",
+      "host": "srv-tacacs-01",
+      "trace_id": "5b3b62f6e0a04c0c9f3b3f2d8b9f1a2c",
+      "span_id": "8f23a9c1d2e3f4a5",
+      "correlation_id": "c-7b1d2bd0",
+      "request_id": "3f93a0a6-6b12-4a34-8b6e-6d84e8a7d2a1",
+      "tenant_id": "tenant-001",
+      "user_ref": "hash:8c2f…",
+      "client": { "ip": "203.0.113.xxx", "port": 51324, "user_agent": "ssh/9.7" },
+      "auth": { "backend": "okta", "mfa": "push", "result": "success" },
+      "duration_ms": 182.4
+    },
+    "command_denied": {
+      "schema": "log.v1",
+      "ts": "2025-11-01T08:16:12.004Z",
+      "level": "WARN",
+      "event": "command.authorize",
+      "message": "Command denied by policy.",
+      "service": "tacacs-server",
+      "env": "prod",
+      "host": "srv-tacacs-01",
+      "trace_id": "f7f0b2c9c4b14d2f98a3f0e2d1c9a7b1",
+      "span_id": "aa11bb22cc33dd44",
+      "correlation_id": "c-7b1d2bd0",
+      "tenant_id": "tenant-001",
+      "device_id": "dev-nyc-core-01",
+      "user_ref": "hash:8c2f…",
+      "command": { "name": "configure terminal", "args": [], "result": "denied" },
+      "policy": { "id": "pol-42", "rule": "deny-conf-mode", "decision": "deny", "reason": "Operator role" }
+    },
+    "error_example": {
+      "schema": "log.v1",
+      "ts": "2025-11-01T08:17:45.890Z",
+      "level": "ERROR",
+      "event": "radius.reply",
+      "message": "Reply failed to send",
+      "service": "radius-gateway",
+      "env": "prod",
+      "host": "gw-radius-02",
+      "trace_id": "9a4e0c1fb2a34a2d8a2c3f1d5e6b7c8d",
+      "span_id": "0011223344556677",
+      "correlation_id": "c-aaa111",
+      "tenant_id": "tenant-002",
+      "client": { "ip": "198.51.100.xxx", "port": 1812 },
+      "error": { "type": "IOError", "code": "EPIPE", "message": "Broken pipe", "stack": "[TRUNCATED]" },
+      "retries": 1,
+      "duration_ms": 12.1
+    }
+  }
+}

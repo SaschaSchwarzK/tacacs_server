@@ -1,5 +1,5 @@
 from __future__ import annotations
-import logging
+from tacacs_server.utils.logger import get_logger
 import asyncio
 import os
 from typing import Any
@@ -28,18 +28,21 @@ from tacacs_server.web.api_models import (
 
 router = APIRouter(prefix="/api/admin/config", tags=["Configuration"])
 
-logger = logging.getLogger("tacacs.api.config")
+logger = get_logger("tacacs.api.config")
 
 
 async def admin_guard(request: Request) -> None:
     # Cookie-based admin session only; do not read body
     try:
-        logging.getLogger("tacacs.api.config").info(
-            "api.config.admin_guard: path=%s method=%s has_cookie=%s ct=%s",
-            getattr(request.url, "path", ""),
-            getattr(request, "method", ""),
-            bool(request.cookies.get("admin_session")),
-            request.headers.get("content-type", ""),
+        logger.info(
+            "Admin guard",
+            event="admin.guard",
+            service="web",
+            component="web_api.config",
+            path=getattr(request.url, "path", ""),
+            method=getattr(request, "method", ""),
+            has_cookie=bool(request.cookies.get("admin_session")),
+            content_type=request.headers.get("content-type", ""),
         )
     except Exception:
         pass
