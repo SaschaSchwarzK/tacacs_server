@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/devices/service.py
-# hypothesis_version: 6.140.2
-
-['allowed_user_groups', 'created_at', 'description', 'device_config', 'device_count', 'device_group_id', 'device_group_name', 'enabled', 'group', 'id', 'ip_address', 'metadata', 'name', 'network', 'network is required', 'radius_profile', 'radius_secret', 'radius_secret_set', 'tacacs_profile', 'tacacs_secret', 'tacacs_secret_set', 'updated_at']

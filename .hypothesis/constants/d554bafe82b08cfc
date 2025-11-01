@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/utils/audit_logger.py
-# hypothesis_version: 6.140.2
-
-[100, 3600, ' AND action = ?', ' AND user_id = ?', 'action', 'audit_action', 'client_ip', 'data/audit_trail.db', 'details', 'failed_actions', 'resource_id', 'resource_type', 'success', 'success_rate', 'successful_actions', 'total_actions', 'unique_actions', 'unique_users', 'user_id']

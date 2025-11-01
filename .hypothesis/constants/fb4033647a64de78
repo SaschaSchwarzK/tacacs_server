@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/utils/validation.py
-# hypothesis_version: 6.140.2
-
-[128, 253, 255, 500, 997, 1000, 65535, '\x00', '#', '$', '&', '(', '(--|#|/\\*|\\*/)', ')', '*', ',', '...', '/', ';', '<', '>', 'Email is required', 'Hostname is required', 'Hostname too long', 'Invalid URL format', 'Invalid email format', 'LDAP filter', 'Network is required', 'Password is required', 'RADIUS secret', 'TACACS+ secret', 'URL is required', 'Username is required', '\\', '_.-', '`', 'allowed_user_groups', 'data', 'description', 'device name', 'enabled', 'group', 'group name', 'groups', 'http', 'https', 'items', 'metadata', 'name', 'network', 'password', 'payload', 'privilege_level', 'radius_profile', 'radius_secret', 'secret', 'service', 'shell_command', 'tacacs_profile', 'tacacs_secret', 'username', '|']
