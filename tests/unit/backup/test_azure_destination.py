@@ -27,7 +27,6 @@ def test_container_name_validation():
 def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Path):
     mock_container = Mock()
     mock_blob_client = Mock()
-    # Container client/exists and get_blob_client
     mock_bsc.from_connection_string.return_value.get_container_client.return_value = (
         mock_container
     )
@@ -42,7 +41,6 @@ def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Pat
             "default_tags": {"app": "tacacs"},
         }
     )
-    # test upload
     src = _tmp_file(tmp_path)
     dest.upload_backup(src, "test.tar.gz")
     assert mock_blob_client.upload_blob.called
@@ -58,12 +56,8 @@ def test_account_key_initialization():
             "container_name": "backups",
         }
     )
-    # trigger client creation
     ok, _ = dest.test_connection()
     assert isinstance(ok, bool)
-    # Ensure constructor (not from_connection_string) was used
-    # assert mock_bsc.from_connection_string.called is False # Removed due to no mock
-    # assert mock_bsc.called # Removed due to no mock
 
 
 @patch("azure.storage.blob.BlobServiceClient")
@@ -81,8 +75,8 @@ def test_sas_token_initialization(mock_bsc):
     assert mock_bsc.called
 
 
-@patch("tacacs_server.backup.destinations.azure.DefaultAzureCredential")
-@patch("tacacs_server.backup.destinations.azure.BlobServiceClient")
+@patch("azure.identity.DefaultAzureCredential")
+@patch("azure.storage.blob.BlobServiceClient")
 def test_managed_identity_initialization(mock_bsc, mock_dac):
     dest = AzureBlobBackupDestination(
         {
@@ -97,7 +91,7 @@ def test_managed_identity_initialization(mock_bsc, mock_dac):
     assert mock_bsc.called
 
 
-@patch("tacacs_server.backup.destinations.azure.BlobServiceClient")
+@patch("azure.storage.blob.BlobServiceClient")
 def test_test_connection_container_creation(mock_bsc):
     mock_container = Mock()
     mock_blob = Mock()
@@ -106,9 +100,7 @@ def test_test_connection_container_creation(mock_bsc):
     bsc.get_container_client.return_value = mock_container
     mock_container.exists.return_value = False
     mock_container.get_blob_client.return_value = mock_blob
-    # download returns object with readall
     mock_blob.download_blob.return_value.readall.return_value = b"ok"
-    # list_blobs returns iterable
     mock_container.list_blobs.return_value = []
 
     dest = AzureBlobBackupDestination(
@@ -121,14 +113,13 @@ def test_test_connection_container_creation(mock_bsc):
     assert mock_blob.delete_blob.called
 
 
-@patch("tacacs_server.backup.destinations.azure.BlobServiceClient")
+@patch("azure.storage.blob.BlobServiceClient")
 def test_list_blobs_filtering_and_download(mock_bsc, tmp_path: Path):
     mock_container = Mock()
     bsc = Mock()
     mock_bsc.from_connection_string.return_value = bsc
     bsc.get_container_client.return_value = mock_container
 
-    # Prepare list_blobs with non-archive ignored
     blob1 = SimpleNamespace(name="a/test1.tar.gz", size=10, last_modified=None)
     blob2 = SimpleNamespace(name="a/readme.txt", size=5, last_modified=None)
     mock_container.list_blobs.return_value = [blob1, blob2]
@@ -139,17 +130,13 @@ def test_list_blobs_filtering_and_download(mock_bsc, tmp_path: Path):
     items = dest.list_backups()
     assert len(items) == 1 and items[0].filename == "test1.tar.gz"
 
-    # Download path
     mock_blob = Mock()
     mock_container.get_blob_client.return_value = mock_blob
-    # download_blob returns obj with readall
     mock_blob.download_blob.return_value.readall.return_value = b"data"
-    # properties.size
     mock_blob.get_blob_properties.return_value.size = 4
     p = tmp_path / "dl.tar.gz"
     ok = dest.download_backup("a/test1.tar.gz", str(p))
     assert ok and p.read_bytes() == b"data"
 
-    # Delete
     assert dest.delete_backup("a/test1.tar.gz") is True
     assert mock_blob.delete_blob.called

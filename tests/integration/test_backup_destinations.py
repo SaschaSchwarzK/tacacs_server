@@ -1,23 +1,84 @@
 from __future__ import annotations
 
-import os
+import threading
+import time
+from pathlib import Path
 
 import pytest
 
-from tacacs_server.backup.destinations.ftp import FTPBackupDestination
+
+@pytest.fixture(scope="function")
+def ftp_server(tmp_path):
+    """Start a real FTP server for integration testing."""
+    try:
+        from pyftpdlib.authorizers import DummyAuthorizer
+        from pyftpdlib.handlers import FTPHandler
+        from pyftpdlib.servers import FTPServer
+    except ImportError:
+        pytest.skip("pyftpdlib not installed")
+
+    # Create temp directory for FTP root
+    ftp_root = tmp_path / "ftp_root"
+    ftp_root.mkdir()
+
+    # Setup authorizer
+    authorizer = DummyAuthorizer()
+    authorizer.add_user("testuser", "testpass", str(ftp_root), perm="elradfmw")
+
+    # Setup handler
+    handler = FTPHandler
+    handler.authorizer = authorizer
+    handler.permit_foreign_addresses = True
+
+    # Create server
+    server = FTPServer(("127.0.0.1", 0), handler)
+    port = server.address[1]
+
+    # Run server in thread with controlled shutdown
+    def run_server():
+        try:
+            server.serve_forever(timeout=1.0, blocking=True)
+        except (OSError, ValueError):
+            # Expected during shutdown
+            pass
+
+    server_thread = threading.Thread(target=run_server)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Wait for server to be ready
+    time.sleep(1.0)
+
+    try:
+        yield {
+            "host": "127.0.0.1",
+            "port": port,
+            "username": "testuser",
+            "password": "testpass",
+            "root": ftp_root,
+        }
+    finally:
+        # Graceful shutdown
+        try:
+            server.close_all()
+        except Exception:
+            pass
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(not os.getenv("TEST_FTP_HOST"), reason="FTP server not configured")
-def test_ftp_destination_integration(tmp_path):
-    """Integration test with real FTP server (optional)."""
+def test_ftp_destination_integration(ftp_server, tmp_path: Path):
+    """Integration test with real FTP server."""
+    from tacacs_server.backup.destinations.ftp import FTPBackupDestination
+
     config = {
-        "host": os.getenv("TEST_FTP_HOST"),
-        "port": int(os.getenv("TEST_FTP_PORT", "21")),
-        "username": os.getenv("TEST_FTP_USER"),
-        "password": os.getenv("TEST_FTP_PASS"),
+        "host": ftp_server["host"],
+        "port": ftp_server["port"],
+        "username": ftp_server["username"],
+        "password": ftp_server["password"],
         "base_path": "/test-backups",
         "use_tls": False,
+        "timeout": 30,
+        "passive": True,
     }
 
     destination = FTPBackupDestination(config)

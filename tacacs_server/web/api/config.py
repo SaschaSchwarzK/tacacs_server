@@ -398,7 +398,6 @@ async def update_config_multi(
     if cfg is None:
         raise ServiceUnavailableError("Configuration not available")
 
-
     results: dict[str, Any] = {}
     errors: dict[str, Any] = {}
 

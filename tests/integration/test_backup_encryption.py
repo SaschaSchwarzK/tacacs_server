@@ -1,4 +1,4 @@
-"""Test backup encryption with proper retry handling for locked databases"""
+"""Test backup encryption with proper database isolation"""
 
 from __future__ import annotations
 
@@ -19,14 +19,9 @@ def _wait_for(cond, timeout=30.0, interval=0.5) -> bool:
 
 @pytest.mark.integration
 def test_encrypted_backup_restore(server_factory, tmp_path: Path):
-    """
-    Test complete encrypted backup and restore cycle.
-
-    The restore now uses retry logic to handle database locks gracefully.
-    """
+    """Test complete encrypted backup and restore cycle with proper database isolation."""
     passphrase = "TestEncryptionKey123!@#"
 
-    # Use unique temp database paths
     test_db_dir = tmp_path / "test_dbs"
     test_db_dir.mkdir(parents=True, exist_ok=True)
     auth_db = test_db_dir / "auth.db"
@@ -58,6 +53,9 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
         created_user = user_service.get_user("testuser")
         assert created_user is not None
         assert int(created_user.privilege_level) == 15
+
+        # Close the user service connection before backup
+        del user_service
 
         base = server.get_base_url()
         session = server.login_admin()
@@ -105,13 +103,21 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
 
         backup_path = execution["backup_path"]
 
-        # Delete user to simulate data loss
-        user_service.delete_user("testuser")
-        with pytest.raises(Exception):
-            user_service.get_user("testuser")
-        del user_service  # Close connection
+        # Delete user to simulate data loss - use new service instance
+        delete_service = LocalUserService(str(auth_db))
+        delete_service.delete_user("testuser")
 
-        # Now restore via API (which will retry if database is locked)
+        # Verify deletion
+        try:
+            delete_service.get_user("testuser")
+            pytest.fail("User should have been deleted")
+        except Exception:
+            pass  # Expected
+
+        del delete_service
+        time.sleep(0.5)  # Allow connection to close
+
+        # Restore via API
         restore_resp = session.post(
             f"{base}/api/admin/backup/restore",
             json={
@@ -120,41 +126,22 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
                 "components": ["users"],
                 "confirm": True,
             },
-            timeout=30,  # Increased timeout for retries
+            timeout=30,
         )
 
-        # Restore should succeed or provide meaningful error
-        if restore_resp.status_code != 200:
-            error_msg = restore_resp.text
-            # If it failed due to locked database, that's a known limitation - skip test
-            if "locked" in error_msg.lower() or "being used" in error_msg.lower():
-                pytest.skip(
-                    f"Database restore failed due to lock (known limitation): {error_msg}"
-                )
-            else:
-                pytest.fail(f"Restore failed: {restore_resp.status_code} - {error_msg}")
-
+        assert restore_resp.status_code == 200, f"Restore failed: {restore_resp.text}"
         restore_result = restore_resp.json()
         print(f"Restore result: {restore_result}")
 
-        # Give time for any async operations to complete
-        time.sleep(1)
+    # Exit the server context to close all connections
+    # Now verify the restored data with fresh connection
+    time.sleep(0.5)
 
-        # Verify restoration - create new service instance
-        restored_service = LocalUserService(str(auth_db))
-        try:
-            user = restored_service.get_user("testuser")
-            assert user is not None, "User should be restored from backup"
-            assert int(user.privilege_level) == 15, (
-                "User privilege level should be preserved"
-            )
-        except Exception as e:
-            # If user wasn't restored, check if it's due to the known limitation
-            pytest.skip(
-                f"User not found after restore - may be due to database lock issue: {e}"
-            )
-
-    # Cleanup temp databases
+    restored_service = LocalUserService(str(auth_db))
+    user = restored_service.get_user("testuser")
+    assert user is not None, "User should be restored from backup"
+    assert int(user.privilege_level) == 15, "User privilege level should be preserved"
+    del restored_service
     try:
         if auth_db.exists():
             auth_db.unlink()
