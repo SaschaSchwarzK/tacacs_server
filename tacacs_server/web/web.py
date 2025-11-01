@@ -39,7 +39,6 @@ from tacacs_server.utils.metrics_history import get_metrics_history
 from tacacs_server.web.api.config import router as config_router
 from tacacs_server.web.api.device_groups import router as device_groups_router
 from tacacs_server.web.api.devices import router as devices_router
-from tacacs_server.web.api.proxies import router as proxies_router
 from tacacs_server.web.api.usergroups import router as user_groups_router
 from tacacs_server.web.api.users import router as users_router
 from tacacs_server.web.api_models import (
@@ -427,7 +426,7 @@ class WebServer:
         self.app.include_router(device_groups_router)
         self.app.include_router(users_router)
         self.app.include_router(user_groups_router)
-        self.app.include_router(proxies_router)
+        # Proxies API routes are registered in the main web_app.py
         self.app.include_router(config_router)
         # Include backup router (admin-protected)
         try:

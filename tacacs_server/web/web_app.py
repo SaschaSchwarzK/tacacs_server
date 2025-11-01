@@ -492,6 +492,47 @@ def create_app(
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # ========================================================================
+    # FEATURE FLAGS (template globals)
+    # ========================================================================
+
+    # Determine if proxy feature is enabled from config/tacacs_server
+    try:
+        proxy_enabled = False
+        # Prefer config_service if available
+        if config_service is not None:
+            # Newer consolidated proxy protocol section
+            try:
+                getter = getattr(config_service, "get_proxy_protocol_config", None)
+                if callable(getter):
+                    pxy = getter() or {}
+                    proxy_enabled = bool(pxy.get("enabled", proxy_enabled))
+            except Exception:
+                pass
+            # Legacy flag under server network
+            if proxy_enabled is False:
+                try:
+                    getter = getattr(config_service, "get_server_network_config", None)
+                    if callable(getter):
+                        net_cfg = getter() or {}
+                        proxy_enabled = bool(net_cfg.get("proxy_enabled", False))
+                except Exception:
+                    pass
+        # Fallback to tacacs_server runtime flag if present
+        if proxy_enabled is False and tacacs_server is not None:
+            proxy_enabled = bool(getattr(tacacs_server, "proxy_enabled", False))
+
+        # Publish to Jinja2 template globals used by base nav and forms
+        try:
+            from . import web_admin as _web_admin
+
+            _web_admin.templates.env.globals["proxy_enabled"] = proxy_enabled
+            logger.debug("Template global proxy_enabled set to %s", proxy_enabled)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # ========================================================================
     # INCLUDE ROUTERS
     # ========================================================================
 
@@ -500,6 +541,15 @@ def create_app(
 
     # API routes
     app.include_router(web_api.router)
+
+    # Feature-specific API routes
+    try:
+        from tacacs_server.web.api.proxies import router as proxies_router
+
+        app.include_router(proxies_router)
+        logger.debug("Included proxies API routes under /api/proxies")
+    except Exception as exc:
+        logger.error("Failed to include proxies API routes: %s", exc)
 
     # Backup API routes (admin)
     try:

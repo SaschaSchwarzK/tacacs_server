@@ -662,18 +662,45 @@ async def groups_page(request: Request):
                 }
                 for g in all_groups
             ]
-            # Proxies for select
+            # Proxies for select (may be empty even when feature is enabled)
             try:
                 proxies = [
                     {"id": p.id, "name": p.name, "network": str(p.network)}
                     for p in device_service.list_proxies()
                 ]
-                proxy_enabled = len(proxies) > 0
             except Exception:
                 proxies = []
-                proxy_enabled = False
     except Exception as e:
         logger.warning(f"Failed to get groups: {e}")
+
+    # Determine feature flag for template rendering (menu + form field)
+    try:
+        # Prefer template global set during app creation
+        proxy_enabled = bool(templates.env.globals.get("proxy_enabled", False))
+        if proxy_enabled is False:
+            # Fallback to config/tacacs_server state if global not initialized
+            cfg = getattr(request.app.state, "config_service", None)
+            if cfg is not None:
+                try:
+                    getter = getattr(cfg, "get_proxy_protocol_config", None)
+                    if callable(getter):
+                        pxy = getter() or {}
+                        proxy_enabled = bool(pxy.get("enabled", proxy_enabled))
+                except Exception:
+                    pass
+                if proxy_enabled is False:
+                    try:
+                        getter = getattr(cfg, "get_server_network_config", None)
+                        if callable(getter):
+                            net_cfg = getter() or {}
+                            proxy_enabled = bool(net_cfg.get("proxy_enabled", False))
+                    except Exception:
+                        pass
+        if proxy_enabled is False:
+            ts = getattr(request.app.state, "tacacs_server", None)
+            proxy_enabled = bool(getattr(ts, "proxy_enabled", False)) if ts else False
+    except Exception:
+        proxy_enabled = False
 
     try:
         if user_group_service:
@@ -697,6 +724,44 @@ async def groups_page(request: Request):
             "user_group_options": user_group_options,
             "proxy_enabled": proxy_enabled,
         },
+    )
+
+
+# ============================================================================
+# PROXIES
+# ============================================================================
+
+
+@router.get(
+    "/proxies",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_admin_session)],
+    name="admin_proxies",
+)
+async def proxies_page(request: Request):
+    """List and manage proxies"""
+    _log_ui("proxies_page", request)
+    device_service = request.app.state.device_service
+    proxies = []
+    try:
+        if device_service:
+            items = device_service.list_proxies()
+            proxies = [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "network": str(p.network),
+                    "metadata": getattr(p, "metadata", {}) or {},
+                }
+                for p in items
+            ]
+    except Exception as e:
+        logger.warning(f"Failed to get proxies: {e}")
+
+    return templates.TemplateResponse(
+        request,
+        "admin/proxies.html",
+        {"proxies": proxies, "proxy_enabled": True},
     )
 
 
