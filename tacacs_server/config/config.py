@@ -492,6 +492,11 @@ class TacacsConfig:
             "default_group": self.config.get(
                 "devices", "default_group", fallback="default"
             ),
+            "auto_register": (
+                self.config.getboolean("devices", "auto_register", fallback=True)
+                if "devices" in self.config
+                else True
+            ),
             "identity_cache_ttl_seconds": int(
                 self.config.get("devices", "identity_cache_ttl_seconds", fallback="60")
             ),
@@ -1203,6 +1208,71 @@ class TacacsConfig:
         if not self.is_url_config():
             self.save_config()
 
+    def update_devices_config(self, **kwargs):
+        """Update devices configuration (auto_register/default_group/cache) with history."""
+        reason = kwargs.pop("_change_reason", None)
+        source_ip = kwargs.pop("_source_ip", None)
+        # Basic key filtering
+        allowed = {"auto_register", "default_group", "identity_cache_ttl_seconds", "identity_cache_size"}
+        for k in list(kwargs.keys()):
+            if k not in allowed:
+                kwargs.pop(k)
+        # Validate via temporary config
+        temp_config = self._create_temp_config_with_updates("devices", kwargs)
+        self._validate_temp_config(temp_config)
+        # Apply
+        old_values: dict[str, str] = {
+            k: self.config.get("devices", k, fallback="") for k in kwargs.keys()
+        }
+        self._apply_config_updates("devices", kwargs)
+        # Persist overrides and audit trail
+        store = getattr(self, "config_store", None)
+        if store is not None:
+            user = self._get_current_user()
+            for key, new_value in kwargs.items():
+                vtype = self._infer_type(new_value)
+                try:
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="devices",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
+                except Exception:
+                    pass
+                try:
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="devices",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
+                except Exception:
+                    pass
+            try:
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated devices config: {', '.join(kwargs.keys())}",
+                    )
+            except Exception:
+                pass
+        self._apply_overrides()
+        if not self.is_url_config():
+            self.save_config()
+
     def _create_temp_config_with_updates(
         self, section: str, updates: dict
     ) -> configparser.ConfigParser:
@@ -1711,6 +1781,21 @@ class TacacsConfig:
                         issues.append(f"Unknown backend: {b}")
             except Exception:
                 issues.append("Invalid backends format")
+
+        # Devices custom validation
+        if section == "devices":
+            if key == "auto_register":
+                sval = str(value).lower()
+                if sval not in ("1", "0", "true", "false", "yes", "no", "on", "off"):
+                    issues.append("auto_register must be boolean")
+            elif key == "default_group":
+                if not str(value).strip():
+                    issues.append("default_group cannot be empty")
+            elif key in ("identity_cache_ttl_seconds", "identity_cache_size"):
+                try:
+                    _ = int(value)
+                except Exception:
+                    issues.append(f"{key} must be an integer")
 
         return (len(issues) == 0), issues
 

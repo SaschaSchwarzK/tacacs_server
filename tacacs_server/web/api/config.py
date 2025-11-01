@@ -383,6 +383,14 @@ async def get_section(
     if section not in cfg.config:
         raise ResourceNotFoundError("Section not found")
     values = dict(cfg.config[section])
+    # Provide convenient aliases for templates
+    if section == "devices":
+        try:
+            # Ensure defaults if section missing keys
+            values.setdefault("auto_register", str(cfg.get_device_store_config().get("auto_register", True)).lower())
+            values.setdefault("default_group", cfg.get_device_store_config().get("default_group", "default"))
+        except Exception:
+            pass
     overridden = cfg.overridden_keys.get(section, set())
     return ConfigSectionResponse(
         section=section, values=values, overridden_keys=list(overridden)

@@ -243,3 +243,20 @@ drift = config.detect_config_drift().get('server', {})
 - Test restore procedures
 - Document rollback procedures
 - Monitor for configuration drift
+
+## Devices Auto‑Registration
+
+Unknown devices can be auto‑created on first contact (TACACS+ and RADIUS) or strictly denied.
+
+Section `[devices]`:
+
+```
+[devices]
+database = data/devices.db
+default_group = default
+auto_register = true   # true = auto‑create unknown devices; false = strict deny
+```
+
+- When `auto_register=true` (default), the server creates a single-host entry (`/32` for IPv4, `/128` for IPv6) named `auto-<ip>` and assigns it to `default_group`.
+- When `auto_register=false`, unknown devices are rejected and not created.
+- Per‑group TACACS/RADIUS secrets continue to apply. Auto-registered devices inherit the default group's configuration. For RADIUS, the default group must define a RADIUS shared secret to allow the new client to authenticate.

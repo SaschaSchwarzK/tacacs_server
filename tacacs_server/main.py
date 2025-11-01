@@ -301,6 +301,16 @@ class TacacsServerManager:
             # Expose store on server for future integrations
             if hasattr(self.server, "device_store"):
                 self.server.device_store = self.device_store
+            # Wire device auto-registration behavior into TACACS server
+            try:
+                self.server.device_auto_register = bool(
+                    self.device_store_config.get("auto_register", True)
+                )
+                self.server.default_device_group = self.device_store_config.get(
+                    "default_group", "default"
+                )
+            except Exception:
+                pass
         except Exception as exc:
             logger.exception("Failed to initialise device store: %s", exc)
             self.device_store = None
@@ -615,6 +625,16 @@ class TacacsServerManager:
                 pass
             if self.device_store:
                 self.radius_server.device_store = self.device_store
+                # Wire device auto-registration behavior into RADIUS server
+                try:
+                    self.radius_server.device_auto_register = bool(
+                        self.device_store_config.get("auto_register", True)
+                    )
+                    self.radius_server.default_device_group = (
+                        self.device_store_config.get("default_group", "default")
+                    )
+                except Exception:
+                    pass
             if self.local_user_group_service and self.radius_server:
                 self.radius_server.set_local_user_group_service(
                     self.local_user_group_service

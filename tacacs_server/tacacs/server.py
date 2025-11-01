@@ -730,6 +730,51 @@ class TacacsServer:
                     )
                 else:
                     conn_logger.debug("No device found for client_ip=%s", client_ip)
+                    # Auto-register unknown device if enabled; otherwise enforce strict deny
+                    auto_reg = bool(getattr(self, "device_auto_register", True))
+                    if auto_reg:
+                        try:
+                            # Create /32 or /128 single-host network
+                            if ":" in client_ip:
+                                cidr = f"{client_ip}/128"
+                            else:
+                                cidr = f"{client_ip}/32"
+                            group_name = getattr(self, "default_device_group", "default")
+                            name = f"auto-{client_ip.replace(':', '_')}"
+                            self.device_store.ensure_device(name=name, network=cidr, group=group_name)
+                            # Refresh selection after creation
+                            if self.proxy_enabled and proxy_ip is not None:
+                                connection_device = self.device_store.find_device_for_identity(
+                                    client_ip, proxy_ip
+                                )
+                            else:
+                                connection_device = self.device_store.find_device_for_ip(client_ip)
+                            if connection_device:
+                                try:
+                                    conn_logger.info(
+                                        "Auto-registered device %s in group %s",
+                                        connection_device.name,
+                                        group_name,
+                                    )
+                                except Exception:
+                                    pass
+                        except Exception as exc:
+                            try:
+                                conn_logger.warning(
+                                    "Auto-registration failed for %s: %s", client_ip, exc
+                                )
+                            except Exception:
+                                pass
+                    else:
+                        try:
+                            conn_logger.warning(
+                                "Unknown device %s and auto_register disabled; closing connection",
+                                client_ip,
+                            )
+                        except Exception:
+                            pass
+                        self._safe_close_socket(client_socket)
+                        return
             except Exception as exc:
                 logger.warning("Failed to resolve device for %s: %s", client_ip, exc)
 

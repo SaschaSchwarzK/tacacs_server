@@ -30,6 +30,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Metadata support**: Custom attributes and configuration per device/group
 - **Change notifications**: Real-time updates when device configurations change
 - **Proxy-aware multi-tenant**: Optional `proxy_network` per group enforces tenant isolation by proxy/load balancer
+- **Auto-registration (new)**: Optionally auto-create devices on first contact (TACACS+ and RADIUS) and place them into a default device group. Disable to enforce strict mode (unknown devices denied). For RADIUS, ensure the default device group has a RADIUS shared secret configured.
 
 ### **Web Administration Console**
 - **Real-time dashboard**: WebSocket-powered live metrics and system health

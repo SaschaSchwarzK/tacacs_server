@@ -87,6 +87,21 @@ async function saveAuthSettings() {
   } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
 }
 
+async function saveDevicesSettings() {
+  const status = document.getElementById('devices-status');
+  status.textContent = '';
+  const devices = {
+    auto_register: document.getElementById('devices_auto_register').value,
+    default_group: document.getElementById('devices_default_group').value
+  };
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ devices }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Device settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
 async function saveLdapSettings() {
   const status = document.getElementById('ldap-status');
   status.textContent = '';

@@ -12,6 +12,7 @@
 - **Authentication Service**: Sets up authentication backends
 - **Database Services**: Initializes SQLite connections
 - **Backup Service**: Verifies backup locations
+- **Device Store**: Loads devices and default device group; honors `devices.auto_register`
 - **TACACS+ Server**: Binds to network ports
 
 ### 3. Web Services (500-1000ms)
@@ -34,6 +35,7 @@ graph TD
     B --> D[Web Interface]
     C --> D
     C --> E[Backup Service]
+    C --> F[Device Store]
     D --> E
     A --> F[TACACS+ Server]
     B --> F

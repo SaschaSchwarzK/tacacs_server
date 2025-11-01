@@ -1,0 +1,34 @@
+<!-- Devices Settings -->
+<div class="card config-section">
+  <div class="section-header"><h2 class="section-title">Devices</h2></div>
+
+  <div class="subsection">
+    <div class="subsection-header">Auto‑Registration</div>
+    <form id="devices-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="devices_auto_register" title="When enabled, unknown devices are auto‑created and placed into the default device group.">Auto‑register Unknown Devices</label>
+        <div class="input-wrapper">
+          <select id="devices_auto_register" name="auto_register">
+            {% set ar = ((devices_section.get('auto_register','true') | string).lower()) %}
+            <option value="true" {% if ar=='true' %}selected{% endif %}>Enabled</option>
+            <option value="false" {% if ar=='false' %}selected{% endif %}>Disabled (strict)</option>
+          </select>
+          <span class="field-hint">Strict mode denies unknown devices when disabled</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="devices_default_group" title="Devices created automatically are assigned to this group.">Default Device Group</label>
+        <div class="input-wrapper">
+          <input type="text" id="devices_default_group" name="default_group" value="{{ devices_section.get('default_group','default') }}" />
+          <span class="field-hint">Used for auto‑registered devices</span>
+        </div>
+      </div>
+    </form>
+
+    <div class="btn-group">
+      <button class="btn" onclick="saveDevicesSettings()">Save Device Settings</button>
+      <span id="devices-status" class="status-message"></span>
+    </div>
+  </div>
+</div>
+

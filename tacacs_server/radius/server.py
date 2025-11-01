@@ -836,9 +836,32 @@ class RADIUSServer:
         try:
             client_config = self.lookup_client(client_ip)
             if not client_config:
-                logger.warning("RADIUS auth request from unknown client: %s", client_ip)
-                self._inc("invalid_packets")
-                return
+                # Auto-register unknown client as device when enabled, then retry
+                auto_reg = bool(getattr(self, "device_auto_register", True))
+                ds = getattr(self, "device_store", None)
+                if auto_reg and ds is not None:
+                    try:
+                        # Ensure default group exists
+                        group_name = getattr(self, "default_device_group", "default")
+                        ds.ensure_group(group_name)
+                        # Create single-host device
+                        cidr = f"{client_ip}/32"
+                        if ":" in client_ip:
+                            cidr = f"{client_ip}/128"
+                        ds.ensure_device(name=f"auto-{client_ip.replace(':','_')}", network=cidr, group=group_name)
+                        # Refresh RADIUS clients from device store and retry lookup
+                        try:
+                            configs = ds.iter_radius_clients()
+                            self.refresh_clients(configs)
+                        except Exception:
+                            pass
+                        client_config = self.lookup_client(client_ip)
+                    except Exception as exc:
+                        logger.warning("RADIUS auto-registration failed for %s: %s", client_ip, exc)
+                if not client_config:
+                    logger.warning("RADIUS auth request from unknown client: %s", client_ip)
+                    self._inc("invalid_packets")
+                    return
 
             client_secret = client_config.secret_bytes
 
@@ -1039,9 +1062,29 @@ class RADIUSServer:
         try:
             client_config = self.lookup_client(client_ip)
             if not client_config:
-                logger.warning("RADIUS acct request from unknown client: %s", client_ip)
-                self._inc("invalid_packets")
-                return
+                # Auto-register unknown client as device when enabled, then retry
+                auto_reg = bool(getattr(self, "device_auto_register", True))
+                ds = getattr(self, "device_store", None)
+                if auto_reg and ds is not None:
+                    try:
+                        group_name = getattr(self, "default_device_group", "default")
+                        ds.ensure_group(group_name)
+                        cidr = f"{client_ip}/32"
+                        if ":" in client_ip:
+                            cidr = f"{client_ip}/128"
+                        ds.ensure_device(name=f"auto-{client_ip.replace(':','_')}", network=cidr, group=group_name)
+                        try:
+                            configs = ds.iter_radius_clients()
+                            self.refresh_clients(configs)
+                        except Exception:
+                            pass
+                        client_config = self.lookup_client(client_ip)
+                    except Exception as exc:
+                        logger.warning("RADIUS auto-registration failed for %s: %s", client_ip, exc)
+                if not client_config:
+                    logger.warning("RADIUS acct request from unknown client: %s", client_ip)
+                    self._inc("invalid_packets")
+                    return
 
             client_secret = client_config.secret_bytes
 

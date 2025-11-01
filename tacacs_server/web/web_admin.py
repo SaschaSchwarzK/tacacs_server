@@ -1252,6 +1252,7 @@ async def config_page(request: Request):
     server_section = {}
     proxy_protocol_section = {}
     configuration = {}
+    devices_section = {}
     config_source = "Not available"
     config_json = ""
 
@@ -1260,6 +1261,7 @@ async def config_page(request: Request):
             config_data = config_service.get_config_summary()
             server_section = config_data.get("server", {})
             proxy_protocol_section = config_data.get("proxy_protocol", {})
+            devices_section = config_data.get("devices", {})
 
             # Build configuration dict for template
             configuration = {
@@ -1291,6 +1293,7 @@ async def config_page(request: Request):
             "config": config_data,
             "server_section": server_section,
             "proxy_protocol_section": proxy_protocol_section,
+            "devices_section": devices_section,
             "configuration": configuration,
             "config_source": config_source,
             "config_json": config_json,
