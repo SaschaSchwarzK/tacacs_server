@@ -479,7 +479,7 @@ def create_app(
         from tacacs_server.web.api.backup import router as backup_router
 
         app.include_router(backup_router)
-        logger.info("Included backup API routes under /api/admin/backup")
+        logger.debug("Included backup API routes under /api/admin/backup")
     except Exception as exc:
         logger.error("Failed to include backup API routes: %s", exc)
 
@@ -488,7 +488,7 @@ def create_app(
         from tacacs_server.web.api.config import router as config_router
 
         app.include_router(config_router)
-        logger.info("Included config API routes under /api/admin/config")
+        logger.debug("Included config API routes under /api/admin/config")
     except Exception as exc:
         logger.error("Failed to include config API routes: %s", exc)
 
@@ -609,15 +609,19 @@ def create_app(
     async def startup():
         """Application startup"""
         logger.info("=== TACACS+ Server Web Interface Starting ===")
-        logger.info(f"Admin Interface: /admin/")
-        logger.info(f"API Documentation: /api/docs")
-        logger.info(f"Prometheus Metrics: /metrics")
+        logger.debug("Admin Interface: /admin/")
+        logger.debug("API Documentation: /api/docs")
+        logger.debug("Prometheus Metrics: /metrics")
 
-        # Check if API is enabled
+        # API security notice
         if api_token:
             logger.info("API: Enabled (token required)")
         else:
-            logger.info("API: Disabled (no token configured)")
+            # Without an API token, token-only endpoints will return 503 and
+            # endpoints guarded by admin-or-api remain accessible with an admin session.
+            logger.warning(
+                "API: No API token configured; token-only endpoints disabled, admin session required"
+            )
 
         # Check if admin is enabled
         if admin_password_hash:
@@ -632,7 +636,7 @@ def create_app(
                 for r in getattr(app, "routes", [])
                 if "/api/admin/backup" in str(getattr(r, "path", ""))
             ]
-            logger.info(
+            logger.debug(
                 "Routes mounted for backup API: count=%s sample=%s",
                 len(backup_routes),
                 backup_routes[:3],
@@ -650,7 +654,7 @@ def create_app(
             user_db = getattr(usr, "db_path", None)
             dev_store = getattr(dev, "store", None)
             dev_db = getattr(dev_store, "db_path", None) if dev_store else None
-            logger.info(
+            logger.debug(
                 "DB paths: user_db=%s device_db=%s cwd=%s",
                 user_db,
                 dev_db,

@@ -697,7 +697,7 @@ async def delete_user_group(name: str):
 # ============================================================================
 
 
-@router.get("/accounting", dependencies=[Depends(require_api_token)])
+@router.get("/accounting", dependencies=[Depends(require_admin_or_api)])
 async def get_accounting_records(
     hours: int = Query(24, ge=1, le=168),
     limit: int = Query(100, ge=1, le=1000),
@@ -983,7 +983,7 @@ async def check_command_authorization_api(req: CommandCheckRequest):
 # ============================================================================
 
 
-@router.get("/radius/status", dependencies=[Depends(require_api_token)])
+@router.get("/radius/status", dependencies=[Depends(require_admin_or_api)])
 async def get_radius_status():
     """Get RADIUS server status"""
     # TODO: Get from radius server

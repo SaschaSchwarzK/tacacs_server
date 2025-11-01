@@ -19,6 +19,11 @@ from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Track which database paths we have already announced as initialized to
+# avoid duplicate informational logs when components re-bind or re-create
+# a DatabaseLogger for the same file during startup.
+_ANNOUNCED_DB_PATHS: set[str] = set()
+
 
 class DatabasePool:
     """Connection pool for SQLite database"""
@@ -479,7 +484,18 @@ class DatabaseLogger:
 
             if self.conn is not None:
                 self.conn.commit()
-            logger.info("Database initialized: %s", self.db_path)
+            # Emit the initialization log only once per resolved path to avoid
+            # duplicate INFO lines when the server creates a default logger and
+            # later rebinds to the same DB path from configuration.
+            try:
+                resolved = str(Path(self.db_path).resolve())
+            except Exception:
+                resolved = str(self.db_path)
+            if resolved not in _ANNOUNCED_DB_PATHS:
+                _ANNOUNCED_DB_PATHS.add(resolved)
+                logger.info("Database initialized: %s", self.db_path)
+            else:
+                logger.debug("Database already initialized (suppressing duplicate): %s", self.db_path)
         except sqlite3.OperationalError as e:
             logger.error("SQLite operational error during schema init: %s", e)
             raise

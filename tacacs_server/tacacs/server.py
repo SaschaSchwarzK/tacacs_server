@@ -240,7 +240,13 @@ class TacacsServer:
         """Add authentication backend"""
         self.auth_backends.append(backend)
         self.handlers.auth_backends = self.auth_backends
-        logger.info(f"Added authentication backend: {backend}")
+        # Use a consistent format across services and prefer backend logical name
+        # (e.g., "local", "okta") rather than the repr that may include class.
+        try:
+            name = getattr(backend, "name", None) or str(backend)
+        except Exception:
+            name = str(backend)
+        logger.info("TACACS: Added authentication backend: %s", name)
 
     def remove_auth_backend(self, backend_name: str) -> bool:
         """Remove authentication backend by name"""
