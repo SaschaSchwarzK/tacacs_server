@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.maintenance import get_db_manager
 
 logger = get_logger(__name__)
 
@@ -132,6 +133,11 @@ class DeviceStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # Register with maintenance manager so restore can close connections
+        try:
+            get_db_manager().register(self, self.close_connections)
+        except Exception:
+            pass
         self._ensure_schema()
         # Proxy-aware lookup accelerators
         self._idx_lock = threading.RLock()
@@ -162,6 +168,14 @@ class DeviceStore:
         )
         self.proxy_enabled = bool(proxy_enabled) if proxy_enabled is not None else True
         self.refresh_indexes()
+
+    def close_connections(self) -> None:
+        # Close the underlying SQLite connection; log on failure
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception as exc:
+                logger.warning("DeviceStore close failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Schema management

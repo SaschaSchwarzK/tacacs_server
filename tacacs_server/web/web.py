@@ -343,6 +343,33 @@ class WebServer:
 
         install_security_headers(self.app)
 
+        # Global maintenance mode guard: return 503 for most requests while
+        # a restore is in progress to avoid using closed DB connections.
+        try:
+            from tacacs_server.utils.maintenance import get_db_manager as _get_dbm
+
+            @self.app.middleware("http")
+            async def maintenance_guard(request: Request, call_next):
+                try:
+                    path = request.url.path or ""
+                    if _get_dbm().is_in_maintenance():
+                        # Allow simple health probes, block others
+                        if not (
+                            path.startswith("/health")
+                            or path.startswith("/tacacs-health")
+                            or path.startswith("/ready")
+                        ):
+                            return JSONResponse(
+                                {"error": "Service in maintenance mode"},
+                                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            )
+                except Exception:
+                    # Fail-open if guard raises
+                    pass
+                return await call_next(request)
+        except Exception:
+            pass
+
         # Middleware to capture config change context (user + source IP)
         @self.app.middleware("http")
         async def config_change_context(request: Request, call_next):

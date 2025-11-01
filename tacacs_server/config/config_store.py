@@ -19,6 +19,8 @@ from sqlalchemy import create_engine, delete, func, select, update
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import sessionmaker
 
+from tacacs_server.utils.maintenance import get_db_manager
+
 from .models import Base, ConfigHistory, ConfigOverride, ConfigVersion, SystemMetadata
 
 
@@ -85,6 +87,12 @@ class ConfigStore:
         # Create SQLite-specific indexes if using SQLite
         if db_url.startswith("sqlite"):
             self._create_sqlite_indexes()
+        # Register for maintenance so engine sessions are disposed and the
+        # optional sqlite cursor is closed during restore.
+        try:
+            get_db_manager().register(self, self.close)
+        except Exception:
+            pass
 
     def _ensure_schema(self) -> None:
         """Create database tables if they don't exist."""
@@ -116,7 +124,21 @@ class ConfigStore:
         try:
             self.engine.dispose()
         except Exception:  # noqa: BLE001
-            pass  # Ignore errors during cleanup
+            # Ignore but do not hide completely in logs; disposal failures are rare
+            import traceback
+
+            try:
+                print("ConfigStore engine.dispose failed:\n" + traceback.format_exc())
+            except Exception:
+                pass
+        try:
+            if self._conn is not None:
+                self._conn.close()
+        except Exception as exc:
+            try:
+                print(f"ConfigStore sqlite close failed: {exc}")
+            except Exception:
+                pass
 
     # --- Session Management ---
     def _get_session(self) -> DBSession:

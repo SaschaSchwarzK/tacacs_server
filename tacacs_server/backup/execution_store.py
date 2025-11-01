@@ -8,6 +8,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from tacacs_server.utils.maintenance import get_db_manager
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -25,12 +27,17 @@ class BackupExecutionStore:
         with self._conn:
             self._conn.execute("PRAGMA foreign_keys = ON")
         self._ensure_schema()
+        try:
+            get_db_manager().register(self, self.close)
+        except Exception:
+            pass
 
     def close(self) -> None:
         try:
             self._conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            # Non-fatal during maintenance; record for diagnosis
+            print(f"BackupExecutionStore close failed: {exc}")
 
     def _ensure_schema(self) -> None:
         with self._conn:

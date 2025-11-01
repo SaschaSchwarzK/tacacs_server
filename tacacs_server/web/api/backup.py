@@ -55,6 +55,7 @@ class RestoreRequest(BaseModel):
     destination_id: str | None = None
     components: list[str] | None = None  # ["config", "devices", "users"]
     confirm: bool = False
+    async_mode: bool = False  # When true, run restore in background
 
 
 @router.post(
@@ -464,9 +465,11 @@ async def list_backups(
     response_model=BackupRestoreResponse,
 )
 async def restore_backup_api(
-    request: RestoreRequest, _: None = Depends(admin_guard)
+    request: RestoreRequest,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(admin_guard),
 ) -> BackupRestoreResponse:
-    """Restore from backup"""
+    """Restore from backup. By default synchronous; set async_mode=true to queue."""
     if not request.confirm:
         raise HTTPException(
             status_code=400, detail="Must set confirm=true to proceed with restore"
@@ -484,20 +487,48 @@ async def restore_backup_api(
             raise HTTPException(
                 status_code=404, detail="Backup not found at destination"
             )
-    try:
-        success, message = service.restore_backup(
-            source_path=request.backup_path,
-            destination_id=request.destination_id,
-            components=request.components,
+    if request.async_mode:
+        # Run restore in the background to avoid API timeouts
+        def _do_restore() -> None:
+            try:
+                ok, msg = service.restore_backup(
+                    source_path=request.backup_path,
+                    destination_id=request.destination_id,
+                    components=request.components,
+                    post_restart=True,
+                )
+                if not ok:
+                    logger.error("Restore task failed: %s", msg)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Restore task crashed: %s", e)
+
+        background_tasks.add_task(_do_restore)
+        return BackupRestoreResponse(
+            success=True,
+            message="Restore started in background; server may restart.",
+            restart_required=True,
         )
-        if success:
-            return BackupRestoreResponse(
-                success=True, message=message, restart_required=True
-            )
-        raise HTTPException(status_code=500, detail=message)
-    except Exception as e:
-        logger.exception("Restore failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
+
+    # Default: synchronous restore (blocks until finished)
+    ok, msg = service.restore_backup(
+        source_path=request.backup_path,
+        destination_id=request.destination_id,
+        components=request.components,
+        post_restart=False,
+    )
+    if ok:
+        # Restart services in background to reduce request latency
+        def _restart() -> None:
+            try:
+                from tacacs_server.utils.maintenance import restart_services
+
+                restart_services()
+            except Exception:
+                pass
+
+        background_tasks.add_task(_restart)
+        return BackupRestoreResponse(success=True, message=msg, restart_required=True)
+    raise HTTPException(status_code=500, detail=msg)
 
 
 @router.delete(

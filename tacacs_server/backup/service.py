@@ -689,6 +689,8 @@ class BackupService:
         source_path: str,
         destination_id: str | None = None,
         components: list[str] | None = None,
+        *,
+        post_restart: bool = True,
     ) -> tuple[bool, str]:
         """
         Restore from backup.
@@ -705,6 +707,9 @@ class BackupService:
         restore_root = None
         emergency_exec_id = None
 
+        from tacacs_server.utils.maintenance import get_db_manager, restart_services
+
+        maintenance_entered = False
         try:
             # Step 1: Download backup if remote
             if destination_id:
@@ -792,7 +797,12 @@ class BackupService:
                 "A server restart is required to apply all restored settings."
             )
 
-            # Step 5: Restore components
+            # Step 5: Enter maintenance and restore components
+            try:
+                get_db_manager().enter_maintenance()
+                maintenance_entered = True
+            except Exception:
+                pass
             components_to_restore = components or list(allowed)
             databases_restored = self._perform_component_restore(
                 components_to_restore, restore_root
@@ -837,6 +847,17 @@ class BackupService:
                     os.remove(archive_for_extract)
             if destination_id and local_archive and os.path.exists(local_archive):
                 os.remove(local_archive)
+            # Exit maintenance and optionally restart services
+            if maintenance_entered:
+                try:
+                    get_db_manager().exit_maintenance()
+                except Exception:
+                    pass
+            if post_restart:
+                try:
+                    restart_services()
+                except Exception:
+                    pass
 
     def _perform_component_restore(
         self, components: list[str], restore_root: str

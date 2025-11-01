@@ -16,6 +16,7 @@ from time import monotonic
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.maintenance import get_db_manager
 
 logger = get_logger(__name__)
 
@@ -51,6 +52,9 @@ class DatabasePool:
     @contextmanager
     def get_connection(self):
         """Get database connection from pool"""
+        # Respect global maintenance mode: block DB access while restoring
+        if get_db_manager().is_in_maintenance():
+            raise RuntimeError("Database is in maintenance mode")
         conn = self.pool.get()
         try:
             yield conn
@@ -125,6 +129,11 @@ class DatabaseLogger:
             if pool_size > 200:
                 pool_size = 200
             self.pool = DatabasePool(str(db_file), pool_size=pool_size)
+            # Register with DB manager so connections can be closed on restore
+            try:
+                get_db_manager().register(self, self.close)
+            except Exception:
+                pass
 
         except Exception as e:
             logger.exception("Failed to initialize database: %s", e)
@@ -668,8 +677,8 @@ class DatabaseLogger:
         if self.conn:
             try:
                 self.conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Accounting DB close failed: %s", exc)
             self.conn = None
 
     def __del__(self):
