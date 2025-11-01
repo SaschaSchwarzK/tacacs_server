@@ -2,7 +2,6 @@
 API auth method tests: session cookie vs API token vs unauthenticated.
 """
 
-import os
 import requests
 
 

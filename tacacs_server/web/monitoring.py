@@ -8,7 +8,7 @@ Re-exports minimal interfaces expected by existing code:
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any
 
 from tacacs_server.utils.metrics_history import get_metrics_history
 
@@ -39,7 +39,7 @@ def _maybe_flush_snapshot() -> None:  # pragma: no cover
         # Build snapshot with optional system metrics (CPU/mem)
         snapshot = dict(_metrics)
         try:
-            import psutil  # type: ignore
+            import psutil
 
             vm = psutil.virtual_memory()
             snapshot["memory_usage_mb"] = round(
@@ -57,11 +57,17 @@ def _maybe_flush_snapshot() -> None:  # pragma: no cover
     _last_flush_ts = now
 
 
-try:
-    from .web import get_tacacs_server  # legacy accessors
-except Exception:  # pragma: no cover
+def get_tacacs_server() -> Any | None:
+    """Return the TACACS server instance when available.
 
-    def get_tacacs_server() -> Any | None:  # type: ignore[func-returns-value]
+    Imports lazily to avoid import cycles and provides a consistent signature
+    regardless of import success.
+    """
+    try:  # pragma: no cover
+        from .web import get_tacacs_server as _get
+
+        return _get()
+    except Exception:
         return None
 
 

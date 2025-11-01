@@ -1,4 +1,5 @@
 import argparse
+import os
 import signal
 import sys
 import textwrap
@@ -15,7 +16,7 @@ from tacacs_server.devices.service import DeviceService
 from tacacs_server.devices.store import DeviceStore
 from tacacs_server.tacacs.server import TacacsServer
 from tacacs_server.utils.config_utils import set_config as utils_set_config
-from tacacs_server.utils.logger import get_logger, bind_context
+from tacacs_server.utils.logger import bind_context, get_logger
 from tacacs_server.web.admin.auth import (
     AdminAuthConfig,
     AdminSessionManager,
@@ -76,7 +77,9 @@ class TacacsServerManager:
 
         self._device_change_unsubscribe: Callable[[], None] | None = None
         self._pending_radius_refresh = False
-        self._config_refresh_thread = None
+        self._config_refresh_thread: Any | None = None
+        # Optional backup service instance (initialized later)
+        self.backup_service: Any | None = None
 
         # Ensure instance identity and initial version
         try:
@@ -142,7 +145,10 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
-        self.server.config = self.config
+        # Attach config for downstream components; relax typing for attribute
+        from typing import Any, cast
+
+        cast(Any, self.server).config = self.config
         # Configure accounting database logger path from config
         try:
             from tacacs_server.accounting.database import DatabaseLogger as _DBL
@@ -240,7 +246,7 @@ class TacacsServerManager:
             from tacacs_server.backup.service import initialize_backup_service
 
             backup_service = initialize_backup_service(self.config)
-            self.backup_service = backup_service  # type: ignore[attr-defined]
+            self.backup_service = backup_service
 
             logger.info("Backup system initialized")
 
@@ -266,7 +272,7 @@ class TacacsServerManager:
         except Exception as e:
             logger.error(f"Failed to initialize backup system: {e}")
             # Don't fail startup if backup system has issues
-            self.backup_service = None  # type: ignore[attr-defined]
+            self.backup_service = None
 
         # Initialize device inventory
         try:
@@ -706,7 +712,7 @@ class TacacsServerManager:
             # Stop backup scheduler
             if getattr(self, "backup_service", None):
                 try:
-                    sched = getattr(self.backup_service, "scheduler", None)  # type: ignore[attr-defined]
+                    sched = getattr(self.backup_service, "scheduler", None)
                     if sched:
                         sched.stop()
                         logger.info("Backup scheduler stopped")

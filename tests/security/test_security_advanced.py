@@ -26,7 +26,6 @@ Note: These tests require explicit opt-in via RUN_SECURITY_ADVANCED=1
 
 import os
 import time
-from typing import Any, Dict
 
 import pytest
 import requests

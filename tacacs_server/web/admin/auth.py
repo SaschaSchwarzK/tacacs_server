@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from tacacs_server.utils.logger import get_logger
 import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
 
 from tacacs_server.exceptions import AuthenticationError
+from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

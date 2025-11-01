@@ -9,17 +9,16 @@ import os
 import signal
 import socket
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, cast
 
-import threading
+import pytest
+import requests
 from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
-
-import pytest
-import requests
 from requests.exceptions import RequestException
 
 
@@ -522,10 +521,6 @@ def full_server(server_factory):
 def ftp_server(tmp_path_factory):
     """Fixture that sets up a test FTP server in a separate thread."""
     import socket
-    from pyftpdlib.authorizers import DummyAuthorizer
-    from pyftpdlib.handlers import FTPHandler
-    from pyftpdlib.servers import FTPServer
-    import threading
 
     # Create a temporary directory for the FTP server's root
     ftp_root = tmp_path_factory.mktemp("ftp_root")

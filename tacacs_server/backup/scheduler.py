@@ -6,7 +6,7 @@ import threading
 import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -15,9 +15,11 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+# Move imports above declarations to satisfy linters
+from tacacs_server.utils.logger import get_logger
+
 # Registry to avoid pickling bound methods (APScheduler jobstores pickle callables)
 _SCHEDULERS: dict[str, BackupScheduler] = {}
-from tacacs_server.utils.logger import get_logger
 
 _log = get_logger(__name__)
 
@@ -36,6 +38,10 @@ def _execute_job_static(
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+if TYPE_CHECKING:
+    from tacacs_server.backup.service import BackupService
 
 
 class BackupScheduler:
@@ -71,7 +77,10 @@ class BackupScheduler:
         try:
             if os.path.exists(self._meta_path):
                 with open(self._meta_path, encoding="utf-8") as fh:
-                    return json.load(fh)
+                    data = json.load(fh)
+                    # Ensure dict shape for typing
+                    if isinstance(data, dict):
+                        return data
         except Exception:
             pass
         return {"jobs": {}}
@@ -218,9 +227,10 @@ class BackupScheduler:
         )
         return exec_id
 
-    def get_job_status(self, job_id: str) -> dict:
+    def get_job_status(self, job_id: str) -> dict[str, Any]:
         job = self.scheduler.get_job(job_id)
-        meta = self._metadata.get("jobs", {}).get(job_id, {}).copy()
+        # Ensure a concrete dict for typing
+        meta: dict[str, Any] = dict(self._metadata.get("jobs", {}).get(job_id, {}))
         meta["job_id"] = job_id
         meta["next_run"] = (
             job.next_run_time.isoformat() if job and job.next_run_time else None
@@ -228,7 +238,7 @@ class BackupScheduler:
         meta["pending"] = job is not None
         return meta
 
-    def list_jobs(self) -> list[dict]:
+    def list_jobs(self) -> list[dict[str, Any]]:
         jobs = []
         ids = set()
         for job in self.scheduler.get_jobs():
@@ -264,6 +274,8 @@ class BackupScheduler:
                     )
                     from tacacs_server.backup.retention import (
                         RetentionRule as _Rule,
+                    )
+                    from tacacs_server.backup.retention import (
                         RetentionStrategy as _Strat,
                     )
 
@@ -318,7 +330,9 @@ class BackupScheduler:
                 "start_time": start.isoformat(),
                 "status": "running",
             }
-            self.backup_service.execute_backup(destination_id, triggered_by="scheduler")
+            self.backup_service.execute_backup(
+                destination_id or "", triggered_by="scheduler"
+            )
             ok = True
         except Exception as e:
             err = f"{e}\n{traceback.format_exc()}"
@@ -345,7 +359,7 @@ class BackupScheduler:
                     delay = min(3600, 30 * (2 ** min(fails, 6)))
                     run_time = _utc_now() + timedelta(seconds=delay)
                     self.scheduler.add_job(
-                        self._execute_job,
+                        self._execute_job_impl,
                         trigger=DateTrigger(run_date=run_time),
                         id=f"{job_id}__retry__{fails}",
                         args=[job_id, destination_id],

@@ -12,7 +12,6 @@ import os
 import sqlite3
 import threading
 import uuid
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -122,7 +121,7 @@ class ConfigStore:
     # --- Session Management ---
     def _get_session(self) -> DBSession:
         """Get a new database session."""
-        return self.Session()  # type: ignore
+        return self.Session()
 
     # --- Value Encoding/Decoding ---
     @staticmethod
@@ -249,9 +248,10 @@ class ConfigStore:
             if not result:
                 return None
 
+            val_type = str(result.value_type or "json")
             return (
-                self._decode_value(result.value, result.value_type or "json"),
-                result.value_type or "json",
+                self._decode_value(str(result.value), val_type),
+                val_type,
             )
 
     def list_overrides(self, section: str | None = None) -> list[dict[str, Any]]:
@@ -264,8 +264,10 @@ class ConfigStore:
                     "id": r.id,
                     "section": r.section,
                     "key": r.key,
-                    "value": self._decode_value(r.value, r.value_type or "json"),
-                    "value_type": r.value_type or "json",
+                    "value": self._decode_value(
+                        str(r.value), str(r.value_type or "json")
+                    ),
+                    "value_type": str(r.value_type or "json"),
                     "created_at": r.created_at,
                     "created_by": r.created_by,
                 }
@@ -283,12 +285,12 @@ class ConfigStore:
         """
         with self._lock, self._get_session() as session:
             # Get current value for history
-            stmt = select(ConfigOverride).where(
+            stmt_select = select(ConfigOverride).where(
                 ConfigOverride.section == section,
                 ConfigOverride.key == key,
                 ConfigOverride.active == True,  # noqa: E712
             )
-            override = session.execute(stmt).scalar_one_or_none()
+            override = session.execute(stmt_select).scalar_one_or_none()
 
             if not override:
                 return
@@ -299,21 +301,21 @@ class ConfigStore:
                 section=section,
                 key=key,
                 old_value=self._decode_value(
-                    override.value, override.value_type or "json"
+                    str(override.value), str(override.value_type or "json")
                 ),
                 new_value=None,
-                value_type=override.value_type or "json",
+                value_type=str(override.value_type or "json"),
                 changed_by=changed_by,
                 change_reason="delete override",
             )
 
             # Mark as inactive (soft delete)
-            stmt = (
+            stmt_update = (
                 update(ConfigOverride)
                 .where(ConfigOverride.id == override.id)
                 .values(active=False)
             )
-            session.execute(stmt)
+            session.execute(stmt_update)
             session.commit()
 
     def get_all_overrides(self) -> dict[str, dict[str, tuple[Any, str]]]:
@@ -329,12 +331,12 @@ class ConfigStore:
             overrides = session.execute(stmt).scalars().all()
 
             for override in overrides:
-                section = override.section
-                key = override.key
+                section = str(override.section)
+                key = str(override.key)
                 value = self._decode_value(
-                    override.value, override.value_type or "json"
+                    str(override.value), str(override.value_type or "json")
                 )
-                value_type = override.value_type or "json"
+                value_type = str(override.value_type or "json")
 
                 if section not in result:
                     result[section] = {}
@@ -366,23 +368,23 @@ class ConfigStore:
                     for override in overrides:
                         self._add_history(
                             session=session,
-                            section=section,
-                            key=override.key,
+                            section=str(section),
+                            key=str(override.key),
                             old_value=self._decode_value(
-                                override.value, override.value_type or "json"
+                                str(override.value), str(override.value_type or "json")
                             ),
                             new_value=None,
-                            value_type=override.value_type or "json",
+                            value_type=str(override.value_type or "json"),
                             changed_by=changed_by,
                             change_reason="clear overrides",
                         )
 
-                        stmt = (
+                        upd = (
                             update(ConfigOverride)
                             .where(ConfigOverride.id == override.id)
                             .values(active=False)
                         )
-                        session.execute(stmt)
+                        session.execute(upd)
 
                     session.commit()
             else:
@@ -395,24 +397,24 @@ class ConfigStore:
                     for override in overrides:
                         self._add_history(
                             session=session,
-                            section=override.section,
-                            key=override.key,
+                            section=str(override.section),
+                            key=str(override.key),
                             old_value=self._decode_value(
-                                override.value, override.value_type or "json"
+                                str(override.value), str(override.value_type or "json")
                             ),
                             new_value=None,
-                            value_type=override.value_type or "json",
+                            value_type=str(override.value_type or "json"),
                             changed_by=changed_by,
                             change_reason="clear all overrides",
                         )
 
                     # Mark all as inactive
-                    stmt = (
+                    upd = (
                         update(ConfigOverride)
                         .where(ConfigOverride.active == True)  # noqa: E712
                         .values(active=False)
                     )
-                    session.execute(stmt)
+                    session.execute(upd)
                     session.commit()
 
     # --- History Management ---
@@ -511,13 +513,17 @@ class ConfigStore:
                     "id": r.id,
                     "section": r.section,
                     "key": r.key,
-                    "old_value": self._decode_value(r.old_value, r.value_type or "json")
+                    "old_value": self._decode_value(
+                        str(r.old_value), str(r.value_type or "json")
+                    )
                     if r.old_value is not None
                     else None,
-                    "new_value": self._decode_value(r.new_value, r.value_type or "json")
+                    "new_value": self._decode_value(
+                        str(r.new_value), str(r.value_type or "json")
+                    )
                     if r.new_value is not None
                     else None,
-                    "value_type": r.value_type or "json",
+                    "value_type": str(r.value_type or "json"),
                     "changed_at": r.changed_at,
                     "changed_by": r.changed_by,
                     "change_reason": r.change_reason,
@@ -669,12 +675,13 @@ class ConfigStore:
         is_baseline: bool = False,
     ) -> int:
         """Compatibility alias for create_version."""
-        return self.create_version(
+        meta = self.create_version(
             config_dict=config_dict,
             created_by=created_by,
             description=description,
             is_baseline=is_baseline,
         )
+        return int(meta.get("version_number", 0))
 
     def get_active_config(self) -> dict[str, dict[str, Any]]:
         """
@@ -692,7 +699,8 @@ class ConfigStore:
         latest = self.get_latest_version()
         if latest and latest.get("config_json"):
             try:
-                base = json.loads(latest["config_json"])  # type: ignore[arg-type]
+                cj = latest.get("config_json")
+                base = json.loads(cj if isinstance(cj, str) else str(cj))
             except Exception:
                 base = {}
         # Apply overrides
@@ -746,17 +754,17 @@ class ConfigStore:
 
             # Parse the config
             try:
-                config = json.loads(version.config_json)
+                json.loads(str(version.config_json))
             except json.JSONDecodeError:
                 return False
 
             # Clear existing overrides
-            stmt = (
+            stmt_update = (
                 update(ConfigOverride)
                 .where(ConfigOverride.active == True)  # noqa: E712
                 .values(active=False)
             )
-            session.execute(stmt)
+            session.execute(stmt_update)
 
             # Do not create overrides from the version; base config is tracked
             # in config_versions. Keeping overrides empty reflects the version state.
@@ -798,6 +806,7 @@ class ConfigStore:
             return {
                 "id": version.id,
                 "version_number": version.version_number,
+                "config_json": version.config_json,
                 "config_hash": version.config_hash,
                 "created_at": version.created_at,
                 "created_by": version.created_by,
@@ -822,9 +831,10 @@ class ConfigStore:
                 .values(value=value, updated_at=func.now())
             )
             result = session.execute(stmt)
+            updated = int(getattr(result, "rowcount", 0) or 0)
 
             # If no rows were updated, insert new
-            if result.rowcount == 0:
+            if updated == 0:
                 metadata = SystemMetadata(key=key, value=value)
                 session.add(metadata)
 
@@ -844,7 +854,7 @@ class ConfigStore:
         with self._get_session() as session:
             stmt = select(SystemMetadata).where(SystemMetadata.key == key)
             result = session.execute(stmt).scalar_one_or_none()
-            return result.value if result else default
+            return str(result.value) if result and result.value is not None else default
 
     # --- Instance Management ---
     def ensure_instance_id(self) -> str:
@@ -904,8 +914,10 @@ class ConfigStore:
             ]
 
             # Delete versions older than the one we found
-            stmt = delete(ConfigVersion).where(ConfigVersion.version_number < result)
-            session.execute(stmt)
+            stmt_del = delete(ConfigVersion).where(
+                ConfigVersion.version_number < result
+            )
+            session.execute(stmt_del)
             session.commit()
 
             return deleted_version_numbers

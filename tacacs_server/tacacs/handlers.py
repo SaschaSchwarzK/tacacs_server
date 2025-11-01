@@ -189,10 +189,11 @@ class AAAHandlers:
                 },
                 "detail": detail or "",
             }
+            # Pass structured fields via 'extra' to satisfy logging typing and adapter
             if success:
-                logger.info("Authentication result", **fields)
+                logger.info("Authentication result", extra=fields)
             else:
-                logger.warning("Authentication result", **fields)
+                logger.warning("Authentication result", extra=fields)
         except Exception:
             # Fallback plain logs to avoid any crash due to logging
             if success:

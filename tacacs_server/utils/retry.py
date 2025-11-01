@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Generic retry decorator with exponential backoff.
 
 Usage:
@@ -11,14 +9,20 @@ Usage:
         ...
 """
 
+from __future__ import annotations
+
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Type, TypeVar
+from typing import TypeVar
 
 try:
-    from typing_extensions import ParamSpec  # Python <3.10 compatibility
+    # Python >=3.10
+    from typing import ParamSpec
 except Exception:  # pragma: no cover
-    ParamSpec = lambda name: Any  # type: ignore[misc,assignment]
+    # Python <3.10
+    from typing_extensions import ParamSpec
+
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -29,7 +33,7 @@ def retry(
     initial_delay: float = 1.0,
     max_delay: float = 30.0,
     backoff: float = 2.0,
-    exceptions: tuple[Type[Exception], ...] = (Exception,),
+    exceptions: tuple[type[Exception], ...] = (Exception,),
 ):
     """Retry decorator with exponential backoff.
 
@@ -43,12 +47,12 @@ def retry(
 
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:  # type: ignore[misc]
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             last_exc: Exception | None = None
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except exceptions as e:  # type: ignore[misc]
+                except exceptions as e:
                     last_exc = e
                     if attempt >= max_retries:
                         break

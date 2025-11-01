@@ -123,7 +123,9 @@ class LocalAuthBackend(AuthenticationBackend):
                     "LocalAuthBackend user service unchanged; suppressing duplicate attach log"
                 )
             else:
-                logger.info("LocalAuthBackend attached user service db_path=%s", new_path)
+                logger.info(
+                    "LocalAuthBackend attached user service db_path=%s", new_path
+                )
         except Exception:
             pass
 

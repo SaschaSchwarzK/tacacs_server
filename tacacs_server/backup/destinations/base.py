@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
-import json
+from typing import TYPE_CHECKING, Any, cast
 
 from tacacs_server.utils.logger import get_logger
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from tacacs_server.backup.retention import RetentionRule
 
 
 @dataclass
@@ -67,7 +70,7 @@ class BackupDestination(ABC):
     def apply_retention_policy(
         self,
         retention_days: int | None = None,
-        retention_rule: "RetentionRule" | None = None,
+        retention_rule: RetentionRule | None = None,
     ) -> int:
         """
         Apply retention policy to delete old backups.
@@ -84,6 +87,8 @@ class BackupDestination(ABC):
             try:
                 from tacacs_server.backup.retention import (
                     RetentionRule as _Rule,
+                )
+                from tacacs_server.backup.retention import (
                     RetentionStrategy as _Strat,
                 )
 
@@ -101,8 +106,11 @@ class BackupDestination(ABC):
             backups = self.list_backups()
             from tacacs_server.backup.retention import RetentionPolicy as _Policy
 
-            policy = _Policy(retention_rule)  # type: ignore[arg-type]
-            to_delete = policy.apply(backups)
+            policy = _Policy(retention_rule)
+            # RetentionPolicy expects its own BackupMetadata protocol; our
+            # BackupMetadata is compatible at runtime. Use a narrow cast here
+            # to satisfy static type checkers without changing runtime behavior.
+            to_delete = policy.apply(cast(list[Any], backups))
         except Exception:
             return 0
 

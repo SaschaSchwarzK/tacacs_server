@@ -3,27 +3,37 @@ Main Web Application - Simplified & Clean
 This is the main FastAPI application that ties everything together
 """
 
-from tacacs_server.utils.logger import get_logger, bind_context, clear_context
-import uuid
 import os
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+from tacacs_server.utils.config_utils import set_config as utils_set_config
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 
 from . import web_admin, web_api, web_auth
 from .web import (
-    set_device_service as _set_device_service,
-    set_local_user_service as _set_local_user_service,
-    set_local_user_group_service as _set_local_user_group_service,
     set_config as _set_config,
-    set_tacacs_server as _set_tacacs_server,
+)
+from .web import (
+    set_device_service as _set_device_service,
+)
+from .web import (
+    set_local_user_group_service as _set_local_user_group_service,
+)
+from .web import (
+    set_local_user_service as _set_local_user_service,
+)
+from .web import (
     set_radius_server as _set_radius_server,
 )
-from tacacs_server.utils.config_utils import set_config as utils_set_config
+from .web import (
+    set_tacacs_server as _set_tacacs_server,
+)
 
 logger = get_logger(__name__)
 
@@ -68,11 +78,11 @@ def create_app(
     # ========================================================================
 
     from tacacs_server.exceptions import (
-        ConfigValidationError,
         AuthenticationError,
         AuthorizationError,
-        ResourceNotFoundError,
+        ConfigValidationError,
         RateLimitExceededError,
+        ResourceNotFoundError,
         ServiceUnavailableError,
         TacacsServerError,
     )
@@ -190,9 +200,9 @@ def create_app(
                 auth_cfg = getter()
                 if isinstance(auth_cfg, dict):
                     if auth_cfg.get("username"):
-                        admin_username = auth_cfg.get("username")
+                        admin_username = str(auth_cfg.get("username") or "admin")
                     if auth_cfg.get("password_hash"):
-                        admin_password_hash = auth_cfg.get("password_hash")
+                        admin_password_hash = str(auth_cfg.get("password_hash") or "")
                         logger.info(
                             "Authentication initialized from config_service (hash)"
                         )
@@ -273,8 +283,8 @@ def create_app(
     # Auto-provision device service if not provided
     if not device_service and tacacs_server is not None:
         try:
-            from tacacs_server.devices.store import DeviceStore
             from tacacs_server.devices.service import DeviceService
+            from tacacs_server.devices.store import DeviceStore
 
             # Try to reuse device_store attached on server if present
             ds = getattr(tacacs_server, "device_store", None)
@@ -476,7 +486,7 @@ def create_app(
     # Use package-relative paths (works regardless of working directory)
     pkg_root = Path(__file__).resolve().parent.parent
     static_dir = pkg_root / "static"
-    templates_dir = pkg_root / "templates"
+    # templates handled inside web_admin
 
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -701,9 +711,6 @@ def create_app(
         try:
             usr = getattr(app.state, "user_service", None)
             dev = getattr(app.state, "device_service", None)
-            from_path = lambda obj, attr: getattr(
-                getattr(obj, attr, None), "db_path", None
-            ) or getattr(obj, attr, None)
             user_db = getattr(usr, "db_path", None)
             dev_store = getattr(dev, "store", None)
             dev_db = getattr(dev_store, "db_path", None) if dev_store else None

@@ -13,7 +13,7 @@ def install_exception_handlers(app: FastAPI) -> None:
     """Install handlers that translate TacacsServerError to JSON responses."""
 
     @app.exception_handler(TacacsServerError)
-    async def _handle_tacacs_error(request: Request, exc: TacacsServerError):  # type: ignore[unused-variable]
+    async def _handle_tacacs_error(request: Request, exc: TacacsServerError):
         # Special-case validation errors to match test expectations
         if isinstance(exc, ConfigValidationError):
             detail: dict[str, Any] = {

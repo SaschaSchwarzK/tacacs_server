@@ -63,7 +63,9 @@ class TacacsConfig:
         try:
             # Ensure data directory exists before creating store
             os.makedirs("data", exist_ok=True)
-            self.config_store = ConfigStore("data/config_overrides.db")
+            self.config_store: ConfigStore | None = ConfigStore(
+                "data/config_overrides.db"
+            )
             logger.info("Configuration store initialized successfully")
         except Exception as e:
             # Log the actual error but allow server to continue
@@ -750,40 +752,47 @@ class TacacsConfig:
         temp_config = self._create_temp_config_with_updates("proxy_protocol", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("proxy_protocol", kwargs)
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="proxy_protocol",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="proxy_protocol",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="proxy_protocol",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="proxy_protocol",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated proxy_protocol config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated proxy_protocol config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         self._apply_overrides()
@@ -800,40 +809,47 @@ class TacacsConfig:
         temp_config = self._create_temp_config_with_updates("monitoring", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("monitoring", kwargs)
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="monitoring",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="monitoring",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="monitoring",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="monitoring",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated monitoring config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated monitoring config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         self._apply_overrides()
@@ -850,40 +866,47 @@ class TacacsConfig:
         temp_config = self._create_temp_config_with_updates("radius", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("radius", kwargs)
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="radius",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="radius",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="radius",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="radius",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated radius config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated radius config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         self._apply_overrides()
@@ -900,40 +923,47 @@ class TacacsConfig:
         temp_config = self._create_temp_config_with_updates("okta", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("okta", kwargs)
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="okta",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="okta",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="okta",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="okta",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated okta config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated okta config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         self._apply_overrides()
@@ -950,40 +980,47 @@ class TacacsConfig:
         temp_config = self._create_temp_config_with_updates("backup", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("backup", kwargs)
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="backup",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="backup",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="backup",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="backup",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated backup config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated backup config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         self._apply_overrides()
@@ -1003,40 +1040,47 @@ class TacacsConfig:
         self._validate_temp_config(temp_config)
         self._apply_config_updates("server", kwargs)
         # Apply overrides + history + version if store is available
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="server",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="server",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="server",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="server",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated server config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated server config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         # Apply in-memory overrides for live process
@@ -1055,40 +1099,47 @@ class TacacsConfig:
         temp_config = self._create_temp_config_with_updates("auth", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("auth", kwargs)
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="auth",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="auth",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="auth",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="auth",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated auth config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated auth config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         self._apply_overrides()
@@ -1105,40 +1156,47 @@ class TacacsConfig:
         temp_config = self._create_temp_config_with_updates("ldap", kwargs)
         self._validate_temp_config(temp_config)
         self._apply_config_updates("ldap", kwargs)
-        if getattr(self, "config_store", None) is not None:
+        store = getattr(self, "config_store", None)
+        if store is not None:
             user = self._get_current_user()
             for key, new_value in kwargs.items():
                 vtype = self._infer_type(new_value)
                 try:
-                    self.config_store.set_override(
-                        section="ldap",
-                        key=key,
-                        value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                    )
+                    setter = getattr(store, "set_override", None)
+                    if callable(setter):
+                        setter(
+                            section="ldap",
+                            key=key,
+                            value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                        )
                 except Exception:
                     pass
                 try:
-                    self.config_store.record_change(
-                        section="ldap",
-                        key=key,
-                        old_value=old_values.get(key),
-                        new_value=new_value,
-                        value_type=vtype,
-                        changed_by=user,
-                        reason=reason,
-                        source_ip=source_ip,
-                    )
+                    rec = getattr(store, "record_change", None)
+                    if callable(rec):
+                        rec(
+                            section="ldap",
+                            key=key,
+                            old_value=old_values.get(key),
+                            new_value=new_value,
+                            value_type=vtype,
+                            changed_by=user,
+                            reason=reason,
+                            source_ip=source_ip,
+                        )
                 except Exception:
                     pass
             try:
-                self.config_store.create_version(
-                    config_dict=self._export_full_config(),
-                    created_by=user,
-                    description=f"Updated ldap config: {', '.join(kwargs.keys())}",
-                )
+                creator = getattr(store, "create_version", None)
+                if callable(creator):
+                    creator(
+                        config_dict=self._export_full_config(),
+                        created_by=user,
+                        description=f"Updated ldap config: {', '.join(kwargs.keys())}",
+                    )
             except Exception:
                 pass
         self._apply_overrides()
@@ -1459,10 +1517,11 @@ class TacacsConfig:
     def _apply_overrides(self) -> None:
         """Apply database overrides on top of base configuration."""
         self.overridden_keys = {}
-        if not getattr(self, "config_store", None):
+        store = getattr(self, "config_store", None)
+        if not store:
             return
         try:
-            ov = self.config_store.get_all_overrides()
+            ov = store.get_all_overrides()
         except Exception:
             return
         for section, kv in ov.items():
@@ -1488,9 +1547,11 @@ class TacacsConfig:
     def is_url_config(self) -> bool:
         return self._is_url(self.config_source)
 
-    def get_baseline_config(self) -> dict:
+    def get_baseline_config(self) -> dict[str, Any]:
         """Return base config without overrides (for UI comparison)."""
-        return json.loads(json.dumps(self._baseline_snapshot))
+        # Deep copy snapshot as dict[str, Any]
+        data = json.loads(json.dumps(self._baseline_snapshot))
+        return dict(data)
 
     # --- helpers for history/version tracking ---
     def _get_current_user(self) -> str:

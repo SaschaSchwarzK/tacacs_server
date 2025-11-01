@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import json
-from tacacs_server.utils.logger import get_logger
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from tacacs_server.backup.destinations import create_destination
 from tacacs_server.backup.service import get_backup_service
+from tacacs_server.utils.logger import get_logger
 from tacacs_server.web.api_models import (
     BackupDeleteResponse,
     BackupDestinationListResponse,
     BackupDestinationModel,
     BackupExecutionDetail,
     BackupExecutionsResponse,
+    BackupItem,
     BackupListResponse,
     BackupRestoreResponse,
     BackupScheduleCreateResponse,
@@ -26,7 +27,6 @@ from tacacs_server.web.api_models import (
     BackupStatsResponse,
     BackupTestResponse,
     BackupTriggerResponse,
-    BackupItem,
     RetentionPolicyUpdate,
 )
 
@@ -177,7 +177,7 @@ async def update_retention_policy(
         strategy = RetentionStrategy(policy.strategy)
         rule_dict = policy.model_dump(exclude_none=True)
         rule_dict.pop("strategy", None)
-        _ = RetentionRule(strategy=strategy, **rule_dict)
+        RetentionRule(strategy=strategy, **rule_dict)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -216,7 +216,7 @@ async def apply_retention_now(
             destination = create_destination(
                 dest["type"], json.loads(dest["config_json"])
             )
-            from tacacs_server.backup.retention import RetentionStrategy, RetentionRule
+            from tacacs_server.backup.retention import RetentionRule, RetentionStrategy
 
             strategy = RetentionStrategy(dest.get("retention_strategy", "simple"))
             cfg_raw = dest.get("retention_config_json") or "{}"
@@ -262,8 +262,13 @@ async def update_destination(
         raise HTTPException(status_code=404, detail="Destination not found")
     # Test connection if config changed
     if "config" in updates:
-        dest_type = updates.get("type", dest.get("type"))
-        destination = create_destination(dest_type, updates["config"])  # type: ignore[arg-type]
+        dest_type = str(updates.get("type", dest.get("type")))
+        cfg = (
+            cast(dict[str, Any], updates["config"])
+            if isinstance(updates.get("config"), dict)
+            else {}
+        )
+        destination = create_destination(dest_type, cfg)
         ok, msg = destination.test_connection()
         if not ok:
             raise HTTPException(
@@ -399,7 +404,7 @@ async def get_execution(
         except Exception:
             execution["manifest"] = {}
         execution.pop("manifest_json", None)
-    return execution  # Pydantic will validate fields
+    return BackupExecutionDetail(**execution)
 
 
 @router.get(
@@ -443,7 +448,7 @@ async def list_backups(
             logger.error("Failed to list backups from %s: %s", dest.get("name"), e)
             continue
     try:
-        all_backups.sort(key=lambda x: x.get("timestamp"), reverse=True)
+        all_backups.sort(key=lambda x: x.timestamp, reverse=True)
     except Exception:
         pass
     return BackupListResponse(backups=all_backups)
@@ -558,7 +563,7 @@ async def create_scheduled_backup(
     # Validate schedule
     if schedule_type == "cron":
         try:
-            from croniter import croniter
+            from croniter import croniter  # type: ignore[import-untyped]
 
             if not croniter.is_valid(schedule_value):
                 raise HTTPException(status_code=400, detail="Invalid cron expression")

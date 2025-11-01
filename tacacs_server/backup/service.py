@@ -14,15 +14,20 @@ from typing import Any
 from tacacs_server.config.config import TacacsConfig
 from tacacs_server.utils.logger import get_logger
 
-from .archive_utils import extract_tarball as extract_tar
 from .database_utils import (
     count_database_records as db_count_tables,
+)
+from .database_utils import (
     export_database_with_retry as db_export,
+)
+from .database_utils import (
     import_database as db_import,
+)
+from .database_utils import (
     verify_database_integrity as db_verify,
 )
 from .destinations import create_destination
-from .encryption import BackupEncryption, decrypt_file, encrypt_file
+from .encryption import BackupEncryption, decrypt_file
 from .execution_store import BackupExecutionStore
 from .scheduler import BackupScheduler
 
@@ -68,11 +73,12 @@ class BackupService:
             else "tacacs-server"
         )
         # Initialize scheduler (not started by default)
+        self.scheduler: BackupScheduler | None = None
         try:
             self.scheduler = BackupScheduler(self)
         except Exception as e:
             _logger.warning(f"Scheduler initialization failed: {e}")
-            self.scheduler = None  # type: ignore[assignment]
+            self.scheduler = None
         self.instance_id = (
             self.config.config_store.get_metadata("instance_id")
             if self.config.config_store is not None
@@ -113,7 +119,7 @@ class BackupService:
 
     def _create_manifest(
         self, backup_dir: str, backup_type: str, triggered_by: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a backup manifest.
 
         Args:
@@ -124,7 +130,8 @@ class BackupService:
         Returns:
             Manifest dictionary suitable for JSON serialization
         """
-        manifest = {
+        contents: list[dict[str, Any]] = []
+        manifest: dict[str, Any] = {
             "backup_metadata": {
                 "instance_id": self.instance_id,
                 "instance_name": self.instance_name,
@@ -145,7 +152,7 @@ class BackupService:
                 "has_overrides": len(getattr(self.config, "overridden_keys", {}) or {})
                 > 0,
             },
-            "contents": [],
+            "contents": contents,
             "total_size_bytes": 0,
             # Encryption fields (populated when encryption is applied)
             "encrypted": False,
@@ -177,8 +184,10 @@ class BackupService:
                     entry["records"] = sum(db_count_tables(filepath).values())
                 except Exception:
                     entry["records"] = 0
-            manifest["contents"].append(entry)
-            manifest["total_size_bytes"] += file_size
+            contents.append(entry)
+            manifest["total_size_bytes"] = int(
+                manifest.get("total_size_bytes", 0)
+            ) + int(file_size)
 
         return manifest
 
@@ -239,9 +248,11 @@ class BackupService:
             int: Size of the created tarball in bytes
         """
         try:
-            compression_level = getattr(
-                self.config, "get_backup_config", lambda: {}
-            )().get("compression_level", 6)
+            from typing import Any
+
+            raw_cfg: Any = getattr(self.config, "get_backup_config", lambda: {})()
+            cfg: dict[str, Any] = raw_cfg if isinstance(raw_cfg, dict) else {}
+            compression_level = int(cfg.get("compression_level", 6))
         except Exception:
             compression_level = 6
 
@@ -258,7 +269,7 @@ class BackupService:
     def _upload_with_progress(
         self,
         local_path: str,
-        destination,
+        destination: Any,
         remote_filename: str,
         execution_id: str,
     ) -> str:
@@ -307,13 +318,17 @@ class BackupService:
         # Try to pass progress_callback if destination supports it
         try:
             if hasattr(destination, "upload"):
-                return destination.upload(
-                    local_path,
-                    remote_filename=remote_filename,
+                return str(
+                    destination.upload(
+                        local_path,
+                        remote_filename=remote_filename,
+                    )
                 )
             elif hasattr(destination, "upload_backup"):
-                return destination.upload_backup(
-                    local_path, remote_filename=remote_filename
+                return str(
+                    destination.upload_backup(
+                        local_path, remote_filename=remote_filename
+                    )
                 )
             else:
                 # Fallback to simple upload if neither method is available
@@ -321,9 +336,9 @@ class BackupService:
                     "Destination doesn't support progress callbacks, using simple upload"
                 )
                 if hasattr(destination, "upload"):
-                    return destination.upload(local_path, remote_filename)
+                    return str(destination.upload(local_path, remote_filename))
                 else:
-                    return destination.upload_backup(local_path, remote_filename)
+                    return str(destination.upload_backup(local_path, remote_filename))
 
         except Exception as e:
             _logger.error("Upload failed: %s", str(e))
@@ -655,6 +670,8 @@ class BackupService:
                     try:
                         from tacacs_server.backup.retention import (
                             RetentionRule as _Rule,
+                        )
+                        from tacacs_server.backup.retention import (
                             RetentionStrategy as _Strat,
                         )
 
@@ -944,7 +961,7 @@ class BackupService:
                 b = bcfg() or {}
                 passphrase_cfg = b.get("encryption_passphrase")
                 if passphrase_cfg:
-                    return passphrase_cfg
+                    return str(passphrase_cfg)
 
             # If not found, try direct config access
             if hasattr(self.config, "config"):
@@ -952,7 +969,7 @@ class BackupService:
                     backup_section = self.config.config.get("backup", {})
                     passphrase_cfg = backup_section.get("encryption_passphrase")
                     if passphrase_cfg:
-                        return passphrase_cfg
+                        return str(passphrase_cfg)
         except Exception as e:
             _logger.warning(f"Error getting encryption passphrase from config: {e}")
 
@@ -993,4 +1010,5 @@ def get_backup_service() -> "BackupService":
             _logger.error(f"Backup service lazy-init failed: {e}")
             raise RuntimeError("Backup service not initialized") from e
 
+    assert _backup_service_instance is not None
     return _backup_service_instance

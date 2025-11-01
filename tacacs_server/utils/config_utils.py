@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -43,8 +43,8 @@ def get_config() -> TacacsConfig | None:
 
 
 # Context variables for tracking config changes
-_config_user = ContextVar("config_user", default="system")
-_config_source_ip = ContextVar("config_source_ip", default=None)
+_config_user: ContextVar[str] = ContextVar("config_user", default="system")
+_config_source_ip: ContextVar[str] = ContextVar("config_source_ip", default="")
 
 
 def get_config_change_user() -> str:
@@ -54,7 +54,18 @@ def get_config_change_user() -> str:
 
 def get_config_change_source_ip() -> str | None:
     """Get the source IP associated with the current config change."""
-    return _config_source_ip.get()
+    val = _config_source_ip.get()
+    return val if val else None
+
+
+def set_config_change_user(user: str) -> None:
+    """Set the username associated with the current config change."""
+    _config_user.set(user or "system")
+
+
+def set_config_change_source_ip(ip: str | None) -> None:
+    """Set the source IP associated with the current config change."""
+    _config_source_ip.set(ip or "")
 
 
 # Admin authentication dependency
@@ -80,3 +91,17 @@ def get_admin_auth_dependency_func() -> Callable[[Request], Awaitable[None]] | N
         The current admin authentication dependency function, or None if not set.
     """
     return _admin_auth_dependency
+
+
+# Optional: access the admin session manager used by the web admin UI
+def get_admin_session_manager() -> Any | None:
+    """Return the active AdminSessionManager if available.
+
+    Provided for modules that cannot import from web.web directly without cycles.
+    """
+    try:
+        from tacacs_server.web.web import get_admin_session_manager as _get
+
+        return _get()
+    except Exception:
+        return None

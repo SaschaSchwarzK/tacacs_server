@@ -1,11 +1,14 @@
 """Fixed test for syslog delivery - adapts to new log format"""
+
 import re
 import socket
 import socketserver
 import struct
 import threading
 import time
+
 import pytest
+
 
 class SyslogMessage:
     def __init__(self, raw_data: bytes, source: tuple[str, int]):
@@ -87,6 +90,7 @@ class SyslogMessage:
             f"app_name={self.app_name}, message={self.message!r})"
         )
 
+
 class SyslogUDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         data = self.request[0]
@@ -95,7 +99,10 @@ class SyslogUDPHandler(socketserver.BaseRequestHandler):
             SyslogUDPHandler.messages = []
         SyslogUDPHandler.messages.append(msg)
 
-def _start_syslog_udp_server() -> tuple[socketserver.UDPServer, threading.Thread, int, list[SyslogMessage]]:
+
+def _start_syslog_udp_server() -> tuple[
+    socketserver.UDPServer, threading.Thread, int, list[SyslogMessage]
+]:
     SyslogUDPHandler.messages = []
     server = socketserver.UDPServer(("127.0.0.1", 0), SyslogUDPHandler)
     port = server.server_address[1]
@@ -103,7 +110,10 @@ def _start_syslog_udp_server() -> tuple[socketserver.UDPServer, threading.Thread
     thread.start()
     return server, thread, port, SyslogUDPHandler.messages
 
-def _send_tacacs_auth(host: str, port: int, username: str, password: str, secret: str = "") -> tuple[bool, str]:
+
+def _send_tacacs_auth(
+    host: str, port: int, username: str, password: str, secret: str = ""
+) -> tuple[bool, str]:
     from tacacs_server.tacacs.constants import (
         TAC_PLUS_AUTHEN_ACTION,
         TAC_PLUS_AUTHEN_STATUS,
@@ -171,7 +181,10 @@ def _send_tacacs_auth(host: str, port: int, username: str, password: str, secret
 
         if secret and not (h.flags & TAC_PLUS_FLAGS.TAC_PLUS_UNENCRYPTED_FLAG):
             import hashlib
-            def _md5_pad(sess_id: int, key: str, ver: int, seq: int, length: int) -> bytes:
+
+            def _md5_pad(
+                sess_id: int, key: str, ver: int, seq: int, length: int
+            ) -> bytes:
                 pad = bytearray()
                 sid = struct.pack("!L", sess_id)
                 k = key.encode()
@@ -181,6 +194,7 @@ def _send_tacacs_auth(host: str, port: int, username: str, password: str, secret
                     md5_in = sid + k + v + sq + (pad if pad else b"")
                     pad.extend(hashlib.md5(md5_in, usedforsecurity=False).digest())
                 return bytes(pad[:length])
+
             pad = _md5_pad(h.session_id, secret, h.version, h.seq_no, len(body))
             body = bytes(a ^ b for a, b in zip(body, pad))
 
@@ -198,6 +212,7 @@ def _send_tacacs_auth(host: str, port: int, username: str, password: str, secret
             s.close()
         except Exception:
             pass
+
 
 @pytest.mark.functional
 def test_syslog_udp_authentication_events(server_factory):
@@ -228,18 +243,44 @@ def test_syslog_udp_authentication_events(server_factory):
             from tacacs_server.devices.store import DeviceStore
 
             user_service = LocalUserService(str(server.auth_db))
-            user_service.create_user("syslog_user", password="GoodPass123", privilege_level=15)
+            user_service.create_user(
+                "syslog_user", password="GoodPass123", privilege_level=15
+            )
             device_store = DeviceStore(str(server.devices_db))
-            device_store.ensure_group("default", description="Test group", metadata={"tacacs_secret": "syslog_secret"})
-            device_store.ensure_device(name="syslog-device", network="127.0.0.1", group="default")
+            device_store.ensure_group(
+                "default",
+                description="Test group",
+                metadata={"tacacs_secret": "syslog_secret"},
+            )
+            device_store.ensure_device(
+                name="syslog-device", network="127.0.0.1", group="default"
+            )
 
             time.sleep(1)
 
-            _send_tacacs_auth("127.0.0.1", server.tacacs_port, "syslog_user", "GoodPass123", "syslog_secret")
+            _send_tacacs_auth(
+                "127.0.0.1",
+                server.tacacs_port,
+                "syslog_user",
+                "GoodPass123",
+                "syslog_secret",
+            )
             time.sleep(0.5)
-            _send_tacacs_auth("127.0.0.1", server.tacacs_port, "syslog_user", "WrongPass123", "syslog_secret")
+            _send_tacacs_auth(
+                "127.0.0.1",
+                server.tacacs_port,
+                "syslog_user",
+                "WrongPass123",
+                "syslog_secret",
+            )
             time.sleep(0.5)
-            _send_tacacs_auth("127.0.0.1", server.tacacs_port, "nonexistent_user", "AnyPass123", "syslog_secret")
+            _send_tacacs_auth(
+                "127.0.0.1",
+                server.tacacs_port,
+                "nonexistent_user",
+                "AnyPass123",
+                "syslog_secret",
+            )
             time.sleep(2)
 
             if len(messages) == 0:
@@ -251,7 +292,9 @@ def test_syslog_udp_authentication_events(server_factory):
 
             relevant = []
             for m in messages:
-                combined = f"{m.hostname or ''} {m.app_name or ''} {m.message or ''}".strip()
+                combined = (
+                    f"{m.hostname or ''} {m.app_name or ''} {m.message or ''}".strip()
+                )
                 tl = combined.lower()
                 # Look for auth events OR usernames in JSON format
                 if (
@@ -263,7 +306,9 @@ def test_syslog_udp_authentication_events(server_factory):
                 ):
                     relevant.append(m)
 
-            assert len(relevant) >= 1, f"Expected at least 1 relevant syslog message, got {len(relevant)}"
+            assert len(relevant) >= 1, (
+                f"Expected at least 1 relevant syslog message, got {len(relevant)}"
+            )
 
             for msg in relevant:
                 assert msg.priority is not None

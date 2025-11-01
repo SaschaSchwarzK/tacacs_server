@@ -24,7 +24,7 @@ def test_container_name_validation():
 
 
 @patch("azure.storage.blob.BlobServiceClient")
-def test_connection_string_upload_sets_metadata_and_tags(mock_bsc):
+def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Path):
     mock_container = Mock()
     mock_blob_client = Mock()
     # Container client/exists and get_blob_client

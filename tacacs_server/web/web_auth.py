@@ -3,14 +3,13 @@ Simplified Authentication Module
 Handles both admin web sessions and API token authentication
 """
 
-from tacacs_server.utils.logger import get_logger
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 from fastapi import HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+
+from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -22,7 +21,7 @@ class AuthConfig:
         self,
         admin_username: str,
         admin_password_hash: str,
-        api_token: Optional[str] = None,
+        api_token: str | None = None,
         session_timeout_minutes: int = 60,
     ):
         self.admin_username = admin_username
@@ -92,14 +91,14 @@ class SessionManager:
 
 
 # Global instances (set by main app)
-_auth_config: Optional[AuthConfig] = None
-_session_manager: Optional[SessionManager] = None
+_auth_config: AuthConfig | None = None
+_session_manager: SessionManager | None = None
 
 
 def init_auth(
     admin_username: str,
     admin_password_hash: str,
-    api_token: Optional[str] = None,
+    api_token: str | None = None,
     session_timeout: int = 60,
 ):
     """Initialize authentication system"""
@@ -118,12 +117,12 @@ def init_auth(
     )
 
 
-def get_session_manager() -> Optional[SessionManager]:
+def get_session_manager() -> SessionManager | None:
     """Get session manager instance"""
     return _session_manager
 
 
-def get_auth_config() -> Optional[AuthConfig]:
+def get_auth_config() -> AuthConfig | None:
     """Get auth config instance"""
     return _auth_config
 

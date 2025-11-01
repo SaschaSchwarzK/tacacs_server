@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import io
-import os
 import stat as statmod
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -22,7 +20,7 @@ class _MemSFTP:
 
     # Context-manager-compatible 'file' interface
     class _File:
-        def __init__(self, sftp: "_MemSFTP", path: str, mode: str):
+        def __init__(self, sftp: _MemSFTP, path: str, mode: str):
             self.sftp = sftp
             self.path = path
             self.mode = mode

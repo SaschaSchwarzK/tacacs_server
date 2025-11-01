@@ -3,23 +3,27 @@ Simplified API Routes
 All JSON/REST API routes in one place
 """
 
-from tacacs_server.utils.logger import get_logger
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from .web_auth import require_api_token, require_admin_or_api
+from tacacs_server.utils.audit_logger import get_audit_logger
+from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
 from tacacs_server.utils.webhook import get_webhook_config_dict, set_webhook_config
 from tacacs_server.web.monitoring import get_command_engine as _mon_get_command_engine
-from tacacs_server.utils.audit_logger import get_audit_logger
 from tacacs_server.web.web import (
-    get_local_user_service as _get_user_service,
     get_device_service as _get_device_service,
+)
+from tacacs_server.web.web import (
     get_local_user_group_service as _get_user_group_service,
 )
+from tacacs_server.web.web import (
+    get_local_user_service as _get_user_service,
+)
+
+from .web_auth import require_admin_or_api
 
 logger = get_logger(__name__)
 
@@ -35,18 +39,18 @@ router = APIRouter(prefix="/api", tags=["API"])
 class DeviceCreate(BaseModel):
     # Accept both UI-style and API-style fields
     name: str
-    network: Optional[str] = None
-    group: Optional[str] = None
+    network: str | None = None
+    group: str | None = None
     # Alternative names from some tests
-    ip_address: Optional[str] = None
-    device_group_id: Optional[int] = None
+    ip_address: str | None = None
+    device_group_id: int | None = None
 
 
 class DeviceResponse(BaseModel):
     id: int
     name: str
     network: str
-    group: Optional[str] = None
+    group: str | None = None
 
 
 class UserCreate(BaseModel):
@@ -54,29 +58,29 @@ class UserCreate(BaseModel):
     password: str
     privilege_level: int = 1
     enabled: bool = True
-    groups: Optional[List[str]] = None
+    groups: list[str] | None = None
 
 
 class UserResponse(BaseModel):
     username: str
     privilege_level: int
     enabled: bool
-    groups: Optional[List[str]] = None
+    groups: list[str] | None = None
 
 
 class UserUpdate(BaseModel):
-    privilege_level: Optional[int] = None
-    enabled: Optional[bool] = None
-    groups: Optional[List[str]] = None
-    service: Optional[str] = None
-    description: Optional[str] = None
+    privilege_level: int | None = None
+    enabled: bool | None = None
+    groups: list[str] | None = None
+    service: str | None = None
+    description: str | None = None
 
 
 class GroupCreate(BaseModel):
     name: str
-    description: Optional[str] = None
-    tacacs_secret: Optional[str] = None
-    radius_secret: Optional[str] = None
+    description: str | None = None
+    tacacs_secret: str | None = None
+    radius_secret: str | None = None
 
 
 class ServerStatus(BaseModel):
@@ -151,9 +155,9 @@ async def maintenance_cleanup():
 
     try:
         if ug_svc:
-            for g in ug_svc.list_groups():
+            for ug in ug_svc.list_groups():
                 try:
-                    ug_svc.delete_group(g.name)
+                    ug_svc.delete_group(ug.name)
                     deleted_ugroups += 1
                 except Exception:
                     continue
@@ -170,13 +174,19 @@ async def maintenance_cleanup():
                 except Exception:
                     continue
             # Delete all device groups (non-cascade, fallback to cascade)
-            for g in dev_svc.list_groups():
+            for dg in dev_svc.list_groups():
                 try:
-                    if dev_svc.delete_group(g.id, cascade=False):
+                    id_val = getattr(dg, "id", None)
+                    if isinstance(id_val, int) and dev_svc.delete_group(
+                        id_val, cascade=False
+                    ):
                         deleted_dgroups += 1
                 except Exception:
                     try:
-                        if dev_svc.delete_group(g.id, cascade=True):
+                        id_val = getattr(dg, "id", None)
+                        if isinstance(id_val, int) and dev_svc.delete_group(
+                            id_val, cascade=True
+                        ):
                             deleted_dgroups += 1
                     except Exception:
                         continue
@@ -240,12 +250,12 @@ async def metrics_summary(hours: int = Query(24, ge=1, le=168)):
 
 @router.get(
     "/devices",
-    response_model=List[DeviceResponse],
+    response_model=list[DeviceResponse],
     dependencies=[Depends(require_admin_or_api)],
 )
 async def list_devices(
     limit: int = Query(100, ge=1, le=1000),
-    search: Optional[str] = None,
+    search: str | None = None,
 ):
     """List all devices"""
     svc = _get_device_service()
@@ -502,12 +512,12 @@ async def delete_device_group(group_id: int, cascade: bool = False):
 
 @router.get(
     "/users",
-    response_model=List[UserResponse],
+    response_model=list[UserResponse],
     dependencies=[Depends(require_admin_or_api)],
 )
 async def list_users(
     limit: int = Query(100, ge=1, le=1000),
-    search: Optional[str] = None,
+    search: str | None = None,
 ):
     """List all users"""
     svc = _get_user_service()
@@ -701,7 +711,7 @@ async def delete_user_group(name: str):
 async def get_accounting_records(
     hours: int = Query(24, ge=1, le=168),
     limit: int = Query(100, ge=1, le=1000),
-    username: Optional[str] = None,
+    username: str | None = None,
 ):
     """Get accounting records"""
     # TODO: Get from database logger
@@ -819,7 +829,9 @@ async def get_command_rules():
     engine = _mon_get_command_engine()
     if engine is None:
         try:
-            from tacacs_server.web.web import get_command_engine as _web_get_engine  # type: ignore
+            from tacacs_server.web.web import (
+                get_command_engine as _web_get_engine,
+            )
 
             engine = _web_get_engine()
         except Exception:
@@ -851,7 +863,9 @@ async def create_command_rule(rule: dict):
     engine = _mon_get_command_engine()
     if engine is None:
         try:
-            from tacacs_server.web.web import get_command_engine as _web_get_engine  # type: ignore
+            from tacacs_server.web.web import (
+                get_command_engine as _web_get_engine,
+            )
 
             engine = _web_get_engine()
         except Exception:
@@ -890,7 +904,9 @@ async def delete_command_rule(rule_id: int):
     engine = _mon_get_command_engine()
     if engine is None:
         try:
-            from tacacs_server.web.web import get_command_engine as _web_get_engine  # type: ignore
+            from tacacs_server.web.web import (
+                get_command_engine as _web_get_engine,
+            )
 
             engine = _web_get_engine()
         except Exception:
@@ -927,7 +943,9 @@ async def get_command_settings():
     engine = _mon_get_command_engine()
     if engine is None:
         try:
-            from tacacs_server.web.web import get_command_engine as _web_get_engine  # type: ignore
+            from tacacs_server.web.web import (
+                get_command_engine as _web_get_engine,
+            )
 
             engine = _web_get_engine()
         except Exception:
@@ -955,8 +973,8 @@ async def get_command_settings():
 class CommandCheckRequest(BaseModel):
     command: str
     privilege_level: int = 15
-    user_groups: Optional[List[str]] = None
-    device_group: Optional[str] = None
+    user_groups: list[str] | None = None
+    device_group: str | None = None
 
 
 class CommandCheckResponse(BaseModel):
@@ -975,7 +993,9 @@ async def check_command_authorization_api(req: CommandCheckRequest):
     engine = _mon_get_command_engine()
     if engine is None:
         try:
-            from tacacs_server.web.web import get_command_engine as _web_get_engine  # type: ignore
+            from tacacs_server.web.web import (
+                get_command_engine as _web_get_engine,
+            )
 
             engine = _web_get_engine()
         except Exception:

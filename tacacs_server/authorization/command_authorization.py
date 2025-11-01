@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from tacacs_server.web.web import (
-    get_admin_auth_dependency_func,
     get_command_engine,
 )
 from tacacs_server.web.web import (
@@ -482,8 +481,9 @@ class CommandRuleCreate(BaseModel):
 
 async def _admin_guard_dep(request: Request):
     # Enforce cookie-based admin session; do not consume body
-    from tacacs_server.utils import config_utils
     import logging
+
+    from tacacs_server.utils import config_utils
 
     try:
         logging.getLogger("tacacs.command_auth").info(

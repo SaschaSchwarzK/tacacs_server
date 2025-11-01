@@ -308,7 +308,7 @@ def test_admin_web_requires_authentication(server_factory, monkeypatch):
             }
 
             # Make login request
-            login_response = session.post(
+            session.post(
                 f"{base_url}/admin/login",
                 data=login_data,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},

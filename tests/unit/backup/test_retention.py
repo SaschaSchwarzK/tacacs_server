@@ -3,15 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
-import pytest
-
+from tacacs_server.backup.destinations.ftp import FTPBackupDestination
 from tacacs_server.backup.retention import (
     RetentionPolicy,
     RetentionRule,
     RetentionStrategy,
 )
-from tacacs_server.backup.destinations.ftp import FTPBackupDestination
-from pathlib import Path
 
 
 def _mk_backup(days_ago: int, name: str | None = None) -> Mock:
@@ -78,7 +75,8 @@ def test_simple_keep_days_edge_case():
 # --- GFS strategy ---
 def test_gfs_retention():
     """Test Grandfather-Father-Son retention policy"""
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
 
     # Create backups spanning 400 days (newest first in our helper)
     base_time = _dt.utcnow()

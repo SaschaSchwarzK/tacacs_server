@@ -70,7 +70,7 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
     """
     Import database with verification and atomic replace.
     Creates timestamped backup of existing destination before overwriting.
-    
+
     NOTE: This will retry multiple times if the destination is locked.
     For in-place restore while server is running, the caller should signal
     database connections to close before calling this function.
@@ -96,18 +96,21 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
     tmp = dest_path + ".import.tmp"
     max_attempts = 5
     attempt = 0
-    
+
     while attempt < max_attempts:
         try:
             shutil.copy2(source_path, tmp)
-            
+
             # Try to replace - this may fail if db is locked
             try:
                 os.replace(tmp, dest_path)
                 break
             except (OSError, PermissionError) as e:
                 # Check if it's a lock issue
-                if "being used by another process" in str(e).lower() or "database is locked" in str(e).lower():
+                if (
+                    "being used by another process" in str(e).lower()
+                    or "database is locked" in str(e).lower()
+                ):
                     attempt += 1
                     if attempt < max_attempts:
                         # Wait longer each time
@@ -121,14 +124,14 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
                     os.remove(tmp)
                 except Exception:
                     pass
-            
+
             if attempt >= max_attempts - 1:
                 raise RuntimeError(
                     f"Failed to import database after {max_attempts} attempts. "
                     f"The database may be locked by the running server. "
                     f"Consider stopping the server before restoring."
                 ) from e
-            
+
             attempt += 1
             time.sleep(0.5 * attempt)
 

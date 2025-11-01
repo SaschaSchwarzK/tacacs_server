@@ -19,8 +19,9 @@ class AzureBlobBackupDestination(BackupDestination):
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
-        self.blob_service_client = None
-        self.container_client = None
+        # Use loose Any typing to avoid mypy issues when azure stubs are absent
+        self.blob_service_client: Any | None = None
+        self.container_client: Any | None = None
 
     # --- configuration / validation ---
     def validate_config(self) -> None:
@@ -82,7 +83,7 @@ class AzureBlobBackupDestination(BackupDestination):
         cfg = self.config
         try:
             # Late import to avoid mandatory dependency when unused
-            from azure.storage.blob import BlobServiceClient  # type: ignore
+            from azure.storage.blob import BlobServiceClient
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(
                 "azure-storage-blob package is required for Azure destination"
@@ -107,7 +108,7 @@ class AzureBlobBackupDestination(BackupDestination):
                 credential = cfg.get("sas_token")
             else:
                 try:
-                    from azure.identity import DefaultAzureCredential  # type: ignore
+                    from azure.identity import DefaultAzureCredential
                 except Exception as exc:  # pragma: no cover
                     raise RuntimeError(
                         "azure-identity package is required for managed identity auth"
@@ -185,28 +186,26 @@ class AzureBlobBackupDestination(BackupDestination):
             assert self.container_client is not None
 
             try:
-                if not self.container_client.exists():  # type: ignore[attr-defined]
+                if not self.container_client.exists():
                     try:
                         # Private access by default
-                        self.container_client.create_container()  # type: ignore[attr-defined]
+                        self.container_client.create_container()
                     except Exception as exc:
                         # If already exists, ignore
-                        from azure.core.exceptions import (
-                            ResourceExistsError,  # type: ignore
-                        )
+                        from azure.core.exceptions import ResourceExistsError
 
                         if not isinstance(exc, ResourceExistsError):
                             raise
             except Exception:
                 # Fallback to best-effort create ignoring conflicts
                 try:
-                    self.container_client.create_container()  # type: ignore[attr-defined]
+                    self.container_client.create_container()
                 except Exception:
                     pass
 
             # Test upload, download, delete
             test_blob = ".connect_test"
-            blob_client = self.container_client.get_blob_client(test_blob)  # type: ignore[attr-defined]
+            blob_client = self.container_client.get_blob_client(test_blob)
             payload = b"ok"
             blob_client.upload_blob(
                 payload,
@@ -221,16 +220,9 @@ class AzureBlobBackupDestination(BackupDestination):
                 return False, "I/O verification failed"
             blob_client.delete_blob()
             # List operation
-            list(self.container_client.list_blobs(name_starts_with=""))  # type: ignore[attr-defined]
+            list(self.container_client.list_blobs(name_starts_with=""))
             return True, "Connected successfully"
         except Exception as exc:
-            try:
-                from azure.core.exceptions import AzureError  # type: ignore
-
-                if isinstance(exc, AzureError):
-                    return False, f"Azure error: {exc}"
-            except Exception:
-                pass
             return False, str(exc)
 
     # --- path helpers ---
@@ -245,7 +237,7 @@ class AzureBlobBackupDestination(BackupDestination):
         self._ensure_clients()
         assert self.container_client is not None
         blob_name = self._blob_name(remote_filename)
-        blob_client = self.container_client.get_blob_client(blob_name)  # type: ignore[attr-defined]
+        blob_client = self.container_client.get_blob_client(blob_name)
 
         # Basic retry with exponential backoff for transient errors
         max_attempts = 3
@@ -284,14 +276,15 @@ class AzureBlobBackupDestination(BackupDestination):
         except Exception as exc:
             _logger.debug("azure_set_tags_failed", error=str(exc))
 
-        return blob_client.url  # type: ignore[attr-defined]
+        url = getattr(blob_client, "url", None)
+        return str(url) if url is not None else f"/{blob_name}"
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         try:
             self._ensure_clients()
             assert self.container_client is not None
-            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))  # type: ignore[attr-defined]
+            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))
             os.makedirs(os.path.dirname(local_file_path) or ".", exist_ok=True)
             with open(local_file_path, "wb") as file:
                 download_stream = blob_client.download_blob(
@@ -304,7 +297,7 @@ class AzureBlobBackupDestination(BackupDestination):
                 int(getattr(props, "size", 0) or props.get("size", 0))
                 if isinstance(props, dict)
                 else int(props.size)
-            )  # type: ignore[attr-defined]
+            )
             size_local = os.path.getsize(local_file_path)
             return int(size_remote) == int(size_local)
         except Exception as exc:
@@ -324,7 +317,7 @@ class AzureBlobBackupDestination(BackupDestination):
             if prefix:
                 p = prefix.strip("/")
                 start = f"{base_prefix}/{p}" if base_prefix else p
-            it = self.container_client.list_blobs(name_starts_with=start or None)  # type: ignore[attr-defined]
+            it = self.container_client.list_blobs(name_starts_with=start or None)
             for blob in it:
                 name: str = getattr(blob, "name", "")
                 if not name or not name.endswith(".tar.gz"):
@@ -355,12 +348,12 @@ class AzureBlobBackupDestination(BackupDestination):
         try:
             self._ensure_clients()
             assert self.container_client is not None
-            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))  # type: ignore[attr-defined]
+            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))
             blob_client.delete_blob()
             # Delete associated manifest if present
             try:
                 man = remote_path + ".manifest.json"
-                self.container_client.get_blob_client(man).delete_blob()  # type: ignore[attr-defined]
+                self.container_client.get_blob_client(man).delete_blob()
             except Exception:
                 pass
             return True
@@ -374,13 +367,13 @@ class AzureBlobBackupDestination(BackupDestination):
         try:
             self._ensure_clients()
             assert self.container_client is not None
-            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))  # type: ignore[attr-defined]
+            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))
             props = blob_client.get_blob_properties()
             size = (
                 int(getattr(props, "size", 0) or 0)
                 if isinstance(props, dict)
                 else int(props.size)
-            )  # type: ignore[attr-defined]
+            )
             lm = (
                 getattr(props, "last_modified", None)
                 if not isinstance(props, dict)
@@ -405,7 +398,9 @@ class AzureBlobBackupDestination(BackupDestination):
             return None
 
     # Advanced: move older backups to Cool tier and then fall back to base delete policy
-    def apply_retention_policy(self, retention_days: int) -> int:
+    def apply_retention_policy(
+        self, retention_days: int | None = None, retention_rule: Any | None = None
+    ) -> int:
         moved = 0
         try:
             self._ensure_clients()
@@ -417,7 +412,7 @@ class AzureBlobBackupDestination(BackupDestination):
                     age_days = (now - ts).days
                     if age_days > 90:
                         try:
-                            bc = self.container_client.get_blob_client(meta.path)  # type: ignore[attr-defined]
+                            bc = self.container_client.get_blob_client(meta.path)
                             bc.set_standard_blob_tier("Cool")
                             moved += 1
                         except Exception:
@@ -428,7 +423,7 @@ class AzureBlobBackupDestination(BackupDestination):
             _logger.debug("azure_apply_retention_tiering_failed", error=str(exc))
         # Perform base deletion for items older than retention_days
         try:
-            deleted = super().apply_retention_policy(retention_days)
+            deleted = super().apply_retention_policy(retention_days, retention_rule)
         except Exception:
             deleted = 0
         return deleted

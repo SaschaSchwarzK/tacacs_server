@@ -146,19 +146,7 @@ def test_env_precedence_over_override(
 def test_merge_overrides_with_config(
     config_store: ConfigStore, monkeypatch: pytest.MonkeyPatch
 ):
-    # Base config
-    base = {
-        "server": {
-            "port": 8080,
-            "host": "0.0.0.0",
-            "debug": False,
-            "timeout": 30,
-        },
-        "auth": {
-            "backends": ["local"],
-            "allow_anonymous": False,
-        },
-    }
+    # Base config not required explicitly here; store already initialized
 
     # Set some overrides
     config_store.set_override("server", "port", 9090, "integer", "tester")

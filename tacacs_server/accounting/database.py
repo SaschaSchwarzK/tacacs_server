@@ -495,7 +495,10 @@ class DatabaseLogger:
                 _ANNOUNCED_DB_PATHS.add(resolved)
                 logger.info("Database initialized: %s", self.db_path)
             else:
-                logger.debug("Database already initialized (suppressing duplicate): %s", self.db_path)
+                logger.debug(
+                    "Database already initialized (suppressing duplicate): %s",
+                    self.db_path,
+                )
         except sqlite3.OperationalError as e:
             logger.error("SQLite operational error during schema init: %s", e)
             raise

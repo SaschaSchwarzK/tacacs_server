@@ -15,14 +15,14 @@ import os
 import socket
 import struct
 import threading
+import uuid
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from tacacs_server.auth.base import AuthenticationBackend
-from tacacs_server.utils.logger import get_logger, bind_context, clear_context
-import uuid
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 from tacacs_server.utils.rate_limiter import get_rate_limiter
 
@@ -821,7 +821,9 @@ class RADIUSServer:
         client_ip, client_port = addr
         _ctx = None
         try:
-            _ctx = bind_context(correlation_id=str(uuid.uuid4()), client={"ip": client_ip})
+            _ctx = bind_context(
+                correlation_id=str(uuid.uuid4()), client={"ip": client_ip}
+            )
         except Exception:
             _ctx = None
 
@@ -985,9 +987,11 @@ class RADIUSServer:
             self._send_response(response, addr, client_secret, request.authenticator)
             try:
                 status = (
-                    "accept" if response.code == RADIUS_ACCESS_ACCEPT else
-                    "reject" if response.code == RADIUS_ACCESS_REJECT else
-                    str(response.code)
+                    "accept"
+                    if response.code == RADIUS_ACCESS_ACCEPT
+                    else "reject"
+                    if response.code == RADIUS_ACCESS_REJECT
+                    else str(response.code)
                 )
                 logger.debug(
                     "RADIUS response",
@@ -1020,7 +1024,9 @@ class RADIUSServer:
         client_ip, client_port = addr
         _ctx = None
         try:
-            _ctx = bind_context(correlation_id=str(uuid.uuid4()), client={"ip": client_ip})
+            _ctx = bind_context(
+                correlation_id=str(uuid.uuid4()), client={"ip": client_ip}
+            )
         except Exception:
             _ctx = None
 

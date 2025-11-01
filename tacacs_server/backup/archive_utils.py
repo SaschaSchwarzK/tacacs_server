@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import tarfile
-from typing import Literal
+from typing import Literal, cast
 
 
 def create_tarball(
@@ -14,9 +14,19 @@ def create_tarball(
     Create compressed tarball from directory. Returns archive size in bytes.
     compression: "gz" (default), "bz2", "xz", or "" for no compression.
     """
-    mode = f"w:{compression}" if compression else "w"
+    # Constrain mode to known values
+    mode_str: str
+    if compression == "gz":
+        mode_str = "w:gz"
+    elif compression == "bz2":
+        mode_str = "w:bz2"
+    elif compression == "xz":
+        mode_str = "w:xz"
+    else:
+        mode_str = "w"
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    with tarfile.open(output_path, mode) as tar:
+    mode_lit = cast(Literal["w", "w:gz", "w:bz2", "w:xz"], mode_str)
+    with tarfile.open(name=output_path, mode=mode_lit) as tar:
         for root, _dirs, files in os.walk(source_dir):
             for file in files:
                 filepath = os.path.join(root, file)

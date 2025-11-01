@@ -173,7 +173,9 @@ class TacacsServer:
             import os
             import threading
             import time
+
             import uvicorn
+
             from ..web.web_app import create_app
 
             logger.info("Starting web monitoring on %s:%s", web_host, web_port)
@@ -189,7 +191,7 @@ class TacacsServer:
                     admin_config = self.config.get_admin_auth_config()
                     admin_username = admin_config.get("username", "admin")
                     admin_password_hash = admin_config.get("password_hash", "")
-                except:
+                except Exception:
                     pass
 
             # Create FastAPI app with credentials
@@ -360,7 +362,10 @@ class TacacsServer:
                                 selected = self.device_store.find_device_for_ip(ip)
                                 # Attach selected device for handler/tests to observe
                                 try:
-                                    client_socket.selected_device = selected
+                                    from typing import Any, cast
+
+                                    sock_any = cast(Any, client_socket)
+                                    sock_any.selected_device = selected
                                 except Exception:
                                     # If socket object doesn't accept attributes, ignore
                                     pass
@@ -534,11 +539,6 @@ class TacacsServer:
                         except Exception:
                             pass
                         self._safe_close_socket(client_socket)
-                        try:
-                            from ..utils.logger import clear_context as _clr
-                            _clr(_ctx_token)
-                        except Exception:
-                            pass
                         return
                     # Otherwise, ignore invalid header and proceed as direct connection
                     try:
@@ -702,11 +702,6 @@ class TacacsServer:
         if not rate_limiter.allow_request(client_ip):
             conn_logger.warning("Rate limit exceeded for %s", client_ip)
             self._safe_close_socket(client_socket)
-            try:
-                from ..utils.logger import clear_context as _clr
-                _clr(_ctx_token)
-            except Exception:
-                pass
             return
 
         # Pre-resolve device once for performance
@@ -898,12 +893,7 @@ class TacacsServer:
             # Decrement active count and update gauge
             self._update_active_connections(-1)
             conn_logger.debug("Connection closed: %s", address)
-            # Clear per-connection logging context
-            try:
-                if '_ctx_token' in locals() and _ctx_token is not None:
-                    clear_context(_ctx_token)
-            except Exception:
-                pass
+            # No per-connection logging context to clear here
             try:
                 if threading.current_thread().daemon:
                     with self._client_threads_lock:

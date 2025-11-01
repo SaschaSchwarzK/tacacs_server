@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
 import time
 import traceback
-import os
 from collections.abc import Iterable, MutableMapping
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
@@ -69,7 +69,7 @@ def _get_host() -> str:
         return host
     # Try /etc/hostname (fast, local)
     try:
-        with open("/etc/hostname", "r", encoding="utf-8") as fh:
+        with open("/etc/hostname", encoding="utf-8") as fh:
             host = fh.read().strip() or None
             if host:
                 _CACHED_HOSTNAME = host

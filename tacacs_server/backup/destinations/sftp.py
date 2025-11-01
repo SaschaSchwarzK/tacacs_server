@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.retry import retry
 
 from .base import BackupDestination, BackupMetadata
-from tacacs_server.utils.retry import retry
 
 _logger = get_logger(__name__)
 
@@ -30,7 +30,7 @@ class SFTPConnection:
 
     def __enter__(self):  # -> paramiko.SFTPClient
         try:
-            import paramiko
+            import paramiko  # type: ignore[import-untyped]
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(f"Paramiko unavailable: {exc}")
         ssh = paramiko.SSHClient()
@@ -80,9 +80,11 @@ class SFTPConnection:
 
         try:
             ssh.connect(**connect_kwargs)
-        except paramiko.AuthenticationException as exc:  # type: ignore[name-defined]
-            raise RuntimeError(f"SFTP authentication failed: {exc}")
-        except (TimeoutError, paramiko.SSHException) as exc:  # type: ignore[name-defined]
+        except Exception as exc:
+            # Avoid direct paramiko types to keep type-checkers happy without stubs
+            msg = str(getattr(exc, "__class__", type(exc)).__name__)
+            if "Authentication" in msg:
+                raise RuntimeError(f"SFTP authentication failed: {exc}")
             raise RuntimeError(f"SFTP connection error: {exc}")
 
         self.ssh_client = ssh
@@ -222,15 +224,16 @@ class SFTPBackupDestination(BackupDestination):
             dir_part = os.path.dirname(rp)
             self._sftp_makedirs(sftp, dir_part)
             size_local = os.path.getsize(local_file_path)
-            sent = 0
+
+            last = 0
 
             def _cb(transferred, total):
+                nonlocal last
                 # Paramiko passes cumulative transferred
-                if transferred - (getattr(_cb, "last", 0)) >= 8192 * 128:
+                if transferred - last >= 8192 * 128:
                     _logger.info("sftp_upload_progress", bytes_sent=transferred)
-                    _cb.last = transferred
+                    last = transferred
 
-            _cb.last = 0
             try:
                 sftp.put(local_file_path, rp, callback=_cb)
                 sftp.chmod(rp, 0o644)

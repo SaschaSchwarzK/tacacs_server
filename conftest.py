@@ -14,7 +14,19 @@ def _find_free_port() -> int:
     """Find a free port on localhost."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        addr = s.getsockname()
+        try:
+            return int(addr[1])
+        except Exception:
+            # Fallback for exotic socket address formats
+            try:
+                host, port = addr
+                try:
+                    return int(port)
+                except Exception:
+                    return 0
+            except Exception:
+                return 0
 
 
 def pytest_configure(config):

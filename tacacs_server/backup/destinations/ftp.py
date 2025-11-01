@@ -5,13 +5,13 @@ import re
 import ssl
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any, List, Optional, BinaryIO
 from ftplib import FTP, FTP_TLS
+from typing import Any
+
 from tacacs_server.utils.logger import get_logger
-from pathlib import Path
+from tacacs_server.utils.retry import retry
 
 from .base import BackupDestination, BackupMetadata
-from tacacs_server.utils.retry import retry
 
 _logger = get_logger(__name__)
 
@@ -91,8 +91,6 @@ class FTPBackupDestination(BackupDestination):
             raise ValueError("Path traversal detected")
 
     def _make_ftps(self):
-        from ftplib import FTP, FTP_TLS
-
         if self.use_tls:
             ftps = FTP_TLS()
             # Configure SSL context
@@ -104,7 +102,7 @@ class FTPBackupDestination(BackupDestination):
                     _logger.warning(
                         "FTPS verify_ssl disabled — not recommended for production"
                     )
-                ftps.context = ctx  # type: ignore[attr-defined]
+                ftps.context = ctx
             except Exception:
                 pass
             return ftps
@@ -130,7 +128,8 @@ class FTPBackupDestination(BackupDestination):
                     ftp.quit()
             except Exception:
                 try:
-                    ftp.close()
+                    if ftp and hasattr(ftp, "close"):
+                        ftp.close()
                 except Exception:
                     pass
 
@@ -195,7 +194,7 @@ class FTPBackupDestination(BackupDestination):
         try:
             local_size = os.path.getsize(local_file_path)
             with self._connect() as ftp:
-                size = ftp.size(rp)  # type: ignore[attr-defined]
+                size = ftp.size(rp)
             if size is not None and int(size) != int(local_size):
                 raise RuntimeError(
                     f"Upload verification failed: size mismatch ({size} != {local_size})"
@@ -229,7 +228,7 @@ class FTPBackupDestination(BackupDestination):
                 # Try MLSD recursion if available
                 def _walk(dirpath: str):
                     try:
-                        for facts, name in ftp.mlsd(dirpath):  # type: ignore[attr-defined]
+                        for facts, name in ftp.mlsd(dirpath):
                             p = f"{dirpath.rstrip('/')}/{name}"
                             if facts.get("type") == "dir":
                                 yield from _walk(p)
@@ -309,7 +308,7 @@ class FTPBackupDestination(BackupDestination):
             with self._connect() as ftp:
                 dirname, fname = os.path.dirname(rp), os.path.basename(rp)
                 try:
-                    for facts, name in ftp.mlsd(dirname):  # type: ignore[attr-defined]
+                    for facts, name in ftp.mlsd(dirname):
                         if name == fname:
                             size = int(facts.get("size", 0))
                             modify = facts.get("modify")
@@ -333,7 +332,7 @@ class FTPBackupDestination(BackupDestination):
                 except Exception:
                     # Fallback: try SIZE and MDTM
                     try:
-                        size = ftp.size(rp)  # type: ignore[attr-defined]
+                        size = ftp.size(rp)
                     except Exception:
                         return None
                     ts = datetime.now(UTC).isoformat()

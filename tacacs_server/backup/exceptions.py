@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """Backup-specific exception types with structured metadata.
 
 These exceptions are designed to carry an error code and optional details
 dictionary to facilitate structured logging and consistent error handling
 across destinations and the backup service.
 """
+
+from __future__ import annotations
 
 from typing import Any
 

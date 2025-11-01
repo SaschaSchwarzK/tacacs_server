@@ -1,4 +1,5 @@
 import argparse
+import os
 import signal
 import sys
 import textwrap
@@ -71,7 +72,11 @@ class TacacsServerManager:
 
         self._device_change_unsubscribe: Callable[[], None] | None = None
         self._pending_radius_refresh = False
-        self._config_refresh_thread = None
+        import threading as _th
+
+        self._config_refresh_thread: _th.Thread | None = None
+        # Optional backup service instance (initialized in setup())
+        self.backup_service: Any | None = None
 
         # Ensure instance identity and initial version
         try:
@@ -207,7 +212,7 @@ class TacacsServerManager:
             from tacacs_server.backup.service import initialize_backup_service
 
             backup_service = initialize_backup_service(self.config)
-            self.backup_service = backup_service  # type: ignore[attr-defined]
+            self.backup_service = backup_service
 
             logger.info("Backup system initialized")
 
@@ -233,7 +238,7 @@ class TacacsServerManager:
         except Exception as e:
             logger.error(f"Failed to initialize backup system: {e}")
             # Don't fail startup if backup system has issues
-            self.backup_service = None  # type: ignore[attr-defined]
+            self.backup_service = None
 
         # Initialize device inventory
         try:
@@ -673,7 +678,7 @@ class TacacsServerManager:
             # Stop backup scheduler
             if getattr(self, "backup_service", None):
                 try:
-                    sched = getattr(self.backup_service, "scheduler", None)  # type: ignore[attr-defined]
+                    sched = getattr(self.backup_service, "scheduler", None)
                     if sched:
                         sched.stop()
                         logger.info("Backup scheduler stopped")

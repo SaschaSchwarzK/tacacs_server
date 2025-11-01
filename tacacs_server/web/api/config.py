@@ -1,7 +1,5 @@
 from __future__ import annotations
-from tacacs_server.utils.logger import get_logger
-import asyncio
-import os
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,7 +11,7 @@ from tacacs_server.exceptions import (
     ServiceUnavailableError,
 )
 from tacacs_server.utils import config_utils
-
+from tacacs_server.utils.logger import get_logger
 from tacacs_server.web.api_models import (
     ConfigDriftResponse,
     ConfigExportResponse,
@@ -71,7 +69,9 @@ async def admin_guard(request: Request) -> None:
                 config_utils.set_config(app_cfg)
             else:
                 # Fallback to legacy global accessor
-                from tacacs_server.web.web import get_config as _web_get_config  # type: ignore
+                from tacacs_server.web.web import (
+                    get_config as _web_get_config,
+                )
 
                 cfg2 = _web_get_config()
                 if cfg2 is not None:
@@ -139,12 +139,13 @@ async def reload_config_api(_: None = Depends(admin_guard)) -> dict:
         raise ServiceUnavailableError("Configuration not available")
 
     try:
-        # This assumes a method exists on the server to reload config
-        # Re-using logic from admin/routers.py for now
-        tacacs_server = config_utils.get_tacacs_server()
+        # Obtain server reference from web module accessors
+        from tacacs_server.web.web import get_tacacs_server
+
+        tacacs_server = get_tacacs_server()
         if not tacacs_server:
             raise ServiceUnavailableError("TACACS+ server not available")
-        success = tacacs_server.reload_configuration()
+        success = bool(getattr(tacacs_server, "reload_configuration", lambda: False)())
         if success:
             return {"success": True, "message": "Configuration reloaded successfully."}
         else:
@@ -189,7 +190,13 @@ async def get_config_history(
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
         raise ServiceUnavailableError("Configuration store not available")
-    hist = cfg.config_store.get_history(section=section, limit=limit)
+    # mypy: narrow and cast config_store
+    from typing import Any, cast
+
+    store = cast(Any, getattr(cfg, "config_store", None))
+    if not store:
+        raise ServiceUnavailableError("Configuration store not available")
+    hist = store.get_history(section=section, limit=limit)
     return ConfigHistoryResponse(history=hist, count=len(hist))
 
 
@@ -199,7 +206,12 @@ async def list_versions(_: None = Depends(admin_guard)) -> ConfigVersionsRespons
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
         raise ServiceUnavailableError("Configuration store not available")
-    versions = cfg.config_store.list_versions()
+    from typing import Any, cast
+
+    store = cast(Any, getattr(cfg, "config_store", None))
+    if not store:
+        raise ServiceUnavailableError("Configuration store not available")
+    versions = store.list_versions()
     return ConfigVersionsResponse(versions=versions)
 
 
@@ -214,15 +226,18 @@ async def restore_version(
     try:
         # Pre-restore backup
         current = cfg._export_full_config()
-        cfg.config_store.create_version(
+        from typing import Any, cast
+
+        store = cast(Any, getattr(cfg, "config_store", None))
+        if not store:
+            raise ServiceUnavailableError("Configuration store not available")
+        store.create_version(
             config_dict=current,
             created_by="system",
             description=f"Pre-restore backup before reverting to v{version_number}",
         )
         # Restore snapshot (returns dict); applying to live config is out of scope here
-        cfg.config_store.restore_version(
-            version_number=version_number, restored_by="admin"
-        )
+        store.restore_version(version_number=version_number, restored_by="admin")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     return ConfigImportResponse(success=True, version=version_number)
@@ -263,8 +278,11 @@ async def export_config(_: None = Depends(admin_guard)) -> ConfigExportResponse:
         data = cfg._export_full_config()
         version_num: int | None = None
         try:
-            if getattr(cfg, "config_store", None):
-                latest = cfg.config_store.get_latest_version()
+            from typing import Any, cast
+
+            store = cast(Any, getattr(cfg, "config_store", None))
+            if store:
+                latest = store.get_latest_version()
                 if latest and isinstance(latest.get("version_number"), int):
                     version_num = latest["version_number"]
         except Exception:
@@ -287,7 +305,12 @@ async def import_config(
         raise ConfigValidationError("Missing or invalid 'config' field", field="config")
     version = payload.get("version")
     try:
-        meta = cfg.config_store.create_version(
+        from typing import Any, cast
+
+        store = cast(Any, getattr(cfg, "config_store", None))
+        if not store:
+            raise ServiceUnavailableError("Configuration store not available")
+        meta = store.create_version(
             config_dict=config_dict,
             created_by="admin",
             description=f"imported version {version}"
@@ -306,8 +329,12 @@ async def reset_all_overrides(request: Request, _: None = Depends(admin_guard)):
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
         raise ServiceUnavailableError("Configuration store not available")
-    # user = request.state.user.username # Assuming user is in state
-    cfg.config_store.clear_overrides(changed_by="admin")
+    from typing import Any, cast
+
+    store = cast(Any, getattr(cfg, "config_store", None))
+    if not store:
+        raise ServiceUnavailableError("Configuration store not available")
+    store.clear_overrides(changed_by="admin")
     return
 
 
@@ -319,7 +346,12 @@ async def reset_section_overrides(
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
         raise ServiceUnavailableError("Configuration store not available")
-    cfg.config_store.clear_overrides(section=section, changed_by="admin")
+    from typing import Any, cast
+
+    store = cast(Any, getattr(cfg, "config_store", None))
+    if not store:
+        raise ServiceUnavailableError("Configuration store not available")
+    store.clear_overrides(section=section, changed_by="admin")
     return
 
 
@@ -331,7 +363,12 @@ async def reset_key_override(
     cfg = config_utils.get_config()
     if cfg is None or not getattr(cfg, "config_store", None):
         raise ServiceUnavailableError("Configuration store not available")
-    cfg.config_store.delete_override(section=section, key=key, changed_by="admin")
+    from typing import Any, cast
+
+    store = cast(Any, getattr(cfg, "config_store", None))
+    if not store:
+        raise ServiceUnavailableError("Configuration store not available")
+    store.delete_override(section=section, key=key, changed_by="admin")
     return
 
 
@@ -361,8 +398,9 @@ async def update_config_multi(
     if cfg is None:
         raise ServiceUnavailableError("Configuration not available")
 
-    results = {}
-    errors = {}
+
+    results: dict[str, Any] = {}
+    errors: dict[str, Any] = {}
 
     for section, section_updates in updates.items():
         if not section_updates:

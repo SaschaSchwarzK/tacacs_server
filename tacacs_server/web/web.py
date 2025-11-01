@@ -74,6 +74,8 @@ set_config = config_utils.set_config
 get_config = config_utils.get_config
 get_config_change_user = config_utils.get_config_change_user
 get_config_change_source_ip = config_utils.get_config_change_source_ip
+set_config_change_user = config_utils.set_config_change_user
+set_config_change_source_ip = config_utils.set_config_change_source_ip
 set_admin_auth_dependency = config_utils.set_admin_auth_dependency
 get_admin_auth_dependency_func = config_utils.get_admin_auth_dependency_func
 
@@ -105,13 +107,7 @@ def set_local_user_group_service(service: Optional["LocalUserGroupService"]) -> 
     _local_user_group_service = service
 
 
-def set_config(config: Optional["TacacsConfig"]) -> None:
-    global _config
-    _config = config
-
-
-def get_config() -> Optional["TacacsConfig"]:
-    return _config
+# set_config/get_config are re-exported above; avoid redefining
 
 
 def set_tacacs_server(server) -> None:
@@ -132,15 +128,7 @@ def get_radius_server():
     return _radius_server_ref
 
 
-def set_admin_auth_dependency(
-    dependency: Callable[[Request], Awaitable[None]] | None,
-) -> None:
-    global _admin_auth_dependency
-    _admin_auth_dependency = dependency
-
-
-def get_admin_auth_dependency_func() -> Callable[[Request], Awaitable[None]] | None:
-    return _admin_auth_dependency
+# set_admin_auth_dependency and get_admin_auth_dependency_func are re-exported above
 
 
 def set_admin_session_manager(manager: Optional["AdminSessionManager"]) -> None:
@@ -369,10 +357,10 @@ class WebServer:
                         auth = request.headers.get("Authorization") or ""
                         if auth:
                             user = auth.split()[0]
-                    _config_user.set(user)
+                    set_config_change_user(user)
                     client = getattr(request, "client", None)
                     ip = getattr(client, "host", None) if client else None
-                    _config_source_ip.set(ip)
+                    set_config_change_source_ip(ip)
             except Exception:
                 pass
             try:
@@ -380,8 +368,8 @@ class WebServer:
             finally:
                 # Clear context for next request
                 try:
-                    _config_user.set("system")
-                    _config_source_ip.set(None)
+                    set_config_change_user("system")
+                    set_config_change_source_ip(None)
                 except Exception:
                     pass
             return resp
@@ -611,7 +599,11 @@ class WebServer:
             if not session_mgr:
                 logger.error("web.admin_guard: session manager not configured")
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
-            if not session_mgr.validate_session(session_token):
+            if not bool(
+                getattr(session_mgr, "validate_session", lambda _t: False)(
+                    session_token
+                )
+            ):
                 logger.warning("web.admin_guard: session invalid or expired")
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
             else:

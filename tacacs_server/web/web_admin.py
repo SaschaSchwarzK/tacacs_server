@@ -3,16 +3,18 @@ Simplified Admin Web Interface
 All HTML/browser-based admin routes in one place
 """
 
-from tacacs_server.utils.logger import get_logger
-from typing import Optional
+import os
+from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
+
+from tacacs_server.auth.local_user_group_service import UNSET
+from tacacs_server.utils.logger import get_logger
 
 from .web_auth import get_session_manager, require_admin_session
-from tacacs_server.auth.local_user_group_service import UNSET
 
 logger = get_logger(__name__)
 
@@ -20,7 +22,6 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/admin", include_in_schema=False)
 
 # Templates - use absolute path from package root
-from pathlib import Path
 
 templates_dir = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
@@ -33,7 +34,7 @@ def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
         return ""
     try:
         return value.strftime(format)
-    except:
+    except Exception:
         return str(value)
 
 
@@ -52,7 +53,7 @@ def format_bytes(bytes_val):
                 return f"{size:.1f} {unit}"
             size /= 1024.0
         return f"{size:.1f} TB"
-    except:
+    except Exception:
         return str(bytes_val)
 
 
@@ -75,7 +76,7 @@ def format_duration(seconds):
         if secs or not parts:
             parts.append(f"{secs}s")
         return " ".join(parts)
-    except:
+    except Exception:
         return str(seconds)
 
 
@@ -83,10 +84,6 @@ def format_duration(seconds):
 templates.env.filters["datetimeformat"] = datetimeformat
 templates.env.filters["format_bytes"] = format_bytes
 templates.env.filters["format_duration"] = format_duration
-
-# Register global functions
-from datetime import datetime
-import os
 
 templates.env.globals["now"] = datetime.now
 templates.env.globals["api_disabled"] = not bool(os.getenv("API_TOKEN"))
@@ -165,6 +162,7 @@ async def login(
         if tmp_user and tmp_pass:
             try:
                 import bcrypt
+
                 from . import web_auth as _wa
 
                 hashed = bcrypt.hashpw(
@@ -479,7 +477,7 @@ async def dashboard(request: Request):
     dependencies=[Depends(require_admin_session)],
     name="admin_devices",
 )
-async def devices_page(request: Request, search: Optional[str] = None):
+async def devices_page(request: Request, search: str | None = None):
     """List all devices"""
     _log_ui("devices_page", request, details={"search": search})
     device_service = request.app.state.device_service
@@ -620,7 +618,7 @@ async def update_device(request: Request, device_id: int):
             name=data.get("name"),
             network=data.get("network"),
             group=data.get("group"),
-            clear_group=(data.get("group") == None and "group" in data),
+            clear_group=(data.get("group") is None and "group" in data),
         )
         return {"id": rec.id}
     except Exception as e:
@@ -721,9 +719,8 @@ async def create_group(request: Request):
                 for k in ["name", "description", "radius_secret", "tacacs_secret"]
             }
             if "proxy_id" in form:
-                data["proxy_id"] = (
-                    int(form.get("proxy_id")) if form.get("proxy_id") else None
-                )
+                raw_proxy = form.get("proxy_id")
+                data["proxy_id"] = int(str(raw_proxy)) if raw_proxy else None
         rec = device_service.create_device_group(
             name=data.get("name", ""),
             description=data.get("description"),
@@ -913,7 +910,8 @@ async def create_user(request: Request):
             username = str(form.get("username", "")).strip()
             password = str(form.get("password", "")) or None
             try:
-                privilege_level = int(form.get("privilege_level", 1))
+                raw_priv = form.get("privilege_level", 1)
+                privilege_level = int(str(raw_priv)) if raw_priv is not None else 1
             except Exception:
                 privilege_level = 1
             enabled = str(form.get("enabled", "true")).lower() == "true"
@@ -1353,7 +1351,7 @@ async def command_auth_page(request: Request):
 async def audit_page(request: Request):
     """View audit logs"""
     # TODO: Get audit logs from service
-    logs = []
+    logs: list[dict] = []
 
     return templates.TemplateResponse(
         request,

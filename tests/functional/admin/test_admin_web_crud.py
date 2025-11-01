@@ -4,8 +4,6 @@ Admin Web UI CRUD via HTTP endpoints (no browser).
 Fixed version that properly sends JSON payloads with correct headers.
 """
 
-import re
-
 import requests
 
 
@@ -65,7 +63,7 @@ def _req(session, method, url, *, json=None, accept_json=True):
         headers["Content-Type"] = "application/json"
 
     # Log the request
-    print(f"\n--- Request ---")
+    print("\n--- Request ---")
     print(f"{method} {url}")
     print(f"Headers: {headers}")
     if json is not None:
@@ -146,7 +144,7 @@ def test_admin_web_crud_users(server_factory, monkeypatch):
         print(f"\nCreating user with JSON payload: {user_payload}")
         r, _ = _req(s, "POST", f"{base}/admin/users", json=user_payload)
 
-        print(f"\n--- After user creation ---")
+        print("\n--- After user creation ---")
         print(f"Status code: {r.status_code}")
 
         # API endpoints return 201 Created
@@ -216,7 +214,7 @@ def test_admin_web_crud_device_groups_and_devices(server_factory, monkeypatch):
             "tacacs_secret": "TacacsSecret123!",
         }
 
-        print(f"\n--- Creating device group ---")
+        print("\n--- Creating device group ---")
         r, _ = _req(s, "POST", f"{base}/admin/groups", json=group_payload)
         assert r.status_code == 201, (
             f"Failed to create device group: {r.status_code} - {r.text}"
@@ -319,7 +317,7 @@ def test_admin_web_crud_user_groups(server_factory, monkeypatch):
         print(f"\nCreating user group with JSON payload: {group_payload}")
         r, _ = _req(s, "POST", f"{base}/admin/user-groups", json=group_payload)
 
-        print(f"\n--- After user group creation ---")
+        print("\n--- After user group creation ---")
         print(f"Status code: {r.status_code}")
 
         # API endpoints return 201 Created
