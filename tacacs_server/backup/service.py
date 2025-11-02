@@ -812,7 +812,9 @@ class BackupService:
                 # to avoid operating directly on user-controlled locations.
                 try:
                     safe_name = os.path.basename(source_path)
-                    staged_path = self._safe_local_path(os.path.join(str(self.temp_dir), safe_name))
+                    staged_path = self._safe_local_path(
+                        os.path.join(str(self.temp_dir), safe_name)
+                    )
                     shutil.copy2(source_path, staged_path)
                     local_archive = staged_path
                 except Exception:

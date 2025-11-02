@@ -216,11 +216,7 @@ class SFTPBackupDestination(BackupDestination):
 
         allowed_temp_prefix = _P(_tmp.gettempdir()).resolve()
         raw_root = self.config.get("local_root")
-        if (
-            raw_root
-            and _P(raw_root).is_absolute()
-            and _P(raw_root).resolve().is_dir()
-        ):
+        if raw_root and _P(raw_root).is_absolute() and _P(raw_root).resolve().is_dir():
             base = _P(raw_root).resolve()
             if not str(base).startswith(str(allowed_temp_prefix)):
                 raise ValueError("Configured local_root outside allowed temp directory")

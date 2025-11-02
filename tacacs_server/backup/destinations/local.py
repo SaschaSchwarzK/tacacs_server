@@ -43,11 +43,7 @@ class LocalBackupDestination(BackupDestination):
         # Only allow certain known temp dirs as base, never allow arbitrary local_root from user input
         allowed_temp_prefix = _P(tempfile.gettempdir()).resolve()
         raw_root = self.config.get("local_root")
-        if (
-            raw_root
-            and _P(raw_root).is_absolute()
-            and _P(raw_root).resolve().is_dir()
-        ):
+        if raw_root and _P(raw_root).is_absolute() and _P(raw_root).resolve().is_dir():
             base = _P(raw_root).resolve()
             # Ensure base is itself in the allowed temp prefix (defensive)
             if not str(base).startswith(str(allowed_temp_prefix)):
