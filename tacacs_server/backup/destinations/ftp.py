@@ -226,7 +226,7 @@ class FTPBackupDestination(BackupDestination):
                 raise RuntimeError(f"Upload failed: {exc}")
         # Verify size
         try:
-            local_size = os.path.getsize(local_file_path)
+            local_size = os.path.getsize(src)
             with self._connect() as ftp:
                 size = ftp.size(rp)
             if size is not None and int(size) != int(local_size):

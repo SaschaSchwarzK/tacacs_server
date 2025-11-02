@@ -90,15 +90,31 @@ class BackupService:
 
     # --- helpers ---
     def _safe_local_path(self, path: str) -> str:
-        """Ensure path stays within the service temp directory.
+        """Ensure path stays within the service temp directory (hardened).
 
-        Returns the resolved absolute path if valid, otherwise raises ValueError.
+        - Disallow absolute user-provided paths
+        - Reject ".." segments
+        - Resolve and verify real-path containment using commonpath
+        - Disallow symlink base directory
         """
+        import os as _os
         from pathlib import Path as _P
 
+        lp = _P(path)
+        if lp.is_absolute():
+            raise ValueError("Absolute paths are not allowed")
+
+        for part in lp.parts:
+            if part == "..":
+                raise ValueError("Path traversal detected")
+
         base = _P(str(self.temp_dir)).resolve()
-        tgt = _P(path).resolve()
-        _ = tgt.relative_to(base)
+        if base.is_symlink():
+            raise ValueError("Temp base directory may not be a symlink")
+
+        tgt = (base / lp).resolve()
+        if _os.path.commonpath([str(base), str(tgt)]) != str(base):
+            raise ValueError("Path escapes temp directory")
         return str(tgt)
 
     def _export_database(self, src_path: str, dst_path: str) -> None:
@@ -792,7 +808,15 @@ class BackupService:
                     )
                 )
             else:
-                local_archive = source_path
+                # If a local source path is provided, stage it under our temp_dir
+                # to avoid operating directly on user-controlled locations.
+                try:
+                    safe_name = os.path.basename(source_path)
+                    staged_path = self._safe_local_path(os.path.join(str(self.temp_dir), safe_name))
+                    shutil.copy2(source_path, staged_path)
+                    local_archive = staged_path
+                except Exception:
+                    return False, "Invalid or inaccessible local source path"
 
             # Step 2: Decrypt if necessary
             is_encrypted = local_archive.endswith(".enc")
@@ -906,14 +930,30 @@ class BackupService:
             )
             return False, f"Restore failed: {exc}"
         finally:
-            # Step 8: Cleanup temporary files
-            if restore_root and os.path.isdir(restore_root):
-                shutil.rmtree(restore_root, ignore_errors=True)
+            # Step 8: Cleanup temporary files (only within temp_dir)
+            def _safe_cleanup(path: str, is_dir: bool = False):
+                try:
+                    # Convert any absolute path to a relative under temp_dir
+                    rel = os.path.relpath(path, str(self.temp_dir))
+                    safe_path = self._safe_local_path(rel)
+                except Exception:
+                    return
+                try:
+                    if is_dir:
+                        if os.path.isdir(safe_path):
+                            shutil.rmtree(safe_path, ignore_errors=True)
+                    else:
+                        if os.path.exists(safe_path):
+                            os.remove(safe_path)
+                except Exception:
+                    pass
+
+            if restore_root:
+                _safe_cleanup(restore_root, is_dir=True)
             if archive_for_extract and archive_for_extract != local_archive:
-                if os.path.exists(archive_for_extract):
-                    os.remove(archive_for_extract)
-            if destination_id and local_archive and os.path.exists(local_archive):
-                os.remove(local_archive)
+                _safe_cleanup(archive_for_extract, is_dir=False)
+            if destination_id and local_archive:
+                _safe_cleanup(local_archive, is_dir=False)
             # Exit maintenance and optionally restart services
             if maintenance_entered:
                 try:

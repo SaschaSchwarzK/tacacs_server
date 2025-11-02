@@ -204,8 +204,9 @@ class SFTPBackupDestination(BackupDestination):
     def _safe_local_path(self, local_path: str) -> str:
         """Anchor local outputs to an allowed root (config['local_root'] or secure temp).
 
-        Disallows absolute user-provided paths and ensures final path is within base.
+        Disallows absolute user-provided paths, suspicious segments, and ensures final path is within base.
         """
+        import os as _os
         import tempfile as _tmp
         from pathlib import Path as _P
 
@@ -213,16 +214,30 @@ class SFTPBackupDestination(BackupDestination):
         if lp.is_absolute():
             raise ValueError("Absolute paths are not allowed for local output")
 
+        allowed_temp_prefix = _P(_tmp.gettempdir()).resolve()
         raw_root = self.config.get("local_root")
-        if raw_root and _P(raw_root).is_absolute():
+        if (
+            raw_root
+            and _P(raw_root).is_absolute()
+            and _P(raw_root).resolve().is_dir()
+        ):
             base = _P(raw_root).resolve()
+            if not str(base).startswith(str(allowed_temp_prefix)):
+                raise ValueError("Configured local_root outside allowed temp directory")
         else:
-            base = _P(_tmp.gettempdir()) / "tacacs_server_restore"
+            base = allowed_temp_prefix / "tacacs_server_restore"
             base.mkdir(parents=True, exist_ok=True)
             base = base.resolve()
 
+        for part in lp.parts:
+            if part == "..":
+                raise ValueError("Path traversal detected in local file path")
+
         tgt = (base / lp).resolve()
-        _ = tgt.relative_to(base)
+        if _os.path.commonpath([str(base), str(tgt)]) != str(base):
+            raise ValueError("Local path escapes allowed root")
+        if base.is_symlink():
+            raise ValueError("Backup base directory may not be a symlink")
         return str(tgt)
 
     def _safe_remote_path(self, path: str) -> str:
