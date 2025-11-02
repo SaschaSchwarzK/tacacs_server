@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any
 from typing import Any as _Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, model_validator
 from pydantic import Field as _Field
 
 
@@ -233,8 +233,19 @@ class DeviceBase(BaseModel):
         description="Device name",
         example="router-01",
     )
-    ip_address: str = Field(..., description="Device IP or CIDR", example="192.168.1.1")
-    device_group_id: int = Field(..., description="Device group ID", example=1)
+    ip_address: str = Field(
+        ...,
+        description="Device IP or CIDR",
+        example="192.168.1.1",
+        validation_alias=AliasChoices("ip_address", "address", "network"),
+    )
+    # Accept either numeric ID or legacy group name (validated in route)
+    device_group_id: int | str = Field(
+        ...,
+        description="Device group ID or name",
+        example=1,
+        validation_alias=AliasChoices("device_group_id", "group"),
+    )
     enabled: bool = Field(default=True, description="Device enabled", example=True)
     metadata: dict[str, Any] | None = Field(
         default={},
@@ -321,6 +332,11 @@ class DeviceGroupBase(BaseModel):
     description: str | None = Field(
         None, description="Group description", example="All core routers"
     )
+    proxy_id: int | None = Field(
+        None,
+        description="Proxy ID linked to this group",
+        example=1,
+    )
 
 
 class DeviceGroupCreate(DeviceGroupBase):
@@ -341,6 +357,7 @@ class DeviceGroupCreate(DeviceGroupBase):
             "example": {
                 "name": "Core-Routers",
                 "description": "All core network routers",
+                "proxy_id": 1,
                 "tacacs_secret": "TacacsSecret123!",
                 "radius_secret": "RadiusSecret123!",
                 "allowed_user_groups": [1, 2],
@@ -359,8 +376,18 @@ class DeviceGroupUpdate(BaseModel):
         description="Updated name",
         example="Core-Routers-New",
     )
+    proxy_id: int | None = Field(
+        None,
+        description="Updated proxy id to link",
+        example=2,
+    )
     description: str | None = Field(
         None, description="Updated description", example="Updated description"
+    )
+    proxy_network: str | None = Field(
+        None,
+        description="Set or clear proxy network CIDR",
+        example="10.0.0.0/8",
     )
     tacacs_secret: str | None = Field(
         None, min_length=8, description="New TACACS+ secret", example="NewSecret123!"
@@ -514,7 +541,10 @@ class DetailedServerStatus(BaseModel):
     timestamp: str = Field(
         ..., description="Status timestamp", example="2025-10-04T17:26:55.876784"
     )
-    radius: RADIUSStats = Field(..., description="RADIUS server statistics")
+    # RADIUS statistics are optional because a deployment might not enable RADIUS
+    radius: RADIUSStats | None = Field(
+        None, description="RADIUS server statistics (if RADIUS is enabled)"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -986,6 +1016,193 @@ class AccountingRecordDetail(BaseModel):
     )
 
 
+# ============================================================================
+# Backup Models
+# ============================================================================
+
+
+class BackupDestinationModel(BaseModel):
+    """Backup destination with parsed configuration."""
+
+    id: str = Field(..., description="Destination ID", example="a3f5d2...")
+    name: str = Field(..., description="Destination name", example="primary-local")
+    type: str = Field(..., description="Destination type", example="local")
+    enabled: bool = Field(True, description="Whether destination is enabled")
+    retention_days: int = Field(30, description="Retention period in days")
+    created_at: str | None = Field(None, description="Creation timestamp (ISO)")
+    created_by: str | None = Field(None, description="Creator username")
+    last_backup_at: str | None = Field(None, description="Last backup time (ISO)")
+    last_backup_status: str | None = Field(
+        None, description="Status of last backup (success/failed)"
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict, description="Destination configuration payload"
+    )
+
+
+class BackupDestinationListResponse(BaseModel):
+    destinations: list[BackupDestinationModel]
+
+
+class BackupTestResponse(BaseModel):
+    success: bool
+    message: str
+    tested_at: str
+
+
+class BackupTriggerResponse(BaseModel):
+    execution_id: str
+    status: str
+    message: str
+
+
+class BackupExecutionModel(BaseModel):
+    id: str
+    destination_id: str | None = None
+    backup_filename: str | None = None
+    backup_path: str | None = None
+    triggered_by: str | None = None
+    started_at: str
+    completed_at: str | None = None
+    status: str
+    size_bytes: int | None = None
+    compressed_size_bytes: int | None = None
+    files_included: int | None = None
+    error_message: str | None = None
+
+
+class BackupExecutionsResponse(BaseModel):
+    executions: list[BackupExecutionModel]
+    limit: int
+    offset: int
+
+
+class BackupExecutionDetail(BackupExecutionModel):
+    manifest: dict[str, Any] | None = None
+
+
+class BackupItem(BaseModel):
+    filename: str
+    size_bytes: int
+    timestamp: str
+    path: str
+    checksum_sha256: str | None = None
+    destination_id: str | None = None
+    destination_name: str | None = None
+
+
+class BackupListResponse(BaseModel):
+    backups: list[BackupItem]
+
+
+class BackupRestoreResponse(BaseModel):
+    success: bool
+    message: str
+    restart_required: bool | None = None
+
+
+class BackupDeleteResponse(BaseModel):
+    success: bool
+
+
+class BackupScheduleListResponse(BaseModel):
+    jobs: list[dict[str, Any]]
+    scheduler_running: bool
+
+
+class BackupScheduleCreateResponse(BaseModel):
+    job_id: str
+    schedule_type: str
+    schedule_value: str
+    destination_id: str
+
+
+class BackupScheduleStateResponse(BaseModel):
+    success: bool
+    status: str | None = None
+
+
+class BackupScheduleTriggerResponse(BaseModel):
+    execution_id: str
+    status: str
+    message: str
+
+
+class BackupStatsResponse(BaseModel):
+    total_backups: int
+    total_size_bytes: int
+    success_rate: float
+    oldest_backup_at: str | None
+    newest_backup_at: str | None
+
+
+# ============================================================================
+# Config API Models
+# ============================================================================
+
+
+class ConfigSectionsResponse(BaseModel):
+    sections: list[str]
+
+
+class ConfigHistoryResponse(BaseModel):
+    history: list[dict[str, Any]]
+    count: int
+
+
+class ConfigVersionsResponse(BaseModel):
+    versions: list[dict[str, Any]]
+
+
+class ConfigDriftResponse(BaseModel):
+    drift: dict[str, Any] | list
+    has_drift: bool
+
+
+class ConfigExportResponse(BaseModel):
+    config: dict[str, Any]
+    version: int | None = None
+
+
+class ConfigImportResponse(BaseModel):
+    success: bool
+    version: int | None = None
+
+
+class ConfigSectionResponse(BaseModel):
+    section: str
+    values: dict[str, Any]
+    overridden_keys: list[str]
+
+
+class ConfigUpdateResponse(BaseModel):
+    success: bool
+    section: str
+
+
+class ConfigStatusResponse(BaseModel):
+    """Response model for overall configuration status."""
+
+    source: str
+    is_url_config: bool
+    valid: bool
+    issues: list[str] = []
+    last_reload: str | None = None
+    overrides_count: int
+
+
+class RetentionPolicyUpdate(BaseModel):
+    """Model to update destination retention policy."""
+
+    strategy: str  # simple, gfs, hanoi
+    keep_daily: int | None = None
+    keep_weekly: int | None = None
+    keep_monthly: int | None = None
+    keep_yearly: int | None = None
+    keep_count: int | None = None
+    keep_days: int | None = None
+
+
 class AccountingResponse(BaseModel):
     """Accounting records response"""
 
@@ -1275,4 +1492,6 @@ __all__ = [
     "SessionsResponse",
     "AccountingRecordDetail",
     "AccountingResponse",
+    "ConfigStatusResponse",
+    "BackupStatsResponse",
 ]

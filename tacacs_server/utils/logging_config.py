@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import socket
+import time
 import traceback
 from collections.abc import Iterable, MutableMapping
 from contextlib import contextmanager
@@ -52,6 +55,34 @@ _context: ContextVar[dict[str, Any]] = ContextVar(
     "structured_logging_context", default={}
 )
 _logging_configured = False
+_CACHED_HOSTNAME = None
+
+
+def _get_host() -> str:
+    global _CACHED_HOSTNAME
+    if _CACHED_HOSTNAME:
+        return _CACHED_HOSTNAME
+    # Prefer container-provided hostname; no DNS lookup
+    host = os.getenv("HOSTNAME")
+    if host:
+        _CACHED_HOSTNAME = host
+        return host
+    # Try /etc/hostname (fast, local)
+    try:
+        with open("/etc/hostname", encoding="utf-8") as fh:
+            host = fh.read().strip() or None
+            if host:
+                _CACHED_HOSTNAME = host
+                return host
+    except Exception:
+        pass
+    # Fallback to socket.gethostname (does not require DNS)
+    try:
+        host = socket.gethostname()
+    except Exception:
+        host = "unknown"
+    _CACHED_HOSTNAME = host
+    return host
 
 
 def _json_default(value: Any) -> str:
@@ -66,32 +97,58 @@ class StructuredJSONFormatter(logging.Formatter):
         self.utc = utc
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.now(UTC if self.utc else None).isoformat()
+        # RFC3339Nano-like timestamp
+        ts = datetime.now(UTC if self.utc else None).isoformat()
+        # Monotonic milliseconds
+        t_monotonic_ms = int(time.monotonic() * 1000)
+
+        # Base schema fields per docs/logging.json
         payload: dict[str, Any] = {
-            "timestamp": timestamp,
+            "schema": "log.v1",
+            "ts": ts,
+            "t_monotonic_ms": t_monotonic_ms,
             "level": record.levelname,
-            "logger": record.name,
             "message": record.getMessage(),
+            "service": getattr(record, "service", None) or "tacacs_server",
+            "env": getattr(record, "env", None)
+            or (os.getenv("ENV") or os.getenv("APP_ENV") or "dev"),
+            "host": _get_host(),
+            "trace_id": getattr(record, "trace_id", None) or "",
+            "span_id": getattr(record, "span_id", None) or "",
+            "correlation_id": getattr(record, "correlation_id", None) or "",
         }
 
+        # Include event if provided
+        evt = getattr(record, "event", None)
+        if evt:
+            payload["event"] = evt
+
+        # Merge structured context
         context = getattr(record, "context", None) or _context.get()
         if context:
-            payload["context"] = context
+            # Bring context.top-level keys into payload without nesting under 'context'
+            for k, v in dict(context).items():
+                if k not in payload:
+                    payload[k] = v
 
-        extras = {
-            key: value
-            for key, value in record.__dict__.items()
-            if key not in _STANDARD_ATTRS and not key.startswith("_")
-        }
-        if extras:
-            payload["extra"] = extras
+        # Copy safe extras (flatten into payload)
+        for key, value in record.__dict__.items():
+            if key in _STANDARD_ATTRS or key.startswith("_"):
+                continue
+            # Avoid overwriting base fields unless explicitly set
+            if key in payload and payload[key] not in (None, ""):
+                continue
+            payload[key] = value
 
+        # Exceptions
         if record.exc_info:
-            payload["exc_info"] = "".join(
-                traceback.format_exception(*record.exc_info)
-            ).strip()
+            payload["error"] = {
+                "type": str(getattr(record.exc_info[0], "__name__", "")),
+                "message": str(record.exc_info[1]),
+                "stack": "".join(traceback.format_exception(*record.exc_info)).strip(),
+            }
         elif record.exc_text:
-            payload["exc_info"] = record.exc_text
+            payload["error"] = {"message": record.exc_text}
 
         if record.stack_info:
             payload["stack"] = record.stack_info

@@ -7,7 +7,7 @@ The `main` and `develop` branches are actively maintained. Security updates are 
 Please open a private security advisory on GitHub (Security > Advisories) or contact the maintainers.
 
 ## Guidelines
-- Do not include secrets in code or images. Provide secrets via environment variables or mounted files.
+- Do not include secrets in code or images. Provide secrets via environment variables or mounted files; place all non‑credential configuration in the config file.
 - Admin passwords must use bcrypt. Legacy hashes are not supported for admin and are auto-migrated for local users on login.
 - Enable HTTPS in production and ensure `SECURE_COOKIES=true`.
 
@@ -26,6 +26,7 @@ Mitigations:
 - Authentication on admin/API; CSRF-safe design when using API tokens; strict cookie security in production.
 - Backend timeouts and rate limiting; caching with TTL to reduce stale data.
 - SQLite PRAGMAs and path validation; optional syslog for audit trail.
+- HAProxy PROXY v2 handling: strict rejection of malformed headers by default; option to validate proxy sources against an allowlist.
 
 ## Security Assumptions
 
@@ -40,5 +41,7 @@ Mitigations:
 - Set strong per-device group secrets; rotate regularly.
 - Configure `API_TOKEN` and enforce token checks for `/api/*`.
 - Set secure cookie flags in production (Secure, HttpOnly, SameSite=Lax/Strict).
+- Keep admin endpoints protected; all `/admin/*` routes (including redirects) enforce authentication.
+- Enable strict PROXY protocol behavior (`[proxy_protocol].reject_invalid=true`) and proxy source validation when behind load balancers.
 - Use systemd or container orchestrators with health checks and resource limits.
 - Monitor logs (JSON events) and metrics; set alerts for repeated failures.

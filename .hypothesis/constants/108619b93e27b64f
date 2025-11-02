@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/web/admin/auth.py
-# hypothesis_version: 6.140.2
-
-['$2a$', '$2b$', '$2y$', '/admin/login', 'Invalid credentials', 'Location', 'Unauthorized', 'admin_session', 'utf-8']

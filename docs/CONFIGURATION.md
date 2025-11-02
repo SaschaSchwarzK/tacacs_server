@@ -1,42 +1,76 @@
-# Configuration Guide
+# TACACS+ Server Configuration
 
-This guide provides comprehensive information about configuring the TACACS+ server for various deployment scenarios.
+This document provides a comprehensive reference for configuring the TACACS+ server.
 
-## Configuration File Structure
+## Configuration Sources
+
+1. **Primary Configuration File** (`config/tacacs.conf` by default)
+   - Contains all default settings
+   - Can be version controlled
+   - Can be overridden using the `TACACS_CONFIG` environment variable
+   - Supports both local files and HTTPS URLs
+
+2. **Runtime Overrides** (`data/config_overrides.db`)
+   - SQLite database storing configuration overrides
+   - Takes precedence over file-based configuration
+   - Maintains history of changes
+   - Enables rollback to previous configurations
+
+## Configuration Structure
 
 The TACACS+ server uses INI-style configuration files with the following sections:
 
-- `[server]` - Core server settings
-- `[auth]` - Authentication backend configuration
-- `[ldap]` - LDAP integration settings
-- `[okta]` - Okta SSO integration
-- `[database]` - Database and storage configuration
-- `[security]` - Security and rate limiting
+### Core Components
+- `[server]` - Core server settings (bind address, ports, timeouts)
+- `[auth]` - Authentication backends and settings
+- `[security]` - Security policies and access controls
 - `[logging]` - Logging configuration
-- `[admin]` - Admin console settings
-- `[devices]` - Device inventory settings
+- `[database]` - Database and storage configuration
+
+### Authentication & Authorization
+- `[ldap]` - LDAP/Active Directory integration
+- `[okta]` - Okta SSO integration
+- `[command_authorization]` - Command authorization policies
+
+### Network Services
 - `[radius]` - RADIUS server configuration
-- `[monitoring]` - Monitoring and metrics
-- `[webhooks]` - Webhook notifications and thresholds
+- `[proxy_protocol]` - HAProxy PROXY v2 support (TACACS+ only)
+- `[webhooks]` - Webhook notifications
 
-## Server Configuration
+### Administration
+- `[admin]` - Admin console settings
+- `[monitoring]` - Metrics and monitoring
+- `[devices]` - Device inventory management
 
-```ini
-[server]
-# Bind address (0.0.0.0 for all interfaces)
-host = 0.0.0.0
+## Environment Variables
 
-# TACACS+ port (standard is 49)
-port = 49
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `TACACS_CONFIG` | Override config file path/URL | `/path/to/config.conf` |
+| `ADMIN_USERNAME` | Web admin username | `admin` |
+| `ADMIN_PASSWORD_HASH` | Hashed admin password | `$2b$...` |
+| `CONFIG_REFRESH_SECONDS` | Config refresh interval | `300` |
 
-# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-log_level = INFO
+## Configuration Precedence
 
-# Maximum concurrent connections
+1. Runtime overrides (database)
+2. Environment variables
+3. Configuration file values
+4. Default values
+
+## Next Steps
+
+- [Advanced Configuration Management](CONFIGURATION_ADVANCED.md) - Versioning, drift detection, and advanced features
+- [Configuration Examples](CONFIGURATION_EXAMPLES.md) - Practical configuration examples and recipes
+# Maximum concurrent connections (default: 50)
 max_connections = 50
 
-# Socket timeout in seconds
+# Socket timeout in seconds (default: 30)
 socket_timeout = 30
+
+# Enable HAProxy PROXY v2 protocol support (default: false)
+# Note: Only applicable to TACACS+ (TCP), not RADIUS (UDP)
+accept_proxy_protocol = false
 ```
 
 ### Server Options
@@ -194,7 +228,58 @@ circuit_cooldown = 30
 # - 429 handling: The implementation honors Retry-After on token and groups endpoints.
 #   For tokens, Retry-After may open the circuit breaker for a short cooldown; for
 #   groups, Retry-After increases the short negative cache TTL to reduce retries.
+
+# Optional: Default Okta Group bootstrap
+# If set, provide the Okta group ID (not name). On startup, the server
+# ensures a local user group named 'okta-default-group' exists, sets
+# its okta_group to the provided Okta group ID, and adds that local
+# group to the default device group's allowed_user_groups. If unset,
+# no bootstrap occurs.
+default_okta_group =
 ```
+
+## Devices Configuration
+
+```ini
+[devices]
+database = data/devices.db
+default_group = default
+identity_cache_ttl_seconds = 60
+identity_cache_size = 10000
+```
+
+- `database`: SQLite file where device groups and devices are stored
+- `default_group`: Group created on first start if none exists
+- `identity_cache_ttl_seconds`: TTL (seconds) for the in-memory identity lookup cache `(client_ip, proxy_ip) -> device`
+- `identity_cache_size`: Maximum entries in the identity cache
+
+### Proxy-aware device groups
+
+Device groups can optionally define a `proxy_network` (CIDR). When set, connections only match devices in that group if the immediate proxy/load balancer IP is within that CIDR (exact match). When not set (NULL), the group acts as a fallback for direct connections (or proxied connections when no exact proxy match exists), preserving backward compatibility.
+
+Lookup order:
+
+1. Exact: `client_ip ∈ device.network` AND `proxy_ip ∈ group.proxy_network` (longest prefix wins)
+2. Fallback: `client_ip ∈ device.network` AND `group.proxy_network` is NULL (longest prefix wins)
+3. Otherwise: reject
+
+This enables tenant isolation (each tenant’s devices match only through their proxy) while allowing deployments where both proxied and direct connections coexist.
+
+## PROXY Protocol Configuration
+
+When running behind load balancers that send HAProxy PROXY v2 headers, configure the dedicated section:
+
+```ini
+[proxy_protocol]
+enabled = true                   # Enable proxy-aware mode
+accept_proxy_protocol = true     # Consume/use PROXY v2 headers
+validate_sources = true          # Require proxy IP to be in configured proxies
+reject_invalid = true            # Reject malformed/unsupported PROXY headers
+```
+
+Notes
+- `accept_proxy_protocol` supersedes the legacy `[server].accept_proxy_protocol` (the server also accepts `accept_headers` as a legacy alias).
+- With `reject_invalid=true` (default), connections that present a PROXY signature but contain an invalid header are rejected and logged.
 
 ## Database Configuration
 
@@ -264,8 +349,8 @@ rate_limit_window = 60
 # Log file path
 log_file = logs/tacacs.log
 
-# Log format (structured JSON recommended)
-log_format = %(asctime)s - %(name)s - %(levelname)s - %(message)s
+# Log format is structured JSON by default at runtime; any configured custom
+# format string is ignored to ensure consistency.
 
 # Enable log rotation
 log_rotation = true
@@ -313,6 +398,28 @@ bind_port = 8080
 Important
 - The admin web UI is disabled unless an admin password hash is configured. If `password_hash` is empty (and no `ADMIN_PASSWORD_HASH` env var is set), all `/admin/*` pages return `503 Service Unavailable` and the login page displays a banner explaining that admin auth is not configured.
 - Only the admin credentials in this section (or the corresponding environment variables) grant access to the admin web UI. The local TACACS+/RADIUS user database does not grant web admin access.
+- All `/admin/*` endpoints (including redirects like `/admin` and `/admin/config/`) require authentication.
+- Security headers are set by default (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, X-XSS-Protection). The `Server` header is removed by middleware.
+
+## Command Authorization Configuration
+
+```ini
+[command_authorization]
+default_action = deny            # or permit
+# Response mode for allowed decisions when a rule does not specify response_mode
+response_mode = pass_add         # or pass_repl
+
+# Optional rules list; can be managed via Admin UI/API
+rules_json = [
+  {"action":"permit","match_type":"prefix","pattern":"show ","min_privilege":1}
+]
+
+# Privilege check enforcement order relative to command policy
+# - before (default): deny early if requested priv exceeds user privilege
+# - after: evaluate rules first to allow holistic decisions (RFC 8907 intent)
+# - none: disable the pre-check; rules fully decide
+privilege_check_order = before
+```
 
 
 ### Generating Password Hash
@@ -493,41 +600,42 @@ Notes:
 - Admin endpoints under `/api/admin/*` also require an authenticated admin session. The admin UI calls these with the session cookie; direct calls must also include the API token header.
 - Configure admin credentials in `[admin]` (username, password_hash) and log in via the admin UI.
 
-## Environment Variables
+## Environment Variables (credentials only)
 
-The server supports environment variable substitution in configuration files:
+The server supports environment variable substitution in configuration files for credentials/secrets only. All non‑credential parameters MUST be set in the configuration file, not via environment variables.
 
-### Common Environment Variables
+Allowed variables
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `TACACS_CONFIG` | Configuration file path | `/etc/tacacs/tacacs.conf` |
-| `ADMIN_USERNAME` | Admin console username | `admin` |
+| `TACACS_CONFIG` | Configuration file path (pointer only) | `/etc/tacacs/tacacs.conf` |
 | `ADMIN_PASSWORD_HASH` | Admin password hash | `$2b$12$...` |
 | `LDAP_PASSWORD` | LDAP bind password | `secret123` |
 | `OKTA_API_TOKEN` | Okta API token | `00abc...` |
 | `DEFAULT_TACACS_SECRET` | Default TACACS+ secret | `tacacs123` |
 | `DEFAULT_RADIUS_SECRET` | Default RADIUS secret | `radius123` |
+| `API_TOKEN` | Admin/API bearer token for `/api/*` | `s3cr3t-token` |
 
-### Using Environment Variables
+Examples
 
 ```ini
-# In configuration file
+# In configuration file (use env only for secrets)
 [ldap]
 bind_password = ${LDAP_PASSWORD}
 
 [okta]
-token = ${OKTA_API_TOKEN}
+api_token = ${OKTA_API_TOKEN}
 
 [admin]
 password_hash = ${ADMIN_PASSWORD_HASH}
 ```
 
 ```bash
-# In environment
+# In environment (credentials only)
 export LDAP_PASSWORD="secure_ldap_password"
 export OKTA_API_TOKEN="00abc123def456..."
 export ADMIN_PASSWORD_HASH="$2b$12$..."
+export API_TOKEN="$(openssl rand -hex 24)"
 ```
 
 ## Configuration Validation
@@ -557,6 +665,8 @@ python scripts/validate_config.py --quiet
 ## Configuration Examples
 
 ### Minimal Configuration
+
+Tip: For a quick checklist of common pitfalls (API tokens, admin hash, PROXY protocol scope, UDP constraints), refer to the top-level FAQ.md.
 
 ```ini
 [server]

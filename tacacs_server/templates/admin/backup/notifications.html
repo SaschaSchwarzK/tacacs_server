@@ -1,0 +1,16 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Email Notifications - TACACS+ Server Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/backup" class="text-blue-600 hover:underline">Backup & Restore</a> &gt;
+<span class="font-semibold">Email Notifications</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <h1 class="text-3xl font-bold text-gray-900 mb-8">Email Notifications</h1>
+    <p class="text-lg text-gray-600">Configure SMTP settings to send email alerts for backup events.</p>
+    <!-- SMTP configuration form would go here -->
+</div>
+{% endblock %}

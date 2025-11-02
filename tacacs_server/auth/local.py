@@ -94,6 +94,16 @@ class LocalAuthBackend(AuthenticationBackend):
         self._attach_user_service(self.user_service)
 
     def _attach_user_service(self, service: LocalUserService) -> None:
+        # Detect if this is effectively the same backing store to avoid
+        # duplicate INFO logs during startup (init then explicit rebind).
+        prev_path = None
+        try:
+            prev_path = getattr(self, "user_service", None)
+            if prev_path is not None:
+                prev_path = getattr(prev_path, "db_path", None)
+        except Exception:
+            prev_path = None
+
         if self._listener_remove:
             try:
                 self._listener_remove()
@@ -107,8 +117,15 @@ class LocalAuthBackend(AuthenticationBackend):
         except AttributeError:
             self._listener_remove = None
         try:
-            dbp = getattr(service, "db_path", None)
-            logger.info("LocalAuthBackend attached user service db_path=%s", dbp)
+            new_path = getattr(service, "db_path", None)
+            if new_path == prev_path:
+                logger.debug(
+                    "LocalAuthBackend user service unchanged; suppressing duplicate attach log"
+                )
+            else:
+                logger.info(
+                    "LocalAuthBackend attached user service db_path=%s", new_path
+                )
         except Exception:
             pass
 

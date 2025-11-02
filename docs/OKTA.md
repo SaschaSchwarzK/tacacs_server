@@ -55,14 +55,13 @@ Use the helper script to verify your Okta setup quickly. It supports two modes:
 - Config mode (server-backed): loads your `tacacs.conf`, instantiates the Okta backend, and runs auth using your exact settings and group mapping.
 
 Direct mode
-- Env vars: `OKTA_ORG` and optionally `OKTA_API_TOKEN` for groups lookup.
+- Credentials via env only: `OKTA_API_TOKEN` for group lookups (optional).
 - Flags: `--org`, `--api-token`, `--insecure` to disable TLS verification (testing only).
 
 Examples
-- OKTA_ORG=https://dev-12345.okta.com OKTA_API_TOKEN=ssws-... \
-  python scripts/okta_selftest.py --username alice
 - python scripts/okta_selftest.py --org https://dev-12345.okta.com --username alice
-- python scripts/okta_selftest.py --org https://dev-12345.okta.com --api-token ssws-... \
+- OKTA_API_TOKEN=ssws-... \
+  python scripts/okta_selftest.py --org https://dev-12345.okta.com --api-token ssws-... \
   --username alice --insecure
 
 Config mode

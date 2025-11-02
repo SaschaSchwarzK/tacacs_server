@@ -1,0 +1,31 @@
+version: "1.0.0"
+title: "TACACS+ Server handles network latency"
+description: "Smoke chaos experiment to introduce latency on localhost"
+steady-state-hypothesis:
+  title: "System responds within acceptable time"
+  probes:
+    - type: probe
+      name: health-check
+      tolerance: 2000
+      provider:
+        type: http
+        url: "${BASE_URL:-http://127.0.0.1:${TEST_WEB_PORT:-8080}}/api/health"
+        timeout: 5
+method:
+  - type: action
+    name: inject-latency
+    provider:
+      type: process
+      # Note: 'tc' may not be available in CI; this is illustrative.
+      path: tc
+      arguments: ["qdisc", "add", "dev", "lo", "root", "netem", "delay", "200ms"]
+    pauses:
+      after: 2
+rollbacks:
+  - type: action
+    name: remove-latency
+    provider:
+      type: process
+      path: tc
+      arguments: ["qdisc", "del", "dev", "lo", "root"]
+

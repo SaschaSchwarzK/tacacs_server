@@ -19,7 +19,7 @@ def get_device_service() -> DeviceService:
     """
     # This will be injected from your main app
     # Placeholder for now - you'll need to implement proper dependency injection
-    from tacacs_server.web.monitoring import get_device_service as _get
+    from tacacs_server.web.web import get_device_service as _get
 
     service = _get()
     if service is None:
@@ -141,12 +141,17 @@ async def create_device_group(group: DeviceGroupCreate):
             tacacs_secret=group.tacacs_secret,
             radius_secret=group.radius_secret,
             allowed_user_groups=aug_allowed,
+            proxy_id=getattr(group, "proxy_id", None),
         )
 
         return new_group
 
     except DeviceValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Map duplicate/exists errors to HTTP 409 Conflict for idempotent creates
+        msg = str(e)
+        if "already exists" in msg.lower() or "duplicate" in msg.lower():
+            raise HTTPException(status_code=409, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to create device group: {str(e)}"
@@ -199,6 +204,7 @@ async def update_device_group(
             tacacs_secret=(group.tacacs_secret if group else None),
             radius_secret=(group.radius_secret if group else None),
             allowed_user_groups=aug_allowed,
+            proxy_id=(group.proxy_id if group else None),
         )
 
         return updated_group

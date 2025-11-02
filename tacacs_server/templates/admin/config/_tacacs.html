@@ -1,0 +1,154 @@
+<!-- TACACS+ Server Settings -->
+<div class="card config-section">
+  <div class="section-header"><h2 class="section-title">TACACS+ Settings</h2></div>
+  
+  <div class="subsection">
+    <div class="subsection-header">Basic Settings</div>
+    <form id="tacacs-basic-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="tacacs_host">Host</label>
+        <div class="input-wrapper">
+          <input type="text" id="tacacs_host" name="host" value="{{ server_section.get('host','') }}" />
+          <span class="field-hint">Listen address <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="tacacs_port">Port</label>
+        <div class="input-wrapper">
+          <input type="number" id="tacacs_port" name="port" min="1" max="65535" value="{{ server_section.get('port','') }}" />
+          <span class="field-hint">TACACS+ port <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="tacacs_max_connections">Max Connections</label>
+        <div class="input-wrapper">
+          <input type="number" id="tacacs_max_connections" name="max_connections" min="1" value="{{ server_section.get('max_connections','') }}" />
+          <span class="field-hint">Maximum concurrent connections <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="tacacs_socket_timeout">Socket Timeout</label>
+        <div class="input-wrapper">
+          <input type="number" id="tacacs_socket_timeout" name="socket_timeout" min="1" value="{{ server_section.get('socket_timeout','') }}" />
+          <span class="field-hint">Socket timeout in seconds</span>
+        </div>
+      </div>
+    </form>
+
+    <div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="toggle-tacacs-advanced" onchange="toggleSection('tacacs-advanced')" />
+        <span>Show Advanced Settings</span>
+      </label>
+      <div id="tacacs-advanced" class="advanced-settings">
+        <form id="tacacs-advanced-form" onsubmit="return false;" class="form-grid">
+          <div class="form-field">
+            <label for="listen_backlog">Listen Backlog</label>
+            <div class="input-wrapper">
+              <input type="number" id="listen_backlog" name="listen_backlog" min="1" value="{{ server_section.get('listen_backlog','') }}" />
+              <span class="field-hint">TCP accept queue <span class="badge">restart</span></span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="client_timeout">Client Timeout</label>
+            <div class="input-wrapper">
+              <input type="number" step="0.1" id="client_timeout" name="client_timeout" min="1" value="{{ server_section.get('client_timeout','') }}" />
+              <span class="field-hint">Idle timeout (seconds)</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="ipv6_enabled">IPv6</label>
+            <div class="input-wrapper">
+              <select id="ipv6_enabled" name="ipv6_enabled">
+                {% set ipv6_val = (server_section.get('ipv6_enabled','false') | string).lower() %}
+                <option value="false" {% if ipv6_val=='false' %}selected{% endif %}>Disabled</option>
+                <option value="true" {% if ipv6_val=='true' %}selected{% endif %}>Enabled</option>
+              </select>
+              <span class="field-hint">IPv6 dual-stack <span class="badge">restart</span></span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="tcp_keepalive">TCP Keepalive</label>
+            <div class="input-wrapper">
+              <select id="tcp_keepalive" name="tcp_keepalive">
+                {% set ka_val = (server_section.get('tcp_keepalive','true') | string).lower() %}
+                <option value="true" {% if ka_val=='true' %}selected{% endif %}>Enabled</option>
+                <option value="false" {% if ka_val=='false' %}selected{% endif %}>Disabled</option>
+              </select>
+              <span class="field-hint">Enable TCP keepalive</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="use_thread_pool">Thread Pool</label>
+            <div class="input-wrapper">
+              <select id="use_thread_pool" name="use_thread_pool">
+                {% set pool_val = (server_section.get('use_thread_pool','true') | string).lower() %}
+                <option value="true" {% if pool_val=='true' %}selected{% endif %}>Enabled</option>
+                <option value="false" {% if pool_val=='false' %}selected{% endif %}>Disabled</option>
+              </select>
+              <span class="field-hint">Use thread pool <span class="badge">restart</span></span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="thread_pool_max">Thread Pool Max</label>
+            <div class="input-wrapper">
+              <input type="number" id="thread_pool_max" name="thread_pool_max" min="1" value="{{ server_section.get('thread_pool_max','') }}" />
+              <span class="field-hint">Max threads <span class="badge">restart</span></span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn" onclick="saveTacacsSettings()">Save TACACS+ Settings</button>
+      <span id="tacacs-status" class="status-message"></span>
+    </div>
+  </div>
+
+  <!-- Proxy Protocol -->
+  <div class="subsection">
+    <div class="subsection-header">Proxy Protocol</div>
+    <form id="proxy-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="proxy_enabled">Enabled</label>
+        <div class="input-wrapper">
+          <select id="proxy_enabled" name="enabled" onchange="toggleProxySettings()">
+            {% set proxy_enabled = (proxy_protocol_section.get('enabled','false') | string).lower() %}
+            <option value="false" {% if proxy_enabled=='false' %}selected{% endif %}>Disabled</option>
+            <option value="true" {% if proxy_enabled=='true' %}selected{% endif %}>Enabled</option>
+          </select>
+          <span class="field-hint">HAProxy PROXY protocol</span>
+        </div>
+      </div>
+      <div id="proxy-dependent-settings" style="display: contents;">
+        <div class="form-field">
+          <label for="proxy_validate_sources">Validate Sources</label>
+          <div class="input-wrapper">
+            <select id="proxy_validate_sources" name="validate_sources">
+              {% set validate = (proxy_protocol_section.get('validate_sources','true') | string).lower() %}
+              <option value="true" {% if validate=='true' %}selected{% endif %}>Enabled</option>
+              <option value="false" {% if validate=='false' %}selected{% endif %}>Disabled</option>
+            </select>
+            <span class="field-hint">Validate source addresses</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="proxy_reject_invalid">Reject Invalid</label>
+          <div class="input-wrapper">
+            <select id="proxy_reject_invalid" name="reject_invalid">
+              {% set reject = (proxy_protocol_section.get('reject_invalid','true') | string).lower() %}
+              <option value="true" {% if reject=='true' %}selected{% endif %}>Enabled</option>
+              <option value="false" {% if reject=='false' %}selected{% endif %}>Disabled</option>
+            </select>
+            <span class="field-hint">Reject invalid headers</span>
+          </div>
+        </div>
+      </div>
+    </form>
+    <div class="btn-group">
+      <button class="btn" onclick="saveProxySettings()">Save Proxy Settings</button>
+      <span id="proxy-status" class="status-message"></span>
+    </div>
+  </div>
+</div>

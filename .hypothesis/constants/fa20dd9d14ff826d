@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/tacacs/server.py
-# hypothesis_version: 6.140.2
-
-[0.1, 30.0, 1024, 4096, 8080, '0.0.0.0', '127.0.0.1', 'CHANGE_ME_FALLBACK', 'Client timeout: %s', 'Database error', 'Socket error: %s', 'acct_failures', 'acct_requests', 'acct_success', 'active_auth_sessions', 'active_connections', 'auth_backends', 'auth_failures', 'auth_requests', 'auth_success', 'author_failures', 'author_requests', 'author_success', 'available', 'big', 'connections_active', 'connections_total', 'database_status', 'error', 'group', 'healthy', 'last_check', 'last_health_check', 'memory_usage', 'metadata', 'name', 'percent', 'records_today', 'rss_mb', 'server_running', 'server_thread', 'status', 'stopped', 'tacacs_secret', 'total_records', 'unhealthy', 'uptime_seconds', 'vms_mb']

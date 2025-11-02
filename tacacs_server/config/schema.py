@@ -1,6 +1,10 @@
 """Pydantic schema for TACACS+ configuration validation."""
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from __future__ import annotations
+
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ServerConfigSchema(BaseModel):
@@ -11,6 +15,22 @@ class ServerConfigSchema(BaseModel):
     log_level: str = Field(default="INFO")
     max_connections: int = Field(default=50, ge=1)
     socket_timeout: int = Field(default=30, ge=1)
+    accept_proxy_protocol: bool = Field(
+        default=True, description="Accept HAProxy PROXY v2 headers"
+    )
+    # Optional instance name (for display/metadata)
+    instance_name: str | None = Field(default=None)
+
+    @field_validator("instance_name")
+    @classmethod
+    def _validate_instance_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", v):
+            raise ValueError(
+                "instance_name must be alphanumeric with hyphens/underscores only"
+            )
+        return v
 
 
 class AuthConfigSchema(BaseModel):
@@ -46,6 +66,10 @@ class OktaConfigSchema(BaseModel):
     api_token: str | None = Field(default=None, alias="token")
     verify_tls: bool = Field(default=True)
     timeout: int = Field(default=10, ge=0)
+    # Optional: when set, the server will create a local user group
+    # with this name (if missing), set its okta_group mapping, and
+    # link it to the default device group at startup.
+    default_okta_group: str | None = Field(default=None)
 
 
 class TacacsConfigSchema(BaseModel):
@@ -54,6 +78,9 @@ class TacacsConfigSchema(BaseModel):
     security: SecurityConfigSchema
     ldap: LdapConfigSchema | None = None
     okta: OktaConfigSchema | None = None
+    backup: BackupConfigSchema | None = None
+    # Optional remote source URL – HTTPS only, no localhost/private IPs
+    source_url: str | None = None
 
     @field_validator("auth")
     @classmethod
@@ -65,8 +92,61 @@ class TacacsConfigSchema(BaseModel):
             raise ValueError("At least one authentication backend must be configured")
         return value
 
+    @model_validator(mode="after")
+    def _cross_field_validation(self) -> TacacsConfigSchema:
+        # If LDAP backend is configured, ldap section must be present
+        try:
+            backends = [
+                entry.strip().lower()
+                for entry in (self.auth.backends or "").split(",")
+                if entry.strip()
+            ]
+            if "ldap" in backends and self.ldap is None:
+                raise ValueError("LDAP backend selected but [ldap] section is missing")
+        except Exception:
+            pass
+        # Validate source_url constraints
+        if self.source_url:
+            if not self.source_url.lower().startswith("https://"):
+                raise ValueError("source_url must use HTTPS")
+            # Block localhost/private
+            if re.search(
+                r"^(https://)?(localhost|127\.0\.0\.1)\b",
+                self.source_url,
+                re.IGNORECASE,
+            ):
+                raise ValueError("source_url must not point to localhost")
+        return self
+
 
 def validate_config_file(payload: dict) -> TacacsConfigSchema:
     """Validate configuration payload with Pydantic schema."""
 
     return TacacsConfigSchema(**payload)
+
+
+class BackupConfigSchema(BaseModel):
+    """Backup configuration schema."""
+
+    model_config = ConfigDict(extra="ignore")
+    enabled: bool = True
+    create_on_startup: bool = False
+    temp_directory: str = "data/backup_temp"
+    encryption_enabled: bool = False
+    default_retention_days: int = Field(ge=1, le=3650, default=30)
+    default_retention_strategy: str = Field(default="simple")
+    compression_level: int = Field(default=6, ge=1, le=9)
+
+    # GFS configuration
+    gfs_keep_daily: int = Field(default=7, ge=1)
+    gfs_keep_weekly: int = Field(default=4, ge=1)
+    gfs_keep_monthly: int = Field(default=12, ge=1)
+    gfs_keep_yearly: int = Field(default=3, ge=0)
+
+    @field_validator("default_retention_strategy")
+    @classmethod
+    def validate_strategy(cls, v: str) -> str:
+        valid = ["simple", "gfs", "hanoi"]
+        if v not in valid:
+            raise ValueError(f"Strategy must be one of: {valid}")
+        return v

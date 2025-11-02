@@ -75,10 +75,18 @@ services:
     volumes:
       - ./config:/app/config
       - ./data:/app/data
-      - ./logs:/app/logs
+  - ./logs:/app/logs
     environment:
       - TACACS_CONFIG=/app/config/tacacs.conf
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      # Backup encryption
+      - BACKUP_ENCRYPTION_PASSPHRASE=${BACKUP_ENCRYPTION_PASSPHRASE}
+      # Destination credentials (optional; prefer secret managers)
+      - FTP_PASSWORD=${FTP_PASSWORD}
+      - SSH_KEY_PASSPHRASE=${SSH_KEY_PASSPHRASE}
+      # Azure auth choices (pick one):
+      - AZURE_CONNECTION_STRING=${AZURE_CONNECTION_STRING}
+      - AZURE_ACCOUNT_KEY=${AZURE_ACCOUNT_KEY}
       # Optional runtime tuning
       - TACACS_LISTEN_BACKLOG=512
       - TACACS_CLIENT_TIMEOUT=15
@@ -825,6 +833,40 @@ grep -i "slow\|timeout\|error" /opt/tacacs_server/logs/tacacs.log
 - [ ] Monitoring configured
 
 ### Post-deployment
+
+## Backup & Restore Deployment Considerations
+
+### Volume Mounts
+
+- Ensure the following paths are persisted across container restarts and have sufficient capacity:
+  - `data/backup_executions.db` (backup execution/store metadata)
+  - `data/backup_jobs.db` (scheduler jobstore)
+  - Destination base paths (e.g., `/backups/tacacs`) when using local destinations
+- Grant read/write permissions to the application user for all backup‑related volumes.
+
+### Encryption Environment Variables
+
+- `BACKUP_ENCRYPTION_PASSPHRASE`: Optional passphrase. If set, archives can be encrypted/decrypted transparently.
+- Pair with at-rest encryption on destination (e.g., encrypted volumes or provider features) for stronger protection.
+
+### Recommended Schedules
+
+- Start with daily backups during low‑traffic windows (e.g., `0 2 * * *`).
+- Increase frequency for configurations that change often; use interval jobs for short cadences.
+- Validate restore regularly in a staging environment.
+
+### Disaster Recovery Procedures
+
+- Keep at least one off‑site/off‑AZ copy of recent backups.
+- Automate restore drills: select a backup, restore to a sandbox, and validate configuration.
+- Document emergency contacts and the exact steps to restore essential services.
+
+### Container-specific Notes
+
+- Use named volumes or bind mounts for backup jobstore and execution DBs.
+- Set resource limits to avoid backup tasks being OOM‑killed (backups may be I/O heavy during compression).
+- If running behind orchestrators (K8s), expose admin API only within trusted networks.
+
 
 - [ ] Service starts successfully
 - [ ] Health checks pass

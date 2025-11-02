@@ -1,0 +1,31 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold text-gray-900">Backup & Restore</h1>
+        <p class="mt-2 text-sm text-gray-600">Manage configuration backups and restorations</p>
+    </div>
+
+    <div class="bg-white shadow rounded-lg p-6 mb-8">
+        <h2 class="text-lg font-medium text-gray-900 mb-4">Create Backup</h2>
+        <p class="text-sm text-gray-600 mb-4">Create a new backup of the current configuration.</p>
+        <form action="#" method="post" class="space-y-4">
+            <div class="flex items-center space-x-4">
+                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Create Backup Now
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="bg-white shadow rounded-lg p-6">
+        <h2 class="text-lg font-medium text-gray-900 mb-4">Available Backups</h2>
+        <div class="bg-gray-50 rounded-lg p-4">
+            <p class="text-sm text-gray-500 text-center">No backups available.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

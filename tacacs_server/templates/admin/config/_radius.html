@@ -1,0 +1,79 @@
+<!-- RADIUS Settings -->
+<div class="card config-section">
+  <div class="section-header"><h2 class="section-title">RADIUS Settings</h2></div>
+  
+  <div class="subsection">
+    <div class="subsection-header">Basic Settings</div>
+    <form id="radius-basic-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="radius_enabled">Enabled</label>
+        <div class="input-wrapper">
+          <select id="radius_enabled" name="enabled">
+            {% set radius_enabled = ((configuration.get('radius') or {}).get('enabled','false') | string).lower() %}
+            <option value="false" {% if radius_enabled=='false' %}selected{% endif %}>Disabled</option>
+            <option value="true" {% if radius_enabled=='true' %}selected{% endif %}>Enabled</option>
+          </select>
+          <span class="field-hint">Enable RADIUS <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_host">Host</label>
+        <div class="input-wrapper">
+          <input type="text" id="radius_host" name="host" value="{{ (configuration.get('radius') or {}).get('host','') }}" />
+          <span class="field-hint">Listen address <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_auth_port">Auth Port</label>
+        <div class="input-wrapper">
+          <input type="number" id="radius_auth_port" name="auth_port" min="1" max="65535" value="{{ (configuration.get('radius') or {}).get('auth_port','') }}" />
+          <span class="field-hint">Auth port <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_acct_port">Acct Port</label>
+        <div class="input-wrapper">
+          <input type="number" id="radius_acct_port" name="acct_port" min="1" max="65535" value="{{ (configuration.get('radius') or {}).get('acct_port','') }}" />
+          <span class="field-hint">Acct port <span class="badge">restart</span></span>
+        </div>
+      </div>
+    </form>
+
+    <div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="toggle-radius-advanced" onchange="toggleSection('radius-advanced')" />
+        <span>Show Advanced Settings</span>
+      </label>
+      <div id="radius-advanced" class="advanced-settings">
+        <form id="radius-advanced-form" onsubmit="return false;" class="form-grid">
+          <div class="form-field">
+            <label for="radius_workers">Workers</label>
+            <div class="input-wrapper">
+              <input type="number" id="radius_workers" name="workers" min="1" max="64" value="{{ (configuration.get('radius') or {}).get('workers','') }}" />
+              <span class="field-hint">Thread pool <span class="badge">restart</span></span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="radius_socket_timeout">Socket Timeout</label>
+            <div class="input-wrapper">
+              <input type="number" step="0.1" id="radius_socket_timeout" name="socket_timeout" min="0.1" value="{{ (configuration.get('radius') or {}).get('socket_timeout','') }}" />
+              <span class="field-hint">UDP timeout (seconds)</span>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="radius_rcvbuf">Receive Buffer</label>
+            <div class="input-wrapper">
+              <input type="number" id="radius_rcvbuf" name="rcvbuf" min="262144" value="{{ (configuration.get('radius') or {}).get('rcvbuf','') }}" />
+              <span class="field-hint">Buffer size <span class="badge">restart</span></span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn" onclick="saveRadiusSettings()">Save RADIUS Settings</button>
+      <span id="radius-settings-status" class="status-message"></span>
+    </div>
+  </div>
+</div>

@@ -10,6 +10,7 @@
         <tr>
             <th>Name</th>
             <th>Description</th>
+            <th>Proxy</th>
             <th>Radius Secret</th>
             <th>TACACS Secret</th>
             <th>Allowed User Groups</th>
@@ -21,6 +22,15 @@
             <tr data-id="{{ group.id }}">
                 <td>{{ group.name }}</td>
                 <td>{{ group.description or "" }}</td>
+                <td>
+                    {% if group.proxy_id %}
+                        {{ group.proxy_id }}
+                    {% elif group.proxy_network %}
+                        {{ group.proxy_network }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
                 <td>{{ 'yes' if group.radius_secret else 'no' }}</td>
                 <td>{{ 'yes' if group.tacacs_secret else 'no' }}</td>
                 <td>{{ ', '.join(group.allowed_user_groups or []) if group.allowed_user_groups else '-' }}</td>
@@ -50,6 +60,18 @@
                 <label for="groupDescription">Description</label>
                 <input type="text" name="description" id="groupDescription" placeholder="optional">
             </div>
+            {% if proxy_enabled %}
+              <div class="modal-field">
+                  <label for="groupProxyId">Proxy</label>
+                  <select name="proxy_id" id="groupProxyId">
+                      <option value="">None</option>
+                      {% for p in proxies %}
+                          <option value="{{ p.id }}">{{ p.name }} ({{ p.network }})</option>
+                      {% endfor %}
+                  </select>
+                  <small class="field-hint">Select a proxy to link. Manage proxies in the Proxies page.</small>
+              </div>
+            {% endif %}
             <div class="modal-field">
                 <label for="groupRadiusSecret">Radius Secret</label>
                 <input type="text" name="radius_secret" id="groupRadiusSecret" placeholder="shared secret">
@@ -143,6 +165,10 @@ async function editGroup(id) {
         document.getElementById('groupId').value = group.id;
         document.getElementById('groupName').value = group.name || '';
         document.getElementById('groupDescription').value = group.description || '';
+        const proxyField = document.getElementById('groupProxyId');
+        if (proxyField) {
+            proxyField.value = (group.proxy_id || '').toString();
+        }
         document.getElementById('groupRadiusSecret').value = group.radius_secret || '';
         document.getElementById('groupTacacsSecret').value = group.tacacs_secret || '';
         const cfg = group.device_config && Object.keys(group.device_config || {}).length ? JSON.stringify(group.device_config, null, 2) : '';
@@ -168,6 +194,7 @@ async function submitGroup(event) {
     const payload = {
         name: form.name.value,
         description: form.description.value || null,
+        proxy_id: form.proxy_id && form.proxy_id.value ? parseInt(form.proxy_id.value, 10) : null,
         radius_secret: form.radius_secret.value || null,
         tacacs_secret: form.tacacs_secret.value || null,
     };
@@ -206,8 +233,12 @@ async function submitGroup(event) {
             body: JSON.stringify(payload),
         });
         if (!resp.ok) {
-            const data = await resp.json().catch(() => ({}));
-            throw new Error(data.detail || 'Request failed');
+            const data = await resp.json().catch(() => null);
+            if (data && data.detail && Array.isArray(data.detail)) {
+                const errors = data.detail.map(e => e.msg || e.detail || String(e)).join(', ');
+                throw new Error(errors);
+            }
+            throw new Error((data && data.detail) || `HTTP ${resp.status}`);
         }
         showToast(groupId ? 'Group updated' : 'Group created');
         setTimeout(() => window.location.reload(), 500);

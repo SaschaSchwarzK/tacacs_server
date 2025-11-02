@@ -1,0 +1,39 @@
+<!-- Web/API Settings -->
+<div class="card config-section">
+  <div class="section-header"><h2 class="section-title">Web/API Settings</h2></div>
+  
+  <div class="subsection">
+    <div class="subsection-header">Monitoring Interface</div>
+    <form id="web-basic-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="monitoring_enabled">Enabled</label>
+        <div class="input-wrapper">
+          <select id="monitoring_enabled" name="enabled">
+            {% set mon_enabled = ((configuration.get('monitoring') or {}).get('enabled','false') | string).lower() %}
+            <option value="false" {% if mon_enabled=='false' %}selected{% endif %}>Disabled</option>
+            <option value="true" {% if mon_enabled=='true' %}selected{% endif %}>Enabled</option>
+          </select>
+          <span class="field-hint">Enable web UI <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="monitoring_host">Host</label>
+        <div class="input-wrapper">
+          <input type="text" id="monitoring_host" name="web_host" value="{{ (configuration.get('monitoring') or {}).get('web_host','') }}" />
+          <span class="field-hint">Listen address <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="monitoring_port">Port</label>
+        <div class="input-wrapper">
+          <input type="number" id="monitoring_port" name="web_port" min="1" max="65535" value="{{ (configuration.get('monitoring') or {}).get('web_port','') }}" />
+          <span class="field-hint">Web port <span class="badge">restart</span></span>
+        </div>
+      </div>
+    </form>
+    <div class="btn-group">
+      <button class="btn" onclick="saveWebSettings()">Save Web Settings</button>
+      <span id="web-status" class="status-message"></span>
+    </div>
+  </div>
+</div>

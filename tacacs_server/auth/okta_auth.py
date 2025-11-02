@@ -17,8 +17,8 @@ from hashlib import sha256
 from typing import Any
 from typing import Any as _Any
 
-import requests  # type: ignore[import-untyped]
-from requests.adapters import HTTPAdapter  # type: ignore[import-untyped]
+import requests
+from requests.adapters import HTTPAdapter
 
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics import (

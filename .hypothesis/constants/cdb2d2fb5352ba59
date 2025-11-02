@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/radius/server.py
-# hypothesis_version: 6.140.2
-
-[b'\x00', 1.0, 100, 255, 1812, 1813, 4096, 4294967295, '!BBH', '!I', '.', '0', '0.0.0.0', '<unknown>', 'ACCOUNTING-OFF', 'ACCOUNTING-ON', 'Access-Accept', 'Access-Challenge', 'Access-Reject', 'Access-Request', 'Accounting-Request', 'Accounting-Response', 'BB', 'CHANGE_ME_FALLBACK', 'Missing credentials', 'RADIUS-Acct', 'RADIUS-Auth', 'RADIUSAttribute', 'RADIUSPacket', 'RadiusClient', 'START', 'STOP', 'UNKNOWN', 'UPDATE', 'accept', 'acct_requests', 'acct_responses', 'allowed_user_groups', 'attributes', 'auth_accepts', 'auth_rejects', 'auth_requests', 'auth_success_rate', 'configured_clients', 'group', 'groups', 'idle_timeout', 'ignore', 'invalid_packets', 'name', 'network', 'privilege_level', 'radius', 'reject', 'replace', 'running', 'secret', 'session_timeout', 'unknown', 'utf-8']

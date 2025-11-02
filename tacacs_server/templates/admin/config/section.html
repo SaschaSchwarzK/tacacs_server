@@ -1,0 +1,129 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ section.name }} Settings - Configuration{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/config" class="text-blue-600 hover:underline">Configuration</a> &gt;
+<span class="font-semibold">{{ section.name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <!-- Page Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">{{ section.name }} Settings</h1>
+            <p class="text-lg text-gray-600 mt-1">{{ section.description }}</p>
+        </div>
+        <div class="flex items-center space-x-2">
+            {% if is_url_config %}
+                <button onclick="resetAllToBaseline()" class="text-gray-700 bg-white border-gray-300 hover:bg-gray-50 focus:ring-blue-500 inline-flex items-center border font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Reset All to Baseline</button>
+            {% endif %}
+            <button onclick="saveChanges()" class="text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 inline-flex items-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Save Changes</button>
+        </div>
+    </div>
+
+    <!-- Settings Form -->
+    <form id="config-form" class="space-y-8 divide-y divide-gray-200">
+        {# Example of a settings group #}
+        <div class="pt-8">
+            <div>
+                <h3 class="text-lg leading-6 font-medium text-gray-900">General Settings</h3>
+                <p class="mt-1 text-sm text-gray-500">Basic server settings.</p>
+            </div>
+            <div class="mt-6 grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
+                {% for setting in section.settings %}
+                <div class="sm:col-span-4">
+                    <label for="{{ setting.key }}" class="block text-sm font-medium text-gray-700">
+                        {{ setting.label }}
+                        {% if setting.overridden %}
+                            {% include "admin/components/badge.html" with {'text': 'Overridden', 'color': 'warning'} %}
+                        {% endif %}
+                    </label>
+                    <div class="mt-1">
+                        {% include "admin/components/form_field.html" with {
+                            'name': setting.key,
+                            'value': setting.value,
+                            'type': setting.type,
+                            'help_text': setting.help_text,
+                            'errors': validation_errors.get(setting.key)
+                        } %}
+                    </div>
+                    {% if is_url_config and setting.overridden %}
+                    <div class="mt-2 text-sm text-gray-500 flex justify-between items-center">
+                        <span>Baseline: <code class="bg-gray-100 p-1 rounded">{{ setting.baseline_value }}</code></span>
+                        <button type="button" onclick="resetToBaseline('{{ setting.key }}')" class="text-xs text-blue-600 hover:underline">Reset</button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const api = new AdminAPI();
+    const currentSection = "{{ section.key }}"; // e.g., 'server_settings'
+
+    // Save configuration changes
+    async function saveChanges() {
+        const form = document.getElementById('config-form');
+        const formData = new FormData(form);
+        const updates = Object.fromEntries(formData.entries());
+
+        // Client-side validation could go here
+
+        try {
+            // Optional: Ask for a reason for the change
+            const reason = prompt('Enter a brief reason for this change (optional):');
+
+            await api.put(`/admin/config/${currentSection}`, {
+                updates: updates,
+                reason: reason
+            });
+            
+            showFlash('Configuration saved successfully', 'success');
+            setTimeout(() => location.reload(), 1000);
+
+        } catch (error) {
+            // The API client will show a generic error flash.
+            // For more specific errors (e.g., validation), the API should return a structured response.
+            console.error("Save failed:", error);
+        }
+    }
+
+    // Reset single setting to baseline
+    async function resetToBaseline(key) {
+        if (!confirm(`Are you sure you want to reset "${key}" to its baseline value?`)) {
+            return;
+        }
+        
+        try {
+            await api.delete(`/admin/config/${currentSection}/${key}/override`);
+            showFlash('Setting has been reset to baseline', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            console.error("Reset failed:", error);
+        }
+    }
+
+    // Reset all settings in section to baseline
+    async function resetAllToBaseline() {
+        if (!confirm(`Are you sure you want to reset ALL settings in the "${currentSection}" section to their baseline values? This cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            await api.delete(`/admin/config/${currentSection}/overrides`);
+            showFlash('All settings in this section have been reset', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            console.error("Reset all failed:", error);
+        }
+    }
+
+</script>
+{% endblock %}

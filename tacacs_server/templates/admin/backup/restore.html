@@ -1,0 +1,73 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Restore from Backup - TACACS+ Server Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/backup" class="text-blue-600 hover:underline">Backup & Restore</a> &gt;
+<span class="font-semibold">Restore Wizard</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8" x-data="restoreWizard()">
+    <!-- Page Header -->
+    <div class="mb-8 text-center">
+        <h1 class="text-3xl font-bold text-gray-900">Restore from Backup</h1>
+        <p class="text-lg text-gray-600 mt-1">Follow the steps to restore the server state from a backup.</p>
+    </div>
+
+    <!-- Step 1: Select Backup -->
+    <div x-show="step === 1">
+        <h2 class="text-xl font-semibold mb-4">Step 1: Select a Backup</h2>
+        <!-- Table of backups would be loaded here -->
+        <button @click="selectBackup({id: 'bkp_123', file: 'backup-2025-10-26.zip'}); step = 2">Select Example Backup</button>
+    </div>
+
+    <!-- Step 2: Review & Confirm -->
+    <div x-show="step === 2">
+        <h2 class="text-xl font-semibold mb-4">Step 2: Review and Confirm</h2>
+        <p>You are about to restore from: <strong x-text="selectedBackup.file"></strong></p>
+        <p class="text-red-600 font-bold">Warning: This will overwrite the current server configuration and data.</p>
+        <div class="mt-4">
+            <button @click="step = 1">Back</button>
+            <button @click="startRestore()">Confirm and Start Restore</button>
+        </div>
+    </div>
+
+    <!-- Step 3: Restore Progress -->
+    <div x-show="step === 3">
+        <h2 class="text-xl font-semibold mb-4">Step 3: Restore in Progress</h2>
+        <p>Status: <span x-text="restoreStatus"></span></p>
+        <!-- Progress bar here -->
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function restoreWizard() {
+    return {
+        api: new AdminAPI(),
+        step: 1,
+        selectedBackup: null,
+        restoreStatus: 'Starting...',
+
+        selectBackup(backup) {
+            this.selectedBackup = backup;
+        },
+
+        async startRestore() {
+            this.step = 3;
+            try {
+                const response = await this.api.post(`/admin/restore/${this.selectedBackup.id}`);
+                // Poll for status, etc.
+                this.restoreStatus = 'Restore complete. Server restarting.';
+                showFlash('Restore successful!', 'success');
+            } catch (error) {
+                this.restoreStatus = `Failed: ${error.message}`;
+                showFlash('Restore failed.', 'error');
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

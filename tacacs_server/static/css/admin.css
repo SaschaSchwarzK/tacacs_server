@@ -1,0 +1,61 @@
+/*
+This file is intended for minimal custom CSS that complements the primary styling provided by Tailwind CSS.
+Most styling (colors, layout, typography) should be done using Tailwind utility classes in the HTML templates.
+*/
+
+/* Color Scheme as CSS Variables */
+/* These can be used in custom CSS rules if needed. */
+:root {
+    --primary-color: #3B82F6;  /* blue-500 */
+    --success-color: #10B981;  /* green-500 */
+    --warning-color: #F59E0B;  /* amber-500 */
+    --error-color: #EF4444;    /* red-500 */
+    --neutral-color: #6B7280;  /* gray-500 */
+}
+
+/* Base body styling */
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Animations */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+.fade-in {
+    animation: fade-in 0.3s ease-out forwards;
+}
+
+.fade-out {
+    animation: fade-out 0.3s ease-in forwards;
+}
+
+/* Accessibility: Custom focus ring */
+/* Example of a custom focus style if Tailwind's default is not sufficient */
+.custom-focus:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* Styles for dynamically generated content that can't have Tailwind classes easily applied */
+/* For example, a third-party library's output */
+.third-party-content-wrapper {
+    /* ... */
+}

@@ -8,11 +8,16 @@ packages = [{ include = "tacacs_server" }]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
+apscheduler = "^3.10.4"
+ftputil = "^5.0.0"
+paramiko = "^3.5.0"
+azure-storage-blob = "^12.19.0"
+azure-identity = "^1.15.0"
 requests = "^2.32.5"
 ldap3 = "^2.9"
 pyasn1 = "^0.6.1"
 psutil = "^7.1"
-fastapi = "^0.118.0"
+fastapi = "^0.120.4"
 uvicorn = "^0.24.0"
 jinja2 = "^3.1.2"
 python-multipart = "^0.0.18"
@@ -20,6 +25,9 @@ prometheus-client = "^0.23.1"
 aiosqlite = "^0.21.0"
 bcrypt = "^5.0.0"
 pydantic = {extras = ["email"], version = "^2.11.9"}
+pyftpdlib = "^2.1.0"
+starlette = "^0.49.1"
+sqlalchemy = "^2.0.44"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4"
@@ -47,6 +55,9 @@ pytest-bdd = "^8.1.0"
 ruff = "^0.13.3"
 schemathesis = "^4.1.4"
 mutmut = "^2.4.4"
+types-requests = "^2.32.4.20250913"
+pyftpdlib = "^2.1.0"
+beautifulsoup4 = "^4.14.2"
 
 [tool.poetry.scripts]
 tacacs-server = "tacacs_server.cli:main"

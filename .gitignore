@@ -4,6 +4,8 @@ __pycache__/
 .pytest-runtime/
 .pytest-tmpdirs/
 .hypothesis/
+.benchmarks/
+mutants/
 .mypy_cache/
 .ruff_cache/
 *.pyc
@@ -21,3 +23,8 @@ data/
 *.db-shm
 *.db-wal
 *.log
+.mutmut.yaml
+.mutmut-cache
+CHANGELOG.md
+*.txt
+developer/

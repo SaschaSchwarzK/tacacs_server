@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/auth/okta_auth.py
-# hypothesis_version: 6.140.2
-
-[200, 201, '.', '/', '/api/v1', '=', 'Accept', 'Authorization', 'CLIENT_ID', 'Content-Type', 'Level1', 'Level15', 'Level7', 'OKTA_API_TOKEN', 'access_token', 'api_token', 'application/json', 'ascii', 'cache_default_ttl', 'client_id', 'exp', 'expires_in', 'fail_ttl', 'grant_type', 'group_privilege_map', 'name', 'okta', 'okta_org_url', 'org_url', 'password', 'privilege', 'profile', 'scope', 'sub', 'token_response', 'username', 'utf-8', 'verify_tls']

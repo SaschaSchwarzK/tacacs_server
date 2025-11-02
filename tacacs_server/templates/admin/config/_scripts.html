@@ -1,0 +1,236 @@
+function toggleSection(sectionId) {
+  const section = document.getElementById(sectionId);
+  const checkbox = document.getElementById(`toggle-${sectionId.replace('-advanced', '')}-advanced`);
+  if (section && checkbox) section.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+function toggleProxySettings() {
+  const enabled = document.getElementById('proxy_enabled').value === 'true';
+  const dependentSettings = document.getElementById('proxy-dependent-settings');
+  if (dependentSettings) dependentSettings.style.display = enabled ? 'contents' : 'none';
+}
+
+function toggleBackupBackend() {
+  const type = document.getElementById('backup_backend_type').value;
+  document.getElementById('backup-backend-ftp').style.display = type === 'ftp' ? 'block' : 'none';
+  document.getElementById('backup-backend-sftp').style.display = type === 'sftp' ? 'block' : 'none';
+  document.getElementById('backup-backend-azure').style.display = type === 'azure' ? 'block' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (document.getElementById('proxy_enabled')) toggleProxySettings();
+  if (document.getElementById('backup_backend_type')) toggleBackupBackend();
+});
+
+async function saveTacacsSettings() {
+  const status = document.getElementById('tacacs-status');
+  status.textContent = '';
+  const server = {};
+  ['host', 'port', 'max_connections', 'socket_timeout'].forEach(key => {
+    const el = document.getElementById('tacacs_' + key);
+    if (el && el.value.trim()) server[key] = el.value;
+  });
+  
+  if (document.getElementById('tacacs-advanced').style.display !== 'none') {
+    ['listen_backlog', 'client_timeout', 'ipv6_enabled', 'tcp_keepalive', 'use_thread_pool', 'thread_pool_max'].forEach(key => {
+      const el = document.getElementById(key);
+      if (el && el.value.trim()) server[key] = el.value;
+    });
+  }
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ server }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('TACACS+ settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveProxySettings() {
+  const status = document.getElementById('proxy-status');
+  status.textContent = '';
+  const proxy_protocol = {
+    enabled: document.getElementById('proxy_enabled').value,
+    validate_sources: document.getElementById('proxy_validate_sources').value,
+    reject_invalid: document.getElementById('proxy_reject_invalid').value
+  };
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_protocol }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Proxy settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveAuthSettings() {
+  const status = document.getElementById('auth-status');
+  status.textContent = '';
+  const auth = {};
+  ['backends', 'local_auth_db', 'require_all_backends'].forEach(key => {
+    const el = document.getElementById('auth_' + key);
+    if (el && el.value.trim()) auth[key] = el.value;
+  });
+  
+  if (document.getElementById('auth-advanced').style.display !== 'none') {
+    const el1 = document.getElementById('auth_cache_ttl');
+    const el2 = document.getElementById('auth_backend_timeout');
+    if (el1 && el1.value.trim()) auth.local_auth_cache_ttl_seconds = el1.value;
+    if (el2 && el2.value.trim()) auth.backend_timeout = el2.value;
+  }
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auth }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Auth settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveDevicesSettings() {
+  const status = document.getElementById('devices-status');
+  status.textContent = '';
+  const devices = {
+    auto_register: document.getElementById('devices_auto_register').value,
+    default_group: document.getElementById('devices_default_group').value
+  };
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ devices }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Device settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveLdapSettings() {
+  const status = document.getElementById('ldap-status');
+  status.textContent = '';
+  const ldap = {};
+  ['server', 'base_dn', 'user_attribute', 'bind_dn', 'bind_password', 'use_tls', 'timeout'].forEach(key => {
+    const el = document.getElementById('ldap_' + key);
+    if (el && el.value.trim()) ldap[key] = el.value;
+  });
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ldap }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('LDAP settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveOktaSettings() {
+  const status = document.getElementById('okta-status');
+  status.textContent = '';
+  const okta = {};
+  ['domain', 'api_token', 'timeout', 'default_okta_group'].forEach(key => {
+    const el = document.getElementById('okta_' + key);
+    if (el && el.value.trim()) okta[key] = el.value;
+  });
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ okta }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Okta settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveRadiusSettings() {
+  const status = document.getElementById('radius-settings-status');
+  status.textContent = '';
+  const radius = {};
+  ['enabled', 'host', 'auth_port', 'acct_port'].forEach(key => {
+    const el = document.getElementById('radius_' + key);
+    if (el && el.value.trim()) radius[key] = el.value;
+  });
+  
+  if (document.getElementById('radius-advanced').style.display !== 'none') {
+    ['workers', 'socket_timeout', 'rcvbuf'].forEach(key => {
+      const el = document.getElementById('radius_' + key);
+      if (el && el.value.trim()) radius[key] = el.value;
+    });
+  }
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ radius }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('RADIUS settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveWebSettings() {
+  const status = document.getElementById('web-status');
+  status.textContent = '';
+  const monitoring = {
+    enabled: document.getElementById('monitoring_enabled').value,
+    web_host: document.getElementById('monitoring_host').value,
+    web_port: document.getElementById('monitoring_port').value
+  };
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monitoring }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Web settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveBackupSettings() {
+  const status = document.getElementById('backup-status');
+  status.textContent = '';
+  const backup = {};
+  ['enabled', 'create_on_startup', 'temp_directory', 'default_retention_days'].forEach(key => {
+    const el = document.getElementById('backup_' + key);
+    if (el && el.value.trim()) backup[key] = el.value;
+  });
+  
+  if (document.getElementById('backup-advanced').style.display !== 'none') {
+    ['encryption_enabled', 'encryption_passphrase', 'compression_level', 'default_retention_strategy'].forEach(key => {
+      const el = document.getElementById('backup_' + key);
+      if (el && el.value.trim()) backup[key] = el.value;
+    });
+  }
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backup }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Backup settings saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
+async function saveBackupBackendSettings() {
+  const status = document.getElementById('backup-backend-status');
+  status.textContent = '';
+  const backup = {
+    backend_type: document.getElementById('backup_backend_type').value
+  };
+  
+  const backendType = backup.backend_type;
+  
+  if (backendType === 'ftp') {
+    ['ftp_host', 'ftp_port', 'ftp_username', 'ftp_password', 'ftp_path', 'ftp_use_tls'].forEach(key => {
+      const el = document.getElementById(key);
+      if (el && el.value.trim()) backup[key] = el.value;
+    });
+  } else if (backendType === 'sftp') {
+    ['sftp_host', 'sftp_port', 'sftp_username', 'sftp_password', 'sftp_private_key', 'sftp_path'].forEach(key => {
+      const el = document.getElementById(key);
+      if (el && el.value.trim()) backup[key] = el.value;
+    });
+  } else if (backendType === 'azure') {
+    ['azure_connection_string', 'azure_container', 'azure_path'].forEach(key => {
+      const el = document.getElementById(key);
+      if (el && el.value.trim()) backup[key] = el.value;
+    });
+  }
+  
+  try {
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backup }) });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('Backup backend saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}

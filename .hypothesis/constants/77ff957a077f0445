@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/auth/ldap_auth.py
-# hypothesis_version: 6.140.2
-
-[128, '*', ',', 'CN=', 'Password too long', 'administrators', 'anonymous', 'available', 'base_dn', 'bind_type', 'configure', 'debug', 'department', 'disable', 'displayName', 'dn', 'email', 'enable', 'enabled', 'error', 'exec', 'full_name', 'groupMembership', 'groups', 'ldap', 'ldap_server', 'mail', 'memberOf', 'network-admins', 'none', 'operators', 'privilege_level', 'server', 'service', 'service_account', 'shell_command', 'show', 'title', 'uid', 'use_tls', 'user_attribute', 'users']

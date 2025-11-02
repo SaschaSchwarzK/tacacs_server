@@ -1,0 +1,158 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Backup Destinations - TACACS+ Server Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/backup" class="text-blue-600 hover:underline">Backup & Restore</a> &gt;
+<span class="font-semibold">Destinations</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8" x-data="destinationsManager()">
+    <!-- Page Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Backup Destinations</h1>
+            <p class="text-lg text-gray-600 mt-1">Manage where your backups are stored.</p>
+        </div>
+        <div>
+            <button @click="showAddDestinationModal()" class="text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 inline-flex items-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Add Destination</button>
+        </div>
+    </div>
+
+    <!-- Destinations Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for dest in destinations %}
+            {% include "admin/components/card.html" with {
+                'title': dest.name,
+                'subtitle': dest.type | upper,
+                'actions': '<div class="flex space-x-2"><button @click="editDestination('~s' % dest.id|e)">Edit</button><button @click="testConnection('~s' % dest.id|e)">Test</button><button @click="deleteDestination('~s' % dest.id|e)">Delete</button></div>'
+            } %}
+        {% endfor %}
+    </div>
+
+    <!-- Add/Edit Destination Modal -->
+    <div x-show="modal.open" class="fixed z-10 inset-0 overflow-y-auto" style="display: none;">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
+            <div class="bg-white rounded-lg shadow-xl transform transition-all sm:max-w-2xl w-full">
+                <div class="p-6">
+                    <h3 class="text-xl font-bold mb-4" x-text="modal.title"></h3>
+                    
+                    <!-- Step 1: Type -->
+                    <div x-show="modal.step === 1">
+                        <p>Choose the type of destination.</p>
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                           <button @click="selectDestinationType('local')">Local</button>
+                           <button @click="selectDestinationType('sftp')">SFTP</button>
+                           <button @click="selectDestinationType('azure')">Azure</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Details -->
+                    <div x-show="modal.step === 2">
+                        <div x-show="modal.destination.type === 'local'">... Local Form ...</div>
+                        <div x-show="modal.destination.type === 'sftp'">... SFTP Form ...</div>
+                        <div x-show="modal.destination.type === 'azure'">... Azure Form ...</div>
+                    </div>
+
+                    <!-- Step 3: Retention -->
+                    <div x-show="modal.step === 3">... Retention Form ...</div>
+
+                    <!-- Step 4: Test & Save -->
+                    <div x-show="modal.step === 4">
+                        <p>Test the connection before saving.</p>
+                        <button @click="testConnection()">Test Connection</button>
+                        <div x-show="modal.testResult" x-text="modal.testResult"></div>
+                    </div>
+
+                </div>
+                <div class="bg-gray-50 px-6 py-3 flex justify-between">
+                    <button @click="modal.step = Math.max(1, modal.step - 1)" x-show="modal.step > 1">Back</button>
+                    <button @click="modal.step = Math.min(4, modal.step + 1)" x-show="modal.step < 4">Next</button>
+                    <button @click="saveDestination()" x-show="modal.step === 4">Save</button>
+                    <button @click="modal.open = false">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function destinationsManager() {
+        return {
+            api: new AdminAPI(),
+            destinations: [],
+            modal: {
+                open: false,
+                title: '',
+                step: 1,
+                destination: {},
+                testResult: null
+            },
+
+            init() {
+                this.loadDestinations();
+            },
+
+            async loadDestinations() {
+                this.destinations = await this.api.get('/admin/backup/destinations');
+            },
+
+            showAddDestinationModal() {
+                this.modal = { open: true, title: 'Add New Destination', step: 1, destination: {}, testResult: null };
+            },
+
+            selectDestinationType(type) {
+                this.modal.destination.type = type;
+                this.modal.step = 2;
+            },
+
+            async testConnection(destinationId = null) {
+                const endpoint = destinationId ? `/admin/backup/destinations/${destinationId}/test` : '/admin/backup/destinations/test';
+                const data = destinationId ? null : this.modal.destination;
+                try {
+                    const response = await this.api.post(endpoint, data);
+                    this.modal.testResult = response.success ? 'Success!' : `Failed: ${response.message}`;
+                    if (response.success) showFlash('Connection successful', 'success');
+                    return response.success;
+                } catch (error) {
+                    this.modal.testResult = `Failed: ${error.message}`;
+                    return false;
+                }
+            },
+
+            async saveDestination() {
+                if (!(await this.testConnection())) {
+                    showFlash('Connection test must pass before saving.', 'warning');
+                    return;
+                }
+                const method = this.modal.destination.id ? 'put' : 'post';
+                const endpoint = this.modal.destination.id ? `/admin/backup/destinations/${this.modal.destination.id}` : '/admin/backup/destinations';
+                
+                try {
+                    await this.api[method](endpoint, this.modal.destination);
+                    showFlash('Destination saved!', 'success');
+                    this.modal.open = false;
+                    this.loadDestinations();
+                } catch (error) {
+                    console.error("Save failed:", error);
+                }
+            },
+
+            async deleteDestination(destinationId) {
+                if (!confirm('Are you sure you want to delete this destination?')) return;
+                try {
+                    await this.api.delete(`/admin/backup/destinations/${destinationId}`);
+                    showFlash('Destination deleted.', 'success');
+                    this.loadDestinations();
+                } catch (error) {
+                    console.error("Delete failed:", error);
+                }
+            }
+        }
+    }
+</script>
+{% endblock %}

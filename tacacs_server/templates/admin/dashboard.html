@@ -87,7 +87,6 @@
             <thead>
             <tr>
                 <th>Name</th>
-                <th>Details</th>
                 <th>Status</th>
             </tr>
             </thead>
@@ -95,20 +94,7 @@
             {% for be in backend_summaries %}
             <tr>
                 <td>{{ be.name }}</td>
-                <td class="muted">
-                    {% for k, v in be.stats.items() %}
-                        <strong>{{ k }}</strong>: {{ v }}{% if not loop.last %}, {% endif %}
-                    {% endfor %}
-                </td>
-                <td>
-                    {% if be.name|lower == 'okta' and be.stats.circuit_open %}
-                        <span style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:2px 6px;border-radius:999px;">Circuit Open</span>
-                    {% elif be.name|lower == 'okta' %}
-                        <span style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 6px;border-radius:999px;">Healthy</span>
-                    {% else %}
-                        <span class="muted">-</span>
-                    {% endif %}
-                </td>
+                <td>{{ 'Available' if be.status else 'Unavailable' }}</td>
             </tr>
             {% endfor %}
             </tbody>
@@ -171,8 +157,6 @@
             <tr>
                 <th>Name</th>
                 <th>Network</th>
-                <th>Group</th>
-                <th>Secrets</th>
             </tr>
             </thead>
             <tbody>
@@ -180,14 +164,6 @@
             <tr>
                 <td>{{ device.name }}</td>
                 <td>{{ device.network }}</td>
-                <td>{{ device.group or '-' }}</td>
-                <td>
-                    {% if device.has_tacacs_secret or device.has_radius_secret %}
-                        {% if device.has_tacacs_secret %}TACACS{% endif %}{% if device.has_tacacs_secret and device.has_radius_secret %}, {% endif %}{% if device.has_radius_secret %}RADIUS{% endif %}
-                    {% else %}
-                        <span class="muted">None</span>
-                    {% endif %}
-                </td>
             </tr>
             {% endfor %}
             </tbody>
@@ -205,7 +181,6 @@
             <tr>
                 <th>Name</th>
                 <th>Allowed User Groups</th>
-                <th>Secrets</th>
             </tr>
             </thead>
             <tbody>
@@ -213,13 +188,6 @@
             <tr>
                 <td>{{ group.name }}</td>
                 <td>{{ group.allowed_user_groups }}</td>
-                <td>
-                    {% if group.tacacs_secret or group.radius_secret %}
-                        {% if group.tacacs_secret %}TACACS{% endif %}{% if group.tacacs_secret and group.radius_secret %}, {% endif %}{% if group.radius_secret %}RADIUS{% endif %}
-                    {% else %}
-                        <span class="muted">None</span>
-                    {% endif %}
-                </td>
             </tr>
             {% endfor %}
             </tbody>
@@ -237,8 +205,6 @@
             <tr>
                 <th>User</th>
                 <th>Privilege</th>
-                <th>Status</th>
-                <th>Groups</th>
             </tr>
             </thead>
             <tbody>
@@ -246,8 +212,6 @@
             <tr>
                 <td>{{ user.username }}</td>
                 <td>{{ user.privilege_level }}</td>
-                <td>{{ 'Enabled' if user.enabled else 'Disabled' }}</td>
-                <td>{{ user.groups or '-' }}</td>
             </tr>
             {% endfor %}
             </tbody>

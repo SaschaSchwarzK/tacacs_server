@@ -11,6 +11,30 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 ### **Authentication & Authorization (AAA)**
 - **Multiple backends**: Local SQLite, LDAP, and Okta integrations
 - **Group-based authorization**: User groups with privilege levels and device access control
+- **Per-device group secrets**: Each device group has its own TACACS+/RADIUS shared secrets
+- **Policy engine**: Flexible authorization rules based on user groups and device groups
+- **Password management**: Secure bcrypt hashing with configurable complexity
+
+### **Protocol Support**
+- **TACACS+ (RFC 8907)**: Full AAA support with encryption
+- **RADIUS (RFC 2865/2866)**: Authentication and accounting
+- **Shared backends**: Both protocols can use the same authentication sources
+- **Per-device secrets**: Device groups define their own shared secrets
+- **Rate limiting**: Configurable request rate limiting and connection management
+- **PROXY protocol v2 (TCP)**: Original client IP extraction when behind LBs
+
+### **Device & Network Management**
+- **Device inventory**: Centralized device database with grouping
+- **Network-based matching**: IP networks and CIDR ranges for device identification
+- **Device groups**: Organize devices with shared configurations and secrets
+- **Metadata support**: Custom attributes and configuration per device/group
+- **Change notifications**: Real-time updates when device configurations change
+- **Proxy-aware multi-tenant**: Optional `proxy_network` per group enforces tenant isolation
+- **Auto-registration**: Optionally auto-create devices on first contact
+
+### **Authentication & Authorization (AAA)**
+- **Multiple backends**: Local SQLite, LDAP, and Okta integrations
+- **Group-based authorization**: User groups with privilege levels and device access control
 - **Per-device group secrets**: No global secrets - each device group has its own TACACS+/RADIUS shared secrets
 - **Policy engine**: Flexible authorization rules based on user groups and device groups
 - **Password management**: Secure bcrypt hashing with configurable complexity
@@ -21,6 +45,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Shared backends**: Both protocols can use the same authentication sources
 - **Per-device secrets**: Device groups define their own shared secrets
 - **Rate limiting**: Configurable request rate limiting and connection management
+- **PROXY protocol v2 (TCP)**: Original client IP is extracted when behind LBs; proxied vs direct connections are tracked ([detailed documentation](docs/PROXY_PROTOCOL_V2.md))
 
 ### **Device & Network Management**
 - **Device inventory**: Centralized device database with grouping
@@ -28,6 +53,8 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Device groups**: Organize devices with shared configurations and secrets
 - **Metadata support**: Custom attributes and configuration per device/group
 - **Change notifications**: Real-time updates when device configurations change
+- **Proxy-aware multi-tenant**: Optional `proxy_network` per group enforces tenant isolation by proxy/load balancer
+- **Auto-registration (new)**: Optionally auto-create devices on first contact (TACACS+ and RADIUS) and place them into a default device group. Disable to enforce strict mode (unknown devices denied). For RADIUS, ensure the default device group has a RADIUS shared secret configured.
 
 ### **Web Administration Console**
 - **Real-time dashboard**: WebSocket-powered live metrics and system health
@@ -37,8 +64,16 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Search & filtering**: Advanced filtering across all management interfaces
 - **Session management**: Secure admin sessions with configurable timeouts
 
+### **Backup & Restore**
+- **Scheduled backups**: Automatic backups with configurable retention
+- **Multiple destinations**: Local, SFTP, FTP, and Azure Blob Storage support
+- **Encryption**: Optional encryption for sensitive backup data
+- **Backup verification**: Automatic verification of backup integrity
+- **Restore functionality**: Easy restoration from any backup point
+
 ### **Monitoring & Observability**
 - **Prometheus metrics**: `/metrics` endpoint with comprehensive server statistics
+  - Includes proxied vs direct connections and identity cache hit/miss metrics
 - **Real-time WebSocket**: Live dashboard updates without page refreshes
 - **Historical data**: Metrics history with configurable retention
 - **Health checks**: System health monitoring with memory and CPU metrics
@@ -64,7 +99,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 
 ### **Configuration & Deployment**
 - **Flexible configuration**: File-based or URL-based configuration loading
-- **Environment integration**: Environment variable support for secrets
+- **Credential handling**: Only credentials/secrets come from environment variables; all other parameters MUST be set in the config file
 - **Docker support**: Container-ready with docker-compose configuration
 - **Configuration validation**: Pre-deployment validation with detailed error reporting
 - **Backup & restore**: Automatic configuration backups on changes
@@ -77,6 +112,37 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Client tools**: TACACS+ and RADIUS client scripts for testing
 - **API documentation**: Complete REST API documentation
 - **Type safety**: Full mypy type checking
+
+## 🧪 Testing
+
+This repository ships comprehensive tests under `tests/` covering unit, integration, functional, security, performance and chaos scenarios.
+
+### Structure
+
+See also: FAQ.md for common issues, environment limitations (e.g., UDP on cloud platforms), and troubleshooting tips.
+
+```
+tests/
+  unit/                             # Small, fast tests
+  integration/
+    rate_limit/                     # TACACS/RADIUS/web limiter checks (logs + behavior)
+    tacacs/                         # TACACS features (e.g., command authorization)
+    admin/                          # Admin API CRUD (e.g., webhooks config)
+  functional/
+    webhooks/                       # Webhook delivery (E2E + injected transport)
+  security/                         # Security/pentest checks
+  chaos/                            # Chaos experiments (opt‑in)
+  README.md, QUICK_START.md         # Test docs & examples
+```
+
+### Markers and examples
+
+- Only integration tests: `pytest -m integration -v`
+- Security suite: `pytest -m security -v`
+- Chaos suite (opt‑in): `pytest tests/chaos/test_chaos.py -m chaos -v`
+- Everything quickly: `pytest -q`
+
+See `tests/README.md` and `tests/QUICK_START.md` for details, including how to run webhook delivery tests in restricted environments and how to use the injected transport to validate payloads deterministically.
 
 ## 🚀 Quick Start
 
@@ -115,6 +181,114 @@ pytest -q
 
 Notes
 - Deactivate the venv when done: `deactivate`
+
+## Configuration
+
+All configuration is done through the configuration file. The following environment variables are used for sensitive data only:
+
+- `TACACS_ADMIN_PASSWORD` - Admin password (for initial setup)
+- `LDAP_BIND_PASSWORD` - LDAP bind password (if using LDAP auth)
+- `AZURE_STORAGE_CONNECTION_STRING` - Azure Storage connection string (for Azure backups)
+- `ENCRYPTION_KEY` - Encryption key for sensitive data
+
+### Server and Networking
+```ini
+[server]
+host = 0.0.0.0
+tacacs_port = 49
+radius_auth_port = 1812
+radius_acct_port = 1813
+client_timeout = 30
+max_connections = 1000
+
+[security]
+# Enable/disable proxy protocol
+proxy_protocol_enabled = false
+accept_proxy_protocol = false
+
+# Rate limiting
+rate_limit_enabled = true
+rate_limit_requests = 100
+rate_limit_window = 60  # seconds
+
+# Session settings
+session_timeout_minutes = 30
+max_login_attempts = 5
+```
+
+### Authentication
+```ini
+[auth]
+# Authentication backends (local, ldap, okta)
+backends = local,ldap
+
+# Local authentication settings
+[local]
+enabled = true
+database_url = sqlite:///data/local_auth.db
+
+# LDAP authentication settings
+[ldap]
+enabled = true
+server_uri = ldap://ldap.example.com
+base_dn = dc=example,dc=com
+bind_dn = cn=admin,dc=example,dc=com
+bind_password = ${LDAP_BIND_PASSWORD}
+user_search_base = ou=users,dc=example,dc=com
+group_search_base = ou=groups,dc=example,dc=com
+```
+
+### Backup Configuration
+```ini
+[backup]
+enabled = true
+retention_days = 30
+schedule = 0 2 * * *  # 2 AM daily
+
+# Local backup settings
+[backup.local]
+enabled = true
+path = /var/backups/tacacs
+
+# SFTP backup settings
+[backup.sftp]
+enabled = false
+host = sftp.example.com
+port = 22
+username = backup
+password = your_password
+remote_path = /backups/tacacs
+
+# Azure Blob Storage settings
+[backup.azure]
+enabled = false
+connection_string = ${AZURE_STORAGE_CONNECTION_STRING}
+container_name = tacacs-backups
+```
+
+### PROXY Protocol
+You can control proxy-aware behavior via a dedicated section. These settings override legacy keys under `[server]` when present.
+
+```
+[proxy_protocol]
+# Enable proxy-aware device matching
+enabled = true
+
+# Accept HAProxy PROXY v2 headers on inbound connections
+accept_proxy_protocol = true
+
+# Validate that PROXY headers come from registered proxies only
+validate_sources = true
+
+# When a PROXY v2 signature is present but the header is invalid/unsupported,
+# reject the connection instead of ignoring it (recommended for production)
+reject_invalid = true
+```
+
+- `enabled`: Toggles proxy-aware device matching end-to-end.
+- `accept_proxy_protocol`: If true, the server consumes and uses PROXY v2 headers.
+- `validate_sources`: If true, proxied connections are only allowed when the source IP matches a configured proxy network; when false, proxied connections are accepted without source validation.
+- `reject_invalid`: If true, connections with an invalid/unsupported PROXY header are rejected and logged; set to false to ignore and continue (legacy compatibility).
 - Windows PowerShell equivalents:
   - Create venv: `py -3.13 -m venv .venv`
   - Activate: `.venv\\Scripts\\Activate.ps1`
@@ -135,6 +309,46 @@ tacacs-server
 # Validate configuration before starting
 python scripts/validate_config.py
 ```
+
+### Quick Proxy-aware Device Matching Example
+
+1. Configure a proxied tenant group with required proxy network:
+
+```ini
+[devices]
+database = data/devices.db
+identity_cache_ttl_seconds = 120
+identity_cache_size = 20000
+```
+
+2. Create a device group with `proxy_network` and add devices:
+
+```bash
+# Using Admin API (X-API-Token for simplicity in local dev)
+curl -H 'X-API-Token: test' -H 'Content-Type: application/json' \
+  -d '{
+        "name": "Tenant-A",
+        "description": "Tenant A edge",
+        "proxy_network": "10.0.0.0/8",
+        "tacacs_secret": "TacacsSecret123!"
+      }' \
+  http://127.0.0.1:8080/api/device-groups
+
+# Add a device to the group (via Admin UI or Devices API)
+```
+
+3. Place the server behind an LB that sends PROXY v2. Traffic with:
+- Original client IP in `192.168.100.0/24`
+- Proxy (LB) IP in `10.1.2.3`
+
+…will match `Tenant-A` devices (exact match: client ∈ device.network AND proxy ∈ group.proxy_network). Direct connections without PROXY will fall back to groups without `proxy_network`, selecting the most specific matching device network.
+
+### Metrics
+
+Prometheus `/metrics` includes:
+- `tacacs_connections_proxied_total`, `tacacs_connections_direct_total`
+- `tacacs_device_identity_cache_hits`, `_misses`, `_evictions` (gauges)
+- `tacacs_device_identity_cache_hits_total`, `_misses_total`, `_evictions_total` (counters)
 
 ### Web Interface Access
 
@@ -169,7 +383,17 @@ python scripts/tacacs_client.py --batch scripts/example_credentials.csv
 The web console provides comprehensive management capabilities with real-time monitoring:
 
 Important
-- The admin web UI is disabled unless an admin bcrypt password hash is configured via `[admin].password_hash` or `ADMIN_PASSWORD_HASH`. When not configured, `/admin/*` returns `503` and the login page shows a banner explaining that admin auth is not configured. The local TACACS+/RADIUS user database does not grant web admin access.
+- The admin web UI is disabled unless an admin bcrypt password hash is configured via `[admin].password_hash` or `ADMIN_PASSWORD_HASH`. When not configured, `/admin/*` requires authentication and the UI is unavailable. The local TACACS+/RADIUS user database does not grant web admin access.
+- All `/admin/*` endpoints, including redirects like `/admin` and `/admin/config/`, require authentication.
+- Security headers are set by default (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, X-XSS-Protection). The `Server` banner header is removed.
+
+### Command Authorization Policy
+- Default action: configured under `[command_authorization].default_action` (`permit` or `deny`). When no rule matches, this action applies.
+- Response mode: `[command_authorization].response_mode` controls PASS_ADD vs PASS_REPL for allowed decisions when a rule does not specify `response_mode`.
+- Privilege enforcement order: `[command_authorization].privilege_check_order` (`before` | `after` | `none`).
+  - `before` (default): deny if requested `priv-lvl` exceeds user privilege before rule evaluation.
+  - `after`: evaluate command policy first, enabling holistic policy decisions per RFC 8907.
+  - `none`: disable the pre-check; rules fully decide.
 
 ### **Real-time Dashboard**
 - Live-updating metrics tiles with WebSocket connectivity
@@ -195,6 +419,13 @@ Important
 - **Metadata management**: Custom attributes and configuration templates
 - **Multi-select controls**: Easy assignment of users and permissions
 - **Configuration profiles**: TACACS+ and RADIUS profiles per group
+
+### **Proxies (if enabled)**
+![Proxies](docs/images/Proxies_page.png)
+![Add Proxies](docs/images/add_proxy.png)
+- **Name**: Name for the proxy
+- **Network matching**: IP addresses and CIDR ranges for device identification
+- **Metadata management**: Custom attributes and configuration templates
 
 ### **User Groups**
 ![User groups](docs/images/User_Groups_page.png)
@@ -230,6 +461,11 @@ Important
 ![Server Tuning](docs/images/server_tuning.png)
 - **Tuning form**: Backlog, timeouts, IPv6, keepalive, thread pool
 - **Advanced toggle**: Hide/show advanced options
+- **Restart hints**: Fields that require restart are clearly indicated
+
+### **Proxy Settings**
+![Proxy Settings](docs/images/proxy_settings.png)
+- **Tuning form**: Validate sources, reject invalid headers
 - **Restart hints**: Fields that require restart are clearly indicated
 
 ## 🧭 System Architecture
@@ -340,10 +576,26 @@ rate_limit_window = 60
 
 ### **Configuration Management**
 - **Validation**: `python scripts/validate_config.py`
-- **Automatic backups**: Changes create timestamped backups
+- **Automatic backups**: Changes create timestamped backups and version snapshots
 - **Hot reload**: Configuration changes without restart
 - **Schema validation**: Pydantic-based validation with detailed error messages
 - **Environment variables**: Support for secrets via environment variables
+
+#### Configuration Sources & Precedence
+1. Defaults: internal safe defaults
+2. Base: file (config/tacacs.conf) or HTTPS URL (cached to `data/config_baseline_cache.conf`)
+3. Database overrides: runtime changes stored in `data/config_overrides.db`
+4. Environment variables: selected keys (e.g., `SERVER_PORT`) override at read time
+
+#### Overrides via API/UI
+- Validate change: `POST /api/admin/config/validate?section=server&key=port&value=5050`
+- Update section: `PUT /api/admin/config/server` with `{"section":"server","updates":{"port":5050},"reason":"ops change"}`
+- Inspect: `GET /api/admin/config/sections`, `GET /api/admin/config/{section}` (includes `overridden_keys`)
+- History/Versions: `GET /api/admin/config/history`, `GET /api/admin/config/versions`
+- Drift detection: `GET /api/admin/config/drift`
+
+#### URL-Based Configuration
+- Set `TACACS_CONFIG` to an HTTPS URL (localhost/private IPs are rejected). On startup the config is fetched and cached; a background task attempts periodic refresh (`CONFIG_REFRESH_SECONDS`, default 300s). If unreachable, the cached baseline is used.
 
 ### **Performance Tuning**
 - Backlog: Set `[server].listen_backlog` (or `TACACS_LISTEN_BACKLOG`) to handle connection bursts.
@@ -403,16 +655,6 @@ rate_limit_window = 60
 ### **Monitoring Integration**
 - `GET /metrics` - Prometheus metrics endpoint
 - Historical metrics with configurable retention
-- Custom metrics for TACACS+ and RADIUS operations
-- System metrics (CPU, memory, connections)
-
-### **API Features**
-- **Search & filtering**: All list endpoints support advanced filtering
-- **Pagination**: Configurable page sizes and offset-based pagination
-- **Sorting**: Multi-field sorting with ascending/descending options
-- **Field selection**: Choose specific fields to reduce response size
-- **Error handling**: Consistent error responses with detailed messages
-- **Rate limiting**: API rate limiting to prevent abuse
 
 ### **OpenAPI & Developer Experience**
 
@@ -502,120 +744,99 @@ rate(radius_packets_dropped_total{reason="invalid_message_authenticator"}[5m])
 
 ```
 tacacs_server/
-├── auth/                    # Authentication backends
-│   ├── base.py             # Abstract backend interface
-│   ├── local.py            # Local SQLite authentication
-│   ├── ldap_auth.py        # LDAP integration
-│   ├── okta_auth.py        # Okta SSO integration
-│   ├── local_store.py      # Local user database
-│   ├── local_user_service.py      # User management service
+├── auth/                         # Authentication backends
+│   ├── base.py                  # Abstract backend interface
+│   ├── local.py                 # Local SQLite authentication
+│   ├── ldap_auth.py             # LDAP integration
+│   ├── okta_auth.py             # Okta SSO integration
+│   ├── local_store.py           # Local user database
+│   ├── local_user_service.py    # User management service
 │   └── local_user_group_service.py # User group management
-├── tacacs/                  # TACACS+ protocol implementation
-│   ├── server.py           # TACACS+ server core
-│   ├── handlers.py         # AAA request handlers
-│   ├── packet.py           # TACACS+ packet encoding/decoding
-│   └── constants.py        # Protocol constants
-├── radius/                  # RADIUS protocol implementation
-│   ├── server.py           # RADIUS server core
-│   └── constants.py        # RADIUS constants
-├── devices/                 # Device management
-│   ├── store.py            # Device database operations
-│   └── service.py          # Device management service
-├── accounting/              # Accounting and logging
-│   ├── models.py           # Data models
-│   ├── database.py         # Database operations
-│   └── async_database.py   # High-performance async logging(not yet used)
-├── config/                  # Configuration management
-│   ├── config.py           # Configuration loader
-│   └── schema.py           # Pydantic validation schemas
-├── web/                     # Web interface and APIs (FastAPI)
-│   ├── monitoring.py       # Dashboard app + Prometheus + router composition
-│   ├── api_models.py       # Pydantic v2 models used by public API
-│   ├── openapi_config.py   # OpenAPI schema + Swagger/ReDoc/RapiDoc UIs
-│   ├── app_setup.py        # Example FastAPI app wiring with custom OpenAPI
-│   ├── api/                # REST API routers
-│   │   ├── devices.py      # /api/devices endpoints
-│   │   ├── device_groups.py# /api/device-groups endpoints
-│   │   ├── users.py        # /api/users endpoints
-│   │   └── usergroups.py   # /api/user-groups endpoints
-│   └── admin/              # Admin interface
-│       ├── auth.py         # Admin authentication
-│       └── routers.py      # Admin UI routes and handlers
-├── utils/                   # Utility modules
-│   ├── logger.py           # Structured logging
-│   ├── metrics.py          # Metrics collection
-│   ├── policy.py           # Authorization policies
-│   ├── security.py         # Security utilities
-│   ├── validation.py       # Input validation
-│   ├── crypto.py           # Cryptographic functions
-│   ├── rate_limiter.py     # Rate limiting
-│   └── audit_logger.py     # Audit trail logging
-├── static/                  # Web assets (served by FastAPI StaticFiles)
-│   └── css/                # Stylesheets
-├── templates/               # HTML templates (Jinja2)
-│   ├── dashboard.html      # Main dashboard
-│   └── admin/              # Admin interface templates
-├── cli.py                   # Command-line interface
-└── main.py                  # Application entry point
-
-tests/                       # Test suite
-├── __init__.py                           # Package marker
-├── conftest.py                           # Pytest fixtures and server helpers
-├── test_admin_api.py                     # Admin API endpoint tests
-├── test_admin_login_smoke.py             # Admin login smoke tests
-├── test_admin_session_manager.py         # Admin session manager tests
-├── test_admin_tuning_api.py              # Server tuning API tests
-├── test_api_functionality.py             # REST API functionality tests
-├── test_api_simple.py                    # Basic API sanity tests
-├── test_auth.py                          # Authentication flow tests
-├── test_authorization.py                 # Authorization and policy tests
-├── test_benchmark.py                     # Benchmark/perf smoke tests
-├── test_client_script.py                 # TACACS+/RADIUS client scripts
-├── test_config_env.py                    # Env/config loading tests
-├── test_debug_syspath.py                 # Dev env and sys.path checks
-├── test_device_service.py                # Device service unit tests
-├── test_input_validation.py              # Pydantic/model input validation
-├── test_ldap.py                          # LDAP backend tests
-├── test_local_user_group_service.py      # Local user group service
-├── test_local_user_service.py            # Local user service tests
-├── test_okta.py                          # Okta backend tests
-├── test_radius.py                        # RADIUS protocol tests
-├── test_server.py                        # Server lifecycle and endpoints
-├── test_tacacs_authorizer_integration.py # TACACS authorizer integration
-├── test_web_api_endpoints.py             # Web API endpoint coverage
-├── chaos/                                # Chaos engineering tests
-│   └── test_chaos.py                     # Network/resource chaos scenarios
-├── contract/                             # API contract/schema tests
-│   └── test_api_contracts.py             # OpenAPI schema and contracts
-├── e2e/                                  # End-to-end integration tests
-│   ├── test_command_authorization_live.py # Live command authorization
-│   ├── test_e2e_integration.py           # Full workflow tests
-│   └── test_tacacs_authorization_wire.py # Wire-level TACACS+ auth
-├── golden/                               # Golden files/regression suites
-│   └── test_tacacs_malformed.py          # Malformed TACACS packet cases
-├── performance/                          # Load/performance suites
-│   ├── locustfile.py                     # Locust scenarios
-│   └── test_auth_throughput.py           # Auth throughput tests
-├── property/                             # Property-based testing
-│   ├── test_tacacs_packet_props.py       # TACACS packet properties
-│   └── test_validation_props.py          # Validation properties
-├── radius/                               # RADIUS integration suites
-│   ├── client.py                         # Test client helpers
-│   ├── test_accounting_authenticator.py  # Accounting authenticator tests
-│   ├── test_integration_live_accounting.py # Live accounting integration
-│   ├── test_integration_live_ma.py       # Message-Authenticator (live)
-│   ├── test_integration_live_server.py   # Live server integration
-│   └── test_message_authenticator.py     # Message-Authenticator checks
-├── security/                             # Security and pentest suites
-│   ├── test_security_advanced.py         # Advanced security checks
-│   └── test_security_pentest.py          # Penetration tests
-└── tacacs/                               # TACACS protocol tests
-    ├── test_integration_auth.py          # Integration auth flows
-    ├── test_integration_author_acct.py   # Authorization + accounting
-    ├── test_integration_malformed.py     # Malformed requests handling
-    ├── test_packet_and_header.py         # Packet + header correctness
-    ├── test_server_limits.py             # Server limits/rate limiting
-    └── test_structures.py                # Low-level structures
+├── authorization/
+│   └── command_authorization.py # Command policy engine (rules, export/import)
+├── tacacs/                       # TACACS+ protocol implementation
+│   ├── server.py                # TACACS+ server (PROXY v2, health, metrics)
+│   ├── handlers.py              # AAA request handlers (auth/author/acct)
+│   ├── packet.py                # TACACS+ packet encoding/decoding
+│   └── constants.py             # Protocol constants
+├── radius/                       # RADIUS protocol implementation
+│   ├── server.py                # RADIUS server core
+│   └── constants.py             # RADIUS constants
+├── devices/                      # Device and proxy-aware matching
+│   ├── store.py                 # SQLite store (devices, groups, proxies)
+│   └── service.py               # Device management service
+├── accounting/                   # Accounting and logging
+│   ├── models.py                # Data models
+│   ├── database.py              # Synchronous DB logging
+│   └── async_database.py        # Async logging utilities (optional)
+├── config/                       # Configuration management
+│   ├── config.py                # Loader, validation, persistence
+│   └── schema.py                # Pydantic validation schemas
+├── web/                          # Web interface and APIs (FastAPI)
+│   ├── monitoring.py            # App composition (admin UI + API + metrics)
+│   ├── middleware.py            # Security headers (CSP, XSS, no Server banner)
+│   ├── api_models.py            # Pydantic v2 models used by public API
+│   ├── openapi_config.py        # OpenAPI schema and UI wiring
+│   ├── app_setup.py             # Example custom FastAPI wiring
+│   ├── api/                     # REST API routers
+│   │   ├── devices.py           # /api/devices endpoints
+│   │   ├── device_groups.py     # /api/device-groups endpoints
+│   │   ├── users.py             # /api/users endpoints
+├── __init__.py
+├── chaos/
+│   └── test_chaos.py
+├── conftest.py
+├── functional/
+│   ├── admin/
+│   │   ├── test_admin_web.py
+│   │   ├── test_admin_web_crud.py
+│   │   └── test_admin_web_forms.py
+│   ├── api/
+│   │   ├── test_admin_api.py
+│   │   └── test_crud_all.py
+│   ├── radius/
+│   │   └── test_radius_basic.py
+│   ├── syslog/
+│   │   └── test_syslog_delivery.py
+│   ├── tacacs/
+│   │   ├── test_auth_pap_unencrypted.py
+│   │   ├── test_encryption_cases.py
+│   │   ├── test_packet_edge_cases.py
+│   │   ├── test_packet_header_and_crypto.py
+│   │   ├── test_proxy_protocol.py
+│   │   ├── test_server_limits.py
+│   │   └── test_tacacs_basic.py
+│   └── webhooks/
+│       ├── test_webhook_delivery.py
+│       └── test_webhook_utils_delivery.py
+├── integration/
+│   ├── admin/
+│   │   └── test_webhooks_api.py
+│   ├── performance/
+│   │   └── test_auth_throughput.py
+│   ├── rate_limit/
+│   │   ├── test_rate_limit_radius.py
+│   │   ├── test_rate_limit_tacacs.py
+│   │   └── test_rate_limit_web.py
+│   ├── tacacs/
+│   │   ├── test_accounting_service.py
+│   │   ├── test_authorization_service.py
+│   │   ├── test_command_authorization.py
+│   │   ├── test_command_authorization_rules.py
+│   │   ├── test_command_authorization_rules_tacacs.py
+│   │   └── test_missing_cases_command_authorization.py
+│   └── test_full_stack.py
+├── performance/
+│   └── locustfile.py
+├── security/
+│   ├── test_security_advanced.py
+│   └── test_security_pentest.py
+├── unit/
+│   ├── test_command_engine_export_import.py
+│   ├── test_command_engine_group_match.py
+│   └── test_rate_limiter_units.py
+└── utils/
+    └── logs.py
 
 scripts/                     # Utility scripts
 ├── setup_project.py        # Project setup
@@ -671,33 +892,89 @@ logs/                        # Log files
 3. Default `config/tacacs.conf` file
 
 ### **Environment Variables**
-- `TACACS_CONFIG` - Configuration file path or URL
-- `ADMIN_USERNAME` - Admin console username
-- `ADMIN_PASSWORD_HASH` - Admin console password hash
-- `TACACS_DEFAULT_SECRET` - Fallback TACACS+ secret
-- `RADIUS_DEFAULT_SECRET` - Fallback RADIUS secret
-  
-RADIUS tuning (env overrides)
-- `RADIUS_WORKERS` — Worker threads for auth/acct handling (default 8; clamped 1–64)
-- `RADIUS_SOCKET_TIMEOUT` — Socket timeout seconds for auth/acct sockets (default 1.0; min 0.1)
-- `RADIUS_SO_RCVBUF` — UDP receive buffer size bytes (default 1048576; min 262144)
 
-Prometheus drops
-- `radius_packets_dropped_total{reason}` — Dropped packet counter (e.g., reason="invalid_message_authenticator").
-  
-Server/network tuning (env overrides)
-- `TACACS_LISTEN_BACKLOG` — Backlog passed to `listen()` (default 128)
-- `TACACS_CLIENT_TIMEOUT` — Client socket timeout seconds (default 15)
-- `TACACS_MAX_PACKET_LENGTH` — Max TACACS+ packet length (default 4096)
-- `TACACS_IPV6_ENABLED` — Enable IPv6 dual‑stack listener (default false)
-- `TACACS_TCP_KEEPALIVE` — Enable TCP keepalive on client sockets (default true)
-- `TACACS_TCP_KEEPIDLE` — Keepalive idle seconds (Linux) (default 60)
-- `TACACS_TCP_KEEPINTVL` — Keepalive interval seconds (Linux) (default 10)
-- `TACACS_TCP_KEEPCNT` — Keepalive probes (Linux) (default 5)
-- `TACACS_USE_THREAD_POOL` — Use thread pool for client handlers (default true)
-- `TACACS_THREAD_POOL_MAX` — Max worker threads in pool (default 100)
-- `TACACS_DB_POOL_SIZE` — Accounting DB connection pool size (default 5; range 1–200)
-- `LOCAL_AUTH_CACHE_TTL_SECONDS` — TTL for local user cache entries (default 60; 0 disables)
+#### **Core Configuration**
+- `TACACS_CONFIG` - Path to the configuration file (default: `config/tacacs.conf`)
+- `CONFIG_REFRESH_SECONDS` - Interval in seconds to check for config updates (default: 300)
+- `INSTANCE_NAME` - Unique name for this instance (default: auto-generated)
+- `HOSTNAME` - Hostname used in logs (default: system hostname)
+- `ENV` or `APP_ENV` - Environment name (e.g., 'dev', 'prod') used in logs (default: 'dev')
+
+#### **Authentication**
+- `ADMIN_USERNAME` - Admin console username (default: `admin`)
+- `ADMIN_PASSWORD` - Admin console password (for testing only, use hashed password in production)
+- `OKTA_API_TOKEN` - API token for Okta integration
+- `OKTA_ORG` - Okta organization URL (e.g., `https://your-org.okta.com`)
+- `OKTA_USERNAME` - Username for Okta testing
+- `OKTA_PASSWORD` - Password for Okta testing
+
+#### **TACACS+ Configuration**
+- `TACACS_SERVER` - Default TACACS+ server host (default: `localhost`)
+- `TACACS_PORT` - Default TACACS+ server port (default: `49`)
+- `TACACS_SECRET` - Shared secret for TACACS+ authentication
+- `TACACS_USERNAME` - Default username for TACACS+ authentication
+- `TACACS_PASSWORD` - Default password for TACACS+ authentication
+- `TACACS_DEFAULT_SECRET` - Fallback TACACS+ shared secret (default: `CHANGE_ME_FALLBACK`)
+- `TACACS_BACKEND_TIMEOUT` - Timeout for backend authentication in seconds (default: `2.0`)
+- `TACACS_MAX_SESSION_SECRETS` - Maximum number of session secrets to cache (default: `10000`)
+
+#### **RADIUS Configuration**
+- `RADIUS_SERVER` - Default RADIUS server host (default: `localhost`)
+- `RADIUS_PORT` - Default RADIUS auth port (default: `1812`)
+- `RADIUS_SECRET` - Shared secret for RADIUS authentication
+- `RADIUS_ACCT_PORT` - Default RADIUS accounting port (default: `1813`)
+- `RADIUS_DEFAULT_SECRET` - Fallback RADIUS shared secret (default: `CHANGE_ME_FALLBACK`)
+- `LDAP_BIND_PASSWORD` - LDAP bind password (for LDAP authentication)
+- `AZURE_STORAGE_CONNECTION_STRING` - Connection string for Azure Blob Storage (for backups)
+- `BACKUP_ENCRYPTION_PASSPHRASE` - Passphrase for encrypting backups
+- `API_TOKEN` - Admin API token for authentication
+- `WEBHOOK_URL` - Single webhook URL for notifications
+- `WEBHOOK_URLS` - Comma-separated list of webhook URLs
+- `WEBHOOK_HEADERS` - JSON string of headers to include in webhook requests
+- `WEBHOOK_TEMPLATE` - JSON template for webhook payload
+- `WEBHOOK_TIMEOUT` - Timeout in seconds for webhook requests (default: `3`)
+- `THRESHOLD_AUTH_FAIL_COUNT` - Number of failed auth attempts before triggering webhook (default: `0`)
+- `THRESHOLD_WINDOW_SEC` - Time window in seconds for counting failed auth attempts (default: `60`)
+
+#### **Testing & Development**
+- `T_TACACS_HOST` - Test TACACS+ server host (for test suite)
+- `T_TACACS_PORT` - Test TACACS+ server port (for test suite)
+- `T_TACACS_SECRET` - Test TACACS+ shared secret (for test suite)
+- `T_TACACS_USERNAME` - Test username (for test suite)
+- `T_TACACS_PASSWORD` - Test password (for test suite)
+- `OKTA_TEST_OTP_DIGITS` - Number of digits for OTP testing (default: `6`)
+- `OKTA_TEST_PUSH_KEYWORD` - Keyword for push notification testing (default: `push`)
+- `OKTA_TEST_MFA_TIMEOUT` - MFA test timeout in seconds (default: `25`)
+- `OKTA_TEST_MFA_POLL` - MFA test poll interval in seconds (default: `2.0`)
+
+#### **Performance Tuning**
+- `RADIUS_WORKERS` - Worker threads for RADIUS auth/acct handling (default: `8`, range: 1-64)
+- `RADIUS_SOCKET_TIMEOUT` - Socket timeout for RADIUS sockets (default: `1.0`)
+- `RADIUS_SO_RCVBUF` - UDP receive buffer size in bytes (default: `1048576`)
+- `TACACS_LISTEN_BACKLOG` - Backlog passed to `listen()` (default: `128`)
+- `TACACS_CLIENT_TIMEOUT` - Client socket timeout in seconds (default: `15`)
+- `TACACS_MAX_PACKET_LENGTH` - Maximum TACACS+ packet length (default: `4096`)
+- `TACACS_IPV6_ENABLED` - Enable IPv6 dual-stack listener (default: `false`)
+- `TACACS_TCP_KEEPALIVE` - Enable TCP keepalive (default: `true`)
+- `TACACS_TCP_KEEPIDLE` - Keepalive idle time in seconds (Linux only, default: `60`)
+- `TACACS_TCP_KEEPINTVL` - Keepalive interval in seconds (Linux only, default: `10`)
+- `TACACS_TCP_KEEPCNT` - Number of keepalive probes (Linux only, default: `5`)
+- `TACACS_USE_THREAD_POOL` - Use thread pool for client handlers (default: `true`)
+- `TACACS_THREAD_POOL_MAX` - Maximum worker threads in pool (default: `100`)
+- `TACACS_DB_POOL_SIZE` - Accounting DB connection pool size (default: `5`, range: 1-200)
+- `TACACS_MAX_SESSION_SECRETS` - Maximum number of session secrets to cache (default: `10000`)
+- `LOCAL_AUTH_CACHE_TTL_SECONDS` - TTL for local user cache (default: `60`, `0` to disable)
+
+#### **Security**
+- `ENCRYPTION_KEY` - Encryption key for sensitive data
+- `LDAP_BIND_PASSWORD` - LDAP bind password (for LDAP authentication)
+- `AZURE_STORAGE_CONNECTION_STRING` - Connection string for Azure Blob Storage (for backups)
+- `BACKUP_ENCRYPTION_PASSPHRASE` - Passphrase for encrypting backups
+- `API_TOKEN` - Admin API token for authentication
+
+#### **Monitoring**
+- `PROMETHEUS_MULTIPROC_DIR` - Directory for Prometheus metrics (for multi-process mode)
+- `PROMETHEUS_ENABLE` - Enable Prometheus metrics endpoint (default: `true`)
 
 ## OpenAPI Schema
 

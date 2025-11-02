@@ -15,13 +15,14 @@ import os
 import socket
 import struct
 import threading
+import uuid
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from tacacs_server.auth.base import AuthenticationBackend
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 from tacacs_server.utils.rate_limiter import get_rate_limiter
 
@@ -536,12 +537,27 @@ class RADIUSServer:
     def add_auth_backend(self, backend):
         """Add authentication backend (shared with TACACS+)"""
         self.auth_backends.append(backend)
-        logger.info(f"RADIUS: Added authentication backend: {backend.name}")
+        try:
+            name = getattr(backend, "name", None) or str(backend)
+        except Exception:
+            name = str(backend)
+        logger.info(
+            "Authentication backend added",
+            event="auth.backend.added",
+            service="radius",
+            component="radius_server",
+            backend=name,
+        )
 
     def set_accounting_logger(self, accounting_logger):
         """Set accounting logger (shared with TACACS+)"""
         self.accounting_logger = accounting_logger
-        logger.info("RADIUS: Accounting logger configured")
+        logger.info(
+            "Accounting logger configured",
+            event="accounting.logger.configured",
+            service="radius",
+            component="radius_server",
+        )
 
     def set_local_user_group_service(self, service) -> None:
         self.local_user_group_service = service
@@ -657,11 +673,15 @@ class RADIUSServer:
         )
         acct_thread.start()
 
-        logger.debug(
-            "RADIUS server started on %s:%s (auth) and %s (acct)",
-            self.host,
-            self.port,
-            self.accounting_port,
+        logger.info(
+            "RADIUS server listening",
+            event="service.start",
+            service="radius",
+            component="radius_server",
+            host=self.host,
+            auth_port=self.port,
+            acct_port=self.accounting_port,
+            workers=self.worker_count,
         )
 
     def stop(self):
@@ -687,7 +707,12 @@ class RADIUSServer:
             finally:
                 self._executor = None
 
-        logger.info("RADIUS server stopped")
+        logger.info(
+            "RADIUS server stopped",
+            event="service.stop",
+            service="radius",
+            component="radius_server",
+        )
 
     def _start_auth_server(self):
         """Start authentication server thread"""
@@ -794,6 +819,13 @@ class RADIUSServer:
     def _handle_auth_request(self, data: bytes, addr: tuple[str, int]):
         """Handle authentication request"""
         client_ip, client_port = addr
+        _ctx = None
+        try:
+            _ctx = bind_context(
+                correlation_id=str(uuid.uuid4()), client={"ip": client_ip}
+            )
+        except Exception:
+            _ctx = None
 
         # Per-IP rate limiting to mitigate floods
         limiter = get_rate_limiter()
@@ -804,9 +836,40 @@ class RADIUSServer:
         try:
             client_config = self.lookup_client(client_ip)
             if not client_config:
-                logger.warning("RADIUS auth request from unknown client: %s", client_ip)
-                self._inc("invalid_packets")
-                return
+                # Auto-register unknown client as device when enabled, then retry
+                auto_reg = bool(getattr(self, "device_auto_register", True))
+                ds = getattr(self, "device_store", None)
+                if auto_reg and ds is not None:
+                    try:
+                        # Ensure default group exists
+                        group_name = getattr(self, "default_device_group", "default")
+                        ds.ensure_group(group_name)
+                        # Create single-host device
+                        cidr = f"{client_ip}/32"
+                        if ":" in client_ip:
+                            cidr = f"{client_ip}/128"
+                        ds.ensure_device(
+                            name=f"auto-{client_ip.replace(':', '_')}",
+                            network=cidr,
+                            group=group_name,
+                        )
+                        # Refresh RADIUS clients from device store and retry lookup
+                        try:
+                            configs = ds.iter_radius_clients()
+                            self.refresh_clients(configs)
+                        except Exception:
+                            pass
+                        client_config = self.lookup_client(client_ip)
+                    except Exception as exc:
+                        logger.warning(
+                            "RADIUS auto-registration failed for %s: %s", client_ip, exc
+                        )
+                if not client_config:
+                    logger.warning(
+                        "RADIUS auth request from unknown client: %s", client_ip
+                    )
+                    self._inc("invalid_packets")
+                    return
 
             client_secret = client_config.secret_bytes
 
@@ -827,6 +890,23 @@ class RADIUSServer:
                 return
 
             self._inc("auth_requests")
+
+            # Detailed (DEBUG) request trace
+            try:
+                nas_ip = request.get_string(ATTR_NAS_IP_ADDRESS)
+                nas_port = request.get_integer(ATTR_NAS_PORT)
+                logger.debug(
+                    "RADIUS request",
+                    event="radius.request",
+                    service="radius",
+                    code=request.code,
+                    client={"ip": client_ip, "port": client_port},
+                    nas_ip=nas_ip,
+                    nas_port=nas_port,
+                    client_group=getattr(client_config, "group", None),
+                )
+            except Exception:
+                pass
 
             # Extract authentication info
             username = request.get_string(ATTR_USER_NAME)
@@ -936,10 +1016,34 @@ class RADIUSServer:
 
             # Send response
             self._send_response(response, addr, client_secret, request.authenticator)
+            try:
+                status = (
+                    "accept"
+                    if response.code == RADIUS_ACCESS_ACCEPT
+                    else "reject"
+                    if response.code == RADIUS_ACCESS_REJECT
+                    else str(response.code)
+                )
+                logger.debug(
+                    "RADIUS response",
+                    event="radius.reply",
+                    service="radius",
+                    code=response.code,
+                    status=status,
+                    client={"ip": client_ip, "port": client_port},
+                )
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error("Error handling RADIUS auth request from %s: %s", client_ip, e)
             self._inc("invalid_packets")
+        finally:
+            try:
+                if _ctx is not None:
+                    clear_context(_ctx)
+            except Exception:
+                pass
 
     def _handle_acct_request(self, data: bytes, addr: tuple[str, int]):
         """Handle RADIUS accounting request with improved error handling.
@@ -949,6 +1053,13 @@ class RADIUSServer:
             addr: Client address tuple (ip, port)
         """
         client_ip, client_port = addr
+        _ctx = None
+        try:
+            _ctx = bind_context(
+                correlation_id=str(uuid.uuid4()), client={"ip": client_ip}
+            )
+        except Exception:
+            _ctx = None
 
         # Per-IP rate limiting for accounting path
         limiter = get_rate_limiter()
@@ -959,9 +1070,37 @@ class RADIUSServer:
         try:
             client_config = self.lookup_client(client_ip)
             if not client_config:
-                logger.warning("RADIUS acct request from unknown client: %s", client_ip)
-                self._inc("invalid_packets")
-                return
+                # Auto-register unknown client as device when enabled, then retry
+                auto_reg = bool(getattr(self, "device_auto_register", True))
+                ds = getattr(self, "device_store", None)
+                if auto_reg and ds is not None:
+                    try:
+                        group_name = getattr(self, "default_device_group", "default")
+                        ds.ensure_group(group_name)
+                        cidr = f"{client_ip}/32"
+                        if ":" in client_ip:
+                            cidr = f"{client_ip}/128"
+                        ds.ensure_device(
+                            name=f"auto-{client_ip.replace(':', '_')}",
+                            network=cidr,
+                            group=group_name,
+                        )
+                        try:
+                            configs = ds.iter_radius_clients()
+                            self.refresh_clients(configs)
+                        except Exception:
+                            pass
+                        client_config = self.lookup_client(client_ip)
+                    except Exception as exc:
+                        logger.warning(
+                            "RADIUS auto-registration failed for %s: %s", client_ip, exc
+                        )
+                if not client_config:
+                    logger.warning(
+                        "RADIUS acct request from unknown client: %s", client_ip
+                    )
+                    self._inc("invalid_packets")
+                    return
 
             client_secret = client_config.secret_bytes
 
@@ -1011,6 +1150,22 @@ class RADIUSServer:
                 client_config.network,
             )
 
+            # Detailed (DEBUG) accounting trace
+            try:
+                logger.debug(
+                    "RADIUS accounting request",
+                    event="radius.request",
+                    service="radius",
+                    code=RADIUS_ACCOUNTING_REQUEST,
+                    client={"ip": client_ip, "port": client_port},
+                    username=username,
+                    session=session_id,
+                    status=status_name,
+                    client_group=getattr(client_config, "group", None),
+                )
+            except Exception:
+                pass
+
             # Log to accounting database if available
             if self.accounting_logger:
                 self._log_accounting(request, client_ip)
@@ -1024,9 +1179,28 @@ class RADIUSServer:
 
             self._send_response(response, addr, client_secret, request.authenticator)
             self._inc("acct_responses")
+            try:
+                logger.debug(
+                    "RADIUS accounting response",
+                    event="radius.reply",
+                    service="radius",
+                    code=RADIUS_ACCOUNTING_RESPONSE,
+                    client={"ip": client_ip, "port": client_port},
+                    username=username,
+                    session=session_id,
+                    status=status_name,
+                )
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error("Error handling RADIUS acct request from %s: %s", client_ip, e)
+        finally:
+            try:
+                if _ctx is not None:
+                    clear_context(_ctx)
+            except Exception:
+                pass
 
     def _authenticate_user(
         self, username: str, password: str, **kwargs
