@@ -18,11 +18,19 @@ class FakeDestination(BackupDestination):
         self.downloads: list[tuple[str, str]] = []
 
     def validate_config(self) -> None:
+        import os
+        from pathlib import Path
         base = self.config.get("base")
         if not base:
             raise ValueError("missing base")
-        Path(base).mkdir(parents=True, exist_ok=True)
-
+        # Restrict base under a test-only directory to avoid path traversal
+        test_root = Path.cwd() / "test-backups"
+        base_path = (test_root / os.path.normpath(base)).resolve()
+        try:
+            base_path.relative_to(test_root.resolve())
+        except ValueError:
+            raise ValueError("base path escapes test root")
+        base_path.mkdir(parents=True, exist_ok=True)
     def test_connection(self) -> tuple[bool, str]:
         return True, "OK"
 
