@@ -11,7 +11,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 ### **Authentication & Authorization (AAA)**
 - **Multiple backends**: Local SQLite, LDAP, and Okta integrations
 - **Group-based authorization**: User groups with privilege levels and device access control
-- **Per-device group secrets**: Each device group has its own TACACS+/RADIUS shared secrets
+- **Per-device group secrets**: No global secrets - each device group has its own TACACS+/RADIUS shared secrets
 - **Policy engine**: Flexible authorization rules based on user groups and device groups
 - **Password management**: Secure bcrypt hashing with configurable complexity
 
@@ -31,13 +31,6 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Change notifications**: Real-time updates when device configurations change
 - **Proxy-aware multi-tenant**: Optional `proxy_network` per group enforces tenant isolation
 - **Auto-registration**: Optionally auto-create devices on first contact
-
-### **Authentication & Authorization (AAA)**
-- **Multiple backends**: Local SQLite, LDAP, and Okta integrations
-- **Group-based authorization**: User groups with privilege levels and device access control
-- **Per-device group secrets**: No global secrets - each device group has its own TACACS+/RADIUS shared secrets
-- **Policy engine**: Flexible authorization rules based on user groups and device groups
-- **Password management**: Secure bcrypt hashing with configurable complexity
 
 ### **Protocol Support**
 - **TACACS+ (RFC 8907)**: Full AAA support with encryption
@@ -202,10 +195,6 @@ client_timeout = 30
 max_connections = 1000
 
 [security]
-# Enable/disable proxy protocol
-proxy_protocol_enabled = false
-accept_proxy_protocol = false
-
 # Rate limiting
 rate_limit_enabled = true
 rate_limit_requests = 100
