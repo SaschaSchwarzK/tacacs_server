@@ -11,6 +11,30 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 ### **Authentication & Authorization (AAA)**
 - **Multiple backends**: Local SQLite, LDAP, and Okta integrations
 - **Group-based authorization**: User groups with privilege levels and device access control
+- **Per-device group secrets**: Each device group has its own TACACS+/RADIUS shared secrets
+- **Policy engine**: Flexible authorization rules based on user groups and device groups
+- **Password management**: Secure bcrypt hashing with configurable complexity
+
+### **Protocol Support**
+- **TACACS+ (RFC 8907)**: Full AAA support with encryption
+- **RADIUS (RFC 2865/2866)**: Authentication and accounting
+- **Shared backends**: Both protocols can use the same authentication sources
+- **Per-device secrets**: Device groups define their own shared secrets
+- **Rate limiting**: Configurable request rate limiting and connection management
+- **PROXY protocol v2 (TCP)**: Original client IP extraction when behind LBs
+
+### **Device & Network Management**
+- **Device inventory**: Centralized device database with grouping
+- **Network-based matching**: IP networks and CIDR ranges for device identification
+- **Device groups**: Organize devices with shared configurations and secrets
+- **Metadata support**: Custom attributes and configuration per device/group
+- **Change notifications**: Real-time updates when device configurations change
+- **Proxy-aware multi-tenant**: Optional `proxy_network` per group enforces tenant isolation
+- **Auto-registration**: Optionally auto-create devices on first contact
+
+### **Authentication & Authorization (AAA)**
+- **Multiple backends**: Local SQLite, LDAP, and Okta integrations
+- **Group-based authorization**: User groups with privilege levels and device access control
 - **Per-device group secrets**: No global secrets - each device group has its own TACACS+/RADIUS shared secrets
 - **Policy engine**: Flexible authorization rules based on user groups and device groups
 - **Password management**: Secure bcrypt hashing with configurable complexity
@@ -39,6 +63,13 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Configuration viewer**: Live configuration display with validation status
 - **Search & filtering**: Advanced filtering across all management interfaces
 - **Session management**: Secure admin sessions with configurable timeouts
+
+### **Backup & Restore**
+- **Scheduled backups**: Automatic backups with configurable retention
+- **Multiple destinations**: Local, SFTP, FTP, and Azure Blob Storage support
+- **Encryption**: Optional encryption for sensitive backup data
+- **Backup verification**: Automatic verification of backup integrity
+- **Restore functionality**: Easy restoration from any backup point
 
 ### **Monitoring & Observability**
 - **Prometheus metrics**: `/metrics` endpoint with comprehensive server statistics
@@ -153,9 +184,87 @@ Notes
 
 ## Configuration
 
+All configuration is done through the configuration file. The following environment variables are used for sensitive data only:
+
+- `TACACS_ADMIN_PASSWORD` - Admin password (for initial setup)
+- `LDAP_BIND_PASSWORD` - LDAP bind password (if using LDAP auth)
+- `AZURE_STORAGE_CONNECTION_STRING` - Azure Storage connection string (for Azure backups)
+- `ENCRYPTION_KEY` - Encryption key for sensitive data
+
 ### Server and Networking
-- `proxy_enabled` — enable proxy-aware device matching (requires configured proxies)
-- `accept_proxy_protocol` — accept HAProxy PROXY v2 headers on inbound connections
+```ini
+[server]
+host = 0.0.0.0
+tacacs_port = 49
+radius_auth_port = 1812
+radius_acct_port = 1813
+client_timeout = 30
+max_connections = 1000
+
+[security]
+# Enable/disable proxy protocol
+proxy_protocol_enabled = false
+accept_proxy_protocol = false
+
+# Rate limiting
+rate_limit_enabled = true
+rate_limit_requests = 100
+rate_limit_window = 60  # seconds
+
+# Session settings
+session_timeout_minutes = 30
+max_login_attempts = 5
+```
+
+### Authentication
+```ini
+[auth]
+# Authentication backends (local, ldap, okta)
+backends = local,ldap
+
+# Local authentication settings
+[local]
+enabled = true
+database_url = sqlite:///data/local_auth.db
+
+# LDAP authentication settings
+[ldap]
+enabled = true
+server_uri = ldap://ldap.example.com
+base_dn = dc=example,dc=com
+bind_dn = cn=admin,dc=example,dc=com
+bind_password = ${LDAP_BIND_PASSWORD}
+user_search_base = ou=users,dc=example,dc=com
+group_search_base = ou=groups,dc=example,dc=com
+```
+
+### Backup Configuration
+```ini
+[backup]
+enabled = true
+retention_days = 30
+schedule = 0 2 * * *  # 2 AM daily
+
+# Local backup settings
+[backup.local]
+enabled = true
+path = /var/backups/tacacs
+
+# SFTP backup settings
+[backup.sftp]
+enabled = false
+host = sftp.example.com
+port = 22
+username = backup
+password = your_password
+remote_path = /backups/tacacs
+
+# Azure Blob Storage settings
+[backup.azure]
+enabled = false
+connection_string = ${AZURE_STORAGE_CONNECTION_STRING}
+container_name = tacacs-backups
+```
 
 ### PROXY Protocol
 You can control proxy-aware behavior via a dedicated section. These settings override legacy keys under `[server]` when present.
@@ -311,6 +420,13 @@ Important
 - **Multi-select controls**: Easy assignment of users and permissions
 - **Configuration profiles**: TACACS+ and RADIUS profiles per group
 
+### **Proxies (if enabled)**
+![Proxies](docs/images/Proxies_page.png)
+![Add Proxies](docs/images/add_proxy.png)
+- **Name**: Name for the proxy
+- **Network matching**: IP addresses and CIDR ranges for device identification
+- **Metadata management**: Custom attributes and configuration templates
+
 ### **User Groups**
 ![User groups](docs/images/User_Groups_page.png)
 ![Add User groups](docs/images/add_usergroup.png)
@@ -345,6 +461,11 @@ Important
 ![Server Tuning](docs/images/server_tuning.png)
 - **Tuning form**: Backlog, timeouts, IPv6, keepalive, thread pool
 - **Advanced toggle**: Hide/show advanced options
+- **Restart hints**: Fields that require restart are clearly indicated
+
+### **Proxy Settings**
+![Proxy Settings](docs/images/proxy_settings.png)
+- **Tuning form**: Validate sources, reject invalid headers
 - **Restart hints**: Fields that require restart are clearly indicated
 
 ## 🧭 System Architecture
@@ -534,16 +655,6 @@ rate_limit_window = 60
 ### **Monitoring Integration**
 - `GET /metrics` - Prometheus metrics endpoint
 - Historical metrics with configurable retention
-- Custom metrics for TACACS+ and RADIUS operations
-- System metrics (CPU, memory, connections)
-
-### **API Features**
-- **Search & filtering**: All list endpoints support advanced filtering
-- **Pagination**: Configurable page sizes and offset-based pagination
-- **Sorting**: Multi-field sorting with ascending/descending options
-- **Field selection**: Choose specific fields to reduce response size
-- **Error handling**: Consistent error responses with detailed messages
-- **Rate limiting**: API rate limiting to prevent abuse
 
 ### **OpenAPI & Developer Experience**
 
@@ -671,26 +782,6 @@ tacacs_server/
 │   │   ├── devices.py           # /api/devices endpoints
 │   │   ├── device_groups.py     # /api/device-groups endpoints
 │   │   ├── users.py             # /api/users endpoints
-│   │   └── usergroups.py        # /api/user-groups endpoints
-│   └── admin/                   # Admin interface
-│       ├── auth.py              # Admin authentication/session
-│       └── routers.py           # Admin UI routes and handlers
-├── utils/                        # Utility modules
-│   ├── logger.py                # Structured logging
-│   ├── metrics.py               # Metrics collection
-│   ├── security.py              # Security utilities (rate-limiter, username)
-│   ├── rate_limiter.py          # Token-bucket limiter
-│   ├── proxy_protocol.py        # PROXY v2 parser and helpers
-│   └── audit_logger.py          # Audit trail logging
-├── static/                       # Web assets (served by FastAPI StaticFiles)
-│   └── css/                     # Stylesheets
-├── templates/                    # HTML templates (Jinja2)
-│   ├── dashboard.html           # Main dashboard
-│   └── admin/                   # Admin UI templates
-├── cli.py                        # Command-line interface
-└── main.py                       # Application entry point
-
-tests/                        # Test suite
 ├── __init__.py
 ├── chaos/
 │   └── test_chaos.py
@@ -801,33 +892,89 @@ logs/                        # Log files
 3. Default `config/tacacs.conf` file
 
 ### **Environment Variables**
-- `TACACS_CONFIG` - Configuration file path or URL
-- `ADMIN_USERNAME` - Admin console username
-- `ADMIN_PASSWORD_HASH` - Admin console password hash
-- `TACACS_DEFAULT_SECRET` - Fallback TACACS+ secret
-- `RADIUS_DEFAULT_SECRET` - Fallback RADIUS secret
-  
-RADIUS tuning (env overrides)
-- `RADIUS_WORKERS` — Worker threads for auth/acct handling (default 8; clamped 1–64)
-- `RADIUS_SOCKET_TIMEOUT` — Socket timeout seconds for auth/acct sockets (default 1.0; min 0.1)
-- `RADIUS_SO_RCVBUF` — UDP receive buffer size bytes (default 1048576; min 262144)
 
-Prometheus drops
-- `radius_packets_dropped_total{reason}` — Dropped packet counter (e.g., reason="invalid_message_authenticator").
-  
-Server/network tuning (env overrides)
-- `TACACS_LISTEN_BACKLOG` — Backlog passed to `listen()` (default 128)
-- `TACACS_CLIENT_TIMEOUT` — Client socket timeout seconds (default 15)
-- `TACACS_MAX_PACKET_LENGTH` — Max TACACS+ packet length (default 4096)
-- `TACACS_IPV6_ENABLED` — Enable IPv6 dual‑stack listener (default false)
-- `TACACS_TCP_KEEPALIVE` — Enable TCP keepalive on client sockets (default true)
-- `TACACS_TCP_KEEPIDLE` — Keepalive idle seconds (Linux) (default 60)
-- `TACACS_TCP_KEEPINTVL` — Keepalive interval seconds (Linux) (default 10)
-- `TACACS_TCP_KEEPCNT` — Keepalive probes (Linux) (default 5)
-- `TACACS_USE_THREAD_POOL` — Use thread pool for client handlers (default true)
-- `TACACS_THREAD_POOL_MAX` — Max worker threads in pool (default 100)
-- `TACACS_DB_POOL_SIZE` — Accounting DB connection pool size (default 5; range 1–200)
-- `LOCAL_AUTH_CACHE_TTL_SECONDS` — TTL for local user cache entries (default 60; 0 disables)
+#### **Core Configuration**
+- `TACACS_CONFIG` - Path to the configuration file (default: `config/tacacs.conf`)
+- `CONFIG_REFRESH_SECONDS` - Interval in seconds to check for config updates (default: 300)
+- `INSTANCE_NAME` - Unique name for this instance (default: auto-generated)
+- `HOSTNAME` - Hostname used in logs (default: system hostname)
+- `ENV` or `APP_ENV` - Environment name (e.g., 'dev', 'prod') used in logs (default: 'dev')
+
+#### **Authentication**
+- `ADMIN_USERNAME` - Admin console username (default: `admin`)
+- `ADMIN_PASSWORD` - Admin console password (for testing only, use hashed password in production)
+- `OKTA_API_TOKEN` - API token for Okta integration
+- `OKTA_ORG` - Okta organization URL (e.g., `https://your-org.okta.com`)
+- `OKTA_USERNAME` - Username for Okta testing
+- `OKTA_PASSWORD` - Password for Okta testing
+
+#### **TACACS+ Configuration**
+- `TACACS_SERVER` - Default TACACS+ server host (default: `localhost`)
+- `TACACS_PORT` - Default TACACS+ server port (default: `49`)
+- `TACACS_SECRET` - Shared secret for TACACS+ authentication
+- `TACACS_USERNAME` - Default username for TACACS+ authentication
+- `TACACS_PASSWORD` - Default password for TACACS+ authentication
+- `TACACS_DEFAULT_SECRET` - Fallback TACACS+ shared secret (default: `CHANGE_ME_FALLBACK`)
+- `TACACS_BACKEND_TIMEOUT` - Timeout for backend authentication in seconds (default: `2.0`)
+- `TACACS_MAX_SESSION_SECRETS` - Maximum number of session secrets to cache (default: `10000`)
+
+#### **RADIUS Configuration**
+- `RADIUS_SERVER` - Default RADIUS server host (default: `localhost`)
+- `RADIUS_PORT` - Default RADIUS auth port (default: `1812`)
+- `RADIUS_SECRET` - Shared secret for RADIUS authentication
+- `RADIUS_ACCT_PORT` - Default RADIUS accounting port (default: `1813`)
+- `RADIUS_DEFAULT_SECRET` - Fallback RADIUS shared secret (default: `CHANGE_ME_FALLBACK`)
+- `LDAP_BIND_PASSWORD` - LDAP bind password (for LDAP authentication)
+- `AZURE_STORAGE_CONNECTION_STRING` - Connection string for Azure Blob Storage (for backups)
+- `BACKUP_ENCRYPTION_PASSPHRASE` - Passphrase for encrypting backups
+- `API_TOKEN` - Admin API token for authentication
+- `WEBHOOK_URL` - Single webhook URL for notifications
+- `WEBHOOK_URLS` - Comma-separated list of webhook URLs
+- `WEBHOOK_HEADERS` - JSON string of headers to include in webhook requests
+- `WEBHOOK_TEMPLATE` - JSON template for webhook payload
+- `WEBHOOK_TIMEOUT` - Timeout in seconds for webhook requests (default: `3`)
+- `THRESHOLD_AUTH_FAIL_COUNT` - Number of failed auth attempts before triggering webhook (default: `0`)
+- `THRESHOLD_WINDOW_SEC` - Time window in seconds for counting failed auth attempts (default: `60`)
+
+#### **Testing & Development**
+- `T_TACACS_HOST` - Test TACACS+ server host (for test suite)
+- `T_TACACS_PORT` - Test TACACS+ server port (for test suite)
+- `T_TACACS_SECRET` - Test TACACS+ shared secret (for test suite)
+- `T_TACACS_USERNAME` - Test username (for test suite)
+- `T_TACACS_PASSWORD` - Test password (for test suite)
+- `OKTA_TEST_OTP_DIGITS` - Number of digits for OTP testing (default: `6`)
+- `OKTA_TEST_PUSH_KEYWORD` - Keyword for push notification testing (default: `push`)
+- `OKTA_TEST_MFA_TIMEOUT` - MFA test timeout in seconds (default: `25`)
+- `OKTA_TEST_MFA_POLL` - MFA test poll interval in seconds (default: `2.0`)
+
+#### **Performance Tuning**
+- `RADIUS_WORKERS` - Worker threads for RADIUS auth/acct handling (default: `8`, range: 1-64)
+- `RADIUS_SOCKET_TIMEOUT` - Socket timeout for RADIUS sockets (default: `1.0`)
+- `RADIUS_SO_RCVBUF` - UDP receive buffer size in bytes (default: `1048576`)
+- `TACACS_LISTEN_BACKLOG` - Backlog passed to `listen()` (default: `128`)
+- `TACACS_CLIENT_TIMEOUT` - Client socket timeout in seconds (default: `15`)
+- `TACACS_MAX_PACKET_LENGTH` - Maximum TACACS+ packet length (default: `4096`)
+- `TACACS_IPV6_ENABLED` - Enable IPv6 dual-stack listener (default: `false`)
+- `TACACS_TCP_KEEPALIVE` - Enable TCP keepalive (default: `true`)
+- `TACACS_TCP_KEEPIDLE` - Keepalive idle time in seconds (Linux only, default: `60`)
+- `TACACS_TCP_KEEPINTVL` - Keepalive interval in seconds (Linux only, default: `10`)
+- `TACACS_TCP_KEEPCNT` - Number of keepalive probes (Linux only, default: `5`)
+- `TACACS_USE_THREAD_POOL` - Use thread pool for client handlers (default: `true`)
+- `TACACS_THREAD_POOL_MAX` - Maximum worker threads in pool (default: `100`)
+- `TACACS_DB_POOL_SIZE` - Accounting DB connection pool size (default: `5`, range: 1-200)
+- `TACACS_MAX_SESSION_SECRETS` - Maximum number of session secrets to cache (default: `10000`)
+- `LOCAL_AUTH_CACHE_TTL_SECONDS` - TTL for local user cache (default: `60`, `0` to disable)
+
+#### **Security**
+- `ENCRYPTION_KEY` - Encryption key for sensitive data
+- `LDAP_BIND_PASSWORD` - LDAP bind password (for LDAP authentication)
+- `AZURE_STORAGE_CONNECTION_STRING` - Connection string for Azure Blob Storage (for backups)
+- `BACKUP_ENCRYPTION_PASSPHRASE` - Passphrase for encrypting backups
+- `API_TOKEN` - Admin API token for authentication
+
+#### **Monitoring**
+- `PROMETHEUS_MULTIPROC_DIR` - Directory for Prometheus metrics (for multi-process mode)
+- `PROMETHEUS_ENABLE` - Enable Prometheus metrics endpoint (default: `true`)
 
 ## OpenAPI Schema
 
