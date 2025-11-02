@@ -80,6 +80,23 @@ base_path = /backups/tacacs
 retention_days = 90
 ```
 
+### Path & Filename Safety
+
+To protect against path traversal and unsafe names, the backup system validates and sanitizes all path components before writing or uploading files. Keep these rules in mind when configuring destinations or interpreting generated names:
+
+- Allowed characters in user-controlled segments: letters, digits, underscore, hyphen, and (for filenames only) dot.
+- Disallowed: directory separators (`/` and `\`), NUL bytes, and dot-only segments (`.` or `..`).
+- Length limits: instance names up to 64 chars; backup types up to 32 chars; filenames up to 128 chars.
+- Local/Azure/FTP destinations: the system will join only sanitized segments; any invalid value will raise a validation error.
+
+Generated archive names follow this format:
+
+```
+backup-{instance_name}-{YYYYMMDD-HHMMSS}-{backup_type}.tar.gz[.enc]
+```
+
+Where `instance_name` and `backup_type` are sanitized per the rules above. For Azure, any configured `base_path` is split into segments and each segment is validated before being used as a blob key prefix.
+
 ## Scheduling
 
 ### Using Crontab

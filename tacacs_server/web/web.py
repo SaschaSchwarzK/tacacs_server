@@ -615,8 +615,8 @@ class WebServer:
                     },
                 )
             except Exception as e:
-                logger.error(f"Dashboard error: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.exception("Dashboard rendering error: %s", e)
+                raise HTTPException(status_code=500, detail="Dashboard unavailable")
 
         # API Endpoints
         # Admin guard dependency shared with admin endpoints
@@ -676,7 +676,8 @@ class WebServer:
                 status = self.get_server_stats()
                 return status
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Status check failed: {e}")
+                logger.exception("API status error: %s", e)
+                raise HTTPException(status_code=500, detail="Status check failed")
 
         @self.app.get(
             "/api/health",
@@ -704,7 +705,8 @@ class WebServer:
                 health = self.tacacs_server.get_health_status()
                 return health
             except Exception as e:
-                raise HTTPException(status_code=503, detail=f"Health check failed: {e}")
+                logger.exception("API health error: %s", e)
+                raise HTTPException(status_code=503, detail="Health check failed")
 
         # --- Config validation endpoint ---
         @self.app.post(
@@ -726,7 +728,8 @@ class WebServer:
             try:
                 ok, issues = cfg.validate_change(section, key, value)
             except Exception as exc:
-                raise HTTPException(status_code=400, detail=f"Validation error: {exc}")
+                logger.exception("Config validation error: %s", exc)
+                raise HTTPException(status_code=400, detail="Validation error")
             return {
                 "valid": bool(ok),
                 "issues": list(issues or []),
@@ -763,9 +766,8 @@ class WebServer:
                     "sessions": self.get_session_stats(),
                 }
             except Exception as e:
-                raise HTTPException(
-                    status_code=500, detail=f"Stats retrieval failed: {e}"
-                )
+                logger.exception("API stats error: %s", e)
+                raise HTTPException(status_code=500, detail="Stats retrieval failed")
 
         @self.app.get(
             "/api/backends",
@@ -788,8 +790,9 @@ class WebServer:
             try:
                 return self.get_backend_stats()
             except Exception as e:
+                logger.exception("Backend stats error: %s", e)
                 raise HTTPException(
-                    status_code=500, detail=f"Failed to get backend stats: {e}"
+                    status_code=500, detail="Failed to get backend stats"
                 )
 
         @self.app.get(
@@ -815,8 +818,9 @@ class WebServer:
             try:
                 return self.get_session_stats()
             except Exception as e:
+                logger.exception("Session stats error: %s", e)
                 raise HTTPException(
-                    status_code=500, detail=f"Failed to get session stats: {e}"
+                    status_code=500, detail="Failed to get session stats"
                 )
 
         # Webhooks admin API (documented, token + admin session required)
@@ -1009,7 +1013,8 @@ class WebServer:
                 message = "Configuration reloaded" if success else "Reload failed"
                 return {"success": success, "message": message}
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.exception("Reload config failed: %s", e)
+                raise HTTPException(status_code=500, detail="Reload failed")
 
         @self.app.post("/api/admin/reset-stats", include_in_schema=False)
         async def reset_stats(_: None = Depends(admin_guard)):
@@ -1018,7 +1023,8 @@ class WebServer:
                 self.tacacs_server.reset_stats()
                 return {"success": True, "message": "Statistics reset"}
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.exception("Reset stats failed: %s", e)
+                raise HTTPException(status_code=500, detail="Reset failed")
 
         @self.app.get("/api/admin/logs", include_in_schema=False)
         async def get_logs(lines: int = 100, _: None = Depends(admin_guard)):
@@ -1028,7 +1034,8 @@ class WebServer:
                 logs = self.get_recent_logs(lines)
                 return {"logs": logs, "count": len(logs)}
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.exception("Get logs failed: %s", e)
+                raise HTTPException(status_code=500, detail="Logs unavailable")
 
         # Admin API router
         try:
@@ -1082,7 +1089,7 @@ class WebServer:
                     return {"success": True, "message": "RADIUS restarted"}
                 except Exception as exc:
                     logger.exception("RADIUS restart failed: %s", exc)
-                    raise HTTPException(status_code=500, detail=str(exc))
+                    raise HTTPException(status_code=500, detail="RADIUS restart failed")
 
     def get_server_stats(self) -> dict[str, Any]:
         """Get current server statistics"""

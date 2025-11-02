@@ -485,7 +485,18 @@ class BackupService:
 
             # Step 8: Create compressed archive
             timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-            filename = f"backup-{self.instance_name}-{timestamp}-{backup_type}.tar.gz"
+            # Sanitize components used in the archive and remote paths
+            from tacacs_server.backup.destinations.base import (
+                BackupDestination as _BD,
+            )
+
+            safe_instance = _BD.validate_path_segment(
+                str(self.instance_name), allow_dot=False, max_len=64
+            )
+            safe_type = _BD.validate_path_segment(
+                str(backup_type), allow_dot=False, max_len=32
+            )
+            filename = f"backup-{safe_instance}-{timestamp}-{safe_type}.tar.gz"
             archive_path = os.path.join(str(self.temp_dir), filename)
             self._create_tarball(backup_dir, archive_path)
 
@@ -587,7 +598,8 @@ class BackupService:
             if encryption_enabled and not filename.endswith(".enc"):
                 filename = f"{filename}.enc"
 
-            remote_path = f"{self.instance_name}/{backup_type}/{filename}"
+            # Build remote path from sanitized segments only
+            remote_path = f"{safe_instance}/{safe_type}/{filename}"
             uploaded_path = self._upload_with_progress(
                 archive_path, destination, remote_path, execution_id
             )

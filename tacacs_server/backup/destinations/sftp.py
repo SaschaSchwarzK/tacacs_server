@@ -30,10 +30,13 @@ class SFTPConnection:
 
     def __enter__(self):  # -> paramiko.SFTPClient
         try:
-            import paramiko  # type: ignore[import-untyped]
+            import importlib
+            from typing import Any as _Any
+
+            paramiko_mod: _Any = importlib.import_module("paramiko")
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(f"Paramiko unavailable: {exc}")
-        ssh = paramiko.SSHClient()
+        ssh = paramiko_mod.SSHClient()
         known_hosts_file = self.config.get("known_hosts_file")
         host_key_verify = bool(self.config.get("host_key_verify", True))
         if known_hosts_file:
@@ -45,7 +48,7 @@ class SFTPConnection:
         if host_key_verify:
             # Reject unknown hosts unless explicitly disabled
             try:
-                ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+                ssh.set_missing_host_key_policy(paramiko_mod.RejectPolicy())
             except Exception:
                 # Fallback to default policy
                 pass
@@ -75,11 +78,11 @@ class SFTPConnection:
                     .startswith("-----BEGIN")
                 ):
                     key_file = io.StringIO(str(self.config.get("private_key")))
-                    pkey = paramiko.RSAKey.from_private_key(
+                    pkey = paramiko_mod.RSAKey.from_private_key(
                         key_file, password=self.config.get("private_key_passphrase")
                     )
                 else:
-                    pkey = paramiko.RSAKey.from_private_key_file(
+                    pkey = paramiko_mod.RSAKey.from_private_key_file(
                         str(self.config.get("private_key")),
                         password=self.config.get("private_key_passphrase"),
                     )

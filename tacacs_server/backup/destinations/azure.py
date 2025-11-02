@@ -227,10 +227,21 @@ class AzureBlobBackupDestination(BackupDestination):
 
     # --- path helpers ---
     def _blob_name(self, remote_filename: str) -> str:
-        base = str(self.config.get("base_path", "")).strip("/")
-        if base:
-            return f"{base}/{remote_filename}".strip("/")
-        return remote_filename.strip("/")
+        # Validate the relative key path (allow subdirectories with safe segments)
+        from .base import BackupDestination as _BD
+
+        safe_rel = _BD.validate_relative_path(remote_filename)
+        # Normalize/sanitize base_path into safe key prefix components
+        base_raw = str(self.config.get("base_path", "")).strip("/")
+        if base_raw:
+            parts: list[str] = []
+            for seg in base_raw.split("/"):
+                if not seg:
+                    continue
+                parts.append(_BD.validate_path_segment(seg, allow_dot=False))
+            base = "/".join(parts)
+            return f"{base}/{safe_rel}" if base else safe_rel
+        return safe_rel
 
     # --- operations ---
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:

@@ -148,3 +148,67 @@ class BackupDestination(ABC):
             except Exception as e:
                 self._logger.error(f"Failed to delete backup {b.path}: {e}")
         return deleted_count
+
+    # ------------------------------
+    # Path safety helpers
+    # ------------------------------
+    @staticmethod
+    def validate_path_segment(
+        name: str, *, allow_dot: bool = True, max_len: int = 128
+    ) -> str:
+        """Validate a single path segment to prevent traversal and unsafe chars.
+
+        - Disallow directory separators and NUL
+        - Disallow '.' and '..' segments
+        - Allow only [A-Za-z0-9._-] characters (optionally '.' can be disallowed)
+        - Enforce a conservative max length
+        Returns the original name on success; raises ValueError on invalid input.
+        """
+        import re as _re
+
+        s = str(name)
+        if not s or len(s) > max_len:
+            raise ValueError("Invalid name length")
+        if "/" in s or "\\" in s or "\x00" in s:
+            raise ValueError("Invalid characters in name")
+        if s in (".", ".."):
+            raise ValueError("Dot-only segments are not allowed")
+        pattern = r"^[A-Za-z0-9._-]+$" if allow_dot else r"^[A-Za-z0-9_-]+$"
+        if not _re.fullmatch(pattern, s):
+            raise ValueError("Name contains disallowed characters")
+        return s
+
+    @staticmethod
+    def validate_relative_path(path: str, *, max_segments: int = 10) -> str:
+        """Validate a relative path composed of safe segments.
+
+        - Must not be absolute; no leading '/'
+        - Must not contain backslashes or NULs
+        - Segments are separated by '/'
+        - Intermediate segments: [A-Za-z0-9_-]+
+        - Final segment may include dots to allow extensions
+        - No '.' or '..' segments; no empty segments
+        - Limit total number of segments
+        Returns normalized relative path using '/'.
+        """
+        s = str(path or "").strip()
+        if not s:
+            raise ValueError("Empty path")
+        if s.startswith("/"):
+            raise ValueError("Absolute paths are not allowed")
+        if "\\" in s or "\x00" in s:
+            raise ValueError("Invalid characters in path")
+        parts = [p for p in s.split("/")]
+        if not parts or len(parts) > max_segments:
+            raise ValueError("Invalid number of path segments")
+        cleaned: list[str] = []
+        for i, seg in enumerate(parts):
+            if not seg:
+                raise ValueError("Empty path segment")
+            if seg in (".", ".."):
+                raise ValueError("Dot segments are not allowed")
+            allow_dot = i == (len(parts) - 1)
+            cleaned.append(
+                BackupDestination.validate_path_segment(seg, allow_dot=allow_dot)
+            )
+        return "/".join(cleaned)

@@ -65,8 +65,11 @@ class LocalBackupDestination(BackupDestination):
         src = Path(local_file_path)
         if not src.is_file():
             raise FileNotFoundError(str(src))
-        # Ensure destination directories exist (allow subdirs in remote_filename)
-        dest = self._safe_join(remote_filename)
+        # Validate relative path (allow subdirectories with safe segments)
+        from .base import BackupDestination as _BD
+
+        safe_rel = _BD.validate_relative_path(remote_filename)
+        dest = self._safe_join(safe_rel)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".tmp")
         try:

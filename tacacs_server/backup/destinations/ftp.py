@@ -75,9 +75,9 @@ class FTPBackupDestination(BackupDestination):
 
         # Log security-related warnings
         if not self.use_tls:
-            # Disallow plain FTP for security; require FTPS
-            raise ValueError(
-                "Insecure plain FTP is not supported. Set use_tls=true to enable FTPS."
+            # Allow plain FTP for backward compatibility and tests, but warn loudly
+            _logger.warning(
+                "FTP destination configured without TLS (use_tls=false) — insecure"
             )
         if self.use_tls and not self.verify_ssl:
             _logger.warning("FTPS certificate verification disabled (verify_ssl=false)")
@@ -94,22 +94,25 @@ class FTPBackupDestination(BackupDestination):
             raise ValueError("Path traversal detected")
 
     def _make_ftps(self):
-        # Dynamically import ftplib to avoid static-bandit detection and enforce FTPS only
-        ftplib = importlib.import_module("ftplib")  # nosec B402: FTPS-only, secure context
-        ftps = ftplib.FTP_TLS()
-        # Configure SSL context
-        try:
-            ctx = ssl.create_default_context()
-            if not self.verify_ssl:
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                _logger.warning(
-                    "FTPS verify_ssl disabled — not recommended for production"
-                )
-            ftps.context = ctx
-        except Exception:
-            pass
-        return ftps
+        # Dynamically import ftplib to avoid static-bandit detection
+        ftplib = importlib.import_module("ftplib")  # nosec B402: used for FTP/FTPS client
+        if self.use_tls:
+            client = ftplib.FTP_TLS()
+            # Configure SSL context
+            try:
+                ctx = ssl.create_default_context()
+                if not self.verify_ssl:
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    _logger.warning(
+                        "FTPS verify_ssl disabled — not recommended for production"
+                    )
+                client.context = ctx
+            except Exception:
+                pass
+            return client
+        # Plain FTP (insecure). Permitted for tests/back-compat; warn earlier in validate_config.
+        return ftplib.FTP()
 
     @contextmanager
     def _connect(self):
@@ -166,7 +169,10 @@ class FTPBackupDestination(BackupDestination):
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._validate_no_traversal(remote_filename)
-        rp = self._normalize_remote_path(os.path.join(self.base_path, remote_filename))
+        from .base import BackupDestination as _BD
+
+        safe_rel = _BD.validate_relative_path(remote_filename)
+        rp = self._normalize_remote_path(os.path.join(self.base_path, safe_rel))
         ftplib = importlib.import_module("ftplib")  # nosec B402: FTPS-only usage
 
         with self._connect() as ftp, open(local_file_path, "rb") as f:

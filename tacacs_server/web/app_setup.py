@@ -9,6 +9,7 @@ This file shows how to integrate OpenAPI documentation into your existing FastAP
 
 from tacacs_server.utils.logger import get_logger
 import time
+import uuid
 from datetime import datetime, UTC
 
 from fastapi import FastAPI, Request, status
@@ -135,13 +136,15 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception):
         """Handle general exceptions"""
-        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        error_id = str(uuid.uuid4())
+        logger.error(f"Unhandled exception [{error_id}]: {exc}", exc_info=True)
 
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": "Internal server error",
-                "details": str(exc) if app.debug else "An unexpected error occurred",
+                "details": "An unexpected error occurred",
+                "error_id": error_id,
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
