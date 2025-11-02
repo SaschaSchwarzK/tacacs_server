@@ -126,7 +126,7 @@ class FTPBackupDestination(BackupDestination):
                 pass
             return client
         # Plain FTP (insecure). Permitted for tests/back-compat; warn earlier in validate_config.
-        return ftplib.FTP()
+        return ftplib.FTP()  # nosec B321: intentional for legacy/test envs only
 
     @contextmanager
     def _connect(self):

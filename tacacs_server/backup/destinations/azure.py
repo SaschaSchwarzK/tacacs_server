@@ -244,7 +244,7 @@ class AzureBlobBackupDestination(BackupDestination):
         return safe_rel
 
     # --- operations ---
-    def _safe_local_path(self, local_path: str) -> "os.PathLike[str]":
+    def _safe_local_path(self, local_path: str):
         """Validate and constrain local target path to a safe root.
 
         The caller (backup service) normally passes a path under a temp dir.
@@ -264,6 +264,7 @@ class AzureBlobBackupDestination(BackupDestination):
         except Exception:
             raise ValueError("Local path escapes allowed root")
         return tgt
+
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._ensure_clients()
         assert self.container_client is not None

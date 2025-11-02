@@ -96,7 +96,6 @@ class LocalBackupDestination(BackupDestination):
         safe_rel = _BD.validate_relative_path(remote_path)
         src = self._safe_join(safe_rel)
         # Constrain local output to an allowed root (config['local_root'] or CWD)
-        base = Path(str(self.config.get("local_root") or ".")).resolve()
         dst = self._safe_local_path(local_file_path)
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:

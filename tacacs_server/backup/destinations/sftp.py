@@ -214,6 +214,7 @@ class SFTPBackupDestination(BackupDestination):
         except Exception:
             raise ValueError("Local path escapes allowed root")
         return str(tgt)
+
     def _safe_remote_path(self, path: str) -> str:
         """Build a safe absolute remote path under base_path.
 
