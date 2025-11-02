@@ -80,7 +80,11 @@ class LocalBackupDestination(BackupDestination):
         return str(dest)
 
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
-        src = self._safe_join(remote_path)
+        # Validate relative path before resolving
+        from .base import BackupDestination as _BD
+
+        safe_rel = _BD.validate_relative_path(remote_path)
+        src = self._safe_join(safe_rel)
         dst = Path(local_file_path)
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -122,7 +126,10 @@ class LocalBackupDestination(BackupDestination):
 
     def delete_backup(self, remote_path: str) -> bool:
         try:
-            p = self._safe_join(remote_path)
+            from .base import BackupDestination as _BD
+
+            safe_rel = _BD.validate_relative_path(remote_path)
+            p = self._safe_join(safe_rel)
             p.unlink(missing_ok=False)
             # Remove manifest if present
             man = p.with_suffix(p.suffix + ".manifest.json")
@@ -133,7 +140,10 @@ class LocalBackupDestination(BackupDestination):
 
     def get_backup_info(self, remote_path: str) -> BackupMetadata | None:
         try:
-            p = self._safe_join(remote_path)
+            from .base import BackupDestination as _BD
+
+            safe_rel = _BD.validate_relative_path(remote_path)
+            p = self._safe_join(safe_rel)
             if not p.exists():
                 return None
             size = p.stat().st_size

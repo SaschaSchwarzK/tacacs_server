@@ -201,6 +201,35 @@ class SFTPBackupDestination(BackupDestination):
         p = path.replace("\\", "/")
         return p if p.startswith("/") else f"/{p}"
 
+    def _safe_remote_path(self, path: str) -> str:
+        """Build a safe absolute remote path under base_path.
+
+        Accepts either a relative key (validated) or an absolute path that must
+        be under the configured base_path. Rejects traversal and control chars.
+        """
+        base_abs = self._normalize_remote_path(self.base_path).rstrip("/")
+        p = str(path or "").replace("\\", "/").strip()
+        if not p:
+            raise ValueError("Empty remote path")
+        if "\x00" in p:
+            raise ValueError("Invalid remote path")
+        # Absolute path: ensure it resides under base_abs
+        if p.startswith("/"):
+            # Normalize duplicate slashes
+            while "//" in p:
+                p = p.replace("//", "/")
+            if not p.startswith(base_abs + "/") and p != base_abs:
+                raise ValueError("Remote path escapes base path")
+            # Basic traversal guard
+            if "/../" in p or p.endswith("/.."):
+                raise ValueError("Path traversal detected")
+            return p
+        # Relative path: validate segments and join to base
+        from .base import BackupDestination as _BD
+
+        rel = _BD.validate_relative_path(p)
+        return f"{base_abs}/{rel}"
+
     def _sftp_makedirs(self, sftp, remote_dir: str) -> None:
         parts = self._normalize_remote_path(remote_dir).strip("/").split("/")
         cur = ""
@@ -231,7 +260,8 @@ class SFTPBackupDestination(BackupDestination):
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
-        rp = self._normalize_remote_path(os.path.join(self.base_path, remote_filename))
+        # Validate and build safe remote path under base_path
+        rp = self._safe_remote_path(remote_filename)
         with self._get_sftp_client() as sftp:
             dir_part = os.path.dirname(rp)
             self._sftp_makedirs(sftp, dir_part)
@@ -270,7 +300,7 @@ class SFTPBackupDestination(BackupDestination):
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         try:
-            rp = self._normalize_remote_path(remote_path)
+            rp = self._safe_remote_path(remote_path)
             Path(local_file_path).parent.mkdir(parents=True, exist_ok=True)
             with self._get_sftp_client() as sftp:
                 sftp.get(rp, local_file_path)
@@ -327,7 +357,7 @@ class SFTPBackupDestination(BackupDestination):
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def delete_backup(self, remote_path: str) -> bool:
         try:
-            rp = self._normalize_remote_path(remote_path)
+            rp = self._safe_remote_path(remote_path)
             with self._get_sftp_client() as sftp:
                 sftp.remove(rp)
                 try:
@@ -343,7 +373,7 @@ class SFTPBackupDestination(BackupDestination):
 
     def get_backup_info(self, remote_path: str) -> BackupMetadata | None:
         try:
-            rp = self._normalize_remote_path(remote_path)
+            rp = self._safe_remote_path(remote_path)
             with self._get_sftp_client() as sftp:
                 st = sftp.stat(rp)
                 ts = datetime.fromtimestamp(st.st_mtime, UTC).isoformat()

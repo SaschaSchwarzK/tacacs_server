@@ -77,6 +77,12 @@ class BackupEncryption:
         ciphertext = fernet.encrypt(plaintext)
 
         # Write encrypted file with header
+        try:
+            from pathlib import Path as _P
+
+            _P(output_path).parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
         with open(output_path, "wb") as f_out:
             # Header format: MAGIC(4) + VERSION(1) + SALT(16)
             f_out.write(b"TCBK")  # Magic bytes "TACACS Backup"
@@ -139,6 +145,12 @@ class BackupEncryption:
                 return False
 
             # Write decrypted data
+            try:
+                from pathlib import Path as _P
+
+                _P(output_path).parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             with open(output_path, "wb") as f:
                 f.write(plaintext)
 

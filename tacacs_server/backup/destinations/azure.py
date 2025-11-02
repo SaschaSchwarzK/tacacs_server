@@ -333,7 +333,10 @@ class AzureBlobBackupDestination(BackupDestination):
             base_prefix = str(self.config.get("base_path", "")).strip("/")
             start = base_prefix
             if prefix:
-                p = prefix.strip("/")
+                from .base import BackupDestination as _BD
+
+                # Validate user-supplied prefix to avoid unintended key scans
+                p = _BD.validate_relative_path(prefix)
                 start = f"{base_prefix}/{p}" if base_prefix else p
             it = self.container_client.list_blobs(name_starts_with=start or None)
             for blob in it:

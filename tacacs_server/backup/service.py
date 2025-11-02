@@ -807,7 +807,16 @@ class BackupService:
                 manifest = json.load(f)
 
             for file_entry in manifest.get("contents", []):
-                fp = os.path.join(restore_root, file_entry["file"])
+                # Validate manifest file path as a relative path
+                try:
+                    from tacacs_server.backup.destinations.base import (
+                        BackupDestination as _BD,
+                    )
+
+                    rel = _BD.validate_relative_path(str(file_entry["file"]))
+                except Exception:
+                    return False, "Invalid file path in manifest"
+                fp = os.path.join(restore_root, rel)
                 if os.path.isfile(fp):
                     actual = self._calculate_sha256(fp)
                     if actual != file_entry["checksum_sha256"]:
