@@ -7,7 +7,7 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -646,6 +646,25 @@ def create_app(
         except Exception as e:
             logger.error(f"Metrics generation error: {e}")
             return PlainTextResponse("# Metrics unavailable\n", status_code=500)
+
+    # --------------------------------------------------------------------
+    # Compatibility admin API shims for legacy paths
+    # --------------------------------------------------------------------
+
+    @app.post("/api/admin/reset-stats", include_in_schema=False)
+    async def compat_admin_reset_stats(
+        _: None = Depends(web_auth.require_admin_or_api),
+    ):
+        try:
+            srv = getattr(app.state, "tacacs_server", None)
+            if srv and hasattr(srv, "reset_stats"):
+                try:
+                    srv.reset_stats()
+                except Exception:
+                    pass
+            return {"success": True, "message": "Statistics reset"}
+        except Exception as e:
+            return JSONResponse({"detail": f"Reset failed: {e}"}, status_code=500)
 
     # ========================================================================
     # ERROR HANDLERS
