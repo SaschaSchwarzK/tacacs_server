@@ -27,9 +27,27 @@ class LocalBackupDestination(BackupDestination):
         return Path(str(self.config["base_path"]))
 
     def _safe_local_path(self, local_path: str) -> Path:
-        """Anchor local outputs to an allowed root (config['local_root'] or CWD)."""
-        base = Path(str(self.config.get("local_root") or ".")).resolve()
-        tgt = Path(local_path).resolve()
+        """Anchor local outputs to an allowed root (config['local_root'] or secure fallback).
+
+        Prevents use of absolute paths or writing outside allowed safe directory.
+        """
+        import tempfile
+
+        lp = Path(local_path)
+        # Disallow absolute user-provided paths
+        if lp.is_absolute():
+            raise ValueError("Absolute paths are not allowed for local output")
+
+        raw_root = self.config.get("local_root")
+        if raw_root and Path(raw_root).is_absolute():
+            base = Path(raw_root).resolve()
+        else:
+            # Fallback to a dedicated temp directory
+            base = Path(tempfile.gettempdir()) / "tacacs_server_restore"
+            base.mkdir(parents=True, exist_ok=True)
+            base = base.resolve()
+
+        tgt = (base / lp).resolve()
         try:
             _ = tgt.relative_to(base)
         except Exception:

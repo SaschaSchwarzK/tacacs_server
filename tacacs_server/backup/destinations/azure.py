@@ -245,24 +245,27 @@ class AzureBlobBackupDestination(BackupDestination):
 
     # --- operations ---
     def _safe_local_path(self, local_path: str):
-        """Validate and constrain local target path to a safe root.
+        """Anchor local target path to config['local_root'] or a secure temp directory.
 
-        The caller (backup service) normally passes a path under a temp dir.
-        As a defense-in-depth measure, only allow writing within a configured
-        root (config['local_root']) or the current working directory.
+        Disallows absolute user-provided paths and ensures final path is within base.
         """
+        import tempfile as _tmp
         from pathlib import Path as _P
 
-        if not isinstance(local_path, str) or "\x00" in local_path:
-            raise ValueError("Invalid local path")
-        base = str(self.config.get("local_root") or os.getcwd())
-        base_p = _P(base).resolve()
-        tgt = _P(local_path).resolve()
-        try:
-            # Python 3.9+: emulate is_relative_to
-            _ = tgt.relative_to(base_p)
-        except Exception:
-            raise ValueError("Local path escapes allowed root")
+        lp = _P(local_path)
+        if lp.is_absolute():
+            raise ValueError("Absolute paths are not allowed for local output")
+
+        raw_root = self.config.get("local_root")
+        if raw_root and _P(raw_root).is_absolute():
+            base = _P(raw_root).resolve()
+        else:
+            base = _P(_tmp.gettempdir()) / "tacacs_server_restore"
+            base.mkdir(parents=True, exist_ok=True)
+            base = base.resolve()
+
+        tgt = (base / lp).resolve()
+        _ = tgt.relative_to(base)
         return tgt
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:

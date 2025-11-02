@@ -202,17 +202,27 @@ class SFTPBackupDestination(BackupDestination):
         return p if p.startswith("/") else f"/{p}"
 
     def _safe_local_path(self, local_path: str) -> str:
-        """Constrain local filesystem paths to an allowed root (defense-in-depth)."""
+        """Anchor local outputs to an allowed root (config['local_root'] or secure temp).
+
+        Disallows absolute user-provided paths and ensures final path is within base.
+        """
+        import tempfile as _tmp
         from pathlib import Path as _P
 
-        if not isinstance(local_path, str) or "\x00" in local_path:
-            raise ValueError("Invalid local path")
-        base = _P(str(self.config.get("local_root") or ".")).resolve()
-        tgt = _P(local_path).resolve()
-        try:
-            _ = tgt.relative_to(base)
-        except Exception:
-            raise ValueError("Local path escapes allowed root")
+        lp = _P(local_path)
+        if lp.is_absolute():
+            raise ValueError("Absolute paths are not allowed for local output")
+
+        raw_root = self.config.get("local_root")
+        if raw_root and _P(raw_root).is_absolute():
+            base = _P(raw_root).resolve()
+        else:
+            base = _P(_tmp.gettempdir()) / "tacacs_server_restore"
+            base.mkdir(parents=True, exist_ok=True)
+            base = base.resolve()
+
+        tgt = (base / lp).resolve()
+        _ = tgt.relative_to(base)
         return str(tgt)
 
     def _safe_remote_path(self, path: str) -> str:
