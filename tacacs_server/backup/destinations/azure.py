@@ -244,6 +244,26 @@ class AzureBlobBackupDestination(BackupDestination):
         return safe_rel
 
     # --- operations ---
+    def _safe_local_path(self, local_path: str) -> "os.PathLike[str]":
+        """Validate and constrain local target path to a safe root.
+
+        The caller (backup service) normally passes a path under a temp dir.
+        As a defense-in-depth measure, only allow writing within a configured
+        root (config['local_root']) or the current working directory.
+        """
+        from pathlib import Path as _P
+
+        if not isinstance(local_path, str) or "\x00" in local_path:
+            raise ValueError("Invalid local path")
+        base = str(self.config.get("local_root") or os.getcwd())
+        base_p = _P(base).resolve()
+        tgt = _P(local_path).resolve()
+        try:
+            # Python 3.9+: emulate is_relative_to
+            _ = tgt.relative_to(base_p)
+        except Exception:
+            raise ValueError("Local path escapes allowed root")
+        return tgt
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._ensure_clients()
         assert self.container_client is not None
@@ -300,11 +320,10 @@ class AzureBlobBackupDestination(BackupDestination):
 
             blob_name = _BD.validate_relative_path(remote_path)
             blob_client = self.container_client.get_blob_client(blob_name)
-            # Safely create destination directory
-            from pathlib import Path as _P
-
-            _P(local_file_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(local_file_path, "wb") as file:
+            # Safely create destination directory under allowed local root
+            dst_path = self._safe_local_path(local_file_path)
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(dst_path, "wb") as file:
                 download_stream = blob_client.download_blob(
                     max_concurrency=int(self.config.get("max_concurrency", 4))
                 )
@@ -316,7 +335,7 @@ class AzureBlobBackupDestination(BackupDestination):
                 if isinstance(props, dict)
                 else int(props.size)
             )
-            size_local = os.path.getsize(local_file_path)
+            size_local = os.path.getsize(str(dst_path))
             return int(size_remote) == int(size_local)
         except Exception as exc:
             _logger.error(

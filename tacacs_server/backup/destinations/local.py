@@ -85,7 +85,13 @@ class LocalBackupDestination(BackupDestination):
 
         safe_rel = _BD.validate_relative_path(remote_path)
         src = self._safe_join(safe_rel)
-        dst = Path(local_file_path)
+        # Constrain local output to an allowed root (config['local_root'] or CWD)
+        base = Path(str(self.config.get("local_root") or ".")).resolve()
+        dst = Path(local_file_path).resolve()
+        try:
+            _ = dst.relative_to(base)
+        except Exception:
+            raise ValueError("Local path escapes allowed root")
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             shutil.copy2(src, dst)

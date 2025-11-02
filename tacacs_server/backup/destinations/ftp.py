@@ -93,6 +93,20 @@ class FTPBackupDestination(BackupDestination):
         if ".." in p or "\x00" in p:
             raise ValueError("Path traversal detected")
 
+    def _safe_local_path(self, local_path: str) -> str:
+        """Constrain local filesystem paths to an allowed root (defense-in-depth)."""
+        from pathlib import Path as _P
+
+        if not isinstance(local_path, str) or "\x00" in local_path:
+            raise ValueError("Invalid local path")
+        base = _P(str(self.config.get("local_root") or ".")).resolve()
+        tgt = _P(local_path).resolve()
+        try:
+            _ = tgt.relative_to(base)
+        except Exception:
+            raise ValueError("Local path escapes allowed root")
+        return str(tgt)
+
     def _make_ftps(self):
         # Dynamically import ftplib to avoid static-bandit detection
         ftplib = importlib.import_module("ftplib")  # nosec B402: used for FTP/FTPS client
@@ -175,7 +189,8 @@ class FTPBackupDestination(BackupDestination):
         rp = self._normalize_remote_path(os.path.join(self.base_path, safe_rel))
         ftplib = importlib.import_module("ftplib")  # nosec B402: FTPS-only usage
 
-        with self._connect() as ftp, open(local_file_path, "rb") as f:
+        src = self._safe_local_path(local_file_path)
+        with self._connect() as ftp, open(src, "rb") as f:
             # ensure directory exists
             dir_part = "/".join(rp.strip("/").split("/")[:-1])
             if dir_part:
@@ -217,10 +232,11 @@ class FTPBackupDestination(BackupDestination):
         try:
             self._validate_no_traversal(remote_path)
             rp = self._normalize_remote_path(remote_path)
+            dst = self._safe_local_path(local_file_path)
             from pathlib import Path as _P
 
-            _P(local_file_path).parent.mkdir(parents=True, exist_ok=True)
-            with self._connect() as ftp, open(local_file_path, "wb") as f:
+            _P(dst).parent.mkdir(parents=True, exist_ok=True)
+            with self._connect() as ftp, open(dst, "wb") as f:
                 ftp.retrbinary(f"RETR {rp}", f.write, blocksize=8192)
             return True
         except Exception as exc:

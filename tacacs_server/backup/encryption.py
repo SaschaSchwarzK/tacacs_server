@@ -50,6 +50,21 @@ class BackupEncryption:
         return key, bytes(salt)
 
     @staticmethod
+    def _safe_local_path(path: str) -> str:
+        """Anchor file operations to CWD by default (defense-in-depth)."""
+        from pathlib import Path as _P
+
+        if not isinstance(path, str) or "\x00" in path:
+            raise ValueError("Invalid path")
+        base = _P(os.getcwd()).resolve()
+        tgt = _P(path).resolve()
+        try:
+            _ = tgt.relative_to(base)
+        except Exception:
+            raise ValueError("Path escapes allowed root")
+        return str(tgt)
+
+    @staticmethod
     def encrypt_file(input_path: str, output_path: str, passphrase: str) -> dict:
         """
         Encrypt file using passphrase-derived key.
@@ -67,6 +82,9 @@ class BackupEncryption:
         fernet = Fernet(key)
 
         # Calculate original checksum
+        # Constrain I/O paths to allowed root
+        input_path = BackupEncryption._safe_local_path(input_path)
+        output_path = BackupEncryption._safe_local_path(output_path)
         original_checksum = BackupEncryption.calculate_checksum(input_path)
         original_size = os.path.getsize(input_path)
 
@@ -114,6 +132,8 @@ class BackupEncryption:
             True if successful, False if passphrase incorrect or file corrupted
         """
         try:
+            input_path = BackupEncryption._safe_local_path(input_path)
+            output_path = BackupEncryption._safe_local_path(output_path)
             with open(input_path, "rb") as f:
                 # Read and validate header
                 magic = f.read(4)
