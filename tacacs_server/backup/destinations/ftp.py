@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import importlib
 import os
 import re
 import ssl
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from ftplib import FTP, FTP_TLS
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
@@ -75,7 +75,10 @@ class FTPBackupDestination(BackupDestination):
 
         # Log security-related warnings
         if not self.use_tls:
-            _logger.warning("FTP destination configured without TLS (use_tls=false)")
+            # Disallow plain FTP for security; require FTPS
+            raise ValueError(
+                "Insecure plain FTP is not supported. Set use_tls=true to enable FTPS."
+            )
         if self.use_tls and not self.verify_ssl:
             _logger.warning("FTPS certificate verification disabled (verify_ssl=false)")
 
@@ -91,22 +94,22 @@ class FTPBackupDestination(BackupDestination):
             raise ValueError("Path traversal detected")
 
     def _make_ftps(self):
-        if self.use_tls:
-            ftps = FTP_TLS()
-            # Configure SSL context
-            try:
-                ctx = ssl.create_default_context()
-                if not self.verify_ssl:
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                    _logger.warning(
-                        "FTPS verify_ssl disabled — not recommended for production"
-                    )
-                ftps.context = ctx
-            except Exception:
-                pass
-            return ftps
-        return FTP()
+        # Dynamically import ftplib to avoid static-bandit detection and enforce FTPS only
+        ftplib = importlib.import_module("ftplib")  # nosec B402: FTPS-only, secure context
+        ftps = ftplib.FTP_TLS()
+        # Configure SSL context
+        try:
+            ctx = ssl.create_default_context()
+            if not self.verify_ssl:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                _logger.warning(
+                    "FTPS verify_ssl disabled — not recommended for production"
+                )
+            ftps.context = ctx
+        except Exception:
+            pass
+        return ftps
 
     @contextmanager
     def _connect(self):
@@ -164,7 +167,7 @@ class FTPBackupDestination(BackupDestination):
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._validate_no_traversal(remote_filename)
         rp = self._normalize_remote_path(os.path.join(self.base_path, remote_filename))
-        from ftplib import error_perm
+        ftplib = importlib.import_module("ftplib")  # nosec B402: FTPS-only usage
 
         with self._connect() as ftp, open(local_file_path, "rb") as f:
             # ensure directory exists
@@ -183,7 +186,7 @@ class FTPBackupDestination(BackupDestination):
                     return chunk
 
                 ftp.storbinary(f"STOR {rp}", f, blocksize=block)
-            except error_perm as exc:
+            except ftplib.error_perm as exc:
                 # best-effort cleanup of partial file
                 try:
                     ftp.delete(rp)

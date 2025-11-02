@@ -159,7 +159,7 @@ def test_upload_and_download_roundtrip(mock_ftp_tls, tmp_path: Path):
 
 @patch("ftplib.FTP_TLS")
 def test_partial_upload_cleanup_on_error(mock_ftp_tls, tmp_path: Path):
-    from ftplib import error_perm
+    from ftplib import error_perm  # nosec B402: test-only import to simulate FTP error
 
     src = tmp_path / "file.tar.gz"
     src.write_bytes(b"x" * 1024)

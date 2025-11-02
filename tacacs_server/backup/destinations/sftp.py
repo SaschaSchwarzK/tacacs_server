@@ -41,10 +41,19 @@ class SFTPConnection:
                 ssh.load_host_keys(known_hosts_file)
             except Exception:
                 _logger.warning("Failed to load known_hosts file: %s", known_hosts_file)
-        # Enforce host key verification by default; AutoAddPolicy allows adding unknown hosts
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        if not host_key_verify:
-            _logger.warning("SFTP host key verification disabled — security risk")
+        # Enforce host key verification by default
+        if host_key_verify:
+            # Reject unknown hosts unless explicitly disabled
+            try:
+                ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+            except Exception:
+                # Fallback to default policy
+                pass
+        else:
+            # Disallow disabling host key verification to meet security policy
+            raise ValueError(
+                "SFTP host key verification cannot be disabled (host_key_verify=false)"
+            )
 
         connect_kwargs: dict[str, Any] = {
             "hostname": self.config.get("host"),
