@@ -89,6 +89,18 @@ class BackupService:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
     # --- helpers ---
+    def _safe_local_path(self, path: str) -> str:
+        """Ensure path stays within the service temp directory.
+
+        Returns the resolved absolute path if valid, otherwise raises ValueError.
+        """
+        from pathlib import Path as _P
+
+        base = _P(str(self.temp_dir)).resolve()
+        tgt = _P(path).resolve()
+        _ = tgt.relative_to(base)
+        return str(tgt)
+
     def _export_database(self, src_path: str, dst_path: str) -> None:
         """Export a SQLite database from src_path to dst_path with verification.
 
@@ -765,14 +777,8 @@ class BackupService:
                 local_archive = os.path.join(
                     str(self.temp_dir), os.path.basename(source_path)
                 )
-                # Constrain path to temp_dir boundary
                 try:
-                    from pathlib import Path as _P
-
-                    base = _P(str(self.temp_dir)).resolve()
-                    tgt = _P(local_archive).resolve()
-                    _ = tgt.relative_to(base)
-                    local_archive = str(tgt)
+                    local_archive = self._safe_local_path(local_archive)
                 except Exception:
                     return False, "Invalid local archive path"
                 destination.download_backup(source_path, local_archive)
@@ -801,12 +807,7 @@ class BackupService:
 
                 decrypted_path = local_archive[:-4]
                 try:
-                    from pathlib import Path as _P
-
-                    base = _P(str(self.temp_dir)).resolve()
-                    tgt = _P(decrypted_path).resolve()
-                    _ = tgt.relative_to(base)
-                    decrypted_path = str(tgt)
+                    decrypted_path = self._safe_local_path(decrypted_path)
                 except Exception:
                     return False, "Invalid decrypted path"
                 _logger.info(f"Decrypting {local_archive} to {decrypted_path}")
@@ -817,12 +818,7 @@ class BackupService:
             # Step 3: Extract and verify archive
             restore_root = os.path.join(str(self.temp_dir), f"restore_{uuid.uuid4()}")
             try:
-                from pathlib import Path as _P
-
-                base = _P(str(self.temp_dir)).resolve()
-                tgt = _P(restore_root).resolve()
-                _ = tgt.relative_to(base)
-                restore_root = str(tgt)
+                restore_root = self._safe_local_path(restore_root)
             except Exception:
                 return False, "Invalid restore path"
             self._extract_tarball(archive_for_extract, restore_root)
