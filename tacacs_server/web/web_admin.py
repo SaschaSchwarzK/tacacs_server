@@ -691,8 +691,8 @@ async def create_device(request: Request):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.delete(
@@ -708,8 +708,8 @@ async def delete_device(request: Request, device_id: int):
     try:
         device_service.delete_device(device_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.get("/devices/{device_id}", dependencies=[Depends(require_admin_session)])
@@ -726,8 +726,8 @@ async def get_device(request: Request, device_id: int):
             "network": str(rec.network),
             "group": rec.group.name if rec.group else None,
         }
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.put("/devices/{device_id}", dependencies=[Depends(require_admin_session)])
@@ -746,8 +746,8 @@ async def update_device(request: Request, device_id: int):
             clear_group=(data.get("group") is None and "group" in data),
         )
         return {"id": rec.id}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 # ============================================================================
@@ -795,8 +795,8 @@ async def groups_page(request: Request):
                 ]
             except Exception:
                 proxies = []
-    except Exception as e:
-        logger.warning(f"Failed to get groups: {e}")
+    except Exception:
+        logger.warning("Failed to get groups")
 
     # Determine feature flag for template rendering (menu + form field)
     try:
@@ -929,8 +929,8 @@ async def create_group(request: Request):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.get("/groups/{group_id}", dependencies=[Depends(require_admin_session)])
@@ -952,8 +952,8 @@ async def get_group(request: Request, group_id: int):
             "metadata": group.metadata,
             "allowed_user_groups": getattr(group, "allowed_user_groups", []),
         }
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.put("/groups/{group_id}", dependencies=[Depends(require_admin_session)])
@@ -974,8 +974,8 @@ async def update_group(request: Request, group_id: int):
             proxy_id=data.get("proxy_id"),
         )
         return updated
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.delete("/groups/{group_id}", dependencies=[Depends(require_admin_session)])
@@ -987,8 +987,8 @@ async def delete_group(request: Request, group_id: int):
     try:
         device_service.delete_group(group_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 # ============================================================================
@@ -1154,7 +1154,7 @@ async def create_user(request: Request):
         raise
     except Exception as e:
         logger.warning(f"Failed to create user: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.get("/users/{username}", dependencies=[Depends(require_admin_session)])
@@ -1173,8 +1173,8 @@ async def get_user(request: Request, username: str):
             "enabled": rec.enabled,
             "description": getattr(rec, "description", ""),
         }
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.put("/users/{username}", dependencies=[Depends(require_admin_session)])
@@ -1194,8 +1194,8 @@ async def update_user(request: Request, username: str):
             description=data.get("description"),
         )
         return {"username": rec.username}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.post(
@@ -1216,8 +1216,8 @@ async def set_user_password(request: Request, username: str):
         return {"username": rec.username}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.delete("/users/{username}", dependencies=[Depends(require_admin_session)])
@@ -1228,8 +1228,8 @@ async def delete_user(request: Request, username: str):
     try:
         user_service.delete_user(username)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 # ============================================================================
@@ -1298,8 +1298,8 @@ async def create_user_group(request: Request):
         from fastapi.responses import JSONResponse
 
         return JSONResponse({"name": rec.name}, status_code=status.HTTP_201_CREATED)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.get("/user-groups/{name}", dependencies=[Depends(require_admin_session)])
@@ -1318,8 +1318,8 @@ async def get_user_group(request: Request, name: str):
             "okta_group": rec.okta_group,
             "privilege_level": rec.privilege_level,
         }
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 @router.put("/user-groups/{name}", dependencies=[Depends(require_admin_session)])
@@ -1341,8 +1341,8 @@ async def update_user_group(request: Request, name: str):
             else None,
         )
         return {"name": rec.name}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 @router.delete("/user-groups/{name}", dependencies=[Depends(require_admin_session)])
@@ -1354,8 +1354,8 @@ async def delete_user_group(request: Request, name: str):
     try:
         svc.delete_group(name)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad request")
 
 
 # ============================================================================
@@ -1496,7 +1496,7 @@ async def update_config(request: Request):
             results[section] = "success"
         except Exception as e:
             logger.exception(f"Failed to update {section}: {e}")
-            errors[section] = str(e)
+            errors[section] = "invalid"
 
     if errors:
         raise HTTPException(
@@ -1610,7 +1610,7 @@ async def restart_services_api():
         return {"success": True, "message": "Services restarted"}
     except Exception as e:
         logger.exception("Restart failed: %s", e)
-        return {"success": False, "message": str(e)}
+        return {"success": False, "message": "Restart failed"}
 
 
 @router.post("/server/reset-stats", dependencies=[Depends(require_admin_session)])

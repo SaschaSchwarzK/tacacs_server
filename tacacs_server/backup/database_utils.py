@@ -5,6 +5,7 @@ import shutil
 import sqlite3
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 
 def export_database(source_path: str, dest_path: str) -> None:
@@ -12,7 +13,8 @@ def export_database(source_path: str, dest_path: str) -> None:
     Safely export SQLite database using the backup API with retries.
     Falls back to file copy if backup fails, then verifies integrity.
     """
-    os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
+    # Create destination directory safely using pathlib
+    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
 
     # Checkpoint WAL to ensure all data is in main DB file
     try:
@@ -87,7 +89,8 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
         if not ok:
             raise ValueError(f"Source DB integrity failed: {msg}")
 
-    os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
+    # Create destination directory safely using pathlib
+    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
 
     # Backup existing destination if present
     if os.path.exists(dest_path):

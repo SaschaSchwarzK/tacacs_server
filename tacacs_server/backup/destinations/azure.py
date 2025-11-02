@@ -295,8 +295,15 @@ class AzureBlobBackupDestination(BackupDestination):
         try:
             self._ensure_clients()
             assert self.container_client is not None
-            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))
-            os.makedirs(os.path.dirname(local_file_path) or ".", exist_ok=True)
+            # Validate and normalize the remote path to a safe blob name
+            from .base import BackupDestination as _BD
+
+            blob_name = _BD.validate_relative_path(remote_path)
+            blob_client = self.container_client.get_blob_client(blob_name)
+            # Safely create destination directory
+            from pathlib import Path as _P
+
+            _P(local_file_path).parent.mkdir(parents=True, exist_ok=True)
             with open(local_file_path, "wb") as file:
                 download_stream = blob_client.download_blob(
                     max_concurrency=int(self.config.get("max_concurrency", 4))
@@ -359,11 +366,14 @@ class AzureBlobBackupDestination(BackupDestination):
         try:
             self._ensure_clients()
             assert self.container_client is not None
-            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))
+            from .base import BackupDestination as _BD
+
+            blob_name = _BD.validate_relative_path(remote_path)
+            blob_client = self.container_client.get_blob_client(blob_name)
             blob_client.delete_blob()
             # Delete associated manifest if present
             try:
-                man = remote_path + ".manifest.json"
+                man = f"{blob_name}.manifest.json"
                 self.container_client.get_blob_client(man).delete_blob()
             except Exception:
                 pass
@@ -378,7 +388,10 @@ class AzureBlobBackupDestination(BackupDestination):
         try:
             self._ensure_clients()
             assert self.container_client is not None
-            blob_client = self.container_client.get_blob_client(remote_path.strip("/"))
+            from .base import BackupDestination as _BD
+
+            blob_name = _BD.validate_relative_path(remote_path)
+            blob_client = self.container_client.get_blob_client(blob_name)
             props = blob_client.get_blob_properties()
             size = (
                 int(getattr(props, "size", 0) or 0)
@@ -396,10 +409,10 @@ class AzureBlobBackupDestination(BackupDestination):
                 else datetime.now(UTC).isoformat()
             )
             return BackupMetadata(
-                filename=os.path.basename(remote_path.strip("/")),
+                filename=os.path.basename(blob_name),
                 size_bytes=size,
                 timestamp=ts,
-                path=remote_path.strip("/"),
+                path=blob_name,
                 checksum_sha256="",
             )
         except Exception as exc:

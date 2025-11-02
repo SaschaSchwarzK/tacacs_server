@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tarfile
+from pathlib import Path
 from typing import Literal, cast
 
 
@@ -24,7 +25,8 @@ def create_tarball(
         mode_str = "w:xz"
     else:
         mode_str = "w"
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    # Create output directory safely using pathlib
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     mode_lit = cast(Literal["w", "w:gz", "w:bz2", "w:xz"], mode_str)
     with tarfile.open(name=output_path, mode=mode_lit) as tar:
         for root, _dirs, files in os.walk(source_dir):

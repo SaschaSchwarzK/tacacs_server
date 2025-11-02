@@ -616,9 +616,9 @@ def create_app(
                 {"ready": False, "reason": "server not running"},
                 status_code=503,
             )
-        except Exception as e:
+        except Exception:
             return JSONResponse(
-                {"ready": False, "reason": str(e)},
+                {"ready": False, "reason": "internal error"},
                 status_code=503,
             )
 
@@ -632,10 +632,8 @@ def create_app(
         try:
             data = generate_latest()
             return PlainTextResponse(content=data, media_type=CONTENT_TYPE_LATEST)
-        except Exception as e:
-            return JSONResponse(
-                {"detail": f"Metrics unavailable: {e}"}, status_code=500
-            )
+        except Exception:
+            return JSONResponse({"detail": "Metrics unavailable"}, status_code=500)
 
     @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
     async def metrics():
@@ -663,8 +661,8 @@ def create_app(
                 except Exception:
                     pass
             return {"success": True, "message": "Statistics reset"}
-        except Exception as e:
-            return JSONResponse({"detail": f"Reset failed: {e}"}, status_code=500)
+        except Exception:
+            return JSONResponse({"detail": "Reset failed"}, status_code=500)
 
     # ========================================================================
     # ERROR HANDLERS
