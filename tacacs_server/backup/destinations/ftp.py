@@ -105,6 +105,9 @@ class FTPBackupDestination(BackupDestination):
         lp = _P(local_path)
         if lp.is_absolute():
             raise ValueError("Absolute paths are not allowed for local output")
+        for part in lp.parts:
+            if part == "..":
+                raise ValueError("Path traversal detected")
 
         raw_root = self.config.get("local_root")
         if raw_root and _P(raw_root).is_absolute():
