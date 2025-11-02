@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -27,7 +27,7 @@ def install_exception_handlers(app: FastAPI) -> None:
             "error": exc.error_code,
             "message": exc.message,
             "details": exc.details,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "path": str(request.url.path),
         }
         return JSONResponse(

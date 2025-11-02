@@ -69,8 +69,6 @@ retention_days = 30
 
 ### SFTP (Recommended for Remote)
 
-**Note:** SFTP destination is not yet implemented.
-
 ```ini
 [backup.destinations.remote_sftp]
 type = sftp

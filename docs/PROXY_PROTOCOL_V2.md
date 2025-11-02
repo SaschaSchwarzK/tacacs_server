@@ -26,27 +26,27 @@ Without PROXY protocol, the server would only see connections from 10.0.1.5 (the
 
 ## Configuration
 
-### Enable PROXY Protocol
+## Configuration
 
-Add the following sections to your `tacacs.conf`:
+### Server Configuration
+
+Add the following to your `tacacs.conf`:
 
 ```ini
 [server]
-# Enable proxy-aware device matching
-proxy_enabled = true
-
-[proxy_protocol]
-# Enable PROXY protocol v2 header parsing
-enabled = true
-
-# Accept PROXY protocol headers on incoming connections
+# Enable HAProxy PROXY v2 protocol support (default: false)
+# Only applicable to TACACS+ (TCP), not RADIUS (UDP)
 accept_proxy_protocol = true
 
-# Validate that proxy IPs match configured proxies
-validate_sources = true
+# Socket timeout in seconds (default: 30)
+socket_timeout = 30
 
-# Reject connections with invalid PROXY headers (strict mode)
-# Set to false for lenient mode (ignore invalid headers)
+[proxy_protocol]
+# Enable PROXY protocol v2 header parsing (default: false)
+enabled = true
+
+# Reject connections with invalid PROXY headers (default: true)
+# When false, invalid headers are ignored and connections are treated as direct
 reject_invalid = true
 ```
 

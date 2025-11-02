@@ -1205,11 +1205,39 @@ class DeviceStore:
             cur = self._conn.execute("SELECT * FROM devices")
             rows = cur.fetchall()
 
+        # Select best match: longest prefix; tie-breaker prefers groups with tacacs_secret
+        best: DeviceRecord | None = None
+        best_pl = -1
+        best_has_secret = False
+
         for row in rows:
             device = self._row_to_device(row, groups)
-            if ip_obj in device.network:
-                return device
-        return None
+            try:
+                if ip_obj not in device.network:
+                    continue
+            except Exception:
+                continue
+            pl = int(device.network.prefixlen)
+            grp = device.group
+            # Determine if group carries an explicit TACACS secret
+            has_secret = False
+            if grp is not None:
+                try:
+                    if getattr(grp, "tacacs_secret", None):
+                        has_secret = True
+                    else:
+                        md = getattr(grp, "metadata", {}) or {}
+                        if isinstance(md, dict) and md.get("tacacs_secret"):
+                            has_secret = True
+                except Exception:
+                    has_secret = False
+
+            if pl > best_pl or (pl == best_pl and not best_has_secret and has_secret):
+                best = device
+                best_pl = pl
+                best_has_secret = has_secret
+
+        return best
 
     def find_device_for_identity(
         self, client_ip: str, proxy_ip: str | None

@@ -64,7 +64,9 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
             timeout=5,
         )
         print(f"Create user response: {user_resp.status_code}")
-        assert user_resp.status_code in (200, 201), f"Failed to create user: {user_resp.text}"
+        assert user_resp.status_code in (200, 201), (
+            f"Failed to create user: {user_resp.text}"
+        )
 
         # Verify user exists via API
         get_user_resp = session.get(f"{base}/api/users/testuser", timeout=5)
@@ -109,7 +111,10 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
         assert _wait_for(
             lambda: session.get(
                 f"{base}/api/admin/backup/executions/{execution_id}", timeout=5
-            ).json().get("status") in ("completed", "failed"),
+            )
+            .json()
+            .get("status")
+            in ("completed", "failed"),
             timeout=60.0,
         ), "Backup did not complete"
 
@@ -126,7 +131,9 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
         print("\n=== Deleting User via API ===")
         delete_resp = session.delete(f"{base}/api/users/testuser", timeout=5)
         print(f"Delete user response: {delete_resp.status_code}")
-        assert delete_resp.status_code in (200, 204), f"Failed to delete user: {delete_resp.text}"
+        assert delete_resp.status_code in (200, 204), (
+            f"Failed to delete user: {delete_resp.text}"
+        )
 
         # Verify user is gone
         get_deleted_resp = session.get(f"{base}/api/users/testuser", timeout=5)
@@ -172,14 +179,16 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
         # Check if user was restored
         get_restored_resp = session2.get(f"{base2}/api/users/testuser", timeout=5)
         print(f"Get restored user response: {get_restored_resp.status_code}")
-        
+
         if get_restored_resp.status_code == 404:
             # List all users for debugging
             list_resp = session2.get(f"{base2}/api/users", timeout=5)
             print(f"All users: {list_resp.json()}")
-        
-        assert get_restored_resp.status_code == 200, f"User not restored! Response: {get_restored_resp.text}"
-        
+
+        assert get_restored_resp.status_code == 200, (
+            f"User not restored! Response: {get_restored_resp.text}"
+        )
+
         restored_user = get_restored_resp.json()
         print(f"Restored user: {restored_user}")
         assert restored_user["username"] == "testuser"

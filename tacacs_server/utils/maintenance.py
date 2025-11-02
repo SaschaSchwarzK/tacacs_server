@@ -22,7 +22,9 @@ class _DBConnectionManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         # Store (object, close_fn, reload_fn)
-        self._registrations: list[tuple[Any, Callable[[], None], Callable[[], None] | None]] = []
+        self._registrations: list[
+            tuple[Any, Callable[[], None], Callable[[], None] | None]
+        ] = []
         self._in_maintenance: bool = False
 
     def register(self, obj: Any, close_fn: Callable[[], None] | None = None) -> None:
@@ -40,7 +42,9 @@ class _DBConnectionManager:
             for existing_obj, _, _ in self._registrations:
                 if existing_obj is obj:
                     return
-            self._registrations.append((obj, close_fn, reload_fn if callable(reload_fn) else None))
+            self._registrations.append(
+                (obj, close_fn, reload_fn if callable(reload_fn) else None)
+            )
 
     def unregister(self, obj: Any) -> None:
         with self._lock:
@@ -156,26 +160,30 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
         try:
             from tacacs_server.web.web import (
                 get_device_service as _get_dev_svc,
-                get_local_user_service as _get_user_svc,
+            )
+            from tacacs_server.web.web import (
                 get_local_user_group_service as _get_group_svc,
+            )
+            from tacacs_server.web.web import (
+                get_local_user_service as _get_user_svc,
             )
 
             ds = _get_dev_svc()
             if ds and hasattr(ds, "store") and hasattr(ds.store, "reload"):
                 try:
-                    ds.store.reload()  # type: ignore[attr-defined]
+                    ds.store.reload()
                 except Exception:
                     pass
             us = _get_user_svc()
             if us and hasattr(us, "store") and hasattr(us.store, "reload"):
                 try:
-                    us.store.reload()  # type: ignore[attr-defined]
+                    us.store.reload()
                 except Exception:
                     pass
             gs = _get_group_svc()
             if gs and hasattr(gs, "store") and hasattr(gs.store, "reload"):
                 try:
-                    gs.store.reload()  # type: ignore[attr-defined]
+                    gs.store.reload()
                 except Exception:
                     pass
         except Exception:

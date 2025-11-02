@@ -34,7 +34,7 @@ The TACACS+ server uses INI-style configuration files with the following section
 
 ### Network Services
 - `[radius]` - RADIUS server configuration
-- `[proxy_protocol]` - HAProxy PROXY v2 support
+- `[proxy_protocol]` - HAProxy PROXY v2 support (TACACS+ only)
 - `[webhooks]` - Webhook notifications
 
 ### Administration
@@ -62,12 +62,15 @@ The TACACS+ server uses INI-style configuration files with the following section
 
 - [Advanced Configuration Management](CONFIGURATION_ADVANCED.md) - Versioning, drift detection, and advanced features
 - [Configuration Examples](CONFIGURATION_EXAMPLES.md) - Practical configuration examples and recipes
+# Maximum concurrent connections (default: 50)
 max_connections = 50
 
-# Socket timeout in seconds
+# Socket timeout in seconds (default: 30)
 socket_timeout = 30
-# Legacy toggle to accept HAProxy PROXY v2 headers (see [proxy_protocol])
-accept_proxy_protocol = true
+
+# Enable HAProxy PROXY v2 protocol support (default: false)
+# Note: Only applicable to TACACS+ (TCP), not RADIUS (UDP)
+accept_proxy_protocol = false
 ```
 
 ### Server Options

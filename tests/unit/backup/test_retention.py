@@ -68,17 +68,19 @@ def test_simple_keep_days_edge_case():
 
 
 def test_gfs_retention():
+    from datetime import UTC as _UTC
     from datetime import datetime as _dt
     from datetime import timedelta as _td
 
-    base_time = _dt.utcnow()
+    # Use timezone-aware UTC datetime to avoid deprecation warnings
+    base_time = _dt.now(_UTC)
     backups = []
     for days_ago in range(400):
         backup_time = base_time - _td(days=days_ago)
         backups.append(
             Mock(
                 filename=f"backup-{days_ago}.tar.gz",
-                timestamp=backup_time.isoformat() + "Z",
+                timestamp=backup_time.isoformat(),
                 path=f"/backups/backup-{days_ago}.tar.gz",
                 size_bytes=1_000_000,
             )
@@ -100,11 +102,7 @@ def test_gfs_retention():
     recent = [
         b
         for b in backups
-        if (
-            base_time
-            - _dt.fromisoformat(b.timestamp.replace("Z", "+00:00")).replace(tzinfo=None)
-        ).days
-        < 7
+        if (base_time - _dt.fromisoformat(b.timestamp.replace("Z", "+00:00"))).days < 7
     ]
     for b in recent:
         assert b in to_keep

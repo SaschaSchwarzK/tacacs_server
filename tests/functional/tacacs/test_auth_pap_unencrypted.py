@@ -60,7 +60,7 @@ def _seed_state(server) -> tuple[str, str, int]:
 
     username = "apitestuser"
     password = "ApiTestPass1!"
-    
+
     print(f"Creating user: {username}")
     usvc = LocalUserService(auth_db)
     try:
@@ -68,7 +68,7 @@ def _seed_state(server) -> tuple[str, str, int]:
     except Exception as e:
         print(f"User creation warning: {e}")
 
-    print(f"Creating device group and device")
+    print("Creating device group and device")
     store = DeviceStore(devices_db)
     store.ensure_group(
         "dg-plain",
@@ -76,8 +76,10 @@ def _seed_state(server) -> tuple[str, str, int]:
         metadata={"tacacs_secret": "testing123"},
     )
     device = store.ensure_device(name="loopback", network="127.0.0.1", group="dg-plain")
-    print(f"Device: {device.name}, group={device.group.name if device.group else None}, secret={device.tacacs_secret}")
-    
+    print(
+        f"Device: {device.name}, group={device.group.name if device.group else None}, secret={device.tacacs_secret}"
+    )
+
     return username, password, server.tacacs_port
 
 
@@ -108,7 +110,9 @@ def _try_auth_unencrypted(host: str, port: int, username: str, password: str) ->
             print(f"Unencrypted: Short body {len(body)}/{header.length}")
             return False
         status = body[0]
-        print(f"Unencrypted: status={status}, PASS={TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS}")
+        print(
+            f"Unencrypted: status={status}, PASS={TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS}"
+        )
         return status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS
     except Exception as e:
         print(f"Unencrypted exception: {e}")
@@ -145,12 +149,14 @@ def _try_auth_encrypted(
             print(f"Encrypted: Short header {len(hdr)}")
             return False
         header = TacacsPacket.unpack_header(hdr)
-        print(f"Encrypted: response seq={header.seq_no}, len={header.length}, flags={header.flags}")
+        print(
+            f"Encrypted: response seq={header.seq_no}, len={header.length}, flags={header.flags}"
+        )
         body = _read_exact(s, header.length)
         if len(body) != header.length:
             print(f"Encrypted: Short body {len(body)}/{header.length}")
             return False
-        
+
         import hashlib as _hashlib
 
         def _md5_pad(
@@ -175,17 +181,19 @@ def _try_auth_encrypted(
         )
         dec = bytes(a ^ b for a, b in zip(body, pad))
         status = dec[0]
-        print(f"Encrypted: decrypted status={status}, PASS={TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS}")
+        print(
+            f"Encrypted: decrypted status={status}, PASS={TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS}"
+        )
         if len(dec) > 6:
-            import struct
             server_msg_len, data_len = struct.unpack("!HH", dec[2:6])
             if server_msg_len > 0:
-                msg = dec[6:6+server_msg_len].decode('ascii', errors='replace')
+                msg = dec[6 : 6 + server_msg_len].decode("ascii", errors="replace")
                 print(f"Encrypted: server_msg='{msg}'")
         return status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS
     except Exception as e:
         print(f"Encrypted exception: {type(e).__name__}: {e}")
         import traceback
+
         traceback.print_exc()
         return False
     finally:
@@ -198,10 +206,10 @@ def _try_auth_encrypted(
 def test_auth_pap_respects_encryption_required(server_factory):
     """Test encryption enforcement with diagnostics."""
     for require_enc in (False, True):
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Testing encryption_required={require_enc}")
-        print(f"{'='*60}")
-        
+        print(f"{'=' * 60}")
+
         server = server_factory(
             config={
                 "auth": {"backends": "local"},
@@ -212,28 +220,37 @@ def test_auth_pap_respects_encryption_required(server_factory):
         with server:
             username, password, port = _seed_state(server)
             host = "127.0.0.1"
-            
-            print(f"\nTesting unencrypted auth...")
+
+            print("\nTesting unencrypted auth...")
             unenc_ok = _try_auth_unencrypted(host, port, username, password)
             print(f"Result: {'PASS' if unenc_ok else 'FAIL'}")
-            
-            print(f"\nTesting encrypted auth...")
-            enc_ok = _try_auth_encrypted(host, port, username, password, secret="testing123")
+
+            print("\nTesting encrypted auth...")
+            enc_ok = _try_auth_encrypted(
+                host, port, username, password, secret="testing123"
+            )
             print(f"Result: {'PASS' if enc_ok else 'FAIL'}")
-            
-            print(f"\n--- Server Logs ---")
+
+            print("\n--- Server Logs ---")
             logs = server.get_logs()
-            for line in logs.split('\n')[-20:]:
+            for line in logs.split("\n")[-20:]:
                 if line.strip():
                     print(line)
-            
+
             if require_enc:
-                assert not unenc_ok, "Unencrypted should fail when encryption_required=true"
+                assert not unenc_ok, (
+                    "Unencrypted should fail when encryption_required=true"
+                )
                 logs_lower = logs.lower()
-                assert "unencrypted tacacs+ not permitted" in logs_lower or "rejecting unencrypted tacacs+ auth" in logs_lower
+                assert (
+                    "unencrypted tacacs+ not permitted" in logs_lower
+                    or "rejecting unencrypted tacacs+ auth" in logs_lower
+                )
                 assert enc_ok, "Encrypted should work when encryption_required=true"
             else:
-                assert unenc_ok, "Unencrypted should work when encryption_required=false"
+                assert unenc_ok, (
+                    "Unencrypted should work when encryption_required=false"
+                )
                 assert enc_ok, "Encrypted should work when encryption_required=false"
-            
+
             print(f"✓ Test passed for encryption_required={require_enc}")

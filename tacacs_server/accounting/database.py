@@ -692,7 +692,9 @@ class DatabaseLogger:
             db_file = Path(self.db_path).resolve()
             if not db_file.parent.exists():
                 db_file.parent.mkdir(parents=True, exist_ok=True)
-            self.conn = sqlite3.connect(str(db_file), timeout=10, check_same_thread=False)
+            self.conn = sqlite3.connect(
+                str(db_file), timeout=10, check_same_thread=False
+            )
             self.conn.row_factory = sqlite3.Row
             # Pragmas consistent with initializer
             self.conn.execute("PRAGMA foreign_keys = ON;")

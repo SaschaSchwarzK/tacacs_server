@@ -482,10 +482,14 @@ async def dashboard(request: Request):
                 backends = []
         for be in backends:
             try:
-                name = getattr(be, "name", None) or (be.get("name") if isinstance(be, dict) else str(be))
+                name = getattr(be, "name", None) or (
+                    be.get("name") if isinstance(be, dict) else str(be)
+                )
                 available = True
                 try:
-                    if hasattr(be, "is_available") and callable(getattr(be, "is_available")):
+                    if hasattr(be, "is_available") and callable(
+                        getattr(be, "is_available")
+                    ):
                         available = bool(getattr(be, "is_available")())
                 except Exception:
                     available = True
@@ -502,15 +506,23 @@ async def dashboard(request: Request):
     try:
         if device_service and hasattr(device_service, "list_devices"):
             devs = device_service.list_devices()
-            for d in (devs[:5] if isinstance(devs, list) else []):
+            for d in devs[:5] if isinstance(devs, list) else []:
                 try:
                     device_samples.append(
                         {
                             "name": getattr(d, "display_name", getattr(d, "name", "")),
                             "network": str(getattr(d, "network", "")),
                             "group": getattr(getattr(d, "group", None), "name", None),
-                            "has_tacacs_secret": bool(getattr(getattr(d, "group", None), "tacacs_secret", None)),
-                            "has_radius_secret": bool(getattr(getattr(d, "group", None), "radius_secret", None)),
+                            "has_tacacs_secret": bool(
+                                getattr(
+                                    getattr(d, "group", None), "tacacs_secret", None
+                                )
+                            ),
+                            "has_radius_secret": bool(
+                                getattr(
+                                    getattr(d, "group", None), "radius_secret", None
+                                )
+                            ),
                         }
                     )
                 except Exception:
@@ -521,13 +533,15 @@ async def dashboard(request: Request):
     try:
         if device_service and hasattr(device_service, "list_groups"):
             grps = device_service.list_groups()
-            for g in (grps[:5] if isinstance(grps, list) else []):
+            for g in grps[:5] if isinstance(grps, list) else []:
                 try:
                     allowed = getattr(g, "allowed_user_groups", []) or []
                     group_samples.append(
                         {
                             "name": getattr(g, "name", ""),
-                            "allowed_user_groups": ", ".join(allowed) if isinstance(allowed, list) else str(allowed),
+                            "allowed_user_groups": ", ".join(allowed)
+                            if isinstance(allowed, list)
+                            else str(allowed),
                             "tacacs_secret": bool(getattr(g, "tacacs_secret", None)),
                             "radius_secret": bool(getattr(g, "radius_secret", None)),
                         }
@@ -540,7 +554,7 @@ async def dashboard(request: Request):
     try:
         if user_service and hasattr(user_service, "list_users"):
             users = user_service.list_users()
-            for u in (users[:5] if isinstance(users, list) else []):
+            for u in users[:5] if isinstance(users, list) else []:
                 try:
                     user_samples.append(
                         {
@@ -1398,7 +1412,7 @@ async def config_page(request: Request):
 
             # Detect configuration drift specifically for restart-sensitive settings
             pending_restart = False
-            drift_summary = {}
+            drift_summary: dict[str, dict[str, tuple[object, object]]] = {}
             try:
                 if hasattr(config_service, "detect_config_drift"):
                     drift = config_service.detect_config_drift() or {}

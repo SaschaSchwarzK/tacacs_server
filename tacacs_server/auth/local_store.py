@@ -40,10 +40,11 @@ class LocalAuthStore:
         self._lock = threading.RLock()
         self._conn = self._open_connection()
         self._ensure_schema()
-        
+
         # Register with maintenance mode manager
         try:
             from tacacs_server.utils.maintenance import get_db_manager
+
             get_db_manager().register(self)
         except Exception:
             pass
@@ -63,7 +64,7 @@ class LocalAuthStore:
                 self._conn.close()
             except Exception:
                 pass
-    
+
     def reload(self) -> None:
         """Re-open the underlying SQLite connection."""
         with self._lock:

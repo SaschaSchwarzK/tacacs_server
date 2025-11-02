@@ -954,7 +954,13 @@ class BackupService:
         """Securely extract tarball to the destination directory."""
         os.makedirs(dest_dir, exist_ok=True)
         with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(path=dest_dir)
+            # Python 3.14 changes tarfile defaults to filter extracted archives.
+            # Use the safe 'data' filter when available; fall back for older Pythons.
+            try:
+                tar.extractall(path=dest_dir, filter="data")
+            except TypeError:
+                # Older Python versions do not support the filter argument
+                tar.extractall(path=dest_dir)
         return dest_dir
 
     @staticmethod

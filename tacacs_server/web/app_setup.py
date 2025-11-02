@@ -9,7 +9,7 @@ This file shows how to integrate OpenAPI documentation into your existing FastAP
 
 from tacacs_server.utils.logger import get_logger
 import time
-from datetime import datetime
+from datetime import datetime, UTC
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -128,7 +128,7 @@ def create_app() -> FastAPI:
             content={
                 "error": "Validation failed",
                 "validation_errors": errors,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -142,7 +142,7 @@ def create_app() -> FastAPI:
             content={
                 "error": "Internal server error",
                 "details": str(exc) if app.debug else "An unexpected error occurred",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -256,7 +256,7 @@ def setup_routes(app: FastAPI):
                 "radius_server": True,
                 "auth_backends": True,
             },
-            "timestamp": datetime.utcnow(),
+            "timestamp": datetime.now(UTC),
         }
 
     # Device Management Router

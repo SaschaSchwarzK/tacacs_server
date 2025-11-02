@@ -920,7 +920,9 @@ class TacacsServer:
                             if secret in (None, "", "None"):
                                 need_late_lookup = True
                             else:
-                                if hasattr(self, "secret_key") and secret == str(getattr(self, "secret_key", "")):
+                                if hasattr(self, "secret_key") and secret == str(
+                                    getattr(self, "secret_key", "")
+                                ):
                                     need_late_lookup = True
                                 if connection_device is None:
                                     need_late_lookup = True

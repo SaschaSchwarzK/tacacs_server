@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 import uvicorn
 from fastapi import (
+    APIRouter,
     Depends,
     FastAPI,
     HTTPException,
@@ -41,10 +42,6 @@ from tacacs_server.web.api.device_groups import router as device_groups_router
 from tacacs_server.web.api.devices import router as devices_router
 from tacacs_server.web.api.usergroups import router as user_groups_router
 from tacacs_server.web.api.users import router as users_router
-try:
-    from tacacs_server.web.api.users import admin_router as admin_users_router
-except Exception:
-    admin_users_router = None
 from tacacs_server.web.api_models import (
     AccountingResponse,
     AuthBackendInfo,
@@ -54,7 +51,20 @@ from tacacs_server.web.api_models import (
     SessionsResponse,
 )
 from tacacs_server.web.errors import install_exception_handlers as _install_exc
-from tacacs_server.web.openapi_config import configure_openapi_ui, custom_openapi_schema
+from tacacs_server.web.openapi_config import (
+    configure_openapi_ui,
+    custom_openapi_schema,
+)
+
+# Optional admin users router; provide a typed placeholder for mypy
+admin_users_router: APIRouter | None = None
+try:
+    from tacacs_server.web.api.users import admin_router as _admin_users_router
+
+    admin_users_router = _admin_users_router
+except Exception:
+    pass
+
 
 logger = get_logger(__name__)
 

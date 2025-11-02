@@ -5,7 +5,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -75,18 +83,26 @@ async def download_local_backup(
     if not dest:
         raise HTTPException(status_code=404, detail="Destination not found")
     if str(dest.get("type")).lower() != "local":
-        raise HTTPException(status_code=400, detail="Download supported for local destination only")
+        raise HTTPException(
+            status_code=400, detail="Download supported for local destination only"
+        )
     try:
-        destination = LocalBackupDestination(json.loads(dest.get("config_json") or "{}"))
+        destination = LocalBackupDestination(
+            json.loads(dest.get("config_json") or "{}")
+        )
         info = destination.get_backup_info(backup_path)
         if not info:
             raise HTTPException(status_code=404, detail="Backup not found")
         # Use FileResponse to stream file; filename from metadata
-        return FileResponse(info.path, filename=info.filename, media_type="application/octet-stream")
+        return FileResponse(
+            info.path, filename=info.filename, media_type="application/octet-stream"
+        )
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to prepare download: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to prepare download: {exc}"
+        )
 
 
 @router.post(
@@ -104,26 +120,38 @@ async def upload_local_backup(
     if not dest:
         raise HTTPException(status_code=404, detail="Destination not found")
     if str(dest.get("type")).lower() != "local":
-        raise HTTPException(status_code=400, detail="Upload supported for local destination only")
+        raise HTTPException(
+            status_code=400, detail="Upload supported for local destination only"
+        )
     # Persist upload to a temp file, then move via destination
-    import tempfile, os
+    import os
+    import tempfile
+
     try:
         suffix = os.path.splitext(file.filename or "backup.tar.gz")[1] or ".tar.gz"
-        with tempfile.NamedTemporaryFile(prefix="backup_upload_", suffix=suffix, delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(
+            prefix="backup_upload_", suffix=suffix, delete=False
+        ) as tmp:
             tmp_path = tmp.name
             while True:
                 chunk = await file.read(8192)
                 if not chunk:
                     break
                 tmp.write(chunk)
-        destination = LocalBackupDestination(json.loads(dest.get("config_json") or "{}"))
+        destination = LocalBackupDestination(
+            json.loads(dest.get("config_json") or "{}")
+        )
         remote_filename = file.filename or os.path.basename(tmp_path)
         stored_path = destination.upload_backup(tmp_path, remote_filename)
         try:
             os.unlink(tmp_path)
         except Exception:
             pass
-        return {"success": True, "backup_path": stored_path, "filename": remote_filename}
+        return {
+            "success": True,
+            "backup_path": stored_path,
+            "filename": remote_filename,
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -666,9 +694,11 @@ async def create_scheduled_backup(
     # Validate schedule
     if schedule_type == "cron":
         try:
-            from croniter import croniter  # type: ignore[import-untyped]
+            import importlib
 
-            if not croniter.is_valid(schedule_value):
+            cron_mod: Any = importlib.import_module("croniter")
+            # croniter provides a function croniter.is_valid(expr)
+            if not getattr(cron_mod, "croniter").is_valid(schedule_value):
                 raise HTTPException(status_code=400, detail="Invalid cron expression")
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid cron expression")
