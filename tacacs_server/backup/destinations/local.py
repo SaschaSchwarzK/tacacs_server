@@ -52,14 +52,13 @@ class LocalBackupDestination(BackupDestination):
         if base.is_symlink():
             raise ValueError("Backup base directory may not be a symlink")
 
-
         # Reject any path input with segments that are suspicious, such as ".." parts
         for part in lp.parts:
             if part == "..":
                 raise ValueError("Path traversal detected in local file path")
 
-        # Strictly resolve the destination path; raises on broken symlinks/missing parents
-        tgt = (base / lp).resolve(strict=True)
+        # Resolve target with non-strict flag (so destination may not yet exist)
+        tgt = (base / lp).resolve(strict=False)
         # Confirm real path containment even for symlink/complex filesystem situations
         if os.path.commonpath([str(base), str(tgt)]) != str(base):
             raise ValueError("Local path escapes allowed root directory")
@@ -67,6 +66,9 @@ class LocalBackupDestination(BackupDestination):
         for parent in tgt.parents:
             if parent.is_symlink():
                 raise ValueError("Target path parent is a symlink")
+        # Additionally ensure that the path itself is neither a symlink nor does it point to one (if existent)
+        if tgt.exists() and tgt.is_symlink():
+            raise ValueError("Target path is a symlink")
         return tgt
 
     def test_connection(self) -> tuple[bool, str]:

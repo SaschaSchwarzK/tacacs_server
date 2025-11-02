@@ -218,7 +218,13 @@ class SFTPBackupDestination(BackupDestination):
         raw_root = self.config.get("local_root")
         if raw_root and _P(raw_root).is_absolute() and _P(raw_root).resolve().is_dir():
             base = _P(raw_root).resolve()
-            if not str(base).startswith(str(allowed_temp_prefix)):
+            # Ensure base is not a symlink
+            if base.is_symlink():
+                raise ValueError("Configured local_root may not be a symlink")
+            # Use commonpath for robust containment check
+            if _os.path.commonpath([str(allowed_temp_prefix), str(base)]) != str(
+                allowed_temp_prefix
+            ):
                 raise ValueError("Configured local_root outside allowed temp directory")
         else:
             base = allowed_temp_prefix / "tacacs_server_restore"

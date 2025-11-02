@@ -20,6 +20,7 @@ class FakeDestination(BackupDestination):
     def validate_config(self) -> None:
         import os
         from pathlib import Path
+
         base = self.config.get("base")
         if not base:
             raise ValueError("missing base")
@@ -31,6 +32,7 @@ class FakeDestination(BackupDestination):
         except ValueError:
             raise ValueError("base path escapes test root")
         base_path.mkdir(parents=True, exist_ok=True)
+
     def test_connection(self) -> tuple[bool, str]:
         return True, "OK"
 

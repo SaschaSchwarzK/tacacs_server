@@ -98,9 +98,9 @@ class FTPBackupDestination(BackupDestination):
 
         Disallows absolute user-provided paths and ensures final path is within base.
         """
+        import os as _os
         import tempfile as _tmp
         from pathlib import Path as _P
-        import os as _os
 
         lp = _P(local_path)
         if lp.is_absolute():

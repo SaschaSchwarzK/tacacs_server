@@ -275,8 +275,19 @@ class AzureBlobBackupDestination(BackupDestination):
         tgt = (base / lp).resolve()
         if _os.path.commonpath([str(base), str(tgt)]) != str(base):
             raise ValueError("Local path escapes allowed root")
+        # Ensure no symlinks in ancestors between base and tgt
+        par = tgt
+        while par != base:
+            if par.is_symlink():
+                raise ValueError(f"Symlink detected in output path: {par}")
+            par = par.parent
+            if par == par.parent:  # safeguard against infinite loop
+                break
         if base.is_symlink():
             raise ValueError("Backup base directory may not be a symlink")
+        # Optionally, error if tgt is a symlink (if already present)
+        if tgt.exists() and tgt.is_symlink():
+            raise ValueError("Target file may not be a symlink")
         return tgt
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
