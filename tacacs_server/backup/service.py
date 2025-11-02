@@ -765,6 +765,16 @@ class BackupService:
                 local_archive = os.path.join(
                     str(self.temp_dir), os.path.basename(source_path)
                 )
+                # Constrain path to temp_dir boundary
+                try:
+                    from pathlib import Path as _P
+
+                    base = _P(str(self.temp_dir)).resolve()
+                    tgt = _P(local_archive).resolve()
+                    _ = tgt.relative_to(base)
+                    local_archive = str(tgt)
+                except Exception:
+                    return False, "Invalid local archive path"
                 destination.download_backup(source_path, local_archive)
                 _logger.info(
                     json.dumps(
@@ -790,6 +800,15 @@ class BackupService:
                     return False, "Incorrect encryption passphrase"
 
                 decrypted_path = local_archive[:-4]
+                try:
+                    from pathlib import Path as _P
+
+                    base = _P(str(self.temp_dir)).resolve()
+                    tgt = _P(decrypted_path).resolve()
+                    _ = tgt.relative_to(base)
+                    decrypted_path = str(tgt)
+                except Exception:
+                    return False, "Invalid decrypted path"
                 _logger.info(f"Decrypting {local_archive} to {decrypted_path}")
                 if not decrypt_file(local_archive, decrypted_path, passphrase):
                     return False, "Decryption failed - file may be corrupted"
@@ -797,6 +816,15 @@ class BackupService:
 
             # Step 3: Extract and verify archive
             restore_root = os.path.join(str(self.temp_dir), f"restore_{uuid.uuid4()}")
+            try:
+                from pathlib import Path as _P
+
+                base = _P(str(self.temp_dir)).resolve()
+                tgt = _P(restore_root).resolve()
+                _ = tgt.relative_to(base)
+                restore_root = str(tgt)
+            except Exception:
+                return False, "Invalid restore path"
             self._extract_tarball(archive_for_extract, restore_root)
 
             manifest_path = os.path.join(restore_root, "manifest.json")

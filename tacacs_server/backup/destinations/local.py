@@ -26,6 +26,16 @@ class LocalBackupDestination(BackupDestination):
     def _root(self) -> Path:
         return Path(str(self.config["base_path"]))
 
+    def _safe_local_path(self, local_path: str) -> Path:
+        """Anchor local outputs to an allowed root (config['local_root'] or CWD)."""
+        base = Path(str(self.config.get("local_root") or ".")).resolve()
+        tgt = Path(local_path).resolve()
+        try:
+            _ = tgt.relative_to(base)
+        except Exception:
+            raise ValueError("Local path escapes allowed root")
+        return tgt
+
     def test_connection(self) -> tuple[bool, str]:
         try:
             root = self._root()
@@ -87,11 +97,7 @@ class LocalBackupDestination(BackupDestination):
         src = self._safe_join(safe_rel)
         # Constrain local output to an allowed root (config['local_root'] or CWD)
         base = Path(str(self.config.get("local_root") or ".")).resolve()
-        dst = Path(local_file_path).resolve()
-        try:
-            _ = dst.relative_to(base)
-        except Exception:
-            raise ValueError("Local path escapes allowed root")
+        dst = self._safe_local_path(local_file_path)
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             shutil.copy2(src, dst)

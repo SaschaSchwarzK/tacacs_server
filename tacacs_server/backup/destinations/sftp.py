@@ -201,6 +201,19 @@ class SFTPBackupDestination(BackupDestination):
         p = path.replace("\\", "/")
         return p if p.startswith("/") else f"/{p}"
 
+    def _safe_local_path(self, local_path: str) -> str:
+        """Constrain local filesystem paths to an allowed root (defense-in-depth)."""
+        from pathlib import Path as _P
+
+        if not isinstance(local_path, str) or "\x00" in local_path:
+            raise ValueError("Invalid local path")
+        base = _P(str(self.config.get("local_root") or ".")).resolve()
+        tgt = _P(local_path).resolve()
+        try:
+            _ = tgt.relative_to(base)
+        except Exception:
+            raise ValueError("Local path escapes allowed root")
+        return str(tgt)
     def _safe_remote_path(self, path: str) -> str:
         """Build a safe absolute remote path under base_path.
 
@@ -262,10 +275,11 @@ class SFTPBackupDestination(BackupDestination):
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         # Validate and build safe remote path under base_path
         rp = self._safe_remote_path(remote_filename)
+        src = self._safe_local_path(local_file_path)
         with self._get_sftp_client() as sftp:
             dir_part = os.path.dirname(rp)
             self._sftp_makedirs(sftp, dir_part)
-            size_local = os.path.getsize(local_file_path)
+            size_local = os.path.getsize(src)
 
             last = 0
 
@@ -277,7 +291,7 @@ class SFTPBackupDestination(BackupDestination):
                     last = transferred
 
             try:
-                sftp.put(local_file_path, rp, callback=_cb)
+                sftp.put(src, rp, callback=_cb)
                 sftp.chmod(rp, 0o644)
             except Exception as exc:
                 # cleanup partial
@@ -301,9 +315,10 @@ class SFTPBackupDestination(BackupDestination):
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         try:
             rp = self._safe_remote_path(remote_path)
-            Path(local_file_path).parent.mkdir(parents=True, exist_ok=True)
+            dst = self._safe_local_path(local_file_path)
+            Path(dst).parent.mkdir(parents=True, exist_ok=True)
             with self._get_sftp_client() as sftp:
-                sftp.get(rp, local_file_path)
+                sftp.get(rp, dst)
             return True
         except Exception as exc:
             _logger.error(
