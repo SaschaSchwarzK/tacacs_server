@@ -100,6 +100,7 @@ class FTPBackupDestination(BackupDestination):
         """
         import tempfile as _tmp
         from pathlib import Path as _P
+        import os as _os
 
         lp = _P(local_path)
         if lp.is_absolute():
@@ -113,8 +114,18 @@ class FTPBackupDestination(BackupDestination):
             base.mkdir(parents=True, exist_ok=True)
             base = base.resolve()
 
+        # Disallow symlinks for base directory
+        if base.is_symlink():
+            raise ValueError("Base directory may not be a symlink")
+
         tgt = (base / lp).resolve()
-        _ = tgt.relative_to(base)
+        # Ensure final target is within base using commonpath
+        if _os.path.commonpath([str(base), str(tgt)]) != str(base):
+            raise ValueError("Path escapes base directory")
+        try:
+            _ = tgt.relative_to(base)
+        except ValueError:
+            raise ValueError("Path traversal detected (not relative to base)")
         return str(tgt)
 
     def _make_ftps(self):
