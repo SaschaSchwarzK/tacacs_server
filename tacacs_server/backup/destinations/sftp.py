@@ -236,10 +236,21 @@ class SFTPBackupDestination(BackupDestination):
                 raise ValueError("Path traversal detected in local file path")
 
         tgt = (base / lp).resolve()
+        # Extra containment check: ensure tgt is under base (raises ValueError if not)
+        try:
+            tgt.relative_to(base)
+        except ValueError:
+            raise ValueError("Local path escapes allowed root (relative_to)")
         if _os.path.commonpath([str(base), str(tgt)]) != str(base):
-            raise ValueError("Local path escapes allowed root")
+            raise ValueError("Local path escapes allowed root (commonpath)")
         if base.is_symlink():
             raise ValueError("Backup base directory may not be a symlink")
+        # Prevent symlinks in any parent dirs between base and tgt
+        for parent in tgt.parents:
+            if parent == base:
+                break
+            if parent.is_symlink():
+                raise ValueError(f"Symlink directory detected in path: {parent}")
         return str(tgt)
 
     def _safe_remote_path(self, path: str) -> str:

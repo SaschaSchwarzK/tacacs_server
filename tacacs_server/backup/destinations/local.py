@@ -57,8 +57,17 @@ class LocalBackupDestination(BackupDestination):
             if part == "..":
                 raise ValueError("Path traversal detected in local file path")
 
-        # Resolve target with non-strict flag (so destination may not yet exist)
-        tgt = (base / lp).resolve(strict=False)
+        # Normalize the target path before resolving or checking containment
+
+        tgt_rel_norm = os.path.normpath(str(lp))
+        # Ensure that normalization didn't introduce a root or traversal
+        if tgt_rel_norm.startswith(os.sep):
+            raise ValueError(
+                "Path escapes allowed local directory (unexpected absolute after normalization)"
+            )
+        if ".." in tgt_rel_norm.split(os.sep):
+            raise ValueError("Path traversal detected in normalized path")
+        tgt = (base / tgt_rel_norm).resolve(strict=False)
         # Confirm real path containment even for symlink/complex filesystem situations
         if os.path.commonpath([str(base), str(tgt)]) != str(base):
             raise ValueError("Local path escapes allowed root directory")
@@ -67,8 +76,12 @@ class LocalBackupDestination(BackupDestination):
             if parent.is_symlink():
                 raise ValueError("Target path parent is a symlink")
         # Additionally ensure that the path itself is neither a symlink nor does it point to one (if existent)
-        if tgt.exists() and tgt.is_symlink():
-            raise ValueError("Target path is a symlink")
+        if tgt.exists():
+            # If the target exists, it must be a regular file (never a symlink, socket, or special type)
+            if tgt.is_symlink() or not tgt.is_file():
+                raise ValueError(
+                    "Target path is not a regular file (or is a symlink/special file)"
+                )
         return tgt
 
     def test_connection(self) -> tuple[bool, str]:

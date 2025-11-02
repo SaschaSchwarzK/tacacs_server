@@ -277,18 +277,43 @@ class AzureBlobBackupDestination(BackupDestination):
             raise ValueError("Local path escapes allowed root")
         # Ensure no symlinks in ancestors between base and tgt
         par = tgt
-        while par != base:
+        while True:
+            if par == base:
+                break
             if par.is_symlink():
                 raise ValueError(f"Symlink detected in output path: {par}")
-            par = par.parent
-            if par == par.parent:  # safeguard against infinite loop
+            parent = par.parent
+            if parent == par:  # infinite loop, root reached unexpectedly
                 break
+            par = parent
         if base.is_symlink():
             raise ValueError("Backup base directory may not be a symlink")
         # Optionally, error if tgt is a symlink (if already present)
         if tgt.exists() and tgt.is_symlink():
             raise ValueError("Target file may not be a symlink")
         return tgt
+
+    def _safe_open_for_write(self, path):
+        """
+        Open a file for writing securely, preventing symlink attacks.
+        On platforms that support O_NOFOLLOW, will prevent opening a symlink even if one is
+        created between checks and file creation.
+        """
+        import errno
+        import os
+
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        # O_NOFOLLOW is not available on Windows
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(str(path), flags, 0o600)
+        except OSError as e:
+            # If the error is "File is a symlink", raise descriptive error
+            if getattr(e, "errno", None) in (errno.ELOOP, getattr(errno, "EMLINK", -1)):
+                raise ValueError(f"Symlink detected at open: {path}") from e
+            raise
+        return open(fd, "wb")
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._ensure_clients()
@@ -349,7 +374,7 @@ class AzureBlobBackupDestination(BackupDestination):
             # Safely create destination directory under allowed local root
             dst_path = self._safe_local_path(local_file_path)
             dst_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(dst_path, "wb") as file:
+            with self._safe_open_for_write(dst_path) as file:
                 download_stream = blob_client.download_blob(
                     max_concurrency=int(self.config.get("max_concurrency", 4))
                 )
