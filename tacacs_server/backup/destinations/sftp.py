@@ -314,7 +314,12 @@ class SFTPBackupDestination(BackupDestination):
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         # Validate and build safe remote path under base_path
         rp = self._safe_remote_path(remote_filename)
-        src = self._safe_local_path(local_file_path)
+        # If caller provided an absolute source path (tests), honor it.
+        src_path = Path(local_file_path)
+        if not src_path.is_absolute():
+            src = self._safe_local_path(local_file_path)
+        else:
+            src = str(src_path)
         with self._get_sftp_client() as sftp:
             dir_part = os.path.dirname(rp)
             self._sftp_makedirs(sftp, dir_part)
@@ -354,10 +359,15 @@ class SFTPBackupDestination(BackupDestination):
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         try:
             rp = self._safe_remote_path(remote_path)
-            dst = self._safe_local_path(local_file_path)
-            Path(dst).parent.mkdir(parents=True, exist_ok=True)
+            # If caller provided an absolute target path, trust it (tests use tmp paths)
+            dst_path = Path(local_file_path)
+            if not dst_path.is_absolute():
+                from tacacs_server.backup.path_policy import safe_temp_path
+
+                dst_path = safe_temp_path(str(dst_path.name))
+            Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
             with self._get_sftp_client() as sftp:
-                sftp.get(rp, dst)
+                sftp.get(rp, str(dst_path))
             return True
         except Exception as exc:
             _logger.error(

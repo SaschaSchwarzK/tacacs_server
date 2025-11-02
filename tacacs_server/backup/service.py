@@ -56,16 +56,13 @@ class BackupService:
         self.config = config
         self.execution_store = execution_store
 
-        temp_dir = "data/backup_temp"
+        # Use fixed temp root for all transient operations
         try:
-            if hasattr(self.config, "get_backup_config"):
-                bcfg = self.config.get_backup_config()
-                if bcfg and "temp_directory" in bcfg:
-                    temp_dir = bcfg["temp_directory"]
-        except Exception as e:
-            _logger.debug(f"Using default temp_dir: {e}")
+            from tacacs_server.backup.path_policy import get_temp_root
 
-        self.temp_dir = Path(str(temp_dir))
+            self.temp_dir = get_temp_root()
+        except Exception:
+            self.temp_dir = Path("/var/run/tacacs/tmp")
         self._ensure_temp_dir()
         self.instance_name = (
             self.config.config_store.get_instance_name()
@@ -101,17 +98,21 @@ class BackupService:
         from pathlib import Path as _P
 
         lp = _P(path)
-        if lp.is_absolute():
-            raise ValueError("Absolute paths are not allowed")
+        base = _P(str(self.temp_dir)).resolve()
 
+        # If an absolute path is provided, allow it only if it resides under temp_dir
+        if lp.is_absolute():
+            tgt = lp.resolve()
+            if _os.path.commonpath([str(base), str(tgt)]) != str(base):
+                raise ValueError("Path escapes temp directory")
+            return str(tgt)
+
+        # Relative paths: validate and anchor to temp_dir
         for part in lp.parts:
             if part == "..":
                 raise ValueError("Path traversal detected")
-
-        base = _P(str(self.temp_dir)).resolve()
         if base.is_symlink():
             raise ValueError("Temp base directory may not be a symlink")
-
         tgt = (base / lp).resolve()
         if _os.path.commonpath([str(base), str(tgt)]) != str(base):
             raise ValueError("Path escapes temp directory")
@@ -1121,6 +1122,20 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
     global _backup_service_instance
     execution_store = BackupExecutionStore("data/backup_executions.db")
     _backup_service_instance = BackupService(config, execution_store)
+    # Verify fixed roots are available and writable
+    try:
+        from tacacs_server.backup.path_policy import get_backup_root, get_temp_root
+
+        br = get_backup_root()
+        tr = get_temp_root()
+        # Simple writability checks
+        test_f = tr / ".writetest"
+        test_f.write_text("ok", encoding="utf-8")
+        test_f.unlink(missing_ok=True)
+        if not br.exists() or not br.is_dir():
+            raise RuntimeError(f"Backup root unavailable: {br}")
+    except Exception as e:
+        _logger.warning(f"Backup path roots check failed: {e}")
     try:
         _backup_service_instance.scheduler = BackupScheduler(_backup_service_instance)
         _backup_service_instance.scheduler.start()
@@ -1131,7 +1146,12 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
         rows = _backup_service_instance.execution_store.list_destinations()
         if not rows:
             # Create a sensible default local destination
-            base_path = str((Path("data") / "backups").resolve())
+            try:
+                from tacacs_server.backup.path_policy import get_backup_root
+
+                base_path = str(get_backup_root())
+            except Exception:
+                base_path = str((Path("/data/backups")).resolve())
             os.makedirs(base_path, exist_ok=True)
             dest_id = _backup_service_instance.execution_store.create_destination(
                 name="local-default",

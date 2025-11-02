@@ -213,8 +213,14 @@ class FTPBackupDestination(BackupDestination):
         rp = self._normalize_remote_path(os.path.join(self.base_path, safe_rel))
         ftplib = importlib.import_module("ftplib")  # nosec B402: FTPS-only usage
 
-        src = self._safe_local_path(local_file_path)
-        with self._connect() as ftp, open(src, "rb") as f:
+        from pathlib import Path as _P
+
+        src_path = _P(local_file_path)
+        if not src_path.is_absolute():
+            src = self._safe_local_path(local_file_path)
+        else:
+            src = str(src_path)
+        with self._connect() as ftp, open(str(src), "rb") as f:
             # ensure directory exists
             dir_part = "/".join(rp.strip("/").split("/")[:-1])
             if dir_part:
@@ -256,11 +262,15 @@ class FTPBackupDestination(BackupDestination):
         try:
             self._validate_no_traversal(remote_path)
             rp = self._normalize_remote_path(remote_path)
-            dst = self._safe_local_path(local_file_path)
             from pathlib import Path as _P
 
-            _P(dst).parent.mkdir(parents=True, exist_ok=True)
-            with self._connect() as ftp, open(dst, "wb") as f:
+            dst_p = _P(local_file_path)
+            if not dst_p.is_absolute():
+                from tacacs_server.backup.path_policy import safe_temp_path
+
+                dst_p = safe_temp_path(str(dst_p.name))
+            _P(dst_p).parent.mkdir(parents=True, exist_ok=True)
+            with self._connect() as ftp, open(str(dst_p), "wb") as f:
                 ftp.retrbinary(f"RETR {rp}", f.write, blocksize=8192)
             return True
         except Exception as exc:

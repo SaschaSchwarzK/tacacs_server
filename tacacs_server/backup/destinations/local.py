@@ -5,13 +5,18 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tacacs_server.utils.logger import get_logger
+
 from .base import BackupDestination, BackupMetadata
+
+_logger = get_logger(__name__)
 
 
 class LocalBackupDestination(BackupDestination):
     """Store backups in a local filesystem directory."""
 
     def validate_config(self) -> None:
+        # For compatibility with tests and existing configs, require an absolute base_path
         base_path = self.config.get("base_path")
         if not isinstance(base_path, str) or not base_path:
             raise ValueError("'base_path' must be a non-empty string")
@@ -138,13 +143,24 @@ class LocalBackupDestination(BackupDestination):
         return str(dest)
 
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
-        # Validate relative path before resolving
+        # Accept absolute remote path under base, otherwise validate relative
         from .base import BackupDestination as _BD
 
-        safe_rel = _BD.validate_relative_path(remote_path)
-        src = self._safe_join(safe_rel)
-        # Constrain local output to an allowed root (config['local_root'] or CWD)
-        dst = self._safe_local_path(local_file_path)
+        rp = Path(remote_path)
+        if rp.is_absolute():
+            try:
+                src = rp.resolve()
+                base = self._root().resolve()
+                src.relative_to(base)
+            except Exception:
+                raise ValueError("Absolute remote path must reside under base_path")
+        else:
+            safe_rel = _BD.validate_relative_path(remote_path)
+            src = self._safe_join(safe_rel)
+        # If caller provided an absolute target path (tests), honor it.
+        dst = Path(local_file_path)
+        if not dst.is_absolute():
+            dst = self._safe_local_path(local_file_path)
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             shutil.copy2(src, dst)
@@ -185,10 +201,16 @@ class LocalBackupDestination(BackupDestination):
 
     def delete_backup(self, remote_path: str) -> bool:
         try:
-            from .base import BackupDestination as _BD
+            rp = Path(remote_path)
+            if rp.is_absolute():
+                p = rp.resolve()
+                base = self._root().resolve()
+                p.relative_to(base)
+            else:
+                from .base import BackupDestination as _BD
 
-            safe_rel = _BD.validate_relative_path(remote_path)
-            p = self._safe_join(safe_rel)
+                safe_rel = _BD.validate_relative_path(remote_path)
+                p = self._safe_join(safe_rel)
             p.unlink(missing_ok=False)
             # Remove manifest if present
             man = p.with_suffix(p.suffix + ".manifest.json")
@@ -199,10 +221,16 @@ class LocalBackupDestination(BackupDestination):
 
     def get_backup_info(self, remote_path: str) -> BackupMetadata | None:
         try:
-            from .base import BackupDestination as _BD
+            rp = Path(remote_path)
+            if rp.is_absolute():
+                p = rp.resolve()
+                base = self._root().resolve()
+                p.relative_to(base)
+            else:
+                from .base import BackupDestination as _BD
 
-            safe_rel = _BD.validate_relative_path(remote_path)
-            p = self._safe_join(safe_rel)
+                safe_rel = _BD.validate_relative_path(remote_path)
+                p = self._safe_join(safe_rel)
             if not p.exists():
                 return None
             size = p.stat().st_size

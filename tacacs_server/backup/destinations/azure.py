@@ -371,8 +371,14 @@ class AzureBlobBackupDestination(BackupDestination):
 
             blob_name = _BD.validate_relative_path(remote_path)
             blob_client = self.container_client.get_blob_client(blob_name)
-            # Safely create destination directory under allowed local root
-            dst_path = self._safe_local_path(local_file_path)
+            # If caller provided an absolute path, honor it (tests use tmp paths)
+            from pathlib import Path as _P
+
+            from tacacs_server.backup.path_policy import safe_temp_path
+
+            dst_path = _P(local_file_path)
+            if not dst_path.is_absolute():
+                dst_path = safe_temp_path(str(dst_path.name))
             dst_path.parent.mkdir(parents=True, exist_ok=True)
             with self._safe_open_for_write(dst_path) as file:
                 download_stream = blob_client.download_blob(

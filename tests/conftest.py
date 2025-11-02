@@ -22,6 +22,18 @@ from pyftpdlib.servers import FTPServer
 from requests.exceptions import RequestException
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _backup_env_roots(tmp_path_factory: pytest.TempPathFactory):
+    """Force backup roots to temp dirs for all tests."""
+    import os as _os
+
+    backup_root = tmp_path_factory.mktemp("backups_root")
+    temp_root = tmp_path_factory.mktemp("backups_tmp")
+    _os.environ["BACKUP_ROOT"] = str(backup_root)
+    _os.environ["BACKUP_TEMP"] = str(temp_root)
+    yield
+
+
 def _find_free_port() -> int:
     """Find an available port on localhost"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

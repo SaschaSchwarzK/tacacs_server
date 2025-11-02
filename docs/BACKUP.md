@@ -40,8 +40,7 @@ enabled = true
 # Create backup on server startup
 create_on_startup = false
 
-# Temporary directory for backup processing
-temp_directory = data/backup_temp
+; Temporary directory is managed internally by the server and not configurable
 
 # Default retention period in days
 default_retention_days = 30
@@ -55,7 +54,7 @@ compression_level = 6
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `BACKUP_ENCRYPTION_PASSPHRASE` | Encryption passphrase | `your-secure-passphrase` |
-| `BACKUP_TEMP_DIR` | Override temp directory | `/tmp/backup_work` |
+| `BACKUP_ROOT` | Fixed backup root for local destination | `/data/backups` |
 
 ## Backup Destinations
 
@@ -63,9 +62,12 @@ compression_level = 6
 ```ini
 [backup.destinations.local_daily]
 type = local
-base_path = /var/backups/tacacs
+; base_path is ignored — local destination writes under BACKUP_ROOT (/data/backups)
 retention_days = 30
 ```
+
+> Note: The backup system writes persistent artifacts under `/data/backups` (override with `BACKUP_ROOT`).
+> The temporary working directory is fixed and managed internally by the server.
 
 ### SFTP (Recommended for Remote)
 
