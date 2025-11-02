@@ -90,6 +90,26 @@ templates.env.globals["api_disabled"] = not bool(os.getenv("API_TOKEN"))
 templates.env.globals["proxy_enabled"] = False  # Will be updated when config loads
 
 
+# ============================================================================
+# BACKUP UI
+# ============================================================================
+
+
+@router.get(
+    "/backup",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_admin_session)],
+    name="admin_backup",
+)
+async def backup_page(request: Request):
+    """Backup & Restore UI"""
+    return templates.TemplateResponse(
+        request,
+        "admin/backup/local.html",
+        {},
+    )
+
+
 def _redact(data):
     try:
         if isinstance(data, dict):
@@ -444,6 +464,97 @@ async def dashboard(request: Request):
     except Exception as e:
         logger.warning(f"Failed to get TACACS stats: {e}")
 
+    # Build backend summaries (at least show 'local' when present)
+    backend_summaries = []
+    try:
+        backends = []
+        if tacacs_server and hasattr(tacacs_server, "auth_backends"):
+            backends = list(getattr(tacacs_server, "auth_backends", []) or [])
+        # Fallback: derive from config if server not set
+        if not backends:
+            try:
+                cfg = request.app.state.config_service
+                if cfg and hasattr(cfg, "get_auth_backends"):
+                    names = cfg.get_auth_backends() or []
+                    # Build simple stubs with name only
+                    backends = [{"name": n} for n in names]
+            except Exception:
+                backends = []
+        for be in backends:
+            try:
+                name = getattr(be, "name", None) or (be.get("name") if isinstance(be, dict) else str(be))
+                available = True
+                try:
+                    if hasattr(be, "is_available") and callable(getattr(be, "is_available")):
+                        available = bool(getattr(be, "is_available")())
+                except Exception:
+                    available = True
+                backend_summaries.append({"name": str(name), "status": available})
+            except Exception:
+                continue
+    except Exception:
+        backend_summaries = []
+
+    # Sample devices, groups, users for quick glance
+    device_samples: list[dict] = []
+    group_samples: list[dict] = []
+    user_samples: list[dict] = []
+    try:
+        if device_service and hasattr(device_service, "list_devices"):
+            devs = device_service.list_devices()
+            for d in (devs[:5] if isinstance(devs, list) else []):
+                try:
+                    device_samples.append(
+                        {
+                            "name": getattr(d, "display_name", getattr(d, "name", "")),
+                            "network": str(getattr(d, "network", "")),
+                            "group": getattr(getattr(d, "group", None), "name", None),
+                            "has_tacacs_secret": bool(getattr(getattr(d, "group", None), "tacacs_secret", None)),
+                            "has_radius_secret": bool(getattr(getattr(d, "group", None), "radius_secret", None)),
+                        }
+                    )
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.warning(f"Failed to list device samples: {e}")
+
+    try:
+        if device_service and hasattr(device_service, "list_groups"):
+            grps = device_service.list_groups()
+            for g in (grps[:5] if isinstance(grps, list) else []):
+                try:
+                    allowed = getattr(g, "allowed_user_groups", []) or []
+                    group_samples.append(
+                        {
+                            "name": getattr(g, "name", ""),
+                            "allowed_user_groups": ", ".join(allowed) if isinstance(allowed, list) else str(allowed),
+                            "tacacs_secret": bool(getattr(g, "tacacs_secret", None)),
+                            "radius_secret": bool(getattr(g, "radius_secret", None)),
+                        }
+                    )
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.warning(f"Failed to list group samples: {e}")
+
+    try:
+        if user_service and hasattr(user_service, "list_users"):
+            users = user_service.list_users()
+            for u in (users[:5] if isinstance(users, list) else []):
+                try:
+                    user_samples.append(
+                        {
+                            "username": getattr(u, "username", ""),
+                            "privilege_level": getattr(u, "privilege_level", 1),
+                            "enabled": bool(getattr(u, "enabled", True)),
+                            "groups": ", ".join(getattr(u, "groups", []) or []),
+                        }
+                    )
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.warning(f"Failed to list user samples: {e}")
+
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",
@@ -458,10 +569,10 @@ async def dashboard(request: Request):
                 "author": author_summary,
                 "acct": acct_summary,
             },
-            "backend_summaries": [],
-            "device_samples": [],
-            "group_samples": [],
-            "user_samples": [],
+            "backend_summaries": backend_summaries,
+            "device_samples": device_samples,
+            "group_samples": group_samples,
+            "user_samples": user_samples,
         },
     )
 
@@ -1271,6 +1382,7 @@ async def config_page(request: Request):
                 else {},
                 "auth": config_data.get("auth", {}),
                 "ldap": config_data.get("ldap", {}),
+                "okta": config_data.get("okta", {}),
             }
 
             config_source = getattr(
@@ -1283,6 +1395,37 @@ async def config_page(request: Request):
             import json
 
             config_json = json.dumps(config_data, indent=2)
+
+            # Detect configuration drift specifically for restart-sensitive settings
+            pending_restart = False
+            drift_summary = {}
+            try:
+                if hasattr(config_service, "detect_config_drift"):
+                    drift = config_service.detect_config_drift() or {}
+                    drift_summary = drift
+                    # Keys that require a service restart to fully apply
+                    restart_sensitive: set[tuple[str, str]] = {
+                        ("server", "host"),
+                        ("server", "port"),
+                        ("auth", "backends"),
+                        ("auth", "local_auth_db"),
+                        ("devices", "database"),
+                        ("radius", "enabled"),
+                        ("database", "accounting_db"),
+                        ("database", "metrics_history_db"),
+                        ("database", "audit_trail_db"),
+                        ("proxy_protocol", "enabled"),
+                    }
+                    # If any restart-sensitive key has drift, suggest restart
+                    for section, keys in drift.items():
+                        for key in keys.keys():
+                            if (str(section), str(key)) in restart_sensitive:
+                                pending_restart = True
+                                break
+                        if pending_restart:
+                            break
+            except Exception:
+                pending_restart = False
     except Exception as e:
         logger.warning(f"Failed to get config: {e}")
 
@@ -1297,6 +1440,8 @@ async def config_page(request: Request):
             "configuration": configuration,
             "config_source": config_source,
             "config_json": config_json,
+            "pending_restart": locals().get("pending_restart", False),
+            "drift_summary": locals().get("drift_summary", {}),
         },
     )
 
@@ -1439,6 +1584,19 @@ async def reload_config():
     # TODO: Trigger reload
     logger.info("Config reload requested")
     return {"success": True, "message": "Configuration reloaded"}
+
+
+@router.post("/server/restart", dependencies=[Depends(require_admin_session)])
+async def restart_services_api():
+    """Restart TACACS/RADIUS services and reopen DB connections."""
+    try:
+        from tacacs_server.utils.maintenance import restart_services as _restart
+
+        _restart()
+        return {"success": True, "message": "Services restarted"}
+    except Exception as e:
+        logger.exception("Restart failed: %s", e)
+        return {"success": False, "message": str(e)}
 
 
 @router.post("/server/reset-stats", dependencies=[Depends(require_admin_session)])

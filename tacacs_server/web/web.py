@@ -41,6 +41,10 @@ from tacacs_server.web.api.device_groups import router as device_groups_router
 from tacacs_server.web.api.devices import router as devices_router
 from tacacs_server.web.api.usergroups import router as user_groups_router
 from tacacs_server.web.api.users import router as users_router
+try:
+    from tacacs_server.web.api.users import admin_router as admin_users_router
+except Exception:
+    admin_users_router = None
 from tacacs_server.web.api_models import (
     AccountingResponse,
     AuthBackendInfo,
@@ -452,6 +456,8 @@ class WebServer:
         self.app.include_router(devices_router)
         self.app.include_router(device_groups_router)
         self.app.include_router(users_router)
+        if admin_users_router is not None:
+            self.app.include_router(admin_users_router)
         self.app.include_router(user_groups_router)
         # Proxies API routes are registered in the main web_app.py
         self.app.include_router(config_router)

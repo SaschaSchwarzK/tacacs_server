@@ -5,10 +5,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from tacacs_server.backup.destinations import create_destination
+from tacacs_server.backup.destinations.local import LocalBackupDestination
 from tacacs_server.backup.service import get_backup_service
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.web.api_models import (
@@ -56,6 +58,76 @@ class RestoreRequest(BaseModel):
     components: list[str] | None = None  # ["config", "devices", "users"]
     confirm: bool = False
     async_mode: bool = False  # When true, run restore in background
+
+
+@router.get(
+    "/download",
+    summary="Download a local backup",
+    description="Download a backup file from a local destination by its path.",
+)
+async def download_local_backup(
+    destination_id: str,
+    backup_path: str,
+    _: None = Depends(admin_guard),
+):
+    service = get_backup_service()
+    dest = service.execution_store.get_destination(destination_id)
+    if not dest:
+        raise HTTPException(status_code=404, detail="Destination not found")
+    if str(dest.get("type")).lower() != "local":
+        raise HTTPException(status_code=400, detail="Download supported for local destination only")
+    try:
+        destination = LocalBackupDestination(json.loads(dest.get("config_json") or "{}"))
+        info = destination.get_backup_info(backup_path)
+        if not info:
+            raise HTTPException(status_code=404, detail="Backup not found")
+        # Use FileResponse to stream file; filename from metadata
+        return FileResponse(info.path, filename=info.filename, media_type="application/octet-stream")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to prepare download: {exc}")
+
+
+@router.post(
+    "/upload",
+    summary="Upload a backup to local destination",
+    description="Upload a backup archive to a local destination.",
+)
+async def upload_local_backup(
+    destination_id: str = Form(...),
+    file: UploadFile = File(...),
+    _: None = Depends(admin_guard),
+):
+    service = get_backup_service()
+    dest = service.execution_store.get_destination(destination_id)
+    if not dest:
+        raise HTTPException(status_code=404, detail="Destination not found")
+    if str(dest.get("type")).lower() != "local":
+        raise HTTPException(status_code=400, detail="Upload supported for local destination only")
+    # Persist upload to a temp file, then move via destination
+    import tempfile, os
+    try:
+        suffix = os.path.splitext(file.filename or "backup.tar.gz")[1] or ".tar.gz"
+        with tempfile.NamedTemporaryFile(prefix="backup_upload_", suffix=suffix, delete=False) as tmp:
+            tmp_path = tmp.name
+            while True:
+                chunk = await file.read(8192)
+                if not chunk:
+                    break
+                tmp.write(chunk)
+        destination = LocalBackupDestination(json.loads(dest.get("config_json") or "{}"))
+        remote_filename = file.filename or os.path.basename(tmp_path)
+        stored_path = destination.upload_backup(tmp_path, remote_filename)
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+        return {"success": True, "backup_path": stored_path, "filename": remote_filename}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
 
 
 @router.post(

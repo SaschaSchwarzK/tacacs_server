@@ -123,7 +123,7 @@ async function saveOktaSettings() {
   const status = document.getElementById('okta-status');
   status.textContent = '';
   const okta = {};
-  ['domain', 'api_token', 'timeout'].forEach(key => {
+  ['domain', 'api_token', 'timeout', 'default_okta_group'].forEach(key => {
     const el = document.getElementById('okta_' + key);
     if (el && el.value.trim()) okta[key] = el.value;
   });

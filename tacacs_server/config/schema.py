@@ -66,6 +66,10 @@ class OktaConfigSchema(BaseModel):
     api_token: str | None = Field(default=None, alias="token")
     verify_tls: bool = Field(default=True)
     timeout: int = Field(default=10, ge=0)
+    # Optional: when set, the server will create a local user group
+    # with this name (if missing), set its okta_group mapping, and
+    # link it to the default device group at startup.
+    default_okta_group: str | None = Field(default=None)
 
 
 class TacacsConfigSchema(BaseModel):

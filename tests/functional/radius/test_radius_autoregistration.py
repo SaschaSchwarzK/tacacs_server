@@ -8,16 +8,18 @@ and not created (strict deny) when disabled.
 from __future__ import annotations
 
 import hashlib
+import os
 import socket
 import struct
-import os
 
 
 def _make_request_authenticator() -> bytes:
     return os.urandom(16)
 
 
-def _radius_auth(host: str, port: int, secret: str, username: str, password: str) -> tuple[bool, str]:
+def _radius_auth(
+    host: str, port: int, secret: str, username: str, password: str
+) -> tuple[bool, str]:
     sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -55,7 +57,13 @@ def _radius_auth(host: str, port: int, secret: str, username: str, password: str
         if len(resp) < 20:
             return False, "invalid"
         resp_code = resp[0]
-        return (resp_code == 2), ("Accept" if resp_code == 2 else "Reject" if resp_code == 3 else str(resp_code))
+        return (resp_code == 2), (
+            "Accept"
+            if resp_code == 2
+            else "Reject"
+            if resp_code == 3
+            else str(resp_code)
+        )
     except Exception as e:
         return False, f"error: {e}"
     finally:
@@ -80,11 +88,15 @@ def test_radius_autoregistration_enabled(server_factory):
     us.create_user("ruser1", password="Passw0rd!", privilege_level=15)
 
     ds = DeviceStore(str(server.devices_db))
-    ds.ensure_group("default", description="Default", metadata={"radius_secret": "radsecret"})
+    ds.ensure_group(
+        "default", description="Default", metadata={"radius_secret": "radsecret"}
+    )
 
     with server:
         # No devices pre-configured; first request triggers auto-registration
-        ok, _ = _radius_auth("127.0.0.1", server.radius_auth_port, "radsecret", "ruser1", "Passw0rd!")
+        ok, _ = _radius_auth(
+            "127.0.0.1", server.radius_auth_port, "radsecret", "ruser1", "Passw0rd!"
+        )
         # Regardless of auth outcome, device should now exist
         rec = ds.find_device_for_ip("127.0.0.1")
         assert rec is not None, "Auto-registered RADIUS client device expected"
@@ -107,10 +119,14 @@ def test_radius_autoregistration_disabled(server_factory):
     us.create_user("ruser2", password="Passw0rd!", privilege_level=15)
 
     ds = DeviceStore(str(server.devices_db))
-    ds.ensure_group("default", description="Default", metadata={"radius_secret": "radsecret"})
+    ds.ensure_group(
+        "default", description="Default", metadata={"radius_secret": "radsecret"}
+    )
 
     with server:
-        ok, _ = _radius_auth("127.0.0.1", server.radius_auth_port, "radsecret", "ruser2", "Passw0rd!")
+        ok, _ = _radius_auth(
+            "127.0.0.1", server.radius_auth_port, "radsecret", "ruser2", "Passw0rd!"
+        )
         # Auto-registration disabled: device must not be created
         rec = ds.find_device_for_ip("127.0.0.1")
         assert rec is None, "Device must not be created when auto_register=false"

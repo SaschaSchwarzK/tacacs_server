@@ -177,6 +177,22 @@ class DeviceStore:
             except Exception as exc:
                 logger.warning("DeviceStore close failed: %s", exc)
 
+    def reload(self) -> None:
+        """Re-open the underlying SQLite connection after maintenance."""
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._ensure_schema()
+        # Rebuild in-memory indexes
+        try:
+            self.refresh_indexes()
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Schema management
     # ------------------------------------------------------------------

@@ -848,7 +848,11 @@ class RADIUSServer:
                         cidr = f"{client_ip}/32"
                         if ":" in client_ip:
                             cidr = f"{client_ip}/128"
-                        ds.ensure_device(name=f"auto-{client_ip.replace(':','_')}", network=cidr, group=group_name)
+                        ds.ensure_device(
+                            name=f"auto-{client_ip.replace(':', '_')}",
+                            network=cidr,
+                            group=group_name,
+                        )
                         # Refresh RADIUS clients from device store and retry lookup
                         try:
                             configs = ds.iter_radius_clients()
@@ -857,9 +861,13 @@ class RADIUSServer:
                             pass
                         client_config = self.lookup_client(client_ip)
                     except Exception as exc:
-                        logger.warning("RADIUS auto-registration failed for %s: %s", client_ip, exc)
+                        logger.warning(
+                            "RADIUS auto-registration failed for %s: %s", client_ip, exc
+                        )
                 if not client_config:
-                    logger.warning("RADIUS auth request from unknown client: %s", client_ip)
+                    logger.warning(
+                        "RADIUS auth request from unknown client: %s", client_ip
+                    )
                     self._inc("invalid_packets")
                     return
 
@@ -1072,7 +1080,11 @@ class RADIUSServer:
                         cidr = f"{client_ip}/32"
                         if ":" in client_ip:
                             cidr = f"{client_ip}/128"
-                        ds.ensure_device(name=f"auto-{client_ip.replace(':','_')}", network=cidr, group=group_name)
+                        ds.ensure_device(
+                            name=f"auto-{client_ip.replace(':', '_')}",
+                            network=cidr,
+                            group=group_name,
+                        )
                         try:
                             configs = ds.iter_radius_clients()
                             self.refresh_clients(configs)
@@ -1080,9 +1092,13 @@ class RADIUSServer:
                             pass
                         client_config = self.lookup_client(client_ip)
                     except Exception as exc:
-                        logger.warning("RADIUS auto-registration failed for %s: %s", client_ip, exc)
+                        logger.warning(
+                            "RADIUS auto-registration failed for %s: %s", client_ip, exc
+                        )
                 if not client_config:
-                    logger.warning("RADIUS acct request from unknown client: %s", client_ip)
+                    logger.warning(
+                        "RADIUS acct request from unknown client: %s", client_ip
+                    )
                     self._inc("invalid_packets")
                     return
 

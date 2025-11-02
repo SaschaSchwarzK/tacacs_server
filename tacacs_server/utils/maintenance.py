@@ -21,7 +21,8 @@ logger = get_logger(__name__)
 class _DBConnectionManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._registrations: list[tuple[Any, Callable[[], None]]] = []
+        # Store (object, close_fn, reload_fn)
+        self._registrations: list[tuple[Any, Callable[[], None], Callable[[], None] | None]] = []
         self._in_maintenance: bool = False
 
     def register(self, obj: Any, close_fn: Callable[[], None] | None = None) -> None:
@@ -32,27 +33,28 @@ class _DBConnectionManager:
         with self._lock:
             if close_fn is None:
                 close_fn = getattr(obj, "close", None)
+            reload_fn = getattr(obj, "reload", None)
             if not callable(close_fn):
                 return
             # Avoid duplicates
-            for existing_obj, _ in self._registrations:
+            for existing_obj, _, _ in self._registrations:
                 if existing_obj is obj:
                     return
-            self._registrations.append((obj, close_fn))
+            self._registrations.append((obj, close_fn, reload_fn if callable(reload_fn) else None))
 
     def unregister(self, obj: Any) -> None:
         with self._lock:
             self._registrations = [
-                (o, fn) for (o, fn) in self._registrations if o is not obj
+                (o, cfn, rfn) for (o, cfn, rfn) in self._registrations if o is not obj
             ]
 
     def enter_maintenance(self) -> None:
         """Enter maintenance mode and close all registered connections."""
         with self._lock:
             self._in_maintenance = True
-            regs = list(self._registrations)
+        regs = list(self._registrations)
         # Close outside the lock to avoid deadlocks on client internal locks
-        for _, close_fn in regs:
+        for _, close_fn, _ in regs:
             try:
                 close_fn()
             except Exception as exc:  # pragma: no cover - best-effort
@@ -62,8 +64,21 @@ class _DBConnectionManager:
                     pass
 
     def exit_maintenance(self) -> None:
+        # Flip flag first
         with self._lock:
             self._in_maintenance = False
+            regs = list(self._registrations)
+        # Attempt to reload any registered connections that expose reload()
+        for _, _, reload_fn in regs:
+            if reload_fn is None:
+                continue
+            try:
+                reload_fn()
+            except Exception as exc:  # pragma: no cover - best-effort
+                try:
+                    logger.debug("Reload after maintenance failed: %s", exc)
+                except Exception:
+                    pass
 
     def is_in_maintenance(self) -> bool:
         with self._lock:
@@ -132,6 +147,35 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
             if sch is not None:
                 try:
                     cast("_BackupScheduler", sch).start()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Refresh web app service stores (reopen DB connections) if available
+        try:
+            from tacacs_server.web.web import (
+                get_device_service as _get_dev_svc,
+                get_local_user_service as _get_user_svc,
+                get_local_user_group_service as _get_group_svc,
+            )
+
+            ds = _get_dev_svc()
+            if ds and hasattr(ds, "store") and hasattr(ds.store, "reload"):
+                try:
+                    ds.store.reload()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            us = _get_user_svc()
+            if us and hasattr(us, "store") and hasattr(us.store, "reload"):
+                try:
+                    us.store.reload()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            gs = _get_group_svc()
+            if gs and hasattr(gs, "store") and hasattr(gs.store, "reload"):
+                try:
+                    gs.store.reload()  # type: ignore[attr-defined]
                 except Exception:
                     pass
         except Exception:

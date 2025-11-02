@@ -1213,7 +1213,12 @@ class TacacsConfig:
         reason = kwargs.pop("_change_reason", None)
         source_ip = kwargs.pop("_source_ip", None)
         # Basic key filtering
-        allowed = {"auto_register", "default_group", "identity_cache_ttl_seconds", "identity_cache_size"}
+        allowed = {
+            "auto_register",
+            "default_group",
+            "identity_cache_ttl_seconds",
+            "identity_cache_size",
+        }
         for k in list(kwargs.keys()):
             if k not in allowed:
                 kwargs.pop(k)

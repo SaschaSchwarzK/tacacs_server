@@ -681,6 +681,39 @@ class DatabaseLogger:
                 logger.warning("Accounting DB close failed: %s", exc)
             self.conn = None
 
+    def reload(self) -> None:
+        """Re-open the database connection and rebuild the pool after maintenance."""
+        # Close any existing resources first
+        try:
+            self.close()
+        except Exception:
+            pass
+        try:
+            db_file = Path(self.db_path).resolve()
+            if not db_file.parent.exists():
+                db_file.parent.mkdir(parents=True, exist_ok=True)
+            self.conn = sqlite3.connect(str(db_file), timeout=10, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+            # Pragmas consistent with initializer
+            self.conn.execute("PRAGMA foreign_keys = ON;")
+            self.conn.execute("PRAGMA journal_mode = WAL;")
+            self.conn.execute("PRAGMA synchronous = NORMAL;")
+            self.conn.execute("PRAGMA temp_store = MEMORY;")
+            self.conn.execute("PRAGMA cache_size = -2000;")
+            self._initialize_schema()
+            # Recreate pool
+            try:
+                pool_size = int(os.getenv("TACACS_DB_POOL_SIZE", "5"))
+            except Exception:
+                pool_size = 5
+            if pool_size < 1:
+                pool_size = 1
+            if pool_size > 200:
+                pool_size = 200
+            self.pool = DatabasePool(str(db_file), pool_size=pool_size)
+        except Exception as exc:
+            logger.exception("Accounting DB reload failed: %s", exc)
+
     def __del__(self):
         """Ensure cleanup on object destruction"""
         self.close()

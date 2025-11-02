@@ -5,7 +5,7 @@ import sys
 import textwrap
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
@@ -303,10 +303,12 @@ class TacacsServerManager:
                 self.server.device_store = self.device_store
             # Wire device auto-registration behavior into TACACS server
             try:
-                self.server.device_auto_register = bool(
+                cast(Any, self.server).device_auto_register = bool(
                     self.device_store_config.get("auto_register", True)
                 )
-                self.server.default_device_group = self.device_store_config.get(
+                cast(
+                    Any, self.server
+                ).default_device_group = self.device_store_config.get(
                     "default_group", "default"
                 )
             except Exception:
@@ -365,6 +367,57 @@ class TacacsServerManager:
                 set_local_user_group_service(None)
                 if self.server and hasattr(self.server, "handlers"):
                     self.server.handlers.set_local_user_group_service(None)
+
+            # If configured, create/link a default Okta user group
+            try:
+                # Read from ConfigParser correctly; do not call .get() on the parser
+                cp = self.config.config
+                if cp is not None and cp.has_section("okta"):
+                    default_okta_group = str(
+                        cp.get("okta", "default_okta_group", fallback="")
+                    ).strip()
+                else:
+                    default_okta_group = ""
+            except Exception:
+                default_okta_group = ""
+            if default_okta_group and self.local_user_group_service:
+                try:
+                    # Ensure local user group exists with okta_group mapping
+                    local_group_name = "okta-default-group"
+                    try:
+                        grp = self.local_user_group_service.get_group(local_group_name)
+                        if getattr(grp, "okta_group", None) != default_okta_group:
+                            self.local_user_group_service.update_group(
+                                local_group_name, okta_group=default_okta_group
+                            )
+                    except Exception:
+                        self.local_user_group_service.create_group(
+                            local_group_name,
+                            description="Auto-created default Okta user group",
+                            okta_group=default_okta_group,
+                            privilege_level=1,
+                        )
+
+                    # Link this user group to the default device group if device store is available
+                    if self.device_store and self.device_service:
+                        dg_name = (
+                            self.device_store_config.get("default_group")
+                            if isinstance(self.device_store_config, dict)
+                            else None
+                        ) or "default"
+                        dg = self.device_store.get_group_by_name(dg_name)
+                        if dg and dg.id is not None:
+                            allowed = list(getattr(dg, "allowed_user_groups", []) or [])
+                            if local_group_name not in allowed:
+                                allowed.append(local_group_name)
+                                self.device_service.update_group(
+                                    dg.id, allowed_user_groups=allowed
+                                )
+                except Exception:
+                    logger.debug(
+                        "Default Okta group initialization skipped due to error",
+                        exc_info=True,
+                    )
 
         # Register pending refresh if radius server not yet initialised
         if self.device_store and not self.radius_server:
@@ -627,11 +680,13 @@ class TacacsServerManager:
                 self.radius_server.device_store = self.device_store
                 # Wire device auto-registration behavior into RADIUS server
                 try:
-                    self.radius_server.device_auto_register = bool(
+                    cast(Any, self.radius_server).device_auto_register = bool(
                         self.device_store_config.get("auto_register", True)
                     )
-                    self.radius_server.default_device_group = (
-                        self.device_store_config.get("default_group", "default")
+                    cast(
+                        Any, self.radius_server
+                    ).default_device_group = self.device_store_config.get(
+                        "default_group", "default"
                     )
                 except Exception:
                     pass

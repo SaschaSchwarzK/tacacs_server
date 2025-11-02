@@ -1,12 +1,4 @@
-"""
-TACACS+ PAP authentication against a real server (no mocks):
-- Unencrypted mode (UNENCRYPTED_FLAG set)
-- Encrypted mode (default XOR stream with shared secret)
-
-Reads values from the generated config file to locate the auth/devices DB paths
-and exercises the wire protocol directly. Seeds minimal state (user + device
-group secret + loopback device) so the authentication can succeed.
-"""
+"""TACACS+ encryption test with detailed diagnostics"""
 
 from __future__ import annotations
 
@@ -31,19 +23,6 @@ from tacacs_server.tacacs.packet import TacacsPacket
 
 
 def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes:
-    """Read exactly 'length' bytes from socket with timeout.
-
-    Args:
-        sock: Connected socket to read from
-        length: Number of bytes to read
-        timeout: Socket timeout in seconds
-
-    Returns:
-        bytes: Data read from socket
-
-    Raises:
-        socket.timeout: If read operation times out
-    """
     sock.settimeout(timeout)
     buf = bytearray()
     while len(buf) < length:
@@ -55,15 +34,6 @@ def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes
 
 
 def _mk_auth_start_body(username: str, password: str) -> bytes:
-    """Create TACACS+ authentication start packet body for PAP.
-
-    Args:
-        username: Username for authentication
-        password: Password for authentication
-
-    Returns:
-        bytes: Packed authentication start body
-    """
     user_b = username.encode()
     port_b = b""
     rem_b = b""
@@ -71,7 +41,7 @@ def _mk_auth_start_body(username: str, password: str) -> bytes:
     head = struct.pack(
         "!BBBBBBBB",
         TAC_PLUS_AUTHEN_ACTION.TAC_PLUS_AUTHEN_LOGIN,
-        1,  # privilege
+        1,
         TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_PAP,
         TAC_PLUS_AUTHEN_SVC.TAC_PLUS_AUTHEN_SVC_LOGIN,
         len(user_b),
@@ -83,58 +53,35 @@ def _mk_auth_start_body(username: str, password: str) -> bytes:
 
 
 def _seed_state(server) -> tuple[str, str, int]:
-    """Initialize test environment with test user and device configuration.
-
-    Creates a test user, device group, and loopback device for authentication testing.
-
-    Args:
-        server: Test server instance
-
-    Returns:
-        tuple: (username, password, port) for testing
-    """
-    """Create user and device group + loopback device. Returns (username, password, port)."""
-    # Read paths from the generated config file (no mocks)
     cfg = configparser.ConfigParser(interpolation=None)
     cfg.read(server.config_path)
     auth_db = cfg.get("auth", "local_auth_db", fallback=str(server.auth_db))
     devices_db = cfg.get("devices", "database", fallback=str(server.devices_db))
 
-    # Seed required state
     username = "apitestuser"
     password = "ApiTestPass1!"
+    
+    print(f"Creating user: {username}")
     usvc = LocalUserService(auth_db)
     try:
         usvc.create_user(username, password=password, privilege_level=1)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"User creation warning: {e}")
 
+    print(f"Creating device group and device")
     store = DeviceStore(devices_db)
-    # Ensure group secret matches the test TACACS secret
     store.ensure_group(
         "dg-plain",
         description="TACACS auth test",
         metadata={"tacacs_secret": "testing123"},
     )
-    store.ensure_device(name="loopback", network="127.0.0.1", group="dg-plain")
+    device = store.ensure_device(name="loopback", network="127.0.0.1", group="dg-plain")
+    print(f"Device: {device.name}, group={device.group.name if device.group else None}, secret={device.tacacs_secret}")
+    
     return username, password, server.tacacs_port
 
 
 def _try_auth_unencrypted(host: str, port: int, username: str, password: str) -> bool:
-    """Attempt unencrypted TACACS+ PAP authentication.
-
-    Tests the authentication flow when UNENCRYPTED_FLAG is set.
-
-    Args:
-        host: Server hostname or IP
-        port: Server port
-        username: Username for authentication
-        password: Password for authentication
-
-    Returns:
-        bool: True if authentication was successful, False otherwise
-    """
-    """Attempt unencrypted PAP auth. Returns True if PASS."""
     session_id = int(time.time()) & 0xFFFFFFFF
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
@@ -153,13 +100,18 @@ def _try_auth_unencrypted(host: str, port: int, username: str, password: str) ->
         s.sendall(full)
         hdr = _read_exact(s, TAC_PLUS_HEADER_SIZE)
         if len(hdr) != TAC_PLUS_HEADER_SIZE:
+            print(f"Unencrypted: Short header {len(hdr)}")
             return False
         header = TacacsPacket.unpack_header(hdr)
         body = _read_exact(s, header.length)
         if len(body) != header.length:
+            print(f"Unencrypted: Short body {len(body)}/{header.length}")
             return False
-        return body[0] == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS
-    except Exception:
+        status = body[0]
+        print(f"Unencrypted: status={status}, PASS={TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS}")
+        return status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS
+    except Exception as e:
+        print(f"Unencrypted exception: {e}")
         return False
     finally:
         try:
@@ -171,21 +123,6 @@ def _try_auth_unencrypted(host: str, port: int, username: str, password: str) ->
 def _try_auth_encrypted(
     host: str, port: int, username: str, password: str, secret: str = "testing123"
 ) -> bool:
-    """Attempt encrypted TACACS+ PAP authentication.
-
-    Tests the authentication flow with XOR encryption using shared secret.
-
-    Args:
-        host: Server hostname or IP
-        port: Server port
-        username: Username for authentication
-        password: Password for authentication
-        secret: Shared secret for encryption (default: "testing123")
-
-    Returns:
-        bool: True if authentication was successful, False otherwise
-    """
-    """Attempt encrypted PAP auth. Returns True if PASS."""
     session_id = int(time.time()) & 0xFFFFFFFF
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
@@ -197,6 +134,7 @@ def _try_auth_encrypted(
         body=_mk_auth_start_body(username, password),
     )
     full = pkt.pack(secret)
+    print(f"Encrypted: session={session_id:08x}, secret='{secret}'")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(3)
     try:
@@ -204,12 +142,15 @@ def _try_auth_encrypted(
         s.sendall(full)
         hdr = _read_exact(s, TAC_PLUS_HEADER_SIZE)
         if len(hdr) != TAC_PLUS_HEADER_SIZE:
+            print(f"Encrypted: Short header {len(hdr)}")
             return False
         header = TacacsPacket.unpack_header(hdr)
+        print(f"Encrypted: response seq={header.seq_no}, len={header.length}, flags={header.flags}")
         body = _read_exact(s, header.length)
         if len(body) != header.length:
+            print(f"Encrypted: Short body {len(body)}/{header.length}")
             return False
-        # Decrypt response body
+        
         import hashlib as _hashlib
 
         def _md5_pad(
@@ -233,8 +174,19 @@ def _try_auth_encrypted(
             len(body),
         )
         dec = bytes(a ^ b for a, b in zip(body, pad))
-        return dec[0] == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS
-    except Exception:
+        status = dec[0]
+        print(f"Encrypted: decrypted status={status}, PASS={TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS}")
+        if len(dec) > 6:
+            import struct
+            server_msg_len, data_len = struct.unpack("!HH", dec[2:6])
+            if server_msg_len > 0:
+                msg = dec[6:6+server_msg_len].decode('ascii', errors='replace')
+                print(f"Encrypted: server_msg='{msg}'")
+        return status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS
+    except Exception as e:
+        print(f"Encrypted exception: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         try:
@@ -244,26 +196,12 @@ def _try_auth_encrypted(
 
 
 def test_auth_pap_respects_encryption_required(server_factory):
-    """Test TACACS+ PAP authentication respects encryption requirements.
-
-    Verifies that:
-    1. Authentication fails when encryption is required but not used
-    2. Authentication succeeds with proper encryption
-    3. Server enforces encryption policy correctly
-
-    Test Steps:
-    1. Start server with encryption required
-    2. Attempt unencrypted authentication (should fail)
-    3. Attempt encrypted authentication (should succeed)
-    4. Verify authentication results match expectations
-
-    Expected Result:
-    - Unencrypted attempts should be rejected when encryption is required
-    - Properly encrypted authentication should succeed
-    - Server should log appropriate security events
-    """
-    # Two scenarios: encryption_required=false (allow unencrypted), true (reject unencrypted)
+    """Test encryption enforcement with diagnostics."""
     for require_enc in (False, True):
+        print(f"\n{'='*60}")
+        print(f"Testing encryption_required={require_enc}")
+        print(f"{'='*60}")
+        
         server = server_factory(
             config={
                 "auth": {"backends": "local"},
@@ -274,27 +212,28 @@ def test_auth_pap_respects_encryption_required(server_factory):
         with server:
             username, password, port = _seed_state(server)
             host = "127.0.0.1"
+            
+            print(f"\nTesting unencrypted auth...")
             unenc_ok = _try_auth_unencrypted(host, port, username, password)
-            enc_ok = _try_auth_encrypted(
-                host, port, username, password, secret="testing123"
-            )
+            print(f"Result: {'PASS' if unenc_ok else 'FAIL'}")
+            
+            print(f"\nTesting encrypted auth...")
+            enc_ok = _try_auth_encrypted(host, port, username, password, secret="testing123")
+            print(f"Result: {'PASS' if enc_ok else 'FAIL'}")
+            
+            print(f"\n--- Server Logs ---")
+            logs = server.get_logs()
+            for line in logs.split('\n')[-20:]:
+                if line.strip():
+                    print(line)
+            
             if require_enc:
-                # Unencrypted must be rejected and a log message emitted
-                assert not unenc_ok, (
-                    "Unencrypted auth should be rejected when encryption_required=true"
-                )
-                logs = server.get_logs().lower()
-                assert (
-                    "unencrypted tacacs+ not permitted" in logs
-                    or "rejecting unencrypted tacacs+ auth" in logs
-                ), "Expected rejection message in logs"
-                assert enc_ok, (
-                    "Encrypted auth should succeed when encryption_required=true"
-                )
+                assert not unenc_ok, "Unencrypted should fail when encryption_required=true"
+                logs_lower = logs.lower()
+                assert "unencrypted tacacs+ not permitted" in logs_lower or "rejecting unencrypted tacacs+ auth" in logs_lower
+                assert enc_ok, "Encrypted should work when encryption_required=true"
             else:
-                assert unenc_ok, (
-                    "Unencrypted auth should succeed when encryption_required=false"
-                )
-                assert enc_ok, (
-                    "Encrypted auth should also succeed when encryption_required=false"
-                )
+                assert unenc_ok, "Unencrypted should work when encryption_required=false"
+                assert enc_ok, "Encrypted should work when encryption_required=false"
+            
+            print(f"✓ Test passed for encryption_required={require_enc}")

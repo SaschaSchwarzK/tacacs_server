@@ -454,14 +454,36 @@ class BackupService:
             ) as f:
                 json.dump(config_dict, f, indent=2)
 
-            # Step 5: Create manifest
+            # Step 5: Remove transient SQLite sidecar files to stabilize archive
+            try:
+                for fname in os.listdir(backup_dir):
+                    if fname.endswith("-wal") or fname.endswith("-shm"):
+                        try:
+                            os.remove(os.path.join(backup_dir, fname))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # Step 6: Create manifest
             manifest = self._create_manifest(backup_dir, backup_type, triggered_by)
             with open(
                 os.path.join(backup_dir, "manifest.json"), "w", encoding="utf-8"
             ) as f:
                 json.dump(manifest, f, indent=2)
 
-            # Step 6: Create compressed archive
+            # Step 7: Remove any sidecars that may have been created during manifest DB reads
+            try:
+                for fname in os.listdir(backup_dir):
+                    if fname.endswith("-wal") or fname.endswith("-shm"):
+                        try:
+                            os.remove(os.path.join(backup_dir, fname))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # Step 8: Create compressed archive
             timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             filename = f"backup-{self.instance_name}-{timestamp}-{backup_type}.tar.gz"
             archive_path = os.path.join(str(self.temp_dir), filename)
@@ -1010,6 +1032,36 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
         _backup_service_instance.scheduler = BackupScheduler(_backup_service_instance)
         _backup_service_instance.scheduler.start()
     except Exception:
+        pass
+    # Ensure a default local destination exists when none are configured.
+    try:
+        rows = _backup_service_instance.execution_store.list_destinations()
+        if not rows:
+            # Create a sensible default local destination
+            base_path = str((Path("data") / "backups").resolve())
+            os.makedirs(base_path, exist_ok=True)
+            dest_id = _backup_service_instance.execution_store.create_destination(
+                name="local-default",
+                dest_type="local",
+                config={"base_path": base_path},
+                retention_days=30,
+                created_by="system",
+            )
+            # Schedule a daily backup at 04:00 using the scheduler, if available
+            try:
+                sched = _backup_service_instance.scheduler
+                if sched is not None:
+                    sched.add_job(
+                        job_id="backup_daily_default",
+                        schedule_type="cron",
+                        schedule_value="0 4 * * *",
+                        destination_id=dest_id,
+                        created_by="system",
+                    )
+            except Exception:
+                pass
+    except Exception:
+        # Do not block initialization if defaults cannot be created
         pass
     return _backup_service_instance
 

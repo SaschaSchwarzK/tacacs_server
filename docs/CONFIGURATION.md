@@ -225,6 +225,14 @@ circuit_cooldown = 30
 # - 429 handling: The implementation honors Retry-After on token and groups endpoints.
 #   For tokens, Retry-After may open the circuit breaker for a short cooldown; for
 #   groups, Retry-After increases the short negative cache TTL to reduce retries.
+
+# Optional: Default Okta Group bootstrap
+# If set, provide the Okta group ID (not name). On startup, the server
+# ensures a local user group named 'okta-default-group' exists, sets
+# its okta_group to the provided Okta group ID, and adds that local
+# group to the default device group's allowed_user_groups. If unset,
+# no bootstrap occurs.
+default_okta_group =
 ```
 
 ## Devices Configuration

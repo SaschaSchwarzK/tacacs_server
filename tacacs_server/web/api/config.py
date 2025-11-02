@@ -387,8 +387,14 @@ async def get_section(
     if section == "devices":
         try:
             # Ensure defaults if section missing keys
-            values.setdefault("auto_register", str(cfg.get_device_store_config().get("auto_register", True)).lower())
-            values.setdefault("default_group", cfg.get_device_store_config().get("default_group", "default"))
+            values.setdefault(
+                "auto_register",
+                str(cfg.get_device_store_config().get("auto_register", True)).lower(),
+            )
+            values.setdefault(
+                "default_group",
+                cfg.get_device_store_config().get("default_group", "default"),
+            )
         except Exception:
             pass
     overridden = cfg.overridden_keys.get(section, set())

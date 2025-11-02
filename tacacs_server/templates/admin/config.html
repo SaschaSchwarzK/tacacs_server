@@ -25,6 +25,15 @@
 <div class="card">
   <h2>Configuration</h2>
   <p><strong>Source:</strong> {{ config_source }}</p>
+  {% if pending_restart %}
+  <div style="margin-top:10px; padding:10px; border:1px solid #fde68a; background:#fef3c7; color:#92400e; border-radius:6px;">
+    <strong>Restart recommended:</strong> One or more settings have active overrides that differ from the baseline. Some changes require a service restart to fully apply.
+    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+      <button id="btnRestart" class="btn" onclick="restartServices()">Restart Services</button>
+      <span id="restart-status" class="status-message"></span>
+    </div>
+  </div>
+  {% endif %}
   <details>
     <summary style="cursor: pointer; font-weight: 500; color: #2563eb;">View Raw Configuration</summary>
     <pre style="background:#1f2937;color:#f9fafb;padding:1rem;border-radius:6px;overflow:auto;max-height:70vh;margin-top:1rem;">{{ config_json }}</pre>
@@ -41,6 +50,24 @@
 
 <script>
 {% include "admin/config/_scripts.html" %}
+async function restartServices() {
+  const btn = document.getElementById('btnRestart');
+  const status = document.getElementById('restart-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Restarting...'; }
+  if (status) { status.textContent = ''; }
+  try {
+    const resp = await fetch('/admin/server/restart', { method: 'POST', headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (status) status.textContent = (data.success ? 'Restarted' : ('Failed: ' + (data.message || '')));
+    // After a short delay, refresh to reflect new runtime state
+    setTimeout(() => window.location.reload(), 1200);
+  } catch (e) {
+    if (status) status.textContent = 'Failed: ' + e;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Restart Services'; }
+  }
+}
 </script>
 
 {% endblock %}

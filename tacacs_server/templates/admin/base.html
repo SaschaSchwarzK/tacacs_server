@@ -71,6 +71,7 @@
         <a href="/admin/user-groups">User Groups</a>
         <a href="/admin/users">Users</a>
         <a href="/admin/config">Configuration</a>
+        <a href="/admin/backup">Backup</a>
         <a href="/admin/webhooks">Webhooks</a>
         <a href="/admin/command-authorization">Command Auth</a>
         <a href="#" onclick="logout(event)">Logout</a>
@@ -78,7 +79,7 @@
 </header>
 <main>
     <div id="api-warning" style="{% if api_disabled %}display:block{% else %}display:none{% endif %};background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:10px;border-radius:6px;margin:10px 0;">
-        <strong>API disabled or unauthorized:</strong> Configure <code>API_TOKEN</code> and include the API token header for direct API calls. The admin UI remains functional.
+        <strong>API Token not set</strong>
     </div>
     {% if message %}
     <div class="alert">{{ message }}</div>
@@ -87,6 +88,37 @@
 </main>
 <div id="toast-root" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 <script>
+// Minimal admin helpers to avoid missing AdminAPI in single-file templates
+class AdminAPI {
+    constructor(base='') { this.base = base; }
+    async fetch(path, opts={}) {
+        const resp = await fetch(this.base + path, opts);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const ct = resp.headers.get('content-type') || '';
+        if (ct.includes('application/json')) return resp.json();
+        return resp.text();
+    }
+    async get(path) { return this.fetch(path); }
+    async post(path, body) {
+        const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+        if (body !== undefined) opts.body = JSON.stringify(body);
+        return this.fetch(path, opts);
+    }
+}
+function adminFormatBytes(bytes) {
+    const units=['B','KB','MB','GB','TB'];
+    let i=0, n = Number(bytes)||0;
+    while (n>=1024 && i<units.length-1) { n/=1024; i++; }
+    return (i===0? Math.round(n): n.toFixed(1)) + ' ' + units[i];
+}
+async function pollUntil(checkFn, timeoutMs=120000, intervalMs=1500) {
+    const start = Date.now();
+    while (true) {
+        if (await checkFn()) return true;
+        if (Date.now() - start > timeoutMs) return false;
+        await new Promise(r => setTimeout(r, intervalMs));
+    }
+}
 async function logout(event) {
     event.preventDefault();
     await fetch('/admin/logout', {method: 'POST', headers: {'Accept': 'application/json'}});
@@ -145,5 +177,6 @@ function flashStatus(el, text, type = 'success', ms = 2200) {
     }
 }
 </script>
+{% block extra_scripts %}{% endblock %}
 </body>
 </html>

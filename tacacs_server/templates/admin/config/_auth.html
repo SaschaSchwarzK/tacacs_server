@@ -152,6 +152,13 @@
           <span class="field-hint">Timeout (seconds)</span>
         </div>
       </div>
+      <div class="form-field">
+        <label for="okta_default_okta_group">Default Okta Group (ID)</label>
+        <div class="input-wrapper">
+          <input type="text" id="okta_default_okta_group" name="default_okta_group" value="{{ (configuration.get('okta') or {}).get('default_okta_group','') }}" />
+          <span class="field-hint">Enter Okta group ID. On startup, server creates local group 'okta-default-group', maps to this Okta group, and links it to the default device group.</span>
+        </div>
+      </div>
     </form>
     <div class="btn-group">
       <button class="btn" onclick="saveOktaSettings()">Save Okta Settings</button>

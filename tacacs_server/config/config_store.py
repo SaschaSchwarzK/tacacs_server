@@ -131,6 +131,39 @@ class ConfigStore:
                 print("ConfigStore engine.dispose failed:\n" + traceback.format_exc())
             except Exception:
                 pass
+
+    def reload(self) -> None:
+        """Re-open engine and optional sqlite cursor after maintenance."""
+        try:
+            # Dispose existing engine connections
+            try:
+                self.engine.dispose()
+            except Exception:
+                pass
+            # Recreate the optional sqlite compatibility cursor if applicable
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                try:
+                    # Recover original path from engine URL
+                    url = str(self.engine.url)
+                    if url.startswith("sqlite:///"):
+                        db_path = url.split("sqlite:///")[-1]
+                        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+                        self._conn.row_factory = sqlite3.Row
+                        with self._conn:
+                            self._conn.execute("PRAGMA foreign_keys = ON")
+                    else:
+                        self._conn = None
+                except Exception:
+                    self._conn = None
+            # Ensure schema is present
+            self._ensure_schema()
+        except Exception:
+            # Best-effort reload
+            pass
         try:
             if self._conn is not None:
                 self._conn.close()

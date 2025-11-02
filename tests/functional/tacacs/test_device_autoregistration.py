@@ -13,7 +13,9 @@ import struct
 import time
 
 
-def _md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -> bytes:
+def _md5_pad(
+    session_id: int, key: str, version: int, seq_no: int, length: int
+) -> bytes:
     pad = bytearray()
     session_id_bytes = struct.pack("!L", session_id)
     key_bytes = key.encode("utf-8")
@@ -28,14 +30,18 @@ def _md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) 
     return bytes(pad[:length])
 
 
-def _transform(body: bytes, session_id: int, key: str, version: int, seq_no: int) -> bytes:
+def _transform(
+    body: bytes, session_id: int, key: str, version: int, seq_no: int
+) -> bytes:
     if not key:
         return body
     pad = _md5_pad(session_id, key, version, seq_no, len(body))
     return bytes(a ^ b for a, b in zip(body, pad))
 
 
-def _tacacs_pap(host: str, port: int, key: str, username: str, password: str) -> tuple[bool, str]:
+def _tacacs_pap(
+    host: str, port: int, key: str, username: str, password: str
+) -> tuple[bool, str]:
     sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -46,12 +52,24 @@ def _tacacs_pap(host: str, port: int, key: str, username: str, password: str) ->
         port_bytes = b"console"
         rem_addr_bytes = b"127.0.0.1"
         data_bytes = password.encode("utf-8")
-        body = struct.pack("!BBBBBBBB", 1, 15, 2, 1, len(user_bytes), len(port_bytes), len(rem_addr_bytes), len(data_bytes))
+        body = struct.pack(
+            "!BBBBBBBB",
+            1,
+            15,
+            2,
+            1,
+            len(user_bytes),
+            len(port_bytes),
+            len(rem_addr_bytes),
+            len(data_bytes),
+        )
         body += user_bytes + port_bytes + rem_addr_bytes + data_bytes
         version = 0xC0
         seq_no = 1
         encrypted = _transform(body, session_id, key, version, seq_no)
-        header = struct.pack("!BBBBLL", version, 1, seq_no, 0, session_id, len(encrypted))
+        header = struct.pack(
+            "!BBBBLL", version, 1, seq_no, 0, session_id, len(encrypted)
+        )
         sock.sendall(header + encrypted)
         hdr = sock.recv(12)
         if len(hdr) != 12:
@@ -98,7 +116,10 @@ def test_autoregistration_enabled_creates_device(server_factory):
         ds = DeviceStore(str(server.devices_db))
         rec = ds.find_device_for_ip("127.0.0.1")
         assert rec is not None, "Device should be auto-registered for client IP"
-        assert rec.group is None or getattr(rec.group, "name", "default") in ("default", rec.group.name)
+        assert rec.group is None or getattr(rec.group, "name", "default") in (
+            "default",
+            rec.group.name,
+        )
 
 
 def test_autoregistration_disabled_rejects_and_does_not_create(server_factory):

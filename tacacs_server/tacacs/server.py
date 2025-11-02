@@ -739,16 +739,24 @@ class TacacsServer:
                                 cidr = f"{client_ip}/128"
                             else:
                                 cidr = f"{client_ip}/32"
-                            group_name = getattr(self, "default_device_group", "default")
+                            group_name = getattr(
+                                self, "default_device_group", "default"
+                            )
                             name = f"auto-{client_ip.replace(':', '_')}"
-                            self.device_store.ensure_device(name=name, network=cidr, group=group_name)
+                            self.device_store.ensure_device(
+                                name=name, network=cidr, group=group_name
+                            )
                             # Refresh selection after creation
                             if self.proxy_enabled and proxy_ip is not None:
-                                connection_device = self.device_store.find_device_for_identity(
-                                    client_ip, proxy_ip
+                                connection_device = (
+                                    self.device_store.find_device_for_identity(
+                                        client_ip, proxy_ip
+                                    )
                                 )
                             else:
-                                connection_device = self.device_store.find_device_for_ip(client_ip)
+                                connection_device = (
+                                    self.device_store.find_device_for_ip(client_ip)
+                                )
                             if connection_device:
                                 try:
                                     conn_logger.info(
@@ -761,7 +769,9 @@ class TacacsServer:
                         except Exception as exc:
                             try:
                                 conn_logger.warning(
-                                    "Auto-registration failed for %s: %s", client_ip, exc
+                                    "Auto-registration failed for %s: %s",
+                                    client_ip,
+                                    exc,
                                 )
                             except Exception:
                                 pass
@@ -903,6 +913,30 @@ class TacacsServer:
                         secret = self._select_session_secret(
                             packet.session_id, connection_device
                         )
+                        # Fallbacks: if we don't yet have the device-specific secret or we used the
+                        # server fallback secret, try a late device lookup by client IP and reselect.
+                        need_late_lookup = False
+                        try:
+                            if secret in (None, "", "None"):
+                                need_late_lookup = True
+                            else:
+                                if hasattr(self, "secret_key") and secret == str(getattr(self, "secret_key", "")):
+                                    need_late_lookup = True
+                                if connection_device is None:
+                                    need_late_lookup = True
+                        except Exception:
+                            need_late_lookup = True
+                        if need_late_lookup and self.device_store is not None:
+                            try:
+                                late_device = self.device_store.find_device_for_ip(
+                                    address[0]
+                                )
+                            except Exception:
+                                late_device = None
+                            if late_device is not None:
+                                secret = self._select_session_secret(
+                                    packet.session_id, late_device
+                                )
                         packet.body = packet.decrypt_body(secret, body_data)
                     response = self._process_packet(packet, address, connection_device)
                     if response:

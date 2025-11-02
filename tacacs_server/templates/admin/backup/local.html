@@ -1,0 +1,265 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Backup & Restore{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin" class="text-blue-600 hover:underline">Dashboard</a> &gt;
+<span class="font-semibold">Backup & Restore</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <h1 class="text-2xl font-bold mb-2">Local Backups</h1>
+  <p class="text-gray-600 mb-6">List, download, upload, and restore local backups.</p>
+
+  <!-- Controls: list (destination/refresh) -->
+  <div class="bg-white rounded shadow p-4 mb-4">
+    <div class="flex flex-wrap items-center gap-3">
+      <label for="destinationSelect" class="text-sm text-gray-600">Destination</label>
+      <select id="destinationSelect" class="border rounded px-2 py-1"></select>
+      <button id="btnRefresh" class="btn" onclick="loadBackups()">Refresh</button>
+      <div class="ml-auto text-sm text-gray-600" id="opStatus" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- Controls: create backup -->
+  <div class="bg-white rounded shadow p-4 mb-4">
+    <div class="flex items-center gap-3">
+      <button id="btnCreate" class="btn" onclick="createBackup()">Create Backup</button>
+      <span class="text-gray-500 text-sm">Create a new backup archive in the selected destination.</span>
+    </div>
+  </div>
+
+  <!-- Controls: upload backup -->
+  <div class="bg-white rounded shadow p-4 mb-6">
+    <div class="flex flex-wrap items-center gap-3">
+      <input type="file" id="uploadFile" class="hidden" onchange="uploadBackup()" />
+      <button id="btnUpload" class="btn" onclick="document.getElementById('uploadFile').click()">Upload Backup</button>
+      <span class="text-gray-500 text-sm">Upload an existing archive into the selected destination.</span>
+    </div>
+  </div>
+
+  <div class="bg-white rounded shadow">
+    <div class="flex items-center justify-between px-4 pt-4">
+      <div class="text-sm text-gray-700">Backups</div>
+      <div>
+        <button id="btnDeleteSelected" class="btn" onclick="deleteSelected()">Delete Selected</button>
+      </div>
+    </div>
+    <table class="min-w-full divide-y divide-gray-200 mt-2">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-3 py-2"><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
+          <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Filename</th>
+          <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+          <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+          <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="backupRows" class="bg-white divide-y divide-gray-200"></tbody>
+    </table>
+    <div id="emptyState" class="p-6 text-center text-gray-500" style="display:none;">No backups found.</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const api = new AdminAPI();
+  let destinations = [];
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    await loadDestinations();
+    await loadBackups();
+  });
+
+  async function loadDestinations() {
+    try {
+      const resp = await api.get('/api/admin/backup/destinations');
+      destinations = (resp.destinations || []).filter(d => (d.type||'').toLowerCase() === 'local' && d.enabled !== false);
+      const sel = document.getElementById('destinationSelect');
+      sel.innerHTML = '';
+      if (destinations.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No local destinations configured';
+        sel.appendChild(opt);
+        sel.disabled = true;
+        return;
+      }
+      sel.disabled = false;
+      for (const d of destinations) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = `${d.name} (local)`;
+        sel.appendChild(opt);
+      }
+    } catch (e) {
+      showToast('Failed to load destinations', 'error');
+    }
+  }
+
+  function currentDestinationId() {
+    const sel = document.getElementById('destinationSelect');
+    return sel && sel.value ? sel.value : (destinations[0] ? destinations[0].id : null);
+  }
+
+  async function loadBackups() {
+    const destId = currentDestinationId();
+    const tbody = document.getElementById('backupRows');
+    const empty = document.getElementById('emptyState');
+    tbody.innerHTML = '';
+    empty.style.display = 'none';
+    if (!destId) { empty.style.display = 'block'; return; }
+    try {
+      const resp = await api.get(`/api/admin/backup/list?destination_id=${encodeURIComponent(destId)}`);
+      const backups = resp.backups || [];
+      if (backups.length === 0) { empty.style.display = 'block'; return; }
+      for (const b of backups) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="px-3 py-2"><input type="checkbox" class="rowSel" data-path=${JSON.stringify(b.path)} data-dest=${JSON.stringify(destId)}></td>
+          <td class="px-4 py-2">${b.filename}</td>
+          <td class="px-4 py-2">${window.adminFormatBytes ? adminFormatBytes(b.size_bytes) : (b.size_bytes || 0)}</td>
+          <td class="px-4 py-2">${b.timestamp}</td>
+          <td class="px-4 py-2 text-right space-x-2">
+            <a class="btn" href="/api/admin/backup/download?destination_id=${encodeURIComponent(destId)}&backup_path=${encodeURIComponent(b.path)}">Download</a>
+            <button class="btn danger" onclick='restoreBackup("${destId}", ${JSON.stringify(b.path)})'>Restore</button>
+          </td>`;
+        tbody.appendChild(tr);
+      }
+    } catch (e) {
+      showToast('Failed to load backups', 'error');
+    }
+  }
+
+  async function uploadBackup() {
+    if (window.__busy) return;
+    const destId = currentDestinationId();
+    const fileInput = document.getElementById('uploadFile');
+    if (!destId || !fileInput || !fileInput.files || fileInput.files.length === 0) return;
+    const fd = new FormData();
+    fd.append('destination_id', destId);
+    fd.append('file', fileInput.files[0]);
+    try {
+      setBusy(true, 'Uploading backup...');
+      await api.fetch('/api/admin/backup/upload', { method: 'POST', body: fd });
+      showToast('Upload successful', 'success');
+      fileInput.value = '';
+      await loadBackups();
+    } catch (e) {
+      showToast('Upload failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createBackup() {
+    if (window.__busy) return;
+    // Enforce cooldown if running
+    if (window.__createCooldownUntil && Date.now() < window.__createCooldownUntil) return;
+    const destId = currentDestinationId();
+    if (!destId) return;
+    try {
+      setBusy(true, 'Backup in progress...');
+      const resp = await api.post('/api/admin/backup/trigger', { destination_id: destId, comment: 'adhoc' });
+      showToast('Backup started', 'info');
+      // Refresh list soon to reflect a new archive once created
+      setTimeout(loadBackups, 5000);
+      // Start a 30s cooldown on the Create button
+      startCreateCooldown(30);
+    } catch (e) {
+      showToast('Failed to start backup', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreBackup(destId, path) {
+    if (window.__busy) return;
+    if (!confirm('Restore this backup? The service may restart.')) return;
+    try {
+      setBusy(true, 'Starting restore...');
+      await api.post('/api/admin/backup/restore', { destination_id: destId, backup_path: path, confirm: true, async_mode: true });
+      showToast('Restore started', 'info');
+    } catch (e) {
+      showToast('Failed to start restore', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function setBusy(b, msg) {
+    window.__busy = !!b;
+    const btns = [document.getElementById('btnCreate'), document.getElementById('btnUpload'), document.getElementById('btnRefresh'), document.getElementById('btnDeleteSelected')];
+    for (const el of btns) if (el) {
+      // Respect the create cooldown separately
+      if (el.id === 'btnCreate' && window.__createCooldownUntil && Date.now() < window.__createCooldownUntil) {
+        el.disabled = true; el.style.opacity = '0.5';
+      } else {
+        el.disabled = window.__busy; el.style.opacity = window.__busy ? '0.5' : '1';
+      }
+    }
+    const st = document.getElementById('opStatus');
+    if (st) st.textContent = window.__busy ? (msg || 'Working...') : '';
+  }
+
+  // --- Create button cooldown (min 30s) ---
+  let __cooldownTimer = null;
+  function startCreateCooldown(seconds) {
+    const btn = document.getElementById('btnCreate');
+    if (!btn) return;
+    const total = Math.max(30, parseInt(seconds) || 30);
+    window.__createCooldownUntil = Date.now() + total * 1000;
+    if (__cooldownTimer) { clearInterval(__cooldownTimer); __cooldownTimer = null; }
+    const update = () => {
+      const now = Date.now();
+      const remainMs = Math.max(0, (window.__createCooldownUntil || now) - now);
+      if (remainMs <= 0) {
+        btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'Create Backup';
+        if (__cooldownTimer) { clearInterval(__cooldownTimer); __cooldownTimer = null; }
+        // Final refresh to show newly created backup
+        loadBackups();
+        return;
+      }
+      const r = Math.ceil(remainMs / 1000);
+      btn.disabled = true; btn.style.opacity = '0.5';
+      btn.textContent = `Create Backup (${r}s)`;
+    };
+    update();
+    __cooldownTimer = setInterval(update, 1000);
+  }
+
+  function toggleAll(master) {
+    const rows = document.querySelectorAll('.rowSel');
+    rows.forEach(cb => { cb.checked = master.checked; });
+  }
+
+  function selectedRows() {
+    return Array.from(document.querySelectorAll('.rowSel:checked')).map(cb => ({
+      path: cb.getAttribute('data-path'),
+      dest: cb.getAttribute('data-dest')
+    }));
+  }
+
+  async function deleteSelected() {
+    if (window.__busy) return;
+    const sel = selectedRows();
+    if (sel.length === 0) { showToast('No backups selected', 'info'); return; }
+    if (!confirm(`Delete ${sel.length} selected backup(s)?`)) return;
+    try {
+      setBusy(true, 'Deleting backups...');
+      for (const item of sel) {
+        const params = new URLSearchParams({ destination_id: item.dest, backup_path: item.path });
+        await api.fetch(`/api/admin/backup/backups?${params.toString()}`, { method: 'DELETE' });
+      }
+      showToast('Selected backups deleted', 'success');
+      await loadBackups();
+    } catch (e) {
+      showToast('Failed to delete backups', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+</script>
+{% endblock %}

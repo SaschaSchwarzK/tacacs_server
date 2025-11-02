@@ -14,6 +14,13 @@ def export_database(source_path: str, dest_path: str) -> None:
     """
     os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
 
+    # Checkpoint WAL to ensure all data is in main DB file
+    try:
+        with sqlite3.connect(source_path, timeout=30.0) as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass  # Best effort - proceed with backup anyway
+
     # Attempt backup API with simple retry loop to tolerate transient locks
     last_err: Exception | None = None
     for attempt in range(3):
@@ -92,6 +99,16 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
             # Non-fatal; continue with import
             pass
 
+    # Remove any leftover SQLite WAL/SHM sidecar files to avoid recovery from
+    # stale journals after import (which could resurrect pre-restore state).
+    for sidecar in (dest_path + "-wal", dest_path + "-shm"):
+        try:
+            if os.path.exists(sidecar):
+                os.remove(sidecar)
+        except Exception:
+            # Best-effort; continue with import
+            pass
+
     # Try atomic replace with retries for locked databases
     tmp = dest_path + ".import.tmp"
     max_attempts = 5
@@ -134,6 +151,15 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
 
             attempt += 1
             time.sleep(0.5 * attempt)
+
+    # Clean any journaling files left by prior runs to ensure clean state
+    for sidecar in (dest_path + "-wal", dest_path + "-shm"):
+        try:
+            if os.path.exists(sidecar) and os.path.getsize(dest_path) > 0:
+                # Removing sidecars after a full replace is safe; SQLite creates fresh ones as needed
+                os.remove(sidecar)
+        except Exception:
+            pass
 
     if verify:
         ok, msg = verify_database_integrity(dest_path)
@@ -191,7 +217,9 @@ def count_database_records(db_path: str) -> dict[str, int]:
     """
     counts: dict[str, int] = {}
     try:
-        with sqlite3.connect(db_path) as conn:
+        # Open read-only to avoid creating journal files during inspection
+        uri = f"file:{db_path}?mode=ro&immutable=1"
+        with sqlite3.connect(uri, uri=True) as conn:
             cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
             for (table_name,) in cur.fetchall():
                 try:
