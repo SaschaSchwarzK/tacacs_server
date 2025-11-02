@@ -27,9 +27,9 @@ class LocalBackupDestination(BackupDestination):
         return Path(str(self.config["base_path"]))
 
     def _safe_local_path(self, local_path: str) -> Path:
-        """Anchor local outputs to an allowed root (config['local_root'] or secure fallback).
+        """Anchor local outputs to a safe temp subdirectory, rejecting config/local_root entirely.
 
-        Prevents use of absolute paths, symlink escapes, or writing outside allowed safe directory.
+        Ensures use of only temp directory, prevents absolute paths, symlink escapes, path traversal.
         """
         import os
         import tempfile
@@ -40,32 +40,33 @@ class LocalBackupDestination(BackupDestination):
         if lp.is_absolute():
             raise ValueError("Absolute paths are not allowed for local output")
 
-        # Only allow certain known temp dirs as base, never allow arbitrary local_root from user input
         allowed_temp_prefix = _P(tempfile.gettempdir()).resolve()
-        raw_root = self.config.get("local_root")
-        if raw_root and _P(raw_root).is_absolute() and _P(raw_root).resolve().is_dir():
-            base = _P(raw_root).resolve()
-            # Ensure base is itself in the allowed temp prefix (defensive)
-            if not str(base).startswith(str(allowed_temp_prefix)):
-                raise ValueError("Configured local_root outside allowed temp directory")
-        else:
-            # Fallback to a dedicated temp directory
-            base = allowed_temp_prefix / "tacacs_server_restore"
-            base.mkdir(parents=True, exist_ok=True)
-            base = base.resolve()
+        # Use only dedicated fallback -- never read config!
+        base = allowed_temp_prefix / "tacacs_server_restore"
+        base.mkdir(parents=True, exist_ok=True)
+        base = base.resolve()
+        # Make sure no symlinks exist anywhere in the base's parent chain
+        for parent in base.parents:
+            if parent.is_symlink():
+                raise ValueError("Unsafe: parent of backup base directory is a symlink")
+        if base.is_symlink():
+            raise ValueError("Backup base directory may not be a symlink")
+
 
         # Reject any path input with segments that are suspicious, such as ".." parts
         for part in lp.parts:
             if part == "..":
                 raise ValueError("Path traversal detected in local file path")
 
-        tgt = (base / lp).resolve()
+        # Strictly resolve the destination path; raises on broken symlinks/missing parents
+        tgt = (base / lp).resolve(strict=True)
         # Confirm real path containment even for symlink/complex filesystem situations
         if os.path.commonpath([str(base), str(tgt)]) != str(base):
-            raise ValueError("Local path escapes allowed root")
-        # Additional guard against symlinked base
-        if base.is_symlink():
-            raise ValueError("Backup base directory may not be a symlink")
+            raise ValueError("Local path escapes allowed root directory")
+        # Ensure no symlinks anywhere in target's parent chain
+        for parent in tgt.parents:
+            if parent.is_symlink():
+                raise ValueError("Target path parent is a symlink")
         return tgt
 
     def test_connection(self) -> tuple[bool, str]:
