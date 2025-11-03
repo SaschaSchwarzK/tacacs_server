@@ -77,7 +77,7 @@ jobs:
       - name: Bandit (security lint)
         run: |
           # Use project .bandit config to exclude tests and venv/site-packages
-          poetry run bandit -r . --configfile .bandit
+          poetry run bandit -r . --configfile bandit.yml
 
       - name: pip-audit (vuln scan)
         run: |
