@@ -22,6 +22,7 @@ environment with sufficient resources.
 import os
 import socket
 import time
+import secrets
 
 import pytest
 
@@ -64,7 +65,7 @@ def _tacacs_auth(host: str, port: int, key: str, username: str, password: str) -
     try:
         s.settimeout(0.2)
         s.connect((host, port))
-        session_id = int(time.time()) & 0xFFFFFFFF
+        session_id = secrets.randbits(32)
         user_b = username.encode("utf-8")
         port_b = b"console"
         addr_b = b"127.0.0.1"

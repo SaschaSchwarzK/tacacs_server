@@ -11,6 +11,7 @@ import hashlib
 import socket
 import struct
 import time
+import secrets
 
 
 def _md5_pad(
@@ -47,7 +48,7 @@ def _tacacs_pap(
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
         sock.connect((host, port))
-        session_id = int(time.time()) & 0xFFFFFFFF
+        session_id = secrets.randbits(32)
         user_bytes = username.encode("utf-8")
         port_bytes = b"console"
         rem_addr_bytes = b"127.0.0.1"

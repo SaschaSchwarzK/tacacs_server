@@ -14,6 +14,7 @@ import hashlib
 import socket
 import struct
 import time
+import secrets
 
 
 def _md5_pad(
@@ -95,7 +96,7 @@ def _tacacs_auth(
             if prefix:
                 # Send PROXY header immediately followed by TACACS header+body
                 # to avoid server timeouts/EOF between stages.
-                session_id = int(time.time()) & 0xFFFFFFFF
+                session_id = secrets.randbits(32)
                 user_bytes = username.encode("utf-8")
                 port_bytes = b"console"
                 rem_addr_bytes = b"127.0.0.1"
@@ -124,7 +125,7 @@ def _tacacs_auth(
                 sock.sendall(prefix + header + encrypted_body)
             else:
                 # Build and send TACACS request without PROXY prefix
-                session_id = int(time.time()) & 0xFFFFFFFF
+                session_id = secrets.randbits(32)
                 user_bytes = username.encode("utf-8")
                 port_bytes = b"console"
                 rem_addr_bytes = b"127.0.0.1"
@@ -450,7 +451,7 @@ def test_proxy_v2_single_send_stream_works(server_factory):
         # Build PROXY v2 header and TACACS+ PAP request
         proxy_hdr = _build_proxy_v2("10.2.3.4", "127.0.0.1", 55555, server.tacacs_port)
 
-        session_id = int(time.time()) & 0xFFFFFFFF
+        session_id = secrets.randbits(32)
         user_bytes = b"combo"
         port_bytes = b"console"
         rem_addr_bytes = b"127.0.0.1"
@@ -542,7 +543,7 @@ def test_proxy_v2_single_send_lenient_invalid_header_works(server_factory):
 
         bad_hdr = _build_invalid_proxy_v2_version()
 
-        session_id = int(time.time()) & 0xFFFFFFFF
+        session_id = secrets.randbits(32)
         user_bytes = b"lenient"
         port_bytes = b"console"
         rem_addr_bytes = b"127.0.0.1"

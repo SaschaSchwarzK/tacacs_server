@@ -6,6 +6,7 @@ import configparser
 import socket
 import struct
 import time
+import secrets
 
 from tacacs_server.auth.local_user_service import LocalUserService
 from tacacs_server.devices.store import DeviceStore
@@ -84,7 +85,7 @@ def _seed_state(server) -> tuple[str, str, int]:
 
 
 def _try_auth_unencrypted(host: str, port: int, username: str, password: str) -> bool:
-    session_id = int(time.time()) & 0xFFFFFFFF
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
@@ -127,7 +128,7 @@ def _try_auth_unencrypted(host: str, port: int, username: str, password: str) ->
 def _try_auth_encrypted(
     host: str, port: int, username: str, password: str, secret: str = "testing123"
 ) -> bool:
-    session_id = int(time.time()) & 0xFFFFFFFF
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,

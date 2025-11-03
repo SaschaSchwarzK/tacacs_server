@@ -1,6 +1,7 @@
 import socket
 import struct
 import time
+import secrets
 
 import pytest
 import requests
@@ -223,7 +224,7 @@ def test_tacacs_authorization_logs_and_status(server_factory):
         port = server.tacacs_port
 
         def _send_author(cmd: str) -> int:
-            session_id = int(time.time()) & 0xFFFFFFFF
+            session_id = secrets.randbits(32)
             pkt = TacacsPacket(
                 version=(TAC_PLUS_MAJOR_VER << 4) | 0,
                 packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,

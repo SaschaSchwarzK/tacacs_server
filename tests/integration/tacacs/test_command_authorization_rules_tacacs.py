@@ -2,6 +2,7 @@ import json
 import socket
 import struct
 import time
+import secrets
 
 import pytest
 import requests
@@ -75,7 +76,7 @@ def _mk_author_body(
 def _send_author(
     host: str, port: int, username: str, cmd: str, *, req_priv: int = 1
 ) -> int:
-    session_id = int(time.time()) & 0xFFFFFFFF
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
@@ -664,7 +665,7 @@ def _send_author_full(
     host: str, port: int, username: str, cmd: str, *, req_priv: int = 1
 ):
     """Return (status, server_msg:str, attrs:list[str])"""
-    session_id = int(time.time()) & 0xFFFFFFFF
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,

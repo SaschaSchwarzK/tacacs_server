@@ -6,6 +6,7 @@ Each test spins up a real server instance with its own config and databases.
 """
 
 import hashlib
+import secrets
 import socket
 import struct
 import time
@@ -54,7 +55,7 @@ def tacacs_authenticate(
         sock.settimeout(10)
         sock.connect((host, port))
 
-        session_id = int(time.time()) & 0xFFFFFFFF
+        session_id = secrets.randbits(32)
         user_bytes = username.encode("utf-8")
         port_bytes = b"console"
         rem_addr_bytes = b"127.0.0.1"

@@ -1,6 +1,7 @@
 import socket
 import struct
 import time
+import secrets
 
 import pytest
 
@@ -62,7 +63,7 @@ def _send_author(host: str, port: int, body: bytes) -> tuple[int | None, list[st
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
         seq_no=1,
         flags=TAC_PLUS_FLAGS.TAC_PLUS_UNENCRYPTED_FLAG,
-        session_id=int(time.time()) & 0xFFFFFFFF,
+        session_id=secrets.randbits(32),
         length=0,
         body=body,
     )

@@ -2,6 +2,7 @@ import json
 import socket
 import struct
 import time
+import secrets
 
 import pytest
 
@@ -97,7 +98,7 @@ def _mk_author_body(
 
 
 def _send_author(host: str, port: int, username: str, cmd: str, *, req_priv: int = 1):
-    session_id = int(time.time()) & 0xFFFFFFFF
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
