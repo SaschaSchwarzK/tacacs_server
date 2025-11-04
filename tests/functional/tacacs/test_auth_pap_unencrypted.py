@@ -1,11 +1,28 @@
-"""TACACS+ encryption test with detailed diagnostics"""
+"""
+TACACS+ PAP Authentication Encryption Tests
+
+This module contains tests for verifying TACACS+ PAP authentication behavior with respect to
+encryption requirements. It ensures that the server correctly enforces encryption policies
+and properly handles both encrypted and unencrypted authentication attempts.
+
+Test Cases:
+    - test_auth_pap_respects_encryption_required: Verifies that the server enforces
+      encryption requirements based on configuration.
+
+Helper Functions:
+    - _read_exact: Reads exactly 'length' bytes from a socket.
+    - _mk_auth_start_body: Creates a TACACS+ authentication start packet body.
+    - _seed_state: Sets up test user and device in the server.
+    - _try_auth_unencrypted: Attempts an unencrypted TACACS+ authentication.
+    - _try_auth_encrypted: Attempts an encrypted TACACS+ authentication.
+"""
 
 from __future__ import annotations
 
 import configparser
+import secrets
 import socket
 import struct
-import time
 
 from tacacs_server.auth.local_user_service import LocalUserService
 from tacacs_server.devices.store import DeviceStore
@@ -23,6 +40,20 @@ from tacacs_server.tacacs.packet import TacacsPacket
 
 
 def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes:
+    """
+    Read exactly 'length' bytes from a socket.
+
+    Args:
+        sock: The socket to read from.
+        length: The number of bytes to read.
+        timeout: Timeout in seconds for the socket read operation.
+
+    Returns:
+        The bytes read from the socket.
+
+    Note:
+        This function will block until exactly 'length' bytes are read or an error occurs.
+    """
     sock.settimeout(timeout)
     buf = bytearray()
     while len(buf) < length:
@@ -34,6 +65,16 @@ def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes
 
 
 def _mk_auth_start_body(username: str, password: str) -> bytes:
+    """
+    Create a TACACS+ authentication start packet body.
+
+    Args:
+        username: The username for authentication.
+        password: The password for authentication.
+
+    Returns:
+        A bytes object containing the authentication start packet body.
+    """
     user_b = username.encode()
     port_b = b""
     rem_b = b""
@@ -53,6 +94,17 @@ def _mk_auth_start_body(username: str, password: str) -> bytes:
 
 
 def _seed_state(server) -> tuple[str, str, int]:
+    """
+    Set up the test environment with required users and devices.
+
+    Creates a test user and device in the server's database for testing purposes.
+
+    Args:
+        server: The test server instance.
+
+    Returns:
+        A tuple containing (username, password, port) for the test authentication.
+    """
     cfg = configparser.ConfigParser(interpolation=None)
     cfg.read(server.config_path)
     auth_db = cfg.get("auth", "local_auth_db", fallback=str(server.auth_db))
@@ -84,7 +136,19 @@ def _seed_state(server) -> tuple[str, str, int]:
 
 
 def _try_auth_unencrypted(host: str, port: int, username: str, password: str) -> bool:
-    session_id = int(time.time()) & 0xFFFFFFFF
+    """
+    Attempt an unencrypted TACACS+ authentication.
+
+    Args:
+        host: The server hostname or IP address.
+        port: The server port.
+        username: The username for authentication.
+        password: The password for authentication.
+
+    Returns:
+        bool: True if authentication was successful, False otherwise.
+    """
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
@@ -127,7 +191,20 @@ def _try_auth_unencrypted(host: str, port: int, username: str, password: str) ->
 def _try_auth_encrypted(
     host: str, port: int, username: str, password: str, secret: str = "testing123"
 ) -> bool:
-    session_id = int(time.time()) & 0xFFFFFFFF
+    """
+    Attempt an encrypted TACACS+ authentication.
+
+    Args:
+        host: The server hostname or IP address.
+        port: The server port.
+        username: The username for authentication.
+        password: The password for authentication.
+        secret: The shared secret for encryption.
+
+    Returns:
+        bool: True if authentication was successful, False otherwise.
+    """
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
@@ -204,7 +281,27 @@ def _try_auth_encrypted(
 
 
 def test_auth_pap_respects_encryption_required(server_factory):
-    """Test encryption enforcement with diagnostics."""
+    """
+    Test that the server enforces encryption requirements for PAP authentication.
+
+    This test verifies:
+    1. When encryption is required:
+       - Unencrypted authentication attempts are rejected
+       - Encrypted authentication attempts are accepted
+    2. When encryption is not required:
+       - Both encrypted and unencrypted authentication attempts are accepted
+
+    Test Steps:
+    1. For both encryption required (True/False) configurations:
+       a. Start server with the specified encryption requirement
+       b. Attempt unencrypted authentication (should fail when required)
+       c. Attempt encrypted authentication (should always work with correct secret)
+       d. Verify server logs contain appropriate messages
+       e. Verify authentication results match expectations
+
+    Args:
+        server_factory: Pytest fixture that creates a test server instance.
+    """
     for require_enc in (False, True):
         print(f"\n{'=' * 60}")
         print(f"Testing encryption_required={require_enc}")

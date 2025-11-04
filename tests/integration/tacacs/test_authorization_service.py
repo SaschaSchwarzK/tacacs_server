@@ -1,3 +1,38 @@
+"""
+TACACS+ Authorization Service Integration Tests
+=============================================
+
+This module contains integration tests for the TACACS+ authorization service.
+It verifies the proper handling of authorization requests and responses,
+including various edge cases and error conditions.
+
+Test Environment:
+- Real TACACS+ server instance
+- Simulated TACACS+ clients
+- Various network conditions and edge cases
+- Different privilege levels and argument combinations
+
+Test Cases:
+- test_authorization_multiple_arguments: Handling of multiple command arguments
+- test_authorization_avpairs_roundtrip: AVP (Attribute-Value Pair) handling
+- test_authorization_response_pass_repl_behavior: Response behavior verification
+- test_malformed_authorization_request_handling: Error handling for invalid requests
+- test_authorization_empty_username: Handling of empty usernames
+- test_authorization_timeout_scenarios: Timeout and network failure handling
+
+Configuration:
+- TACACS+ shared secret: 'testing123'
+- Default privilege level: 1
+- Timeout: 2 seconds for network operations
+- Port: Default TACACS+ port (49)
+
+Example Usage:
+    pytest tests/integration/tacacs/test_authorization_service.py -v
+
+Note: These tests require network access and may be affected by system load.
+"""
+
+import secrets
 import socket
 import struct
 import time
@@ -15,6 +50,20 @@ from tacacs_server.tacacs.packet import TacacsPacket
 
 
 def _read_exact(sock: socket.socket, length: int, timeout: float = 2.0) -> bytes:
+    """Read exactly 'length' bytes from a socket with timeout.
+
+    Args:
+        sock: Connected socket to read from
+        length: Number of bytes to read
+        timeout: Maximum time to wait for data (seconds)
+
+    Returns:
+        bytes: The received data
+
+    Raises:
+        socket.timeout: If the operation times out
+        ConnectionError: If the connection is closed unexpectedly
+    """
     sock.settimeout(timeout)
     buf = bytearray()
     while len(buf) < length:
@@ -26,11 +75,25 @@ def _read_exact(sock: socket.socket, length: int, timeout: float = 2.0) -> bytes
 
 
 def _mk_author_body(user: str, args: list[str], priv: int = 1) -> bytes:
-    """Build minimal TACACS+ authorization request body.
+    """Build a TACACS+ authorization request body.
 
-    Header: authen_method, priv_lvl, authen_type, authen_service,
-            user_len, port_len, rem_len, arg_cnt
-    Then: user, port, rem_addr, arg_lens[], args bytes
+    Args:
+        user: Username for authorization
+        args: List of command arguments
+        priv: Privilege level (1-15)
+
+    Returns:
+        bytes: Packed TACACS+ authorization request body
+
+    Note:
+        Follows RFC 8907 (TACACS+) packet format for authorization requests.
+        The request body includes:
+        - Header with lengths and counts
+        - Username
+        - Port (empty)
+        - Remote address (empty)
+        - Argument lengths
+        - Argument data
     """
     user_b = user.encode()
     port_b = b""
@@ -56,13 +119,27 @@ def _mk_author_body(user: str, args: list[str], priv: int = 1) -> bytes:
     return body
 
 
-def _send_author(host: str, port: int, body: bytes) -> tuple[int | None, list[str]]:
+def _send_author(host: str, port: int, body: bytes) -> TacacsPacket | None:
+    """Send a TACACS+ authorization request and return the response.
+
+    Args:
+        host: TACACS+ server hostname or IP
+        port: TACACS+ server port
+        body: Pre-built TACACS+ authorization request body
+
+    Returns:
+        TacacsPacket: Parsed response from server, or None on failure
+
+    Raises:
+        ConnectionError: If the connection fails
+        TimeoutError: If the request times out
+    """
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
         seq_no=1,
         flags=TAC_PLUS_FLAGS.TAC_PLUS_UNENCRYPTED_FLAG,
-        session_id=int(time.time()) & 0xFFFFFFFF,
+        session_id=secrets.randbits(32),
         length=0,
         body=body,
     )

@@ -1,31 +1,100 @@
+# Network Latency Chaos Experiment
+# ==============================
+#
+# This experiment tests the TACACS+ server's resilience to network latency by
+# introducing artificial network delay on the local loopback interface.
+#
+# Configuration:
+#   - BASE_URL: Base URL of the TACACS+ server (default: http://127.0.0.1:8080)
+#   - TEST_WEB_PORT: Port number if using default BASE_URL
+#   - LATENCY_MS: Amount of latency to introduce (default: 200ms)
+#   - DURATION_SEC: How long to maintain the latency (default: 2s)
+#
+# Prerequisites:
+#   - Linux system with 'tc' (traffic control) command available
+#   - Root/administrator privileges
+#   - Network access to the TACACS+ server
+#
+# Safety:
+#   - Only modifies the local loopback interface (lo)
+#   - Includes automatic rollback on completion or failure
+#   - Verifies system health before and after the test
+#   - Has a built-in timeout to prevent hanging
+
 version: "1.0.0"
-title: "TACACS+ Server handles network latency"
-description: "Smoke chaos experiment to introduce latency on localhost"
+title: "TACACS+ Server Network Latency Resilience Test"
+description: |
+  Validates that the TACACS+ server remains operational when experiencing
+  network latency. This test introduces a configurable delay on all network
+  traffic to/from the server and verifies that it continues to respond
+  to health checks.
+  
+  Expected Behavior:
+  - Server should continue responding to requests (possibly with increased latency)
+  - No data corruption or connection drops should occur
+  - System should return to normal operation after latency is removed
+# Verify system is healthy before starting the chaos experiment
 steady-state-hypothesis:
-  title: "System responds within acceptable time"
+  title: "Verify System Health Before Test"
   probes:
     - type: probe
       name: health-check
-      tolerance: 2000
+      tolerance: 2000  # Maximum allowed response time in milliseconds
       provider:
         type: http
         url: "${BASE_URL:-http://127.0.0.1:${TEST_WEB_PORT:-8080}}/api/health"
-        timeout: 5
+        timeout: 5  # Fail if no response within 5 seconds
+        verify: false  # Skip SSL certificate verification
+        # Expected response:
+        # HTTP 200 OK with JSON body indicating healthy status
+# Chaos Injection Method
+# ---------------------
+# This section defines the chaos to be injected into the system.
+# In this case, we're using the Linux Traffic Control (tc) command to
+# introduce network latency on the loopback interface.
 method:
   - type: action
     name: inject-latency
     provider:
       type: process
-      # Note: 'tc' may not be available in CI; this is illustrative.
-      path: tc
-      arguments: ["qdisc", "add", "dev", "lo", "root", "netem", "delay", "200ms"]
+      path: tc  # Traffic control utility
+      # Add a network emulation (netem) queuing discipline to the loopback interface
+      # that introduces a fixed delay of 200ms to all packets
+      arguments: 
+        - "qdisc"     # Queueing discipline
+        - "add"       # Add a new qdisc
+        - "dev"       # Network device
+        - "lo"        # Loopback interface
+        - "root"      # Add to root qdisc
+        - "netem"     # Network emulation
+        - "delay"     # Add delay
+        - "${LATENCY_MS:-200}ms"  # Delay amount (configurable)
+    # Keep the latency active for 2 seconds
     pauses:
-      after: 2
+      after: ${DURATION_SEC:-2}
+# Automatic Rollback
+# -----------------
+# This section ensures that any changes made during the test are reverted,
+# regardless of whether the test passes or fails.
 rollbacks:
   - type: action
     name: remove-latency
     provider:
       type: process
       path: tc
-      arguments: ["qdisc", "del", "dev", "lo", "root"]
+      # Remove the network emulation qdisc to restore normal network operation
+      arguments: 
+        - "qdisc"  # Queueing discipline
+        - "del"    # Delete the qdisc
+        - "dev"    # Network device
+        - "lo"     # Loopback interface
+        - "root"   # Remove from root qdisc
+    # Ensure rollback happens even if the test fails
+    auto_rollback: true
+    rollback_timeout: 10  # Timeout for rollback operation in seconds
+
+# Post-Experiment Verification
+# ---------------------------
+# After the test completes, the steady-state hypothesis is automatically
+# re-verified to ensure the system returned to a healthy state.
 

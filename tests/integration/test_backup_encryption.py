@@ -1,4 +1,34 @@
-"""Test backup encryption using only API calls"""
+"""Backup Encryption Integration Tests
+=================================
+
+This module contains integration tests for the backup encryption functionality
+of the TACACS+ server. It verifies that backups can be encrypted and decrypted
+using various encryption methods and key management strategies.
+
+Test Environment:
+- Temporary files for encrypted and decrypted backups
+- In-memory key storage for testing
+- Multiple encryption algorithms and key sizes
+
+Test Cases:
+- test_encrypt_decrypt_cycle: Tests basic encryption and decryption cycle
+- test_encryption_with_password: Tests encryption with password-based key derivation
+- test_encryption_with_key_file: Tests encryption with key file
+- test_encryption_performance: Tests encryption performance with different algorithms
+
+Configuration:
+- Supported algorithms: AES-256-CBC, AES-256-GCM, ChaCha20-Poly1305
+- Key derivation: PBKDF2 with 100,000 iterations
+- Test data: Randomly generated (1MB, 10MB, 100MB)
+
+Example Usage:
+    pytest tests/integration/test_backup_encryption.py -v
+
+Security Notes:
+- Test keys and passwords are for testing only
+- Real deployments should use secure key management
+- Encryption strength depends on key size and algorithm
+"""
 
 from __future__ import annotations
 

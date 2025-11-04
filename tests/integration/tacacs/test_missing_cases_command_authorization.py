@@ -1,7 +1,37 @@
+"""
+TACACS+ Command Authorization Edge Case Tests
+==========================================
+
+This module contains integration tests for edge cases and missing scenarios
+in TACACS+ command authorization. It verifies the behavior of the command
+authorization system in various edge conditions and special cases.
+
+Test Environment:
+- TACACS+ server with command authorization enabled
+- Local user and device store for authentication
+- Various edge case scenarios and special conditions
+
+Test Cases:
+- test_default_action_permit_and_deny_no_rules: Tests behavior with no rules configured
+- test_privilege_check_order_after_allows_policy_eval: Verifies privilege check order
+- test_empty_whitespace_and_long_commands: Tests handling of empty and malformed commands
+- test_privilege_check_order_before_blocks_higher_request: Verifies privilege check order for higher privileges
+
+Configuration:
+- Default actions: 'permit' and 'deny' configurations tested
+- Test user: 'user' with password 'Passw0rd1'
+- Device secret: 'testing123'
+- Default privilege level: 5
+
+Example Usage:
+    pytest tests/integration/tacacs/test_missing_cases_command_authorization.py -v
+"""
+
 import json
+import secrets
 import socket
 import struct
-import time
+from typing import Any
 
 import pytest
 
@@ -18,8 +48,28 @@ from tacacs_server.tacacs.packet import TacacsPacket
 
 
 def _server(
-    server_factory, *, default_action: str = "deny", extra_cmd_cfg: dict | None = None
-):
+    server_factory: Any,
+    *,
+    default_action: str = "deny",
+    extra_cmd_cfg: dict[str, Any] | None = None,
+) -> Any:
+    """Create and configure a test server with command authorization settings.
+
+    Args:
+        server_factory: Pytest fixture for creating server instances
+        default_action: Default action ('permit' or 'deny') when no rules match
+        extra_cmd_cfg: Additional command authorization configuration
+
+    Returns:
+        Configured server instance with the specified command authorization settings
+
+    Example:
+        server = _server(
+            server_factory,
+            default_action="permit",
+            extra_cmd_cfg={"some_setting": "value"}
+        )
+    """
     cmd_cfg = {"default_action": default_action, "rules_json": json.dumps([])}
     if extra_cmd_cfg:
         cmd_cfg.update(extra_cmd_cfg)
@@ -36,13 +86,26 @@ def _server(
 
 
 def _seed_env(
-    server,
+    server: Any,
     *,
     username: str = "user",
     password: str = "Passw0rd1",
     secret: str = "testing123",
     priv: int = 5,
-):
+) -> None:
+    """Seed the test environment with a user and device configuration.
+
+    Args:
+        server: Server instance to configure
+        username: Username for the test user
+        password: Password for the test user
+        secret: Shared secret for device authentication
+        priv: Default privilege level for the user
+
+    Note:
+        This function modifies the server's configuration to include
+        a test user and device with the specified credentials.
+    """
     import configparser as _cp
 
     cfg = _cp.ConfigParser(interpolation=None)
@@ -97,7 +160,7 @@ def _mk_author_body(
 
 
 def _send_author(host: str, port: int, username: str, cmd: str, *, req_priv: int = 1):
-    session_id = int(time.time()) & 0xFFFFFFFF
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
@@ -129,7 +192,24 @@ def _send_author(host: str, port: int, username: str, cmd: str, *, req_priv: int
 
 
 @pytest.mark.integration
-def test_default_action_permit_and_deny_no_rules(server_factory):
+def test_default_action_permit_and_deny_no_rules(server_factory: Any) -> None:
+    """Test command authorization behavior when no rules are configured.
+
+    This test verifies that:
+    1. The default action is respected when no rules match
+    2. Both 'permit' and 'deny' default actions work as expected
+    3. The server responds with the appropriate status codes
+
+    Test Steps:
+    1. Start server with default_action="permit" and no rules
+    2. Verify all commands are permitted
+    3. Restart server with default_action="deny" and no rules
+    4. Verify all commands are denied
+
+    Expected Behavior:
+    - With default_action="permit" -> All commands are allowed
+    - With default_action="deny" -> All commands are denied
+    """
     # default_action=permit -> PASS_* when no rules match
     server = _server(server_factory, default_action="permit")
     with server:
@@ -148,7 +228,23 @@ def test_default_action_permit_and_deny_no_rules(server_factory):
 
 
 @pytest.mark.integration
-def test_privilege_check_order_after_allows_policy_eval(server_factory):
+def test_privilege_check_order_after_allows_policy_eval(server_factory: Any) -> None:
+    """Test that privilege checks occur after allow policy evaluation.
+
+    This test verifies that:
+    1. Command authorization checks the command against allow rules first
+    2. Privilege level is only checked if the command is allowed
+    3. The order of these checks is correct
+
+    Test Steps:
+    1. Create a rule that allows a command for privilege level 5
+    2. Test with a user having privilege level 1
+    3. Verify the command is denied due to insufficient privileges
+
+    Expected Behavior:
+    - Command matches allow rule but is denied due to insufficient privileges
+    - The server returns TAC_PLUS_AUTHOR_STATUS.FAIL with appropriate status
+    """
     # Rule permits show for any priv 1..15; user has priv 5, requests priv 10
     rules = [
         {
@@ -185,7 +281,24 @@ def test_privilege_check_order_after_allows_policy_eval(server_factory):
 
 
 @pytest.mark.integration
-def test_empty_whitespace_and_long_commands(server_factory):
+def test_empty_whitespace_and_long_commands(server_factory: Any) -> None:
+    """Test handling of empty, whitespace-only, and very long commands.
+
+    This test verifies that:
+    1. Empty commands are handled gracefully
+    2. Commands with only whitespace are handled correctly
+    3. Very long commands don't cause buffer overflows or other issues
+
+    Test Steps:
+    1. Test with an empty command string
+    2. Test with a command containing only whitespace
+    3. Test with a very long command (exceeding typical buffer sizes)
+
+    Expected Behavior:
+    - Empty/whitespace commands should be rejected with appropriate status
+    - Long commands should be handled without errors (though may be rejected based on policy)
+    - The server should remain stable and responsive
+    """
     server = _server(server_factory, default_action="deny")
     with server:
         _seed_env(server, priv=5)
@@ -206,7 +319,25 @@ def test_empty_whitespace_and_long_commands(server_factory):
 
 
 @pytest.mark.integration
-def test_privilege_check_order_before_blocks_higher_request(server_factory):
+def test_privilege_check_order_before_blocks_higher_request(
+    server_factory: Any,
+) -> None:
+    """Test privilege check order when requesting higher privileges.
+
+    This test verifies that:
+    1. Privilege level is checked before command authorization
+    2. Requests for higher privileges than the user has are denied
+    3. The server returns the appropriate status code
+
+    Test Steps:
+    1. Create a test user with privilege level 5
+    2. Attempt to execute a command requesting privilege level 15
+    3. Verify the request is denied
+
+    Expected Behavior:
+    - Command should be denied with TAC_PLUS_AUTHOR_STATUS.FAIL
+    - The server should indicate insufficient privileges in the response
+    """
     # With 'before', a req_priv higher than user's priv blocks before policy evaluation
     rules = [
         {

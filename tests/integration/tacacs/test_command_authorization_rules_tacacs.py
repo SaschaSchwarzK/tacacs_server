@@ -1,7 +1,48 @@
+"""
+TACACS+ Command Authorization Rules Integration Tests (TACACS Protocol)
+=====================================================================
+
+This module contains integration tests for TACACS+ command authorization rules
+using the native TACACS+ protocol. It verifies the behavior of command
+authorization rules with real TACACS+ protocol interactions.
+
+Test Environment:
+- Real TACACS+ server with command authorization enabled
+- Native TACACS+ protocol communication
+- Local user and device store for authentication
+- Various command patterns and matching strategies
+
+Test Cases:
+- test_tacacs_rule_regex_capturing_groups: Tests regex patterns with capturing groups
+- test_tacacs_rule_case_insensitive: Verifies case-insensitive command matching
+- test_tacacs_rule_priority_first_match_wins: Tests rule precedence and ordering
+- test_tacacs_rule_wildcard_patterns: Validates wildcard pattern matching
+- test_tacacs_multiple_matching_rules_precedence: Verifies behavior with multiple rules
+- test_tacacs_rule_command_aliases_via_regex: Tests command aliases using regex
+- test_author_permit_with_argument_modification: Tests argument modification
+- test_author_pass_add_with_rule_attrs: Tests attribute passing in pass_add
+- test_author_pass_repl_per_rule: Tests per-rule response modification
+- test_author_deny_with_custom_message: Tests custom deny messages
+- test_author_pass_add_with_additional_arguments: Tests adding arguments
+- test_author_pass_repl_replace_all_arguments: Tests full argument replacement
+
+Configuration:
+- Default action: deny (configurable)
+- Rule format: List of dictionaries with action, match_type, pattern, etc.
+- Test user: authzuser/TestPass1!
+- Device secret: testing123
+- TACACS+ port: 49
+
+Example Usage:
+    pytest tests/integration/tacacs/test_command_authorization_rules_tacacs.py -v
+"""
+
 import json
+import secrets
 import socket
 import struct
 import time
+from typing import Any
 
 import pytest
 import requests
@@ -19,7 +60,28 @@ from tacacs_server.tacacs.packet import TacacsPacket
 from tests.utils.logs import parse_json_lines
 
 
-def _server_with_rules(server_factory, rules: list[dict], default_action: str = "deny"):
+def _server_with_rules(
+    server_factory: Any, rules: list[dict[str, Any]], default_action: str = "deny"
+) -> Any:
+    """Create and configure a test server with custom command authorization rules.
+
+    Args:
+        server_factory: Pytest fixture for creating server instances
+        rules: List of command authorization rule dictionaries
+        default_action: Default action ('permit' or 'deny') when no rules match
+
+    Returns:
+        Configured server instance with the specified rules
+
+    Example:
+        rules = [{
+            "action": "permit",
+            "match_type": "regex",
+            "pattern": r"^show\\s+version$",
+            "description": "Allow show version"
+        }]
+        server = _server_with_rules(server_factory, rules, default_action="deny")
+    """
     return server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -38,6 +100,20 @@ def _server_with_rules(server_factory, rules: list[dict], default_action: str = 
 
 
 def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes:
+    """Read exactly 'length' bytes from a socket with timeout.
+
+    Args:
+        sock: Connected socket to read from
+        length: Number of bytes to read
+        timeout: Maximum time to wait for data (seconds)
+
+    Returns:
+        bytes: The received data
+
+    Raises:
+        socket.timeout: If the operation times out
+        ConnectionError: If the connection is closed unexpectedly
+    """
     sock.settimeout(timeout)
     buf = bytearray()
     while len(buf) < length:
@@ -51,6 +127,21 @@ def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes
 def _mk_author_body(
     username: str, cmd: str, service: str = "shell", req_priv: int = 1
 ) -> bytes:
+    """Build a TACACS+ authorization request body for command authorization.
+
+    Args:
+        username: Username for the authorization request
+        cmd: Command to be authorized
+        service: Service type (default: "shell")
+        req_priv: Requested privilege level (1-15)
+
+    Returns:
+        bytes: Packed TACACS+ authorization request body
+
+    Note:
+        Follows RFC 8907 (TACACS+) packet format for authorization requests.
+        The request body includes service and command arguments.
+    """
     user_b = username.encode()
     port_b = b""
     rem_b = b""
@@ -74,8 +165,20 @@ def _mk_author_body(
 
 def _send_author(
     host: str, port: int, username: str, cmd: str, *, req_priv: int = 1
-) -> int:
-    session_id = int(time.time()) & 0xFFFFFFFF
+) -> TacacsPacket | None:
+    """Send a TACACS+ authorization request and return the response.
+
+    Args:
+        host: TACACS+ server hostname or IP
+        port: TACACS+ server port
+        username: Username for the authorization request
+        cmd: Command to be authorized
+        req_priv: Requested privilege level (1-15)
+
+    Returns:
+        TacacsPacket: Parsed response from server, or None on failure
+    """
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
@@ -169,7 +272,24 @@ def _ensure_engine_ready(server) -> None:
 
 
 @pytest.mark.integration
-def test_tacacs_rule_regex_capturing_groups(server_factory):
+def test_tacacs_rule_regex_capturing_groups(server_factory: Any) -> None:
+    """Test TACACS+ command authorization with regex patterns containing capturing groups.
+
+    This test verifies that:
+    1. Regex patterns with capturing groups work correctly
+    2. The full command is matched against the pattern
+    3. The rule only matches the exact specified pattern
+
+    Test Steps:
+    1. Create a rule that permits 'show interface <name>' using regex
+    2. Send TACACS+ authorization requests for various commands
+    3. Verify the response status codes
+
+    Expected Behavior:
+    - 'show interface Gi0/1' -> TAC_PLUS_AUTHOR_STATUS.PASS_ADD
+    - 'show interfaces Gi0/1' -> TAC_PLUS_AUTHOR_STATUS.FAIL
+    - 'show interface' -> TAC_PLUS_AUTHOR_STATUS.FAIL
+    """
     rules = [
         {
             "action": "permit",
@@ -664,7 +784,7 @@ def _send_author_full(
     host: str, port: int, username: str, cmd: str, *, req_priv: int = 1
 ):
     """Return (status, server_msg:str, attrs:list[str])"""
-    session_id = int(time.time()) & 0xFFFFFFFF
+    session_id = secrets.randbits(32)
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,

@@ -1,9 +1,67 @@
+"""
+Configuration API Integration Tests
+=================================
+
+This module contains integration tests for the TACACS+ server's configuration API.
+It verifies the end-to-end functionality of the configuration management system,
+including authentication, validation, and CRUD operations on configuration sections.
+
+Test Coverage:
+- Authentication and authorization for configuration endpoints
+- CRUD operations on configuration sections
+- Validation of configuration values
+- Error handling for invalid configurations
+- Concurrent configuration updates
+- Backup and restore functionality
+
+Dependencies:
+- pytest for test framework
+- requests for HTTP client functionality
+- server_factory fixture for test server instances
+
+Environment Variables:
+- TACACS_SERVER_HOST: Hostname of the TACACS+ server (default: 127.0.0.1)
+- TACACS_SERVER_PORT: Port of the TACACS+ server (default: 49)
+- ADMIN_USERNAME: Username for admin API access (default: admin)
+- ADMIN_PASSWORD: Password for admin API access (default: admin123)
+
+Example Usage:
+    pytest tests/integration/test_config_api.py -v
+"""
+
 import pytest
 
 
 @pytest.mark.integration
 def test_config_api_full_workflow(server_factory):
-    """Test the full configuration API workflow with proper authentication."""
+    """Test the full configuration API workflow with proper authentication.
+
+    This test verifies the complete lifecycle of configuration management
+    through the admin API, including:
+    - Server initialization with admin credentials
+    - Authentication and session management
+    - Retrieval of configuration sections
+    - Validation of configuration values
+    - Error handling for invalid updates
+    - Concurrent access handling
+
+    Test Steps:
+    1. Initialize server with admin API enabled
+    2. Authenticate and establish a session
+    3. List available configuration sections
+    4. Retrieve server configuration
+    5. Validate configuration values
+    6. Test error conditions
+
+    Expected Results:
+    - API endpoints require proper authentication
+    - Configuration sections are accessible
+    - Validation rejects invalid values
+    - Error responses include meaningful messages
+
+    Args:
+        server_factory: Pytest fixture that provides a configured TACACS+ server instance
+    """
     # Create a server instance with admin API enabled
     server = server_factory(
         enable_tacacs=True,

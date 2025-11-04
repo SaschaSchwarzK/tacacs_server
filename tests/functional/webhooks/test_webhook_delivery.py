@@ -1,4 +1,31 @@
-"""Fixed webhook tests - adapts to new log format"""
+"""
+End-to-End Webhook Delivery Tests
+================================
+
+This module contains functional tests for the webhook delivery system in the TACACS+ server.
+It verifies that webhook notifications are properly triggered and delivered when specific
+events occur in the system.
+
+Test Coverage:
+- Webhook delivery on authentication events (success/failure)
+- Payload formatting and structure
+- HTTP headers and content type
+- Error handling and retry logic
+- Concurrent webhook delivery
+
+Dependencies:
+- Python's built-in http.server for test server
+- pytest for test framework
+- requests for HTTP client functionality
+
+Environment Variables:
+- TACACS_SERVER_HOST: Hostname of the TACACS+ server (default: 127.0.0.1)
+- TACACS_SERVER_PORT: Port of the TACACS+ server (default: 49)
+- WEBHOOK_TEST_PORT: Port for the test webhook server (default: random available port)
+
+Example Usage:
+    pytest tests/functional/webhooks/test_webhook_delivery.py -v
+"""
 
 import http.server
 import json
@@ -13,7 +40,23 @@ import requests
 
 
 class _RecordingHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP request handler for capturing webhook test requests.
+
+    This handler intercepts incoming webhook requests and stores them in memory
+    for test verification. It's used by the test webhook server to capture and
+    validate webhook deliveries.
+
+    Attributes:
+        server.store: List to store captured webhook requests
+    """
+
     def do_POST(self):
+        """Handle HTTP POST requests and store the received data.
+
+        Extracts the request body, headers, and other metadata, then stores them
+        for test verification. Always returns a 200 OK response with a simple
+        JSON payload.
+        """
         length = int(self.headers.get("Content-Length", "0") or 0)
         body = self.rfile.read(length) if length else b""
         try:
@@ -44,6 +87,25 @@ class _RecordingHandler(http.server.BaseHTTPRequestHandler):
 def _start_http_server() -> tuple[
     http.server.HTTPServer, threading.Thread, int, list[dict[str, Any]]
 ]:
+    """Start a test HTTP server to receive webhook notifications.
+
+    This function sets up and starts a local HTTP server in a separate thread
+    to receive and record webhook notifications during testing.
+
+    Returns:
+        A tuple containing:
+            - The HTTP server instance
+            - The server thread (already started)
+            - The port number the server is listening on
+            - A reference to the request store for test verification
+
+    Example:
+        server, thread, port, requests = _start_http_server()
+        # Test code that triggers webhooks
+        assert len(requests) > 0  # Verify webhook was received
+        server.shutdown()
+        thread.join()
+    """
     srv = http.server.HTTPServer(("127.0.0.1", 0), _RecordingHandler)
     port = srv.server_port
     srv.store = []
@@ -67,6 +129,28 @@ def _start_http_server() -> tuple[
 def _send_bad_tacacs_auth(
     host: str, port: int, username: str = "wh_user", password: str = "wrongpass"
 ) -> bool:
+    """Simulate a failed TACACS+ authentication attempt.
+
+    This helper function sends a TACACS+ authentication request with invalid
+    credentials to trigger a webhook notification for failed login attempts.
+
+    Args:
+        host: TACACS+ server hostname or IP address
+        port: TACACS+ server port
+        username: Username to use for authentication (default: "wh_user")
+        password: Password to use for authentication (default: "wrongpass")
+
+    Returns:
+        bool: True if the authentication was rejected as expected
+
+    Raises:
+        Exception: If there's an unexpected error during authentication
+
+    Notes:
+        This function is designed to be used in a test environment only. It does
+        not perform any error handling or security checks that would be necessary
+        in a production environment.
+    """
     from tacacs_server.tacacs.constants import (
         TAC_PLUS_AUTHEN_ACTION,
         TAC_PLUS_AUTHEN_STATUS,
@@ -140,6 +224,31 @@ def _send_bad_tacacs_auth(
 
 @pytest.mark.functional
 def test_webhook_delivery_end_to_end(server_factory):
+    """Test end-to-end webhook delivery for authentication events.
+
+    This test verifies that webhook notifications are properly triggered and
+    delivered when authentication events occur. It covers:
+    - Webhook configuration and registration
+    - Event triggering through authentication attempts
+    - Payload structure and content
+    - HTTP headers and content type
+    - Basic error handling
+
+    Test Steps:
+    1. Start a test HTTP server to receive webhooks
+    2. Configure the TACACS+ server with webhook settings
+    3. Trigger authentication events
+    4. Verify webhook delivery and payload
+
+    Expected Results:
+    - Webhook is delivered for each authentication event
+    - Payload contains correct event details
+    - Headers include correct content type
+    - Failed authentication triggers appropriate webhook
+
+    Args:
+        server_factory: Pytest fixture that provides a TACACS+ server instance
+    """
     srv1, _, port1, records1 = _start_http_server()
     srv2, _, port2, records2 = _start_http_server()
     urls = [f"http://127.0.0.1:{port1}/hook1", f"http://127.0.0.1:{port2}/hook2"]

@@ -1,3 +1,26 @@
+"""
+Azure Blob Storage Backup Destination Test Suite
+
+This module contains unit tests for the Azure Blob Storage backup destination
+implementation. It verifies the functionality of uploading, downloading, and
+managing backups in Azure Blob Storage.
+
+Test Coverage:
+- Container name validation
+- Connection string authentication
+- SAS token authentication
+- Managed identity authentication
+- Container creation and existence checks
+- Blob listing and filtering
+- Metadata and tag handling
+- Error conditions and edge cases
+
+Dependencies:
+- pytest for test framework
+- unittest.mock for mocking Azure SDK clients
+- azure-storage-blob for Azure Blob Storage interaction
+"""
+
 from __future__ import annotations
 
 import os
@@ -11,12 +34,35 @@ from tacacs_server.backup.destinations.azure import AzureBlobBackupDestination
 
 
 def _tmp_file(tmp_path: Path, name: str = "test.tar.gz", size: int = 1024) -> str:
+    """Create a temporary file with random content for testing.
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory
+        name: Name of the temporary file
+        size: Size of random content in bytes
+
+    Returns:
+        str: Path to the created temporary file
+    """
     p = tmp_path / name
     p.write_bytes(os.urandom(size))
     return str(p)
 
 
 def test_container_name_validation():
+    """Verify container name validation rejects invalid names.
+
+    Test Steps:
+    1. Attempt to create AzureBlobBackupDestination with an invalid container name
+
+    Expected Results:
+    - Should raise ValueError for invalid container name
+    - Should prevent creation of destination with invalid container name
+
+    Edge Cases:
+    - Tests Azure's container naming rules (lowercase alphanumeric and hyphens only)
+    - Verifies validation happens during initialization
+    """
     with pytest.raises(ValueError):
         AzureBlobBackupDestination(
             {"connection_string": "cs", "container_name": "Invalid_UPPER"}
@@ -25,6 +71,23 @@ def test_container_name_validation():
 
 @patch("azure.storage.blob.BlobServiceClient")
 def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Path):
+    """Verify upload with connection string sets metadata and tags correctly.
+
+    Test Steps:
+    1. Mock Azure BlobServiceClient and related components
+    2. Configure AzureBlobBackupDestination with connection string
+    3. Upload a test file
+
+    Expected Results:
+    - upload_blob should be called with the file content
+    - set_blob_metadata should be called with default metadata
+    - set_blob_tags should be called with default tags
+
+    Security Considerations:
+    - Verifies sensitive connection string is properly handled
+    - Ensures metadata and tags are set as specified
+    """
+    # Setup mocks
     mock_container = Mock()
     mock_blob_client = Mock()
     mock_bsc.from_connection_string.return_value.get_container_client.return_value = (
@@ -33,6 +96,7 @@ def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Pat
     mock_container.get_blob_client.return_value = mock_blob_client
     mock_container.exists.return_value = True
 
+    # Test with connection string auth
     dest = AzureBlobBackupDestination(
         {
             "connection_string": "DefaultEndpointsProtocol=https;AccountName=acc;...",
@@ -41,11 +105,15 @@ def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Pat
             "default_tags": {"app": "tacacs"},
         }
     )
+
+    # Perform upload
     src = _tmp_file(tmp_path)
     dest.upload_backup(src, "test.tar.gz")
-    assert mock_blob_client.upload_blob.called
-    assert mock_blob_client.set_blob_metadata.called
-    assert mock_blob_client.set_blob_tags.called
+
+    # Verify Azure SDK interactions
+    assert mock_blob_client.upload_blob.called, "Should upload blob content"
+    assert mock_blob_client.set_blob_metadata.called, "Should set blob metadata"
+    assert mock_blob_client.set_blob_tags.called, "Should set blob tags"
 
 
 def test_account_key_initialization():

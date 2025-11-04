@@ -1,16 +1,33 @@
 """
-Functional tests for HAProxy PROXY protocol v2 handling.
+TACACS+ PROXY Protocol v2 Test Suite
 
-Covers:
-- Proper detection and parsing of PROXY v2 headers
-- Proxied identity selection and successful auth via configured proxy
-- Rejection when proxy validation is enabled and proxy is unknown
-- Error logging for invalid/unsupported PROXY headers and graceful fallback
+This module contains functional tests for HAProxy PROXY protocol v2 handling
+in the TACACS+ server. It verifies that the server correctly processes PROXY
+protocol headers and enforces proxy validation rules.
+
+Test Coverage:
+- Detection and parsing of PROXY v2 headers
+- Client IP selection from proxy headers
+- Authentication through configured proxies
+- Validation of proxy sources
+- Error handling for invalid PROXY headers
+- Graceful fallback when PROXY protocol is disabled
+
+Helper Functions:
+    - _md5_pad: Generate MD5 padding for TACACS+ encryption
+    - _transform_body: Apply XOR transformation to packet body
+    - _build_proxy_v2: Create a PROXY v2 header
+    - _build_invalid_proxy_v2_version: Create an invalid PROXY v2 header
+    - _tacacs_auth: Perform TACACS+ authentication with optional PROXY header
+
+Note: These tests focus on the integration between PROXY protocol handling
+and TACACS+ authentication.
 """
 
 from __future__ import annotations
 
 import hashlib
+import secrets
 import socket
 import struct
 import time
@@ -19,6 +36,22 @@ import time
 def _md5_pad(
     session_id: int, key: str, version: int, seq_no: int, length: int
 ) -> bytes:
+    """Generate MD5 padding for TACACS+ packet encryption.
+
+    This function implements the MD5-based padding algorithm used in TACACS+
+    packet encryption. It generates a deterministic byte sequence based on the
+    session ID, shared key, version, and sequence number.
+
+    Args:
+        session_id: Unique session identifier
+        key: Shared secret key for encryption
+        version: TACACS+ protocol version
+        seq_no: Sequence number for the packet
+        length: Desired length of the padding
+
+    Returns:
+        bytes: Pseudo-random bytes for XOR encryption
+    """
     pad = bytearray()
     session_id_bytes = struct.pack("!L", session_id)
     key_bytes = key.encode("utf-8")
@@ -38,6 +71,21 @@ def _md5_pad(
 def _transform_body(
     body: bytes, session_id: int, key: str, version: int, seq_no: int
 ) -> bytes:
+    """Apply XOR transformation to packet body using MD5 padding.
+
+    This function encrypts or decrypts TACACS+ packet bodies using a simple
+    XOR operation with the MD5-padded key stream.
+
+    Args:
+        body: The packet body to transform
+        session_id: Unique session identifier
+        key: Shared secret key for encryption
+        version: TACACS+ protocol version
+        seq_no: Sequence number for the packet
+
+    Returns:
+        bytes: Transformed (encrypted or decrypted) packet body
+    """
     if not key:
         return body
     pad = _md5_pad(session_id, key, version, seq_no, len(body))
@@ -45,7 +93,20 @@ def _transform_body(
 
 
 def _build_proxy_v2(src_ip: str, dst_ip: str, src_port: int, dst_port: int) -> bytes:
-    """Build a minimal PROXY v2 header for IPv4 STREAM with PROXY command."""
+    """Build a minimal PROXY v2 header for IPv4 STREAM with PROXY command.
+
+    This function creates a PROXY protocol v2 header that can be prepended to
+    TACACS+ traffic when testing proxy protocol support.
+
+    Args:
+        src_ip: Source IP address (client)
+        dst_ip: Destination IP address (server)
+        src_port: Source port (client)
+        dst_port: Destination port (server)
+
+    Returns:
+        bytes: PROXY protocol v2 header
+    """
     signature = b"\x0d\x0a\x0d\x0a\x00\x0d\x0a\x51\x55\x49\x54\x0a"
     version = 2
     command = 1  # PROXY
@@ -62,7 +123,15 @@ def _build_proxy_v2(src_ip: str, dst_ip: str, src_port: int, dst_port: int) -> b
 
 
 def _build_invalid_proxy_v2_version() -> bytes:
-    """Build a header with correct signature but invalid version nibble to trigger logging."""
+    """Build a header with correct signature but invalid version nibble.
+
+    This function creates an invalid PROXY protocol v2 header by setting an
+    unsupported version number. This is used to test the server's handling
+    of malformed PROXY headers.
+
+    Returns:
+        bytes: Invalid PROXY protocol v2 header
+    """
     signature = b"\x0d\x0a\x0d\x0a\x00\x0d\x0a\x51\x55\x49\x54\x0a"
     version = 1  # invalid (server expects 2)
     command = 1
@@ -80,9 +149,23 @@ def _tacacs_auth(
     password: str,
     prefix: bytes | None = None,
 ) -> tuple[bool, str]:
-    """Perform a TACACS+ PAP authentication with an optional prefix (e.g., PROXY header).
+    """Perform TACACS+ authentication with optional PROXY protocol header.
 
-    Retries a couple of times if the server closes before replying (timing-sensitive with PROXY header).
+    This helper function establishes a TCP connection to the TACACS+ server,
+    optionally sends a PROXY protocol header, and performs PAP authentication.
+
+    Args:
+        host: Server hostname or IP address
+        port: Server port number
+        key: Shared secret for TACACS+ encryption
+        username: Username for authentication
+        password: Password for authentication
+        prefix: Optional PROXY protocol header to send before TACACS+ traffic
+
+    Returns:
+        tuple[bool, str]: A tuple containing:
+            - success (bool): True if authentication was successful
+            - message (str): Status message or error description
     """
     last_msg = ""
     for attempt in range(3):
@@ -95,7 +178,7 @@ def _tacacs_auth(
             if prefix:
                 # Send PROXY header immediately followed by TACACS header+body
                 # to avoid server timeouts/EOF between stages.
-                session_id = int(time.time()) & 0xFFFFFFFF
+                session_id = secrets.randbits(32)
                 user_bytes = username.encode("utf-8")
                 port_bytes = b"console"
                 rem_addr_bytes = b"127.0.0.1"
@@ -124,7 +207,7 @@ def _tacacs_auth(
                 sock.sendall(prefix + header + encrypted_body)
             else:
                 # Build and send TACACS request without PROXY prefix
-                session_id = int(time.time()) & 0xFFFFFFFF
+                session_id = secrets.randbits(32)
                 user_bytes = username.encode("utf-8")
                 port_bytes = b"console"
                 rem_addr_bytes = b"127.0.0.1"
@@ -190,6 +273,26 @@ def _tacacs_auth(
 
 
 def test_proxy_v2_detect_and_authenticates_through_proxy(server_factory):
+    """Test that the server correctly processes PROXY v2 headers and authenticates.
+
+    This test verifies that the TACACS+ server can properly handle PROXY protocol v2
+    headers and use the client IP from the header for authentication.
+
+    Test Steps:
+    1. Start server with PROXY protocol enabled
+    2. Create a test user and device with a specific IP
+    3. Send a TACACS+ authentication request with a PROXY v2 header
+    4. Verify the server uses the proxied client IP for authentication
+
+    Expected Results:
+    - Server should accept the PROXY v2 header
+    - Authentication should succeed using the proxied client IP
+    - Server logs should reflect the correct client IP
+
+    Edge Cases/Notes:
+    - Tests the integration between PROXY protocol and TACACS+ authentication
+    - Verifies proper IP address handling in proxy scenarios
+    """
     """Ensure server consumes PROXY v2, uses client IP from header, and authenticates."""
     server = server_factory(
         config={
@@ -254,6 +357,26 @@ def test_proxy_v2_detect_and_authenticates_through_proxy(server_factory):
 
 
 def test_proxy_v2_rejects_unknown_proxy_when_validation_enabled(server_factory):
+    """Test that the server rejects connections from unauthorized proxies.
+
+    This test verifies that when proxy source validation is enabled, the server
+    rejects connections from proxy servers that are not explicitly allowed.
+
+    Test Steps:
+    1. Start server with proxy source validation enabled
+    2. Configure a list of allowed proxy IPs
+    3. Send a TACACS+ request with a PROXY header from an unauthorized IP
+    4. Verify the connection is rejected
+
+    Expected Results:
+    - Server should reject connections from unauthorized proxies
+    - Authentication should fail
+    - Server logs should indicate the rejection reason
+
+    Edge Cases/Notes:
+    - Tests security controls around proxy source validation
+    - Verifies proper handling of unauthorized proxy connections
+    """
     """When validate_sources is true and no proxies configured, reject proxied connections."""
     server = server_factory(
         config={
@@ -315,6 +438,26 @@ def test_proxy_v2_rejects_unknown_proxy_when_validation_enabled(server_factory):
 
 
 def test_proxy_v2_invalid_header_logged_and_ignored(server_factory):
+    """Test that invalid PROXY headers are logged and handled gracefully.
+
+    This test verifies that the server properly handles malformed PROXY protocol
+    headers by logging the error and falling back to direct client IP handling.
+
+    Test Steps:
+    1. Start server with PROXY protocol enabled
+    2. Send a TACACS+ request with an invalid PROXY header
+    3. Verify the error is logged
+    4. Check that authentication still works using the direct client IP
+
+    Expected Results:
+    - Server should log the invalid header error
+    - Authentication should proceed using the direct client IP
+    - No crashes or unexpected behavior should occur
+
+    Edge Cases/Notes:
+    - Tests robustness against malformed PROXY headers
+    - Verifies graceful fallback behavior
+    """
     """Invalid PROXY header should be logged and the connection should still work for direct device."""
     server = server_factory(
         config={
@@ -370,6 +513,26 @@ def test_proxy_v2_invalid_header_logged_and_ignored(server_factory):
 
 
 def test_proxy_v2_ignored_when_disabled(server_factory):
+    """Test that PROXY headers are ignored when the feature is disabled.
+
+    This test verifies that when the PROXY protocol is disabled in the server
+    configuration, PROXY headers are treated as part of the TACACS+ traffic.
+
+    Test Steps:
+    1. Start server with PROXY protocol disabled
+    2. Send a TACACS+ request with a PROXY header
+    3. Verify the header is treated as part of the TACACS+ stream
+    4. Check that authentication fails due to malformed TACACS+ data
+
+    Expected Results:
+    - Server should ignore PROXY protocol headers
+    - TACACS+ authentication should fail due to invalid data
+    - No crashes or unexpected behavior should occur
+
+    Edge Cases/Notes:
+    - Tests backward compatibility when PROXY protocol is disabled
+    - Verifies proper handling of unexpected PROXY headers
+    """
     """If accept_proxy_protocol is disabled, prefix should be ignored and direct auth should succeed."""
     server = server_factory(
         config={
@@ -450,7 +613,7 @@ def test_proxy_v2_single_send_stream_works(server_factory):
         # Build PROXY v2 header and TACACS+ PAP request
         proxy_hdr = _build_proxy_v2("10.2.3.4", "127.0.0.1", 55555, server.tacacs_port)
 
-        session_id = int(time.time()) & 0xFFFFFFFF
+        session_id = secrets.randbits(32)
         user_bytes = b"combo"
         port_bytes = b"console"
         rem_addr_bytes = b"127.0.0.1"
@@ -542,7 +705,7 @@ def test_proxy_v2_single_send_lenient_invalid_header_works(server_factory):
 
         bad_hdr = _build_invalid_proxy_v2_version()
 
-        session_id = int(time.time()) & 0xFFFFFFFF
+        session_id = secrets.randbits(32)
         user_bytes = b"lenient"
         port_bytes = b"console"
         rem_addr_bytes = b"127.0.0.1"

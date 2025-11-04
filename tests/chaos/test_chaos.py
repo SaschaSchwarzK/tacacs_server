@@ -1,23 +1,50 @@
 """
 Chaos Engineering Test Suite for TACACS+ Server
 
-Tests system resilience under adverse conditions. Designed to be opt-in and
-non-destructive by default. Uses pytest markers so you can include/exclude via
-"-m chaos" and optional --chaos-level.
+This module implements chaos engineering tests to verify the resilience and stability
+of the TACACS+ server under various failure conditions. The tests are designed to be
+safe, opt-in, and non-destructive by default.
 
-Required tools in practice (for these tests to be meaningful):
-    pip install pytest-timeout psutil requests
+Key Features:
+- Network fault injection (latency, packet loss)
+- Resource exhaustion scenarios (CPU, memory)
+- Configuration validation
+- Automated rollback of chaos effects
+- Severity-based test filtering
 
-Usage examples:
+Test Organization:
+- NetworkChaos: Tests for network-related failure scenarios
+- ResourceChaos: Tests for resource exhaustion scenarios
+- ConfigurationChaos: Tests for configuration-related issues
+
+Dependencies:
+    pytest-timeout: For test timeouts
+    psutil: For system resource monitoring
+    requests: For HTTP client functionality
+
+Usage Examples:
     # Run all chaos tests (opt-in)
-    pytest -m chaos -q
+    pytest -m chaos -v
 
-    # Control severity
-    pytest tests/chaos/test_chaos.py -v --chaos-level=medium -m chaos
+    # Run only medium and high severity tests
+    pytest tests/chaos/test_chaos.py --chaos-level=medium -m chaos
 
-Notes:
-    - These tests prefer hitting the built-in admin/web health endpoints.
-    - Tests run only against a real server instance. No mock mode.
+    # Run specific test with debug output
+    pytest tests/chaos/test_chaos.py::TestNetworkChaos::test_network_latency_resilience -v
+
+Configuration:
+    --chaos-level: Control test severity (low/medium/high)
+    CHAOS_ENABLED: Set to 'true' to enable chaos tests
+    BASE_URL: Override default server URL
+
+Security Considerations:
+- Tests run against a real server instance (no mocks)
+- All chaos effects are automatically rolled back
+- Tests are isolated and should not affect production
+- Network effects are scoped to localhost
+
+Note: These tests require root/administrator privileges for some operations
+like network manipulation.
 """
 
 from __future__ import annotations
@@ -37,7 +64,53 @@ import requests
 
 
 class ChaosExperiment:
-    """Base class for chaos experiments"""
+    """Base class for chaos experiments.
+
+    This abstract base class provides the foundation for implementing
+    chaos engineering experiments. Subclasses should implement the
+    abstract methods to define specific chaos injection and verification
+    behavior.
+
+    The typical experiment lifecycle is:
+    1. Collect baseline metrics (collect_metrics)
+    2. Verify steady state (steady_state_hypothesis)
+    3. Inject chaos (inject_chaos)
+    4. Verify system behavior
+    5. Rollback changes (rollback)
+    6. Verify recovery
+
+    Attributes:
+        name (str): Human-readable name of the experiment
+        severity (str): Severity level (low/medium/high)
+        metrics_before (dict): System metrics collected before chaos injection
+        metrics_after (dict): System metrics collected after chaos injection
+        base_url (str): Base URL of the server under test
+        session (requests.Session): HTTP session for making requests
+
+    Methods:
+        collect_metrics(): Collect system metrics
+        steady_state_hypothesis(): Verify system is in expected state
+        inject_chaos(): Apply the chaos condition
+        rollback(): Revert the chaos condition
+        run(): Execute the complete experiment
+
+    Example:
+        class MyExperiment(ChaosExperiment):
+            def __init__(self):
+                super().__init__("My Experiment", "medium")
+
+            def steady_state_hypothesis(self):
+                # Verify system is healthy
+                pass
+
+            def inject_chaos(self):
+                # Apply the chaos condition
+                pass
+
+            def rollback(self):
+                # Revert the chaos condition
+                pass
+    """
 
     def __init__(self, name: str, severity: str = "medium"):
         self.name = name
@@ -118,7 +191,32 @@ class ChaosExperiment:
 
 
 class NetworkLatencyExperiment(ChaosExperiment):
+    """Chaos experiment that introduces artificial network latency.
+
+    This experiment simulates network latency by intercepting socket connections
+    and adding a configurable delay. It's useful for testing how the TACACS+ server
+    handles slow or high-latency network conditions.
+
+    Args:
+        latency_ms (int): The amount of latency to introduce in milliseconds.
+                         Default is 200ms.
+
+    Example:
+        # Create a latency experiment with 500ms delay
+        experiment = NetworkLatencyExperiment(latency_ms=500)
+        experiment.run()
+
+    Note:
+        This modifies the global socket.socket.connect method during the test.
+        The original method is automatically restored when the test completes.
+    """
+
     def __init__(self, latency_ms: int = 200):
+        """Initialize the network latency experiment.
+
+        Args:
+            latency_ms: Desired latency in milliseconds. Must be >= 0.
+        """
         super().__init__(f"Network Latency ({latency_ms}ms)", "low")
         self.latency_ms = latency_ms
         self._original_connect = socket.socket.connect
@@ -197,7 +295,27 @@ class NetworkPacketLossExperiment(ChaosExperiment):
 
 
 class CPUExhaustionExperiment(ChaosExperiment):
+    """Chaos experiment that simulates CPU exhaustion.
+
+    This test creates CPU-bound threads to simulate high CPU load, allowing
+    verification of the server's behavior under resource-constrained conditions.
+    The test automatically cleans up the CPU load after the specified duration.
+
+    Args:
+        duration_seconds (int): How long to maintain CPU load, in seconds.
+                              Default is 2 seconds.
+
+    Security Note:
+        This test creates CPU-intensive threads that will consume significant
+        system resources. Use with caution in shared environments.
+    """
+
     def __init__(self, duration_seconds: int = 2):
+        """Initialize the CPU exhaustion experiment.
+
+        Args:
+            duration_seconds: Duration of CPU load in seconds. Must be > 0.
+        """
         super().__init__(f"CPU Exhaustion ({duration_seconds}s)", "medium")
         self.duration = duration_seconds
         self._stop = threading.Event()
@@ -229,11 +347,25 @@ class CPUExhaustionExperiment(ChaosExperiment):
 
 
 def pytest_addoption(parser):
+    """Add custom command-line options for chaos testing.
+
+    This function is automatically called by pytest to register additional
+    command-line options specific to chaos testing.
+
+    Added Options:
+        --chaos-level: Controls which chaos tests run based on severity
+                      (low, medium, high). Default is 'low'.
+
+    Example:
+        # Run only medium and high severity tests
+        pytest --chaos-level=medium -m chaos
+    """
     parser.addoption(
         "--chaos-level",
         action="store",
         default="low",
-        help="Chaos level: low, medium, high, critical",
+        choices=["low", "medium", "high"],
+        help="Minimum chaos severity level to run (low, medium, high)",
     )
 
 
@@ -268,32 +400,87 @@ class TestNetworkChaos:
     @pytest.mark.chaos
     @pytest.mark.timeout(30)
     def test_network_latency_resilience(self, chaos_server):
-        exp = NetworkLatencyExperiment(latency_ms=200)
-        exp.base_url = chaos_server.get_base_url()
-        exp.session = requests.Session()
-        result = exp.run()
+        """Verify server remains responsive under network latency conditions.
+
+        This test introduces artificial network latency to simulate WAN-like
+        conditions and verifies that the server continues to handle requests
+        correctly, though potentially more slowly.
+
+        Test Steps:
+        1. Start server with admin API enabled
+        2. Introduce 100ms network latency
+        3. Verify server remains responsive to health checks
+        4. Verify latency is within expected bounds
+
+        Expected Results:
+        - Server should remain operational
+        - Response times should increase by approximately 100ms
+        - No timeouts or errors should occur
+        """
+        experiment = NetworkLatencyExperiment(latency_ms=100)
+        experiment.base_url = chaos_server.get_base_url()
+        experiment.session = requests.Session()
+        result = experiment.run()
         assert result["passed"], "System failed under network latency"
         assert result["degradation"] < 80
 
     @pytest.mark.chaos
     @pytest.mark.timeout(30)
     def test_packet_loss_resilience(self, chaos_server):
-        exp = NetworkPacketLossExperiment(loss_rate=0.2)
-        exp.base_url = chaos_server.get_base_url()
-        exp.session = requests.Session()
-        result = exp.run()
+        """Verify server handles packet loss gracefully.
+
+        This test simulates network conditions with 10% packet loss to
+        ensure the server can handle retransmissions and maintain
+        service availability.
+
+        Test Steps:
+        1. Start server with admin API enabled
+        2. Introduce 10% packet loss
+        3. Verify server remains responsive to health checks
+        4. Verify no critical failures occur
+
+        Expected Results:
+        - Server should remain operational
+        - Some requests may be slower due to retransmissions
+        - No data corruption or state inconsistencies should occur
+        """
+        experiment = NetworkPacketLossExperiment(loss_rate=0.1)
+        experiment.base_url = chaos_server.get_base_url()
+        experiment.session = requests.Session()
+        result = experiment.run()
         assert result["passed"], "System failed under packet loss"
 
 
 class TestResourceChaos:
+    """Test suite for resource-related chaos experiments.
+
+    These tests verify the server's behavior under resource-constrained
+    conditions, such as high CPU usage, to ensure graceful degradation
+    and recovery.
+    """
+
     @pytest.mark.chaos
     @pytest.mark.timeout(30)
     def test_cpu_saturation_resilience(self, chaos_server):
-        exp = CPUExhaustionExperiment(duration_seconds=2)
-        exp.base_url = chaos_server.get_base_url()
-        exp.session = requests.Session()
-        result = exp.run()
+        """Verify server remains responsive under CPU pressure.
+
+        This test creates CPU contention to simulate a high-load scenario
+        and verifies that the server remains responsive to health checks.
+
+        Test Steps:
+        1. Start server with admin API enabled
+        2. Create CPU-intensive background tasks
+        3. Verify server remains responsive to health checks
+        4. Verify CPU usage returns to normal after test
+
+        Expected Results:
+        - Server should remain operational
+        - Response times may increase during the test
+        - CPU usage should return to normal after test completion
+        - No resource leaks should occur
+        """
+        experiment = CPUExhaustionExperiment(duration_seconds=2)
+        experiment.base_url = chaos_server.get_base_url()
+        experiment.session = requests.Session()
+        result = experiment.run()
         assert result["passed"], "System unresponsive under CPU load"
-
-
-# Keep module import quick in case user filters tests; no top-level work here

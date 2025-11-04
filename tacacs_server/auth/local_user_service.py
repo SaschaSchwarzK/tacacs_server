@@ -100,6 +100,24 @@ class LocalUserService:
             raise LocalUserNotFound(f"User '{username}' not found")
         return self._clone(record)
 
+    def get_user_or_none(self, username: str) -> LocalUserRecord | None:
+        """Return user record or None when not found.
+
+        Logs a lookup miss at INFO level for observability while avoiding
+        exceptions in callers that prefer a nullable contract.
+        """
+        try:
+            return self.get_user(username)
+        except LocalUserNotFound:
+            try:
+                logger.info(
+                    "LocalUserService: user lookup miss", extra={"username": username}
+                )
+            except Exception:
+                # Fallback without structured extras
+                logger.info("LocalUserService: user '%s' not found", username)
+            return None
+
     def create_user(
         self,
         username: str,
@@ -222,6 +240,26 @@ class LocalUserService:
             raise LocalUserNotFound(f"User '{username}' not found")
         self._notify_change("deleted", username)
         return True
+
+    def delete_user_if_exists(self, username: str) -> bool:
+        """Delete user if present, returning True if deleted, False if absent.
+
+        Logs a lookup miss when the user does not exist. This is an idempotent
+        variant suitable for cleanup code and tests.
+        """
+        try:
+            return self.delete_user(username)
+        except LocalUserNotFound:
+            try:
+                logger.info(
+                    "LocalUserService: delete skipped (user not found)",
+                    extra={"username": username},
+                )
+            except Exception:
+                logger.info(
+                    "LocalUserService: delete skipped for missing user '%s'", username
+                )
+            return False
 
     def reload(self) -> None:
         self.store.reload()

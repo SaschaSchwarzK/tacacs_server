@@ -1,8 +1,56 @@
-"""
-RADIUS Server Tests
+"""RADIUS Server Test Suite
 
-Tests RADIUS authentication with real server instances.
-Each test creates its own isolated server with temporary resources.
+This module contains comprehensive integration tests for the RADIUS authentication
+server implementation. It verifies the basic functionality, error handling, and
+edge cases of the RADIUS server, including protocol compliance and security features.
+
+Test Organization:
+- Authentication Flows
+  - Successful authentication with valid credentials
+  - Failed authentication with invalid credentials
+  - Authentication with various password formats
+  - Session management and timeouts
+
+- Integration Features
+  - Shared TACACS+ backend integration
+  - Multiple client configurations
+  - Concurrent authentication requests
+  - Load balancing and failover scenarios
+
+- Security Features
+  - Message authentication with shared secrets
+  - Password encryption and handling
+  - Protection against replay attacks
+  - Rate limiting and DoS prevention
+
+- Monitoring and Logging
+  - Authentication event logging
+  - Audit trail for security events
+  - Performance metrics collection
+  - Debug logging levels
+
+- Configuration Validation
+  - Server startup with valid/invalid configs
+  - Dynamic configuration reload
+  - Environment variable overrides
+  - Default value handling
+
+Security Considerations:
+- Validates proper handling of shared secrets
+- Ensures secure password transmission
+- Verifies protection against common attacks
+- Confirms proper access controls
+- Validates secure default configurations
+
+Dependencies:
+- pytest for test framework
+- socket for network communication
+- hashlib for RADIUS message authentication
+- struct for binary data handling
+
+Note:
+Each test is isolated and creates its own server instance with temporary resources
+to ensure test independence and reliability. Test data is cleaned up automatically.
 """
 
 import hashlib
@@ -24,11 +72,66 @@ def radius_authenticate(
     username: str,
     password: str,
 ) -> tuple[bool, str]:
-    """
-    Perform RADIUS Access-Request authentication.
+    """Perform RADIUS Access-Request authentication with PAP.
+
+    This helper function implements the client-side of the RADIUS protocol,
+    specifically the Password Authentication Protocol (PAP) as defined in RFC 2865.
+    It constructs and sends a properly formatted RADIUS Access-Request packet
+    to the specified server and processes the response.
+
+    Packet Structure (RFC 2865):
+    - Code (1 byte): 1 for Access-Request
+    - Identifier (1 byte): Request identifier for matching responses
+    - Length (2 bytes): Total packet length including headers and attributes
+    - Authenticator (16 bytes): Random value for request authentication
+    - Attributes (variable):
+      - User-Name (Type 1): Authentication identity
+      - User-Password (Type 2): Encrypted password
+      - NAS-IP-Address (Type 4): Client IP address
+
+    The password is encrypted using the shared secret and request authenticator
+    as specified in RFC 2865 section 5.2.
+
+    Args:
+        host: RADIUS server hostname or IP address to connect to.
+        port: UDP port number where the RADIUS server is listening.
+        secret: Shared secret used for message authentication and password
+               encryption. Must match the server's configuration.
+        username: Authentication username (1-253 octets).
+        password: Authentication password (1-128 octets).
 
     Returns:
-        (success, message) tuple
+        A tuple containing:
+        - success (bool):
+            - True: Server responded with Access-Accept (code 2)
+            - False: Server responded with Access-Reject (code 3) or an error occurred
+        - message (str): Human-readable status message:
+            - 'Access-Accept' for successful authentication
+            - 'Access-Reject' for failed authentication
+            - Error description for network or protocol errors
+
+    Raises:
+        socket.timeout: If no response is received within the timeout period.
+        OSError: For network-related errors (e.g., host unreachable).
+
+    Example:
+        # Basic usage
+        success, message = radius_authenticate(
+            host='radius.example.com',
+            port=1812,
+            secret='shared_secret',
+            username='testuser',
+            password='secure_password123'
+        )
+        if success:
+            print(f"Authentication successful: {message}")
+        else:
+            print(f"Authentication failed: {message}")
+
+    Security Notes:
+        - The shared secret should be kept confidential and be at least 16 characters long.
+        - Always use secure transport (e.g., IPsec) when communicating over untrusted networks.
+        - The function includes basic validation but assumes well-formed responses.
     """
     sock = None
     try:
@@ -93,15 +196,14 @@ def radius_authenticate(
         else:
             return False, f"Unknown response code: {resp_code}"
 
-    except TimeoutError:
-        return False, "Request timeout"
     except Exception as e:
         return False, f"Connection error: {e}"
     finally:
         if sock:
             try:
                 sock.close()
-            except Exception:
+            except OSError:
+                # Ignore socket close errors in the test helper
                 pass
 
 
