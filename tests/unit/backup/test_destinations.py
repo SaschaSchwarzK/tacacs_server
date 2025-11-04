@@ -70,8 +70,8 @@ def test_config_validation_requires_absolute_base(tmp_path: Path):
         LocalBackupDestination({"base_path": "relative/path"})
     # Valid absolute path
     d = LocalBackupDestination({"base_path": _abs(tmp_path / "dest")})
-    assert isinstance(
-        d, LocalBackupDestination, "Should create instance with valid path"
+    assert isinstance(d, LocalBackupDestination), (
+        "Should create instance with valid path"
     )
 
 

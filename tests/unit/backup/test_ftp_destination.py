@@ -125,11 +125,11 @@ def test_config_validation_missing_fields():
     - Validates that all required authentication fields are present
     """
     with pytest.raises(ValueError, match="host"):
-        _make_dest(host=None)
+        _make_dest(host="")
     with pytest.raises(ValueError, match="username"):
-        _make_dest(username=None)
+        _make_dest(username="")
     with pytest.raises(ValueError, match="password"):
-        _make_dest(password=None)
+        _make_dest(password="")
     with pytest.raises(ValueError, match="base_path"):
         _make_dest(base_path="")
 
