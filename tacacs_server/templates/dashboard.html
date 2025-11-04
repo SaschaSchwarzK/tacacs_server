@@ -30,6 +30,7 @@
     <div>
       <p>Uptime: {{ (stats.uptime // 3600) }}h {{ ((stats.uptime % 3600) // 60) }}m</p>
       <p>Active connections: {{ stats.connections.active }}</p>
+      <p>Proxied: {{ stats.connections.proxied }} | Direct: {{ stats.connections.direct }} | Proxy Rejected: {{ stats.connections.proxied_rejected_unknown or 0 }}</p>
       <p>Auth success rate: {{ stats.authentication.success_rate }}%</p>
     </div>
 

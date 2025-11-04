@@ -41,6 +41,14 @@ class LocalAuthStore:
         self._conn = self._open_connection()
         self._ensure_schema()
 
+        # Register with maintenance mode manager
+        try:
+            from tacacs_server.utils.maintenance import get_db_manager
+
+            get_db_manager().register(self)
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Connection helpers
     # ------------------------------------------------------------------
@@ -48,6 +56,14 @@ class LocalAuthStore:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def close(self) -> None:
+        """Close the database connection."""
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
 
     def reload(self) -> None:
         """Re-open the underlying SQLite connection."""

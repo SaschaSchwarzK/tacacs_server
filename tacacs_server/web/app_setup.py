@@ -7,9 +7,10 @@ Location: tacacs_server/web/app_setup.py
 This file shows how to integrate OpenAPI documentation into your existing FastAPI app.
 """
 
-import logging
+from tacacs_server.utils.logger import get_logger
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, UTC
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -20,8 +21,9 @@ from fastapi.responses import JSONResponse
 from .api_models import ErrorResponse
 from .openapi_config import configure_openapi_ui, custom_openapi_schema
 from .middleware import install_security_headers
+from .errors import install_exception_handlers as _install_exc
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -105,6 +107,8 @@ def create_app() -> FastAPI:
         return response
 
     # Custom exception handlers
+    _install_exc(app)
+
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
@@ -125,21 +129,23 @@ def create_app() -> FastAPI:
             content={
                 "error": "Validation failed",
                 "validation_errors": errors,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception):
         """Handle general exceptions"""
-        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        error_id = str(uuid.uuid4())
+        logger.error(f"Unhandled exception [{error_id}]: {exc}", exc_info=True)
 
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": "Internal server error",
-                "details": str(exc) if app.debug else "An unexpected error occurred",
-                "timestamp": datetime.utcnow().isoformat(),
+                "details": "An unexpected error occurred",
+                "error_id": error_id,
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -253,7 +259,7 @@ def setup_routes(app: FastAPI):
                 "radius_server": True,
                 "auth_backends": True,
             },
-            "timestamp": datetime.utcnow(),
+            "timestamp": datetime.now(UTC),
         }
 
     # Device Management Router
@@ -551,4 +557,12 @@ if __name__ == "__main__":
     print("  - http://localhost:8080/rapidoc (RapiDoc)")
     print("  - http://localhost:8080/openapi.json (OpenAPI Spec)")
 
-    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8080,
+        log_level="info",
+        server_header=False,
+        date_header=False,
+        access_log=False,
+    )

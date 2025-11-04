@@ -1,7 +1,9 @@
-"""
-Web monitoring interface for TACACS+ server
+"""Web subsystem for TACACS+ server.
+
+Avoid heavy imports at package import time to prevent circular import issues
+during test collection.
 """
 
-from .monitoring import PrometheusIntegration, TacacsMonitoringAPI
+from .web_app import create_app
 
-__all__ = ["TacacsMonitoringAPI", "PrometheusIntegration"]
+__all__ = ["create_app"]

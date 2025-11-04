@@ -3,7 +3,7 @@ Async database operations for better performance
 """
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import aiosqlite
@@ -135,7 +135,7 @@ class AsyncDatabaseLogger:
                 for record in batch:
                     values.extend(
                         [
-                            datetime.utcnow().isoformat(),
+                            datetime.now(UTC).isoformat(),
                             record.get("username", "unknown"),
                             record.get("session_id", 0),
                             record.get("client_ip"),

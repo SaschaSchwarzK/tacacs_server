@@ -12,7 +12,7 @@ def main():
     configure()
     try:
         # Expect tacacs_server/main.py to implement a main() function
-        from . import main as pkg_main
+        from tacacs_server import main as pkg_main
 
         return pkg_main.main()
     except Exception as _:

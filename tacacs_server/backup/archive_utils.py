@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+import os
+import tarfile
+from pathlib import Path
+from typing import Literal, cast
+
+
+def create_tarball(
+    source_dir: str,
+    output_path: str,
+    compression: Literal["gz", "bz2", "xz", ""] = "gz",
+) -> int:
+    """
+    Create compressed tarball from directory. Returns archive size in bytes.
+    compression: "gz" (default), "bz2", "xz", or "" for no compression.
+    """
+    # Constrain mode to known values
+    mode_str: str
+    if compression == "gz":
+        mode_str = "w:gz"
+    elif compression == "bz2":
+        mode_str = "w:bz2"
+    elif compression == "xz":
+        mode_str = "w:xz"
+    else:
+        mode_str = "w"
+    # Create output directory safely using pathlib
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    mode_lit = cast(Literal["w", "w:gz", "w:bz2", "w:xz"], mode_str)
+    with tarfile.open(name=output_path, mode=mode_lit) as tar:
+        for root, _dirs, files in os.walk(source_dir):
+            for file in files:
+                filepath = os.path.join(root, file)
+                arcname = os.path.relpath(filepath, source_dir)
+                tar.add(filepath, arcname=arcname)
+    return os.path.getsize(output_path)
+
+
+def extract_tarball(archive_path: str, dest_dir: str) -> None:
+    """
+    Extract tarball to directory with basic path validation to prevent traversal.
+    """
+    os.makedirs(dest_dir, exist_ok=True)
+
+    def _is_safe_path(base: str, target: str) -> bool:
+        base_abs = os.path.abspath(base)
+        target_abs = os.path.abspath(target)
+        return os.path.commonpath([base_abs]) == os.path.commonpath(
+            [base_abs, target_abs]
+        )
+
+    with tarfile.open(archive_path, "r:*") as tar:
+        for member in tar.getmembers():
+            name = member.name
+            if name.startswith("/") or ".." in name.replace("\\", "/"):
+                raise ValueError(f"Unsafe path in archive: {name}")
+            target_path = os.path.join(dest_dir, name)
+            if not _is_safe_path(dest_dir, target_path):
+                raise ValueError(f"Unsafe extraction target: {name}")
+        # Use Python's safe extraction filter to avoid writing special files
+        try:
+            tar.extractall(dest_dir, filter="data")  # Python 3.12+
+        except TypeError:  # pragma: no cover - older Python fallback
+            tar.extractall(dest_dir)

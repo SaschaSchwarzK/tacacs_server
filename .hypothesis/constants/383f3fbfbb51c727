@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/utils/metrics.py
-# hypothesis_version: 6.140.2
-
-[0.95, 1000, 'auth_methods', 'auth_stats', 'avg_latency_ms', 'avg_size', 'count', 'error_counts', 'max_latency_ms', 'max_size', 'min_latency_ms', 'p50_latency_ms', 'p95_latency_ms', 'packet_stats', 'uptime_seconds']

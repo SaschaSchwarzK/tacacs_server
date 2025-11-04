@@ -1,0 +1,240 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Proxies</h2>
+  <div style="margin-bottom: 1rem;">
+    <button class="btn" onclick="openProxyModal()">Add Proxy</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Network</th>
+        <th>Description</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in proxies %}
+        <tr>
+          <td>{{ p.id }}</td>
+          <td title="{{ (p.metadata | tojson) if p.metadata else '' }}">{{ p.name }}</td>
+          <td>{{ p.network }}</td>
+          <td>{{ (p.metadata.description if p.metadata and p.metadata.description else '') if p.metadata else '' }}</td>
+          <td>
+            <button class="btn" onclick="editProxy({{ p.id }})">Edit</button>
+            <button class="btn btn-secondary" onclick="deleteProxy({{ p.id }})">Delete</button>
+            {% if p.metadata %}
+            <button class="btn" onclick="viewProxyMeta({{ p.id }})" title="View metadata">Meta</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No proxies configured.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div id="proxyModal" class="modal-backdrop">
+  <div class="modal-card">
+    <h3 id="proxyModalTitle" class="modal-title">Add Proxy</h3>
+    <div id="proxyError" class="alert" style="display:none;"></div>
+    <form id="proxyForm" onsubmit="submitProxy(event)" class="modal-form">
+      <input type="hidden" id="proxyId">
+      <div class="modal-field">
+        <label for="proxyName">Name</label>
+        <input type="text" id="proxyName" required>
+        <small class="field-hint">Do not use the reserved prefix <strong>auto-proxy:</strong>. This prefix is used by the system for auto-created proxies.</small>
+      </div>
+      <div class="modal-field">
+        <label for="proxyNetwork">Network (CIDR)</label>
+        <input type="text" id="proxyNetwork" placeholder="10.0.0.0/8" required>
+      </div>
+      <div class="modal-field">
+        <label for="proxyMetadata">Metadata (JSON)</label>
+        <textarea id="proxyMetadata" rows="4" placeholder='{"description":"HAProxy cluster in dc1","location":"dc1-rack-5","owner":"network-team","health_check_url":"https://haproxy1.example.com/health","max_rate_limit":10000}'></textarea>
+        <small class="field-hint">Optional key/value data. Must be valid JSON.</small>
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn btn-secondary" onclick="closeProxyModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+  </div>
+
+<!-- Metadata viewer modal -->
+<div id="proxyMetaModal" class="modal-backdrop">
+  <div class="modal-card">
+    <h3 class="modal-title">Proxy Metadata</h3>
+    <pre id="proxyMetaContent" style="background:#111827;color:#f9fafb;padding:1rem;border-radius:6px;max-height:50vh;overflow:auto;margin-bottom:12px;"></pre>
+    <div class="modal-actions">
+      <button type="button" class="btn" onclick="closeProxyMeta()">Close</button>
+    </div>
+  </div>
+  </div>
+
+<script>
+function openProxyModal(){
+  document.getElementById('proxyForm').reset();
+  document.getElementById('proxyId').value = '';
+  document.getElementById('proxyModalTitle').innerText = 'Add Proxy';
+  document.getElementById('proxyModal').style.display = 'flex';
+  document.getElementById('proxyError').style.display = 'none';
+}
+function closeProxyModal(){
+  document.getElementById('proxyModal').style.display = 'none';
+}
+async function editProxy(id){
+  try{
+    const items = await (await fetch('/api/proxies')).json();
+    const p = items.find(x => x.id === id);
+    if(!p) throw new Error('Proxy not found');
+    openProxyModal();
+    document.getElementById('proxyModalTitle').innerText = 'Edit Proxy';
+    document.getElementById('proxyId').value = p.id;
+    document.getElementById('proxyName').value = p.name;
+    document.getElementById('proxyNetwork').value = p.network;
+    const meta = p.metadata && Object.keys(p.metadata||{}).length ? JSON.stringify(p.metadata, null, 2) : '';
+    document.getElementById('proxyMetadata').value = meta;
+  }catch(e){
+    showToast(e.message || 'Failed to load proxy','error');
+  }
+}
+async function submitProxy(e){
+  e.preventDefault();
+  const errBox = document.getElementById('proxyError');
+  errBox.style.display = 'none';
+  const id = document.getElementById('proxyId').value;
+  const name = document.getElementById('proxyName').value || '';
+  if (name.toLowerCase().startsWith('auto-proxy:')){
+    errBox.innerText = "Proxy name cannot start with reserved prefix 'auto-proxy:'";
+    errBox.style.display = 'block';
+    return;
+  }
+  const network = document.getElementById('proxyNetwork').value;
+  const payload = { name: name, network };
+  const metadataText = document.getElementById('proxyMetadata').value.trim();
+  if (metadataText){
+    try{
+      payload.metadata = JSON.parse(metadataText);
+    }catch(err){
+      errBox.innerText = 'Metadata must be valid JSON';
+      errBox.style.display = 'block';
+      return;
+    }
+  }
+  // Client-side overlap check against existing proxies (best-effort)
+  try{
+    const existing = await (await fetch('/api/proxies')).json();
+    const overlaps = checkOverlapWithExisting(network, existing, id ? parseInt(id,10) : null);
+    if (overlaps){
+      errBox.innerText = `Network ${network} overlaps existing proxy ${overlaps.name} (${overlaps.network})`;
+      errBox.style.display = 'block';
+      return;
+    }
+  }catch(_e){ /* ignore and rely on server */ }
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? `/api/proxies/${id}` : '/api/proxies';
+  const resp = await fetch(url,{method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if(!resp.ok){
+    const d = await resp.json().catch(()=>({}));
+    showToast(d.detail || 'Request failed','error');
+    return;
+  }
+  showToast(id ? 'Proxy updated' : 'Proxy created');
+  setTimeout(()=> window.location.reload(), 400);
+}
+// -------------------------------
+// CIDR overlap helper (IPv4 + IPv6 best-effort)
+// -------------------------------
+function parseIPv4(ip){
+  const parts = ip.split('.').map(x=>parseInt(x,10));
+  if (parts.length!==4 || parts.some(x=>isNaN(x)||x<0||x>255)) return null;
+  return BigInt((parts[0]<<24) + (parts[1]<<16) + (parts[2]<<8) + parts[3]);
+}
+function parseIPv6(ip){
+  // Expand :: and split
+  let [head, tail] = ip.split('::');
+  const h = head ? head.split(':').filter(Boolean) : [];
+  const t = (tail !== undefined && tail !== '') ? tail.split(':').filter(Boolean) : [];
+  const missing = 8 - (h.length + t.length);
+  if (missing < 0) return null;
+  const full = [...h, ...Array(missing).fill('0'), ...t].map(x=>x||'0');
+  if (full.length !== 8) return null;
+  let val = 0n;
+  try{
+    for (const part of full){
+      const v = BigInt(parseInt(part,16));
+      if (v<0n || v>0xffffn) return null;
+      val = (val << 16n) + v;
+    }
+    return val;
+  }catch{ return null; }
+}
+function parseIP(ip){
+  if (ip.includes('.')) return {v:4, n: parseIPv4(ip)};
+  return {v:6, n: parseIPv6(ip)};
+}
+function cidrRange(cidr){
+  const [ip, pfxStr] = cidr.split('/');
+  const pfx = parseInt(pfxStr,10);
+  const parsed = parseIP(ip);
+  if (!parsed.n) return null;
+  if (parsed.v===4){
+    if (isNaN(pfx) || pfx<0 || pfx>32) return null;
+    const mask = (pfx===0) ? 0n : (~0n << BigInt(32 - pfx)) & ((1n<<32n)-1n);
+    const start = parsed.n & mask;
+    const end = start + ((1n << BigInt(32 - pfx)) - 1n);
+    return {v:4, start, end};
+  } else {
+    if (isNaN(pfx) || pfx<0 || pfx>128) return null;
+    const mask = (pfx===0) ? 0n : (~0n << BigInt(128 - pfx)) & ((1n<<128n)-1n);
+    const start = parsed.n & mask;
+    const end = start + ((1n << BigInt(128 - pfx)) - 1n);
+    return {v:6, start, end};
+  }
+}
+function rangesOverlap(a,b){
+  if (!a || !b) return false;
+  if (a.v !== b.v) return false;
+  return !(a.end < b.start || b.end < a.start);
+}
+function checkOverlapWithExisting(candidateCidr, existingList, excludeId){
+  const cand = cidrRange(candidateCidr);
+  if (!cand) return null;
+  for (const p of existingList){
+    if (excludeId && p.id === excludeId) continue;
+    const rng = cidrRange(p.network);
+    if (rangesOverlap(cand, rng)) return p;
+  }
+  return null;
+}
+async function viewProxyMeta(id){
+  try{
+    const items = await (await fetch('/api/proxies')).json();
+    const p = items.find(x => x.id === id);
+    const el = document.getElementById('proxyMetaContent');
+    el.textContent = p && p.metadata ? JSON.stringify(p.metadata, null, 2) : '{}';
+    document.getElementById('proxyMetaModal').style.display = 'flex';
+  }catch(e){
+    showToast('Failed to load metadata','error');
+  }
+}
+function closeProxyMeta(){
+  document.getElementById('proxyMetaModal').style.display = 'none';
+}
+async function deleteProxy(id){
+  if(!confirm('Delete this proxy? Linked groups will be unassigned.')) return;
+  const resp = await fetch(`/api/proxies/${id}`,{method:'DELETE'});
+  if(!resp.ok){
+    showToast('Failed to delete proxy','error');
+    return;
+  }
+  showToast('Proxy deleted');
+  setTimeout(()=> window.location.reload(), 300);
+}
+</script>
+{% endblock %}

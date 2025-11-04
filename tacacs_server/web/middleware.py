@@ -33,16 +33,49 @@ def install_security_headers(app: FastAPI) -> None:
     @app.middleware("http")
     async def _security_headers(request, call_next):
         resp = await call_next(request)
-        # Core headers
+
+        # Core security headers
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("X-Frame-Options", "DENY")
         resp.headers.setdefault("Referrer-Policy", "no-referrer")
         resp.headers.setdefault("Content-Security-Policy", csp_policy)
-        # HSTS only when behind TLS
+        resp.headers.setdefault("X-XSS-Protection", "1; mode=block")
+
+        # HSTS for HTTPS or when forwarded as HTTPS
         fwd = request.headers.get("x-forwarded-proto", "").lower()
         if request.url.scheme == "https" or fwd == "https":
             resp.headers.setdefault(
                 "Strict-Transport-Security",
                 f"max-age={hsts_max_age}; includeSubDomains",
             )
+
+        # Enhanced removal: strip all identifying headers
+        HEADERS_TO_REMOVE = [
+            "server",
+            "x-powered-by",
+            "x-aspnet-version",
+            "x-aspnetmvc-version",
+            "x-runtime",
+            "x-version",
+            "x-generator",
+        ]
+        try:
+            for h_to_remove in HEADERS_TO_REMOVE:
+                for key in list(resp.headers.keys()):
+                    if key.lower() == h_to_remove.lower():
+                        del resp.headers[key]
+        except Exception:
+            pass
+
+        # Fallback: if a Server header still appears, replace with generic
+        try:
+            has_server = any(k.lower() == "server" for k in resp.headers.keys())
+            if has_server:
+                for key in list(resp.headers.keys()):
+                    if key.lower() == "server":
+                        del resp.headers[key]
+                resp.headers["Server"] = "AAA-Server"
+        except Exception:
+            pass
+
         return resp

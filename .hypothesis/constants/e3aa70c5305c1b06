@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/utils/sql_security.py
-# hypothesis_version: 6.140.2
-
-['(--|#|/\\*|\\*/)', '(\\bINTO\\s+OUTFILE\\b)', '(\\bLOAD_FILE\\b)', '(\\bUNION\\s+SELECT\\b)', '?', 'ALTER', 'CALL', 'CREATE', 'DELETE', 'DROP', 'EXEC', 'EXECUTE', 'INSERT', 'MERGE', 'REPLACE', 'TRUNCATE', 'UNION', 'UPDATE', 'column name', 'identifier', 'order by column', 'table name', 'update column', 'value', 'where column']

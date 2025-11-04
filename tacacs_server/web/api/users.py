@@ -15,9 +15,13 @@ from tacacs_server.web.api_models import UserCreate, UserResponse, UserUpdate
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
+# Optional admin-prefixed router for admin-only user operations.
+# Present primarily to satisfy imports in web/web.py and enable future admin endpoints.
+admin_router = APIRouter(prefix="/api/admin/users", tags=["Admin Users"])
+
 
 def get_user_service() -> LocalUserService:
-    from tacacs_server.web.monitoring import get_local_user_service
+    from tacacs_server.web.web import get_local_user_service
 
     service = get_local_user_service()
     if not service:

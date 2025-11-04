@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/devices/store.py
-# hypothesis_version: 6.140.2
-
-[128, ', ', '/pytest-', 'allowed_user_groups', 'attributes', 'cnt', 'data/devices.db', 'description', 'description = ?', 'device_config', 'group_id', 'group_id = ?', 'group_id = NULL', 'id', 'metadata', 'metadata = ?', 'name', 'name = ?', 'network', 'network = ?', 'radius_attributes', 'radius_name', 'radius_profile', 'radius_profile = ?', 'radius_secret', 'secret', 'tacacs_profile', 'tacacs_profile = ?', 'tacacs_secret']

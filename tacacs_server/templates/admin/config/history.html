@@ -1,0 +1,135 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Configuration History - TACACS+ Server Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/config" class="text-blue-600 hover:underline">Configuration</a> &gt;
+<span class="font-semibold">History</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Configuration History</h1>
+        <p class="text-lg text-gray-600 mt-1">View and restore previous configuration versions.</p>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white p-4 rounded-lg shadow-sm mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {% include "admin/components/form_field.html" with {'name': 'start_date', 'label': 'Start Date', 'type': 'date'} %}
+            {% include "admin/components/form_field.html" with {'name': 'end_date', 'label': 'End Date', 'type': 'date'} %}
+            {% include "admin/components/form_field.html" with {'name': 'section', 'label': 'Section', 'type': 'select', 'options': sections} %}
+            {% include "admin/components/form_field.html" with {'name': 'search', 'label': 'Search', 'type': 'text', 'placeholder': 'Search changes...'} %}
+        </div>
+        <div class="mt-4 text-right">
+            <button onclick="applyFilters()" class="text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 inline-flex items-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Apply Filters</button>
+        </div>
+    </div>
+
+    <!-- History Timeline -->
+    <div class="space-y-8 mb-12">
+        {% for change in history %}
+        <div class="flex">
+            <div class="flex-shrink-0 mr-4">
+                <div class="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600">{{ change.changed_by[0] }}</div>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow-sm flex-grow">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p><strong class="font-semibold">{{ change.changed_by }}</strong> modified {{ change.keys | length }} settings in <strong>{{ change.section }}</strong></p>
+                        <p class="text-sm text-gray-500" title="{{ change.changed_at }}">{{ change.changed_at | relative_time }}</p>
+                        {% if change.reason %}
+                        <p class="mt-2 text-sm italic text-gray-600 bg-gray-50 p-2 rounded">"{{ change.reason }}"</p>
+                        {% endif %}
+                    </div>
+                    <div class="flex-shrink-0 ml-4">
+                        <button onclick="viewDetails({{ change.id }})" class="text-sm text-blue-600 hover:underline">View Details</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Version Snapshots -->
+    <div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">Version Snapshots</h2>
+        {% include "admin/components/table.html" with {
+            'headers': ['Version', 'Timestamp', 'Created By', 'Description', 'Actions'],
+            'rows': snapshots
+        } %}
+    </div>
+
+</div>
+
+{% include "admin/components/modal.html" with {'id': 'change-details-modal', 'title': 'Change Details', 'size': 'large'} %}
+<div id="change-details-content" class="p-4">
+    <!-- Content will be injected by JavaScript -->
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const api = new AdminAPI();
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadHistory();
+    });
+
+    function applyFilters() {
+        const filters = {
+            start_date: document.getElementById('start_date').value,
+            end_date: document.getElementById('end_date').value,
+            section: document.getElementById('section').value,
+            search: document.getElementById('search').value,
+        };
+        loadHistory(filters);
+    }
+
+    async function loadHistory(filters = {}) {
+        const params = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([_, v]) => v != null && v !== '')));
+        try {
+            const response = await api.get(`/admin/config/history?${params}`);
+            // In a real app, you would re-render the timeline here
+            console.log('History loaded:', response.history);
+            showFlash('History updated.', 'info');
+        } catch (error) {
+            console.error('Failed to load history:', error);
+        }
+    }
+
+    async function viewDetails(changeId) {
+        try {
+            const response = await api.get(`/admin/config/history/${changeId}`);
+            const content = document.getElementById('change-details-content');
+            // Simple rendering for now. A real implementation would use a diff library.
+            let html = '';
+            for (const [key, values] of Object.entries(response.changes)) {
+                html += `<div class="font-mono text-sm"><strong>${key}</strong></div>`;
+                html += `<div class="diff-view"><span class="text-red-500">- ${values.before}</span><br><span class="text-green-500">+ ${values.after}</span></div>`;
+            }
+            content.innerHTML = html;
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: { id: 'change-details-modal' } }));
+        } catch (error) {
+            console.error('Failed to load details:', error);
+        }
+    }
+
+    async function restoreVersion(versionNumber) {
+        if (!confirm(`Are you sure you want to restore the configuration to version ${versionNumber}? The current configuration will be backed up first.`)) {
+            return;
+        }
+        
+        try {
+            await api.post(`/admin/config/versions/${versionNumber}/restore`);
+            showFlash('Configuration successfully restored. A server restart may be required.', 'success');
+            setTimeout(() => location.reload(), 2000);
+        } catch (error) {
+            console.error('Failed to restore version:', error);
+        }
+    }
+</script>
+{% endblock %}

@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Einfacher Okta-Checker: Token (password grant), userinfo und groups abrufen und
-ausgeben.
+Einfacher Okta-Checker: AuthN API (/api/v1/authn) verwenden,
+bei Erfolg Benutzer-ID ausgeben und optional Gruppen abrufen.
 
 Konfiguration:
   - OKTA_ORG (z.B. https://dev-xxxxx.okta.com) oder --org
-  - OKTA_CLIENT_ID oder --client-id
   - OKTA_API_TOKEN (SSWS) optional für Groups-API oder --api-token
 Optionen:
   --username USER     (oder wird interaktiv abgefragt)
   --insecure          (Verifikationsprüfung deaktivieren)
 Beispiel:
-  OKTA_ORG=https://dev-xxx.okta.com OKTA_CLIENT_ID=xxx OKTA_API_TOKEN=ssws-token \
+  OKTA_ORG=https://dev-xxx.okta.com OKTA_API_TOKEN=ssws-token \
     /path/to/python scripts/okta_check.py --username admin
 """
 
@@ -32,25 +31,11 @@ def pretty(o):
         return str(o)
 
 
-def token_request(org, client_id, username, password, verify=True):
-    token_url = urljoin(org.rstrip("/") + "/", "oauth2/default/v1/token")
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    data = {
-        "grant_type": "password",
-        "username": username,
-        "password": password,
-        "client_id": client_id,
-        "scope": "openid profile groups",
-    }
-    r = requests.post(token_url, headers=headers, data=data, verify=verify, timeout=15)
-    return r
+# Legacy ROPC removed
 
 
 def authn_request(org, username, password, verify=True):
-    """Fallback: Okta Authn API (returns sessionToken on success)."""
+    """Okta AuthN API (returns sessionToken on success)."""
     url = urljoin(org.rstrip("/") + "/", "api/v1/authn")
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     payload = {"username": username, "password": password}
@@ -58,16 +43,12 @@ def authn_request(org, username, password, verify=True):
     return r
 
 
-def userinfo_request(org, access_token, verify=True):
-    url = urljoin(org.rstrip("/") + "/", "oauth2/default/v1/userinfo")
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-    r = requests.get(url, headers=headers, verify=verify, timeout=10)
-    return r
+# Userinfo not used in AuthN flow
 
 
-def okta_groups_api(org, api_token, okta_sub, verify=True):
+def okta_groups_api(org, api_token, okta_user_id, verify=True):
     # Requires Management API SSWS token
-    url = urljoin(org.rstrip("/") + "/", f"api/v1/users/{okta_sub}/groups")
+    url = urljoin(org.rstrip("/") + "/", f"api/v1/users/{okta_user_id}/groups")
     headers = {"Authorization": f"SSWS {api_token}", "Accept": "application/json"}
     r = requests.get(url, headers=headers, verify=verify, timeout=10)
     return r
@@ -76,26 +57,23 @@ def okta_groups_api(org, api_token, okta_sub, verify=True):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--org", help="Okta org URL (or set OKTA_ORG env)")
-    p.add_argument(
-        "--client-id", help="Okta OAuth client id (or set OKTA_CLIENT_ID env)"
-    )
+    # client-id not needed
     p.add_argument(
         "--api-token",
         help="Okta Management API token (SSWS) or set OKTA_API_TOKEN env",
     )
     p.add_argument("--username", help="Username (login)")
     p.add_argument("--insecure", action="store_true", help="Disable TLS verification")
+    # ropc option removed
     args = p.parse_args()
 
     org = args.org or os.getenv("OKTA_ORG")
-    client_id = args.client_id or os.getenv("OKTA_CLIENT_ID")
     api_token = args.api_token or os.getenv("OKTA_API_TOKEN")
     verify = not args.insecure
 
-    if not org or not client_id:
+    if not org:
         print(
-            "ERROR: OKTA org URL and client_id must be provided via args or env "
-            "(OKTA_ORG, OKTA_CLIENT_ID).",
+            "ERROR: OKTA org URL must be provided via --org or OKTA_ORG.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -107,87 +85,48 @@ def main():
         "Password (will not be echoed): "
     )
 
-    print(f"\n-> Token request to {org} (client_id={client_id}), verify_tls={verify}")
-    r = token_request(org, client_id, username, password, verify=verify)
-    print("Token endpoint response:", r.status_code)
+    # Always AuthN flow
+    print(f"\n-> AuthN API request to {org}, verify_tls={verify}")
+    ar = authn_request(org, username, password, verify=verify)
+    print("AuthN response:", ar.status_code)
     try:
-        tr = r.json()
-        # Redact sensitive fields from output
-        safe_response = {
-            k: v
-            for k, v in tr.items()
-            if k not in ["access_token", "refresh_token", "id_token"]
-        }
-        if "access_token" in tr:
-            safe_response["access_token"] = "[REDACTED]"
-        print(pretty(safe_response))
+        ad = ar.json()
+        print(pretty({k: v for k, v in ad.items() if k != "_links"}))
     except Exception:
         print("[Response content redacted]")
+        ad = {}
 
-    if r.status_code != 200:
-        # If client not allowed to use password grant -> try Authn API fallback
-        err = None
+    if ar.status_code != 200 or str((ad or {}).get("status", "")).upper() != "SUCCESS":
+        print("\nAuthentication failed via AuthN API.")
+        sys.exit(1)
+
+    okta_user_id = None
+    try:
+        okta_user_id = (ad.get("_embedded") or {}).get("user", {}).get("id")
+    except Exception:
+        okta_user_id = None
+    print(f"\nAuthentication successful. okta_user_id={okta_user_id}")
+
+    if api_token and okta_user_id:
+        print(
+            f"\n-> Okta Groups API: users/{okta_user_id}/groups (requires SSWS token)"
+        )
+        gr = okta_groups_api(org, api_token, okta_user_id, verify=verify)
+        print("Groups API response:", gr.status_code)
         try:
-            err = tr.get("error")
+            print(pretty(gr.json()))
         except Exception:
-            pass
-        if err == "unauthorized_client" or r.status_code in (400, 401):
+            print(gr.text)
+    else:
+        if not api_token:
             print(
-                "\nToken endpoint refused password grant. "
-                "Trying Authn API (/api/v1/authn) as fallback..."
+                "\nNote: No OKTA API token provided — cannot call Management Groups API."
             )
-            ar = authn_request(org, username, password, verify=verify)
-            print("Authn API response:", ar.status_code)
-            try:
-                print(pretty(ar.json()))
-            except Exception:
-                print(ar.text)
-        else:
-            print("\nToken request did not succeed. Aborting further calls.")
-            sys.exit(1)
-
-    access_token = tr.get("access_token")
-    # expires_in = tr.get("expires_in")  # Unused variable
-    print(f"\nAuthentication: {'successful' if access_token else 'failed'}")
-
-    if access_token:
-        print("\n-> Userinfo request")
-        ur = userinfo_request(org, access_token, verify=verify)
-        print("Userinfo response:", ur.status_code)
-        try:
-            print(pretty(ur.json()))
-        except Exception:
-            print(ur.text)
-
-        # try groups API if api_token available and userinfo contains sub
-        okta_sub = None
-        try:
-            ui = ur.json()
-            okta_sub = ui.get("sub")
-        except Exception:
-            pass
-
-        if api_token and okta_sub:
+        if not okta_user_id:
             print(
-                f"\n-> Okta Groups API: users/{okta_sub}/groups (requires SSWS token)"
+                "\nNote: AuthN response did not include user id — cannot call groups endpoint."
             )
-            gr = okta_groups_api(org, api_token, okta_sub, verify=verify)
-            print("Groups API response:", gr.status_code)
-            try:
-                print(pretty(gr.json()))
-            except Exception:
-                print(gr.text)
-        else:
-            if not api_token:
-                print(
-                    "\nNote: No OKTA API token provided — "
-                    "cannot call Management Groups API."
-                )
-            if not okta_sub:
-                print(
-                    "\nNote: userinfo did not contain 'sub' — "
-                    "cannot call groups endpoint reliably."
-                )
+    # ROPC path removed entirely
 
     print("\nDone.")
     return 0

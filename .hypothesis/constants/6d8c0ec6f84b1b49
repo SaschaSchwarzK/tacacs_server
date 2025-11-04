@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/web/api/usergroups.py
-# hypothesis_version: 6.140.2
-
-[1000, '/api/user-groups', '/{group_name}', 'Create user group', 'Delete user group', 'Get user group', 'List user groups', 'Update user group', 'User Groups', 'User group name', 'created_at', 'description', 'id', 'ldap_group', 'member_count', 'metadata', 'name', 'okta_group', 'privilege_level', 'updated_at']

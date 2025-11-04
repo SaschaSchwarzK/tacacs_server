@@ -76,14 +76,15 @@ def validate_configuration(config_file: str | None = None) -> bool:
 
                 print("   Okta:")
                 print(f"     org_url: {okta.get('org_url', '')}")
-                print(f"     ropc_enabled: {_bool('ropc_enabled', True)}")
+                print(f"     authn_enabled: {_bool('authn_enabled', True)}")
                 print(
                     f"     require_group_for_auth: {_bool('require_group_for_auth', False)}"
                 )
                 print(f"     api_token set: {bool(okta.get('api_token', ''))}")
                 print(f"     strict_group_mode: {_bool('strict_group_mode', False)}")
                 print(f"     trust_env: {_bool('trust_env', False)}")
-                print(f"     use_basic_auth: {_bool('use_basic_auth', False)}")
+                if okta.get("default_okta_group"):
+                    print(f"     default_okta_group: {okta.get('default_okta_group')}")
 
             security_config = config.get_security_config()
             print(f"   Max auth attempts: {security_config['max_auth_attempts']}")

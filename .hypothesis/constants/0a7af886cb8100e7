@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/tacacs/packet.py
-# hypothesis_version: 6.140.2
-
-[65535, '!BBBBLL', '!L', 'TacacsPacket', 'ignore', 'utf-8']

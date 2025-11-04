@@ -1,0 +1,149 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Backup & Restore - TACACS+ Server Admin{% endblock %}
+
+{% block breadcrumbs %}
+<span class="font-semibold">Backup & Restore</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <!-- Page Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Backup & Restore</h1>
+            <p class="text-lg text-gray-600 mt-1">Manage backups and disaster recovery.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+            {% include "admin/components/button.html" with {'text': 'Schedule Backup', 'type': 'secondary'} %}
+            {% include "admin/components/button.html" with {'text': 'Restore from Backup', 'type': 'secondary'} %}
+            <button onclick="backupNow()" class="text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 inline-flex items-center border border-transparent font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 px-4 py-2 text-sm">Backup Now</button>
+        </div>
+    </div>
+
+    <!-- Backup In Progress -->
+    <div id="backup-progress-container" class="bg-white p-4 rounded-lg shadow-sm mb-8" style="display: none;">
+        <h3 class="font-semibold">Backup in Progress</h3>
+        <p id="backup-progress-status" class="text-sm text-gray-600">Initializing...</p>
+        <div class="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+            <div id="backup-progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+        </div>
+        <button onclick="cancelBackup()" class="text-xs text-red-600 hover:underline mt-2">Cancel</button>
+    </div>
+
+    <!-- Dashboard Widgets -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+        <!-- Recent Backups -->
+        {% include "admin/components/card.html" with {'title': 'Recent Backups', 'actions': '<a href="#" class="text-sm text-blue-600">View All</a>'} %}
+        <div id="recent-backups-list" class="p-4 space-y-2"></div>
+
+        <!-- Scheduled Backups -->
+        {% include "admin/components/card.html" with {'title': 'Scheduled Backups', 'actions': '<a href="#" class="text-sm text-blue-600">Manage</a>'} %}
+        <div id="scheduled-backups-list" class="p-4"></div>
+
+        <!-- Destinations -->
+        {% include "admin/components/card.html" with {'title': 'Destinations', 'actions': '<a href="#" class="text-sm text-blue-600">Manage</a>'} %}
+        <div id="destinations-list" class="p-4"></div>
+
+        <!-- Statistics -->
+        <div class="lg:col-span-2 xl:col-span-3">
+            {% include "admin/components/card.html" with {'title': 'Overall Statistics'} %}
+            <div id="stats-grid" class="grid grid-cols-2 md:grid-cols-4 gap-4 p-4"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const api = new AdminAPI();
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadDashboard();
+    });
+
+    async function loadDashboard() {
+        try {
+            const [backups, schedules, destinations, stats] = await Promise.all([
+                api.get('/admin/backup/executions?limit=5'),
+                api.get('/admin/backup/schedules'),
+                api.get('/admin/backup/destinations'),
+                api.get('/admin/backup/stats')
+            ]);
+            renderRecentBackups(backups);
+            renderSchedules(schedules);
+            renderDestinations(destinations);
+            renderStats(stats);
+        } catch (error) {
+            console.error("Failed to load dashboard data:", error);
+            showFlash('Could not load dashboard data.', 'error');
+        }
+    }
+
+    async function backupNow() {
+        // In a real app, this would open a modal with a destination selector.
+        const destinationId = prompt('Enter Destination ID to back up to:');
+        if (!destinationId) return;
+
+        const comment = prompt('Enter a comment for this backup (optional):');
+
+        try {
+            const response = await api.post('/admin/backup/trigger', {
+                destination_id: destinationId,
+                comment: comment
+            });
+
+            if (response.execution_id) {
+                showFlash('Backup process started.', 'info');
+                pollBackupStatus(response.execution_id);
+            }
+        } catch (error) {
+            console.error("Failed to start backup:", error);
+        }
+    }
+
+    async function pollBackupStatus(executionId) {
+        const progressContainer = document.getElementById('backup-progress-container');
+        progressContainer.style.display = 'block';
+
+        const checkStatus = async () => {
+            try {
+                const response = await api.get(`/admin/backup/executions/${executionId}`);
+                updateProgressBar(response);
+
+                if (response.status === 'completed') {
+                    showFlash('Backup completed successfully!', 'success');
+                    loadDashboard(); // Refresh data
+                    return true; // Stop polling
+                } else if (response.status === 'failed') {
+                    showFlash(`Backup failed: ${response.error_message}`, 'error');
+                    return true; // Stop polling
+                }
+                return false; // Continue polling
+            } catch (error) {
+                console.error("Polling error:", error);
+                return true; // Stop polling on error
+            }
+        };
+
+        // Use the global pollUntil function from admin.js
+        pollUntil(checkStatus, 300000, 2000).finally(() => {
+            progressContainer.style.display = 'none';
+        });
+    }
+
+    function updateProgressBar(response) {
+        const progressBar = document.getElementById('backup-progress-bar');
+        const progressStatus = document.getElementById('backup-progress-status');
+        progressBar.style.width = `${response.progress || 0}%`;
+        progressStatus.textContent = response.status_message || 'Polling...';
+    }
+
+    // --- Placeholder Rendering Functions ---
+    function renderRecentBackups(data) { document.getElementById('recent-backups-list').innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`; }
+    function renderSchedules(data) { document.getElementById('scheduled-backups-list').innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`; }
+    function renderDestinations(data) { document.getElementById('destinations-list').innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`; }
+    function renderStats(data) { document.getElementById('stats-grid').innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`; }
+
+</script>
+{% endblock %}

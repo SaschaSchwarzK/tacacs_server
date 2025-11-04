@@ -1,10 +1,11 @@
 import argparse
+import os
 import signal
 import sys
 import textwrap
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
@@ -14,22 +15,21 @@ from tacacs_server.config.config import TacacsConfig, setup_logging
 from tacacs_server.devices.service import DeviceService
 from tacacs_server.devices.store import DeviceStore
 from tacacs_server.tacacs.server import TacacsServer
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.config_utils import set_config as utils_set_config
+from tacacs_server.utils.logger import bind_context, get_logger
 from tacacs_server.web.admin.auth import (
     AdminAuthConfig,
     AdminSessionManager,
     get_admin_auth_dependency,
 )
-from tacacs_server.web.monitoring import (
+from tacacs_server.web.web import (
     set_admin_auth_dependency,
     set_admin_session_manager,
-    set_command_authorizer,
-    set_command_engine,
     set_device_service,
     set_local_user_group_service,
     set_local_user_service,
 )
-from tacacs_server.web.monitoring import (
+from tacacs_server.web.web import (
     set_config as monitoring_set_config,
 )
 
@@ -42,6 +42,16 @@ class TacacsServerManager:
     def __init__(self, config_file: str = "config/tacacs.conf"):
         self.config = TacacsConfig(config_file)
         monitoring_set_config(self.config)
+        # Mirror into utils accessor so API modules using config_utils see it
+        try:
+            utils_set_config(self.config)
+            logger.info("Configuration registered with utilities module")
+        except Exception as e:
+            logger.error(
+                "Failed to register config with utilities: %s", e, exc_info=True
+            )
+            # This is critical - if utils can't access config, API will fail
+            raise
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
         from tacacs_server.devices.service import DeviceService as _DSe
@@ -67,10 +77,63 @@ class TacacsServerManager:
 
         self._device_change_unsubscribe: Callable[[], None] | None = None
         self._pending_radius_refresh = False
+        self._config_refresh_thread: Any | None = None
+        # Optional backup service instance (initialized later)
+        self.backup_service: Any | None = None
+
+        # Ensure instance identity and initial version
+        try:
+            store = getattr(self.config, "config_store", None)
+            if store is not None:
+                instance_id = store.ensure_instance_id()
+                instance_name = store.get_instance_name()
+                if not instance_name:
+                    try:
+                        import socket as _socket
+
+                        hostname = _socket.gethostname()
+                    except Exception:
+                        hostname = "node"
+                    name = (
+                        os.getenv("INSTANCE_NAME")
+                        or f"tacacs-{hostname}-{instance_id[:8]}"
+                    )
+                    store.set_instance_name(name)
+                    instance_name = name
+                # Bind instance identity into log context for all subsequent logs
+                try:
+                    bind_context(instance_id=instance_id, instance_name=instance_name)
+                except Exception:
+                    pass
+                logger.info(f"Instance: {instance_name} (ID: {instance_id[:8]}...)")
+                # Initial configuration snapshot
+                try:
+                    cfg_dict = self.config._export_full_config()
+                    store.create_version(
+                        config_dict=cfg_dict,
+                        created_by="system",
+                        description="Initial configuration snapshot",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create initial config version: {e}")
+        except Exception:
+            logger.debug("Instance identity/version init skipped")
 
     def setup(self):
         """Setup server components"""
         setup_logging(self.config)
+        # Capture a configuration snapshot at startup
+        try:
+            store = getattr(self.config, "config_store", None)
+            if store is not None:
+                cfg_dict = self.config._export_full_config()  # base + overrides
+                store.create_version(
+                    config_dict=cfg_dict,
+                    created_by="system",
+                    description="Configuration at startup",
+                )
+        except Exception:
+            logger.debug("Failed to create startup configuration snapshot")
         issues = self.config.validate_config()
         if issues:
             logger.error("Configuration validation failed:")
@@ -82,6 +145,24 @@ class TacacsServerManager:
             host=server_config["host"],
             port=server_config["port"],
         )
+        # Attach config for downstream components; relax typing for attribute
+        from typing import Any, cast
+
+        cast(Any, self.server).config = self.config
+        # Configure accounting database logger path from config
+        try:
+            from tacacs_server.accounting.database import DatabaseLogger as _DBL
+
+            db_cfg = self.config.get_database_config()
+            acct_path = db_cfg.get("accounting_db")
+            if acct_path:
+                self.server.db_logger = _DBL(acct_path)
+                # Rebind handlers to use the new logger
+                if hasattr(self.server, "handlers") and self.server.handlers:
+                    self.server.handlers.db_logger = self.server.db_logger
+        except Exception:
+            # Fall back to default path if config/bind fails; server remains usable
+            pass
         # Apply extended server/network tuning
         try:
             net_cfg = self.config.get_server_network_config()
@@ -97,6 +178,35 @@ class TacacsServerManager:
                 net_cfg.get("thread_pool_max", 100)
             )
             self.server.use_thread_pool = bool(net_cfg.get("use_thread_pool", True))
+            # Legacy PROXY protocol toggles from [server]
+            self.server.accept_proxy_protocol = bool(
+                net_cfg.get("accept_proxy_protocol", True)
+            )
+            # Wire proxy_enabled into server instance for request handling & stats
+            try:
+                self.server.proxy_enabled = bool(net_cfg.get("proxy_enabled", False))
+            except Exception:
+                self.server.proxy_enabled = False
+            # New proxy protocol config overrides
+            try:
+                pxy = self.config.get_proxy_protocol_config()
+                self.server.proxy_enabled = bool(
+                    pxy.get("enabled", self.server.proxy_enabled)
+                )
+                self.server.accept_proxy_protocol = bool(
+                    pxy.get("accept_proxy_protocol", self.server.accept_proxy_protocol)
+                )
+                self.server.proxy_validate_sources = bool(
+                    pxy.get("validate_sources", True)
+                )
+                try:
+                    self.server.proxy_reject_invalid = bool(
+                        pxy.get("reject_invalid", True)
+                    )
+                except Exception:
+                    self.server.proxy_reject_invalid = True
+            except Exception:
+                pass
         except Exception:
             pass
         # Initialize webhook runtime config from file
@@ -118,15 +228,66 @@ class TacacsServerManager:
         try:
             sec_cfg = self.config.get_security_config()
             per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
-            if per_ip_cap >= 1:
+            if per_ip_cap >= 1 and self.server:
                 self.server.max_connections_per_ip = per_ip_cap
+            # Propagate encryption policy to TACACS server for runtime enforcement
+            if self.server is not None:
+                try:
+                    self.server.encryption_required = bool(
+                        sec_cfg.get("encryption_required", True)
+                    )
+                except Exception:
+                    self.server.encryption_required = True
         except Exception:
             pass
+
+        # Initialize backup system
+        try:
+            from tacacs_server.backup.service import initialize_backup_service
+
+            backup_service = initialize_backup_service(self.config)
+            self.backup_service = backup_service
+
+            logger.info("Backup system initialized")
+
+            # Create initial backup if configured
+            try:
+                initial_backup = self.config.config.getboolean(
+                    "backup", "create_on_startup", fallback=False
+                )
+            except Exception:
+                initial_backup = False
+            if initial_backup:
+                try:
+                    destinations = backup_service.execution_store.list_destinations(
+                        enabled_only=True
+                    )
+                    if destinations:
+                        backup_service.create_manual_backup(
+                            destination_id=destinations[0]["id"], created_by="system"
+                        )
+                        logger.info("Created startup backup")
+                except Exception:
+                    logger.warning("Startup backup creation skipped due to error")
+        except Exception as e:
+            logger.error(f"Failed to initialize backup system: {e}")
+            # Don't fail startup if backup system has issues
+            self.backup_service = None
 
         # Initialize device inventory
         try:
             self.device_store_config = self.config.get_device_store_config()
-            self.device_store = DeviceStore(self.device_store_config["database"])
+            net_cfg = self.config.get_server_network_config()
+            self.device_store = DeviceStore(
+                self.device_store_config["database"],
+                identity_cache_ttl_seconds=self.device_store_config.get(
+                    "identity_cache_ttl_seconds"
+                ),
+                identity_cache_maxsize=self.device_store_config.get(
+                    "identity_cache_size"
+                ),
+                proxy_enabled=bool(net_cfg.get("proxy_enabled", False)),
+            )
             default_group = self.device_store_config.get("default_group")
             if default_group:
                 self.device_store.ensure_group(
@@ -140,6 +301,18 @@ class TacacsServerManager:
             # Expose store on server for future integrations
             if hasattr(self.server, "device_store"):
                 self.server.device_store = self.device_store
+            # Wire device auto-registration behavior into TACACS server
+            try:
+                cast(Any, self.server).device_auto_register = bool(
+                    self.device_store_config.get("auto_register", True)
+                )
+                cast(
+                    Any, self.server
+                ).default_device_group = self.device_store_config.get(
+                    "default_group", "default"
+                )
+            except Exception:
+                pass
         except Exception as exc:
             logger.exception("Failed to initialise device store: %s", exc)
             self.device_store = None
@@ -194,6 +367,57 @@ class TacacsServerManager:
                 set_local_user_group_service(None)
                 if self.server and hasattr(self.server, "handlers"):
                     self.server.handlers.set_local_user_group_service(None)
+
+            # If configured, create/link a default Okta user group
+            try:
+                # Read from ConfigParser correctly; do not call .get() on the parser
+                cp = self.config.config
+                if cp is not None and cp.has_section("okta"):
+                    default_okta_group = str(
+                        cp.get("okta", "default_okta_group", fallback="")
+                    ).strip()
+                else:
+                    default_okta_group = ""
+            except Exception:
+                default_okta_group = ""
+            if default_okta_group and self.local_user_group_service:
+                try:
+                    # Ensure local user group exists with okta_group mapping
+                    local_group_name = "okta-default-group"
+                    try:
+                        grp = self.local_user_group_service.get_group(local_group_name)
+                        if getattr(grp, "okta_group", None) != default_okta_group:
+                            self.local_user_group_service.update_group(
+                                local_group_name, okta_group=default_okta_group
+                            )
+                    except Exception:
+                        self.local_user_group_service.create_group(
+                            local_group_name,
+                            description="Auto-created default Okta user group",
+                            okta_group=default_okta_group,
+                            privilege_level=1,
+                        )
+
+                    # Link this user group to the default device group if device store is available
+                    if self.device_store and self.device_service:
+                        dg_name = (
+                            self.device_store_config.get("default_group")
+                            if isinstance(self.device_store_config, dict)
+                            else None
+                        ) or "default"
+                        dg = self.device_store.get_group_by_name(dg_name)
+                        if dg and dg.id is not None:
+                            allowed = list(getattr(dg, "allowed_user_groups", []) or [])
+                            if local_group_name not in allowed:
+                                allowed.append(local_group_name)
+                                self.device_service.update_group(
+                                    dg.id, allowed_user_groups=allowed
+                                )
+                except Exception:
+                    logger.debug(
+                        "Default Okta group initialization skipped due to error",
+                        exc_info=True,
+                    )
 
         # Register pending refresh if radius server not yet initialised
         if self.device_store and not self.radius_server:
@@ -261,6 +485,68 @@ class TacacsServerManager:
         if self.radius_server and radius_config.get("share_backends", False):
             shared = len(getattr(self.radius_server, "auth_backends", []))
             logger.info("RADIUS: Sharing %d auth backends with TACACS+", shared)
+        # Always initialize command authorization engine for TACACS handlers
+        try:
+            from tacacs_server.authorization.command_authorization import (
+                ActionType,
+                CommandAuthorizationEngine,
+            )
+            from tacacs_server.web.web import (
+                set_command_authorizer as _set_authz,
+            )
+            from tacacs_server.web.web import (
+                set_command_engine as _set_engine,
+            )
+
+            ca_cfg = self.config.get_command_authorization_config()
+            engine = CommandAuthorizationEngine()
+            engine.load_from_config(ca_cfg.get("rules") or [])
+            engine.default_action = (
+                ActionType.PERMIT
+                if (ca_cfg.get("default_action") == "permit")
+                else ActionType.DENY
+            )
+            default_mode = ca_cfg.get("response_mode", "pass_add")
+            priv_order = ca_cfg.get("privilege_check_order", "before")
+
+            def authorizer(cmd: str, priv: int, groups, device_group):
+                allowed, reason, attrs, rule_mode = engine.authorize_command(
+                    cmd,
+                    privilege_level=priv,
+                    user_groups=groups,
+                    device_group=device_group,
+                )
+                mode = rule_mode or default_mode
+                return allowed, reason, (attrs or {}), mode
+
+            _set_engine(engine)
+            _set_authz(authorizer)
+            # Also inject engine into TACACS handlers directly for deterministic use
+            try:
+                if (
+                    self.server
+                    and hasattr(self.server, "handlers")
+                    and self.server.handlers
+                ):
+                    self.server.handlers.command_engine = engine
+                    # Provide default response mode for handler fallback (when rule has none)
+                    try:
+                        self.server.handlers.command_response_mode_default = str(
+                            default_mode
+                        )
+                    except Exception:
+                        pass
+                    # Pass privilege check ordering preference to handlers
+                    try:
+                        self.server.handlers.privilege_check_order = str(priv_order)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            # Do not fail startup if command authorization engine fails
+            pass
+
         # Enable monitoring if configured (tolerate missing section)
         # read monitoring section safely: prefer helper API, fallback to RawConfigParser
         # items()
@@ -287,36 +573,9 @@ class TacacsServerManager:
                 web_port,
             )
             try:
-                # Initialize command authorization engine from config
-                try:
-                    from tacacs_server.authorization.command_authorization import (
-                        ActionType,
-                        CommandAuthorizationEngine,
-                    )
-
-                    ca_cfg = self.config.get_command_authorization_config()
-                    engine = CommandAuthorizationEngine()
-                    engine.load_from_config(ca_cfg.get("rules") or [])
-                    # set default action
-                    engine.default_action = (
-                        ActionType.PERMIT
-                        if (ca_cfg.get("default_action") == "permit")
-                        else ActionType.DENY
-                    )
-
-                    def authorizer(cmd: str, priv: int, groups, device_group):
-                        allowed, reason = engine.authorize_command(
-                            cmd,
-                            privilege_level=priv,
-                            user_groups=groups,
-                            device_group=device_group,
-                        )
-                        return allowed, reason
-
-                    set_command_engine(engine)
-                    set_command_authorizer(authorizer)
-                except Exception as e:
-                    logger.warning("Command authorization initialization failed: %s", e)
+                # Web monitoring relies on engine already initialized above.
+                # Do not reinitialize the command engine here to avoid overwriting
+                # any runtime/test-injected rules.
                 started = False
                 if self.server:
                     started = self.server.enable_web_monitoring(
@@ -336,6 +595,40 @@ class TacacsServerManager:
             except Exception as e:
                 logger.exception("Exception while enabling monitoring: %s", e)
         return True
+
+    def _start_config_refresh_scheduler(self) -> None:
+        """Start background thread to refresh URL-based config periodically."""
+        try:
+            import threading
+            import time as _t
+
+            if not hasattr(self.config, "refresh_url_config"):
+                return
+
+            def _worker():
+                # Loop until manager stops
+                while True:
+                    try:
+                        if not self.running:
+                            break
+                        updated = False
+                        try:
+                            updated = bool(self.config.refresh_url_config(False))
+                        except Exception:
+                            updated = False
+                        if updated:
+                            logger.info("URL configuration refresh applied")
+                        # Sleep for configured interval or default 5 minutes
+                        interval = int(os.getenv("CONFIG_REFRESH_SECONDS", "300"))
+                        _t.sleep(max(30, interval))
+                    except Exception:
+                        _t.sleep(60)
+
+            th = threading.Thread(target=_worker, daemon=True)
+            th.start()
+            self._config_refresh_thread = th
+        except Exception:
+            logger.debug("Failed to start config refresh scheduler")
 
     def _handle_device_change(self) -> None:
         try:
@@ -385,6 +678,18 @@ class TacacsServerManager:
                 pass
             if self.device_store:
                 self.radius_server.device_store = self.device_store
+                # Wire device auto-registration behavior into RADIUS server
+                try:
+                    cast(Any, self.radius_server).device_auto_register = bool(
+                        self.device_store_config.get("auto_register", True)
+                    )
+                    cast(
+                        Any, self.radius_server
+                    ).default_device_group = self.device_store_config.get(
+                        "default_group", "default"
+                    )
+                except Exception:
+                    pass
             if self.local_user_group_service and self.radius_server:
                 self.radius_server.set_local_user_group_service(
                     self.local_user_group_service
@@ -446,6 +751,11 @@ class TacacsServerManager:
             logger.info("TACACS+ & RADIUS Server Starting")
             logger.info("=" * 50)
             self._print_startup_info()
+            # Start URL config refresh scheduler if applicable
+            try:
+                self._start_config_refresh_scheduler()
+            except Exception:
+                logger.debug("Config refresh scheduler not started")
             # Start RADIUS server if configured
             if self.radius_server:
                 self.radius_server.start()
@@ -472,8 +782,17 @@ class TacacsServerManager:
     def stop(self):
         """Stop the TACACS+ server"""
         if self.server and self.running:
-            logger.info("Shutting down down servers...")
+            logger.info("Shutting down servers...")
             self.running = False
+            # Stop backup scheduler
+            if getattr(self, "backup_service", None):
+                try:
+                    sched = getattr(self.backup_service, "scheduler", None)
+                    if sched:
+                        sched.stop()
+                        logger.info("Backup scheduler stopped")
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"Error stopping backup scheduler: {e}")
             # Stop RADIUS server
             if self.radius_server:
                 self.radius_server.stop()
@@ -531,11 +850,10 @@ class TacacsServerManager:
                         stats = getattr(backend, "get_stats", lambda: {})() or {}
                         flags = stats.get("flags", {}) or {}
                         logger.info(
-                            "    Okta flags: ropc=%s strict_group=%s trust_env=%s basic_auth=%s require_group=%s",
-                            flags.get("ropc_enabled"),
+                            "    Okta flags: authn=%s strict_group=%s trust_env=%s require_group=%s",
+                            flags.get("authn_enabled", True),
                             flags.get("strict_group_mode"),
                             flags.get("trust_env"),
-                            flags.get("use_basic_auth"),
                             flags.get("require_group_for_auth"),
                         )
                 except Exception:

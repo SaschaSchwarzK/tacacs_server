@@ -1,4 +1,0 @@
-# file: /Volumes/DataDisk/Users/sascha/Developer/tacacs_server/tacacs_server/accounting/database.py
-# hypothesis_version: 6.140.2
-
-[0.0, 100, 168, 514, 10000, 86400, '/', '/dev/log', '127.0.0.1', ':', '?', 'START', 'STOP', 'SYSLOG_ADDRESS', 'UNKNOWN', 'UPDATE', 'acct_type', 'attributes', 'avg_duration_seconds', 'bytes_in', 'bytes_out', 'client_ip', 'command', 'completed_sessions', 'created_at', 'device_ip', 'duration_seconds', 'elapsed_time', 'idx_recent_logs', 'idx_session_id', 'idx_timestamp', 'idx_user_stats', 'idx_user_timestamp', 'idx_username', 'is_active', 'is_recent', 'keys', 'max_duration_seconds', 'min_duration_seconds', 'nas_port', 'nas_port_type', 'period_days', 'port', 'privilege_level', 'service', 'session_id', 'start_time', 'status', 'stop_time', 'tacacs.accounting', 'task_id', 'timestamp', 'timezone', 'to_dict', 'total_records', 'unique_users', 'unknown', 'username']

@@ -3,7 +3,7 @@ Data Models for TACACS+ Accounting
 """
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -120,7 +120,9 @@ class SessionInfo:
         """Calculate session duration in seconds"""
         try:
             start = datetime.fromisoformat(self.start_time)
-            now = datetime.utcnow()
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=UTC)
+            now = datetime.now(UTC)
             return int((now - start).total_seconds())
         except ValueError:
             return 0
@@ -129,7 +131,9 @@ class SessionInfo:
         """Check if session is idle"""
         try:
             last_update = datetime.fromisoformat(self.last_update)
-            now = datetime.utcnow()
+            if last_update.tzinfo is None:
+                last_update = last_update.replace(tzinfo=UTC)
+            now = datetime.now(UTC)
             idle_time = (now - last_update).total_seconds() / 60
             return idle_time > idle_threshold_minutes
         except ValueError:

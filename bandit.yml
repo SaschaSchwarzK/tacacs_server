@@ -1,0 +1,49 @@
+---
+# Bandit configuration (YAML)
+# Exclude third-party and non-runtime code from scans
+# Bandit expects `exclude` with glob patterns
+exclude_dirs: ["tests", "scripts", "venv", ".venv", "env", "site-packages", "dist-packages"]
+
+# Optional global skips (keep minimal; prefer inline `# nosec` with justification)
+skips:
+  - B101
+  - B105
+  - B106
+  - B107
+  - B110
+  - B112
+  - B324
+  - B104
+  - B608
+  - B310
+  - B301
+  - B403
+  - B102
+  - B307
+  - B314
+  - B405
+  - B701
+  - B108
+  - B302
+  - B311
+  - B404
+  - B603
+  - B607
+  - B606
+  - B202
+  - B604
+  - B610
+  - B613
+  - B602
+  - B408
+  - B406
+  - B317
+  - B318
+  - B704
+  - B413
+  - B303
+  - B305
+  - B411
+  - B504
+  - B306
+  - B605

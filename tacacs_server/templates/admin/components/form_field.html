@@ -1,0 +1,27 @@
+<div class="mb-4">
+    <label for="{{ name }}" class="block text-sm font-medium text-gray-700">{{ label }}</label>
+    <div class="mt-1 relative rounded-md shadow-sm">
+        {% if type == 'textarea' %}
+            <textarea id="{{ name }}" name="{{ name }}" rows="3" class="block w-full sm:text-sm rounded-md {% if errors %}border-red-300 text-red-900 placeholder-red-300 focus:ring-red-500 focus:border-red-500{% else %}border-gray-300 focus:ring-blue-500 focus:border-blue-500{% endif %}" {% if required %}required{% endif %}>{{ value|default('') }}</textarea>
+        {% elif type == 'select' %}
+            <select id="{{ name }}" name="{{ name }}" class="block w-full pl-3 pr-10 py-2 text-base sm:text-sm rounded-md {% if errors %}border-red-300 text-red-900 placeholder-red-300 focus:ring-red-500 focus:border-red-500{% else %}border-gray-300 focus:ring-blue-500 focus:border-blue-500{% endif %}" {% if required %}required{% endif %}>
+                {# The 'options' prop is missing from the prompt, but required for a select. It should be a list of objects with 'value' and 'text' keys. #}
+                {% for option in options %}
+                    <option value="{{ option.value }}" {% if option.value == value %}selected{% endif %}>{{ option.text }}</option>
+                {% endfor %}
+            </select>
+        {% else %}
+            <input type="{{ type|default('text') }}" name="{{ name }}" id="{{ name }}" value="{{ value|default('') }}" class="block w-full sm:text-sm rounded-md {% if errors %}border-red-300 text-red-900 placeholder-red-300 focus:ring-red-500 focus:border-red-500{% else %}border-gray-300 focus:ring-blue-500 focus:border-blue-500{% endif %}" {% if required %}required{% endif %}>
+        {% endif %}
+    </div>
+    {% if help_text %}
+        <p class="mt-2 text-sm text-gray-500">{{ help_text }}</p>
+    {% endif %}
+    {% if errors %}
+        <ul class="mt-2 text-sm text-red-600 space-y-1">
+        {% for error in errors %}
+            <li>{{ error }}</li>
+        {% endfor %}
+        </ul>
+    {% endif %}
+</div>

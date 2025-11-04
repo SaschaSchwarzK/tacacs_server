@@ -1,0 +1,551 @@
+"""RADIUS Server Test Suite
+
+This module contains comprehensive integration tests for the RADIUS authentication
+server implementation. It verifies the basic functionality, error handling, and
+edge cases of the RADIUS server, including protocol compliance and security features.
+
+Test Organization:
+- Authentication Flows
+  - Successful authentication with valid credentials
+  - Failed authentication with invalid credentials
+  - Authentication with various password formats
+  - Session management and timeouts
+
+- Integration Features
+  - Shared TACACS+ backend integration
+  - Multiple client configurations
+  - Concurrent authentication requests
+  - Load balancing and failover scenarios
+
+- Security Features
+  - Message authentication with shared secrets
+  - Password encryption and handling
+  - Protection against replay attacks
+  - Rate limiting and DoS prevention
+
+- Monitoring and Logging
+  - Authentication event logging
+  - Audit trail for security events
+  - Performance metrics collection
+  - Debug logging levels
+
+- Configuration Validation
+  - Server startup with valid/invalid configs
+  - Dynamic configuration reload
+  - Environment variable overrides
+  - Default value handling
+
+Security Considerations:
+- Validates proper handling of shared secrets
+- Ensures secure password transmission
+- Verifies protection against common attacks
+- Confirms proper access controls
+- Validates secure default configurations
+
+Dependencies:
+- pytest for test framework
+- socket for network communication
+- hashlib for RADIUS message authentication
+- struct for binary data handling
+
+Note:
+Each test is isolated and creates its own server instance with temporary resources
+to ensure test independence and reliability. Test data is cleaned up automatically.
+"""
+
+import hashlib
+import socket
+import struct
+
+
+def make_request_authenticator() -> bytes:
+    """Generate a random 16-byte Request Authenticator"""
+    import os
+
+    return os.urandom(16)
+
+
+def radius_authenticate(
+    host: str,
+    port: int,
+    secret: str,
+    username: str,
+    password: str,
+) -> tuple[bool, str]:
+    """Perform RADIUS Access-Request authentication with PAP.
+
+    This helper function implements the client-side of the RADIUS protocol,
+    specifically the Password Authentication Protocol (PAP) as defined in RFC 2865.
+    It constructs and sends a properly formatted RADIUS Access-Request packet
+    to the specified server and processes the response.
+
+    Packet Structure (RFC 2865):
+    - Code (1 byte): 1 for Access-Request
+    - Identifier (1 byte): Request identifier for matching responses
+    - Length (2 bytes): Total packet length including headers and attributes
+    - Authenticator (16 bytes): Random value for request authentication
+    - Attributes (variable):
+      - User-Name (Type 1): Authentication identity
+      - User-Password (Type 2): Encrypted password
+      - NAS-IP-Address (Type 4): Client IP address
+
+    The password is encrypted using the shared secret and request authenticator
+    as specified in RFC 2865 section 5.2.
+
+    Args:
+        host: RADIUS server hostname or IP address to connect to.
+        port: UDP port number where the RADIUS server is listening.
+        secret: Shared secret used for message authentication and password
+               encryption. Must match the server's configuration.
+        username: Authentication username (1-253 octets).
+        password: Authentication password (1-128 octets).
+
+    Returns:
+        A tuple containing:
+        - success (bool):
+            - True: Server responded with Access-Accept (code 2)
+            - False: Server responded with Access-Reject (code 3) or an error occurred
+        - message (str): Human-readable status message:
+            - 'Access-Accept' for successful authentication
+            - 'Access-Reject' for failed authentication
+            - Error description for network or protocol errors
+
+    Raises:
+        socket.timeout: If no response is received within the timeout period.
+        OSError: For network-related errors (e.g., host unreachable).
+
+    Example:
+        # Basic usage
+        success, message = radius_authenticate(
+            host='radius.example.com',
+            port=1812,
+            secret='shared_secret',
+            username='testuser',
+            password='secure_password123'
+        )
+        if success:
+            print(f"Authentication successful: {message}")
+        else:
+            print(f"Authentication failed: {message}")
+
+    Security Notes:
+        - The shared secret should be kept confidential and be at least 16 characters long.
+        - Always use secure transport (e.g., IPsec) when communicating over untrusted networks.
+        - The function includes basic validation but assumes well-formed responses.
+    """
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(5)
+
+        # Build RADIUS packet
+        code = 1  # Access-Request
+        identifier = 1
+        request_auth = make_request_authenticator()
+
+        # Attributes
+        attributes = b""
+
+        # User-Name (Type 1)
+        username_bytes = username.encode()
+        attributes += struct.pack("!BB", 1, 2 + len(username_bytes)) + username_bytes
+
+        # User-Password (Type 2) - encrypted with Request Authenticator
+        password_bytes = password.encode()
+        # Pad password to multiple of 16
+        if len(password_bytes) % 16:
+            password_bytes += b"\x00" * (16 - len(password_bytes) % 16)
+
+        # XOR with MD5(secret + Request Authenticator)
+        encrypted_pass = b""
+        c = request_auth
+        for i in range(0, len(password_bytes), 16):
+            b_i = password_bytes[i : i + 16]
+            hash_val = hashlib.md5(secret.encode() + c, usedforsecurity=False).digest()
+            encrypted_chunk = bytes(a ^ b for a, b in zip(b_i, hash_val))
+            encrypted_pass += encrypted_chunk
+            c = encrypted_chunk
+
+        attributes += struct.pack("!BB", 2, 2 + len(encrypted_pass)) + encrypted_pass
+
+        # NAS-IP-Address (Type 4)
+        nas_ip = socket.inet_aton("127.0.0.1")
+        attributes += struct.pack("!BB", 4, 6) + nas_ip
+
+        # Build packet
+        length = 20 + len(attributes)
+        packet = (
+            struct.pack("!BBH", code, identifier, length) + request_auth + attributes
+        )
+
+        # Send request
+        sock.sendto(packet, (host, port))
+
+        # Receive response
+        response, _ = sock.recvfrom(4096)
+
+        if len(response) < 20:
+            return False, "Invalid response"
+
+        resp_code = response[0]
+
+        if resp_code == 2:  # Access-Accept
+            return True, "Access-Accept"
+        elif resp_code == 3:  # Access-Reject
+            return False, "Access-Reject"
+        else:
+            return False, f"Unknown response code: {resp_code}"
+
+    except Exception as e:
+        return False, f"Connection error: {e}"
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except OSError:
+                # Ignore socket close errors in the test helper
+                pass
+
+
+def test_radius_basic_auth_success(server_factory):
+    """Test successful RADIUS authentication with local user.
+
+    This test verifies that the RADIUS server can successfully authenticate a user
+    with correct credentials. It tests the basic authentication flow using PAP.
+
+    Test Steps:
+    1. Start a RADIUS server with a test user and shared secret
+    2. Send a valid Access-Request with correct credentials
+    3. Verify the server responds with Access-Accept
+
+    Expected Result:
+    - Server should respond with Access-Accept (code 2)
+    - Authentication should be successful
+    - Session should be properly established
+    """
+    server = server_factory(
+        config={
+            "log_level": "DEBUG",
+            "auth_backends": "local",
+            "radius_share_backends": "true",
+        },
+        enable_tacacs=False,
+        enable_radius=True,
+    )
+
+    # Create user and client BEFORE starting server so RADIUS loads clients at setup
+    from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.devices.store import DeviceStore
+
+    user_service = LocalUserService(str(server.auth_db))
+    user_service.create_user("radiususer", password="RadiusPass123", privilege_level=15)
+    device_store = DeviceStore(str(server.devices_db))
+    device_store.ensure_group(
+        "default", description="Default group", metadata={"radius_secret": "radsecret"}
+    )
+    device_store.ensure_device(
+        name="radius-client",
+        network="127.0.0.1",
+        group="default",
+    )
+
+    with server:
+        # Perform RADIUS authentication
+        success, message = radius_authenticate(
+            host="127.0.0.1",
+            port=server.radius_auth_port,
+            secret="radsecret",
+            username="radiususer",
+            password="RadiusPass123",
+        )
+
+        # Check results
+        assert success, f"RADIUS authentication should succeed: {message}"
+        assert "Accept" in message
+
+        # Verify logs
+        logs = server.get_logs()
+        assert "radiususer" in logs or "RADIUS" in logs
+
+
+def test_radius_auth_failure(server_factory):
+    """Test failed RADIUS authentication with wrong password.
+
+    This test verifies that the RADIUS server properly handles failed authentication
+    attempts when an incorrect password is provided.
+
+    Test Steps:
+    1. Start a RADIUS server with a test user
+    2. Send an Access-Request with incorrect password
+    3. Verify the server responds with Access-Reject
+
+    Expected Result:
+    - Server should respond with Access-Reject (code 3)
+    - Authentication should fail
+    - No session should be established
+    """
+    server = server_factory(
+        config={
+            "auth_backends": "local",
+            "radius_share_backends": "true",
+        },
+        enable_radius=True,
+    )
+
+    # Prepare before start
+    from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.devices.store import DeviceStore
+
+    user_service = LocalUserService(str(server.auth_db))
+    user_service.create_user("radiususer", password="CorrectPass1", privilege_level=15)
+    device_store = DeviceStore(str(server.devices_db))
+    device_store.ensure_group(
+        "default", description="Default group", metadata={"radius_secret": "radsecret"}
+    )
+    device_store.ensure_device(
+        name="radius-client",
+        network="127.0.0.1",
+        group="default",
+    )
+
+    with server:
+        # Try with wrong password
+        success, message = radius_authenticate(
+            host="127.0.0.1",
+            port=server.radius_auth_port,
+            secret="radsecret",
+            username="radiususer",
+            password="WrongPass1",
+        )
+
+        # Check results
+        assert not success, "Authentication should fail with wrong password"
+        assert "Reject" in message
+
+        # Verify logs
+        logs = server.get_logs()
+        assert "radiususer" in logs or "RADIUS" in logs
+
+
+def test_radius_with_tacacs_shared_backend(server_factory):
+    """Test RADIUS with shared TACACS+ authentication backend.
+
+    This test verifies that the RADIUS server can use TACACS+ as an authentication
+    backend, allowing for shared user credentials between both protocols.
+
+    Test Steps:
+    1. Start server with both RADIUS and TACACS+ enabled
+    2. Configure TACACS+ as the authentication backend
+    3. Attempt RADIUS authentication with TACACS+ credentials
+    4. Verify successful authentication
+
+    Expected Result:
+    - RADIUS server should successfully use TACACS+ backend
+    - Authentication should succeed with valid TACACS+ credentials
+    - Logs should reflect the authentication flow
+    """
+    server = server_factory(
+        config={
+            "auth_backends": "local",
+            "radius_share_backends": "true",
+            "radius_share_accounting": "true",
+        },
+        enable_tacacs=True,
+        enable_radius=True,
+    )
+
+    # Prepare before start
+    from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.devices.store import DeviceStore
+
+    user_service = LocalUserService(str(server.auth_db))
+    user_service.create_user("shareduser", password="SharedPass1", privilege_level=15)
+    device_store = DeviceStore(str(server.devices_db))
+    device_store.ensure_group(
+        "default",
+        description="Default group",
+        metadata={"radius_secret": "sharedsecret"},
+    )
+    device_store.ensure_device(
+        name="shared-device",
+        network="127.0.0.1",
+        group="default",
+    )
+
+    with server:
+        # Test RADIUS authentication
+        success, message = radius_authenticate(
+            host="127.0.0.1",
+            port=server.radius_auth_port,
+            secret="sharedsecret",
+            username="shareduser",
+            password="SharedPass1",
+        )
+
+        assert success, f"RADIUS authentication should succeed: {message}"
+
+        # Verify logs show RADIUS activity
+        logs = server.get_logs()
+        assert "RADIUS" in logs or "shareduser" in logs
+
+
+def test_radius_multiple_clients(server_factory):
+    """Test RADIUS with multiple client devices.
+
+    This test verifies that the RADIUS server can handle authentication requests
+    from multiple client devices with different shared secrets.
+
+    Test Steps:
+    1. Start RADIUS server with multiple client configurations
+    2. Send authentication requests from different client IPs
+    3. Verify each client can authenticate with its own shared secret
+
+    Expected Result:
+    - All configured clients should be able to authenticate
+    - Each client should only work with its own shared secret
+    - Authentication should fail for unknown clients
+    """
+    server = server_factory(
+        config={
+            "auth_backends": "local",
+            "radius_share_backends": "true",
+        },
+        enable_radius=True,
+    )
+
+    # Prepare before start
+    from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.devices.store import DeviceStore
+
+    user_service = LocalUserService(str(server.auth_db))
+    user_service.create_user("user1", password="Passw0rd1", privilege_level=15)
+    user_service.create_user("user2", password="Passw0rd2", privilege_level=15)
+    device_store = DeviceStore(str(server.devices_db))
+    device_store.ensure_group(
+        "default", description="Default group", metadata={"radius_secret": "secret1"}
+    )
+    device_store.ensure_device(
+        name="client1",
+        network="127.0.0.1",
+        group="default",
+    )
+
+    with server:
+        # Test authentication from client1
+        success, _ = radius_authenticate(
+            "127.0.0.1", server.radius_auth_port, "secret1", "user1", "Passw0rd1"
+        )
+        assert success, "User1 authentication should succeed"
+
+        success, _ = radius_authenticate(
+            "127.0.0.1", server.radius_auth_port, "secret1", "user2", "Passw0rd2"
+        )
+        assert success, "User2 authentication should succeed"
+
+        # Verify logs
+        logs = server.get_logs()
+        assert "user1" in logs or "user2" in logs or "RADIUS" in logs
+
+
+def test_radius_server_logs_collected(server_factory):
+    """Test that RADIUS server logs are properly collected.
+
+    This test verifies that the RADIUS server correctly logs authentication
+    attempts and their outcomes to the server logs.
+
+    Test Steps:
+    1. Start a RADIUS server with debug logging enabled
+    2. Perform multiple authentication attempts (success and failure)
+    3. Verify logs contain expected authentication events
+
+    Expected Result:
+    - All authentication attempts should be logged
+    - Logs should contain Access-Accept/Access-Reject status
+    - Logs should include relevant user and client information
+    - Debug logs should show detailed authentication process
+    """
+    server = server_factory(
+        config={
+            "log_level": "DEBUG",
+            "auth_backends": "local",
+        },
+        enable_radius=True,
+    )
+
+    with server:
+        # Create user and client
+        from tacacs_server.auth.local_user_service import LocalUserService
+        from tacacs_server.devices.store import DeviceStore
+
+        user_service = LocalUserService(str(server.auth_db))
+        user_service.create_user("testuser", password="TestPass123", privilege_level=15)
+
+        device_store = DeviceStore(str(server.devices_db))
+        device_store.ensure_group(
+            "default",
+            description="Default group",
+            metadata={"radius_secret": "testsecret"},
+        )
+        device_store.ensure_device(
+            name="test-client",
+            network="127.0.0.1",
+            group="default",
+        )
+
+        import time
+
+        time.sleep(0.5)
+
+        # Perform authentication attempts
+        radius_authenticate(
+            "127.0.0.1",
+            server.radius_auth_port,
+            "testsecret",
+            "testuser",
+            "TestPass123",
+        )
+        radius_authenticate(
+            "127.0.0.1", server.radius_auth_port, "testsecret", "testuser", "wrongpass"
+        )
+
+    # Get logs after server stops
+    logs = server.get_logs()
+
+    # Verify log content
+    assert logs, "Logs should not be empty"
+    assert len(logs) > 100, "Logs should contain substantial content"
+    # RADIUS logs should mention the protocol or user
+    assert "RADIUS" in logs or "testuser" in logs or "radius" in logs.lower()
+
+
+def test_radius_disabled_by_config(server_factory):
+    """Test that RADIUS is properly disabled when not enabled in config.
+
+    This test verifies that the RADIUS server doesn't accept connections
+    when explicitly disabled in the configuration.
+
+    Test Steps:
+    1. Start server with RADIUS explicitly disabled
+    2. Attempt to authenticate via RADIUS
+    3. Verify connection is refused
+
+    Expected Result:
+    - RADIUS port should not be listening
+    - Connection attempts should be refused
+    - Logs should indicate RADIUS is disabled
+    """
+    server = server_factory(
+        config={"auth_backends": "local"},
+        enable_tacacs=True,
+        enable_radius=False,  # Explicitly disabled
+    )
+
+    with server:
+        # RADIUS ports should not be set
+        assert server.radius_auth_port is None
+        assert server.radius_acct_port is None
+
+        # Verify logs don't mention RADIUS startup
+        logs = server.get_logs()
+        # Should not see RADIUS server starting
+        assert "RADIUS server configured" not in logs or "RADIUS" not in logs

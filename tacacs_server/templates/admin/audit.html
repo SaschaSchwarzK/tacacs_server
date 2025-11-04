@@ -1,0 +1,39 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Audit Trail - TACACS+ Server Admin{% endblock %}
+
+{% block breadcrumbs %}
+<span class="font-semibold">Audit Trail</span>
+{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <h1 class="text-3xl font-bold text-gray-900 mb-8">Audit Trail</h1>
+    
+    <!-- Filters -->
+    <div class="bg-white p-4 rounded-lg shadow-sm mb-8">
+        <!-- Filter controls like date, user, event type would go here -->
+    </div>
+
+    <!-- Audit Log Table -->
+    {% include "admin/components/table.html" with {
+        'headers': ['Timestamp', 'User', 'Source IP', 'Event Type', 'Details'],
+        'rows': audit_logs
+    } %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const api = new AdminAPI();
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const logs = await api.get('/admin/audit');
+            // Code to render logs into the table would go here
+            console.log('Audit logs loaded:', logs);
+        } catch (error) {
+            showFlash('Could not load audit trail.', 'error');
+        }
+    });
+</script>
+{% endblock %}

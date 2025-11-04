@@ -173,10 +173,14 @@ class LocalUserGroupService:
 
     @staticmethod
     def _validate_name(name: str) -> str:
+        from tacacs_server.utils.validation import InputValidator
+
         name = (name or "").strip()
         if not name:
             raise LocalUserGroupValidationError("Group name is required")
-        return name
+        return InputValidator.validate_safe_text(
+            name, "group name", min_len=1, max_len=64
+        )
 
     @staticmethod
     def _validate_metadata(metadata: dict[str, object] | None) -> dict[str, object]:

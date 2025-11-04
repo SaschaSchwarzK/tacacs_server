@@ -1,879 +1,594 @@
 """
-Test configuration and fixtures
+Test configuration and fixtures - Real server instances only, no mocks
 """
 
 from __future__ import annotations
 
 import configparser
-import glob
 import os
-import os as _os  # Ensure early env defaults for imported tests
-import shutil
 import signal
 import socket
 import subprocess
-import tempfile
+import threading
 import time
 from pathlib import Path
-
-# Set test port defaults early so modules that read env at import time get them
-_os.environ.setdefault("TEST_TACACS_PORT", "5049")
-_os.environ.setdefault("TEST_WEB_PORT", "8080")
+from typing import Any, cast
 
 import pytest
 import requests
+from pyftpdlib.authorizers import DummyAuthorizer
+from pyftpdlib.handlers import FTPHandler
+from pyftpdlib.servers import FTPServer
+from requests.exceptions import RequestException
 
-from tacacs_server.auth.local_store import LocalAuthStore
-from tacacs_server.auth.local_user_service import LocalUserService
 
+@pytest.fixture(autouse=True, scope="session")
+def _backup_env_roots(tmp_path_factory: pytest.TempPathFactory):
+    """Force backup roots to temp dirs for all tests."""
+    import os as _os
 
-@pytest.fixture(scope="session", autouse=True)
-def _sync_security_test_config_with_server(tacacs_server):
-    """Set SecurityConfig.TACACS_PORT to the actual started server port.
-
-    This avoids mismatch when the server binds a random free port in tests.
-    """
-    try:
-        from tests.security.test_security_pentest import SecurityConfig as _SecCfg
-
-        # Update env and module constants to the actual started server
-        os.environ["TEST_TACACS_PORT"] = str(tacacs_server["port"])
-        os.environ["TACACS_WEB_BASE"] = (
-            f"http://{tacacs_server['host']}:{tacacs_server['web_port']}"
-        )
-        _SecCfg.TACACS_PORT = int(tacacs_server["port"])
-        _SecCfg.TACACS_HOST = tacacs_server["host"]
-    except Exception:
-        pass
+    backup_root = tmp_path_factory.mktemp("backups_root")
+    temp_root = tmp_path_factory.mktemp("backups_tmp")
+    _os.environ["BACKUP_ROOT"] = str(backup_root)
+    _os.environ["BACKUP_TEMP"] = str(temp_root)
+    yield
 
 
 def _find_free_port() -> int:
+    """Find an available port on localhost"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        addr = cast(tuple[str, int], s.getsockname())
+        port: int = addr[1]
+        return port
 
 
-def _resolve_path(base_dir: Path, path_value: str) -> Path:
-    candidate = Path(path_value).expanduser()
-    if not candidate.is_absolute():
-        candidate = (base_dir / candidate).resolve()
-    return candidate
+def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> bool:
+    """Wait for a port to become available"""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            if result == 0:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.2)
+    return False
 
 
-def _update_config_paths(
-    cfg: configparser.ConfigParser, base_dir: Path, work_dir: Path
-) -> dict[Path, Path]:
-    """Update config paths to point to isolated copies and return mapping."""
-    mapping: dict[Path, Path] = {}
+class ServerInstance:
+    """Manages a real server instance with isolated resources"""
 
-    auth_original = _resolve_path(
-        base_dir, cfg.get("auth", "local_auth_db", fallback="data/local_auth.db")
-    )
-    auth_new = work_dir / auth_original.name
-    cfg.setdefault("auth", {})
-    cfg["auth"]["local_auth_db"] = str(auth_new)
-    mapping[auth_original] = auth_new
+    def __init__(
+        self,
+        work_dir: Path,
+        config: dict[str, Any],
+        enable_tacacs: bool = True,
+        enable_radius: bool = False,
+        enable_admin_api: bool = False,
+        enable_admin_web: bool = False,
+    ):
+        self.work_dir = work_dir
+        self.config_dict = config
+        self.enable_tacacs = enable_tacacs
+        self.enable_radius = enable_radius
+        self.enable_admin_api = enable_admin_api
+        self.enable_admin_web = enable_admin_web
 
-    # Ensure admin credentials in file config so AdminSessionManager picks them up
-    cfg.setdefault("admin", {})
-    cfg["admin"]["username"] = "admin"
-    # Prefer bcrypt for admin auth (AdminSessionManager requires bcrypt)
-    try:
-        import bcrypt as _bcrypt
+        # Ports
+        # TACACS+ may start even if not explicitly enabled by config defaults.
+        # Always allocate a free port and write it to config to avoid conflicts.
+        self.tacacs_port = _find_free_port()
+        self.radius_auth_port = _find_free_port() if enable_radius else None
+        self.radius_acct_port = _find_free_port() if enable_radius else None
+        self.web_port = (
+            _find_free_port() if (enable_admin_api or enable_admin_web) else None
+        )
 
-        _admin_hash = _bcrypt.hashpw(b"AdminPass123!", _bcrypt.gensalt()).decode()
-    except Exception:
-        # Fallback to a precomputed bcrypt hash for "AdminPass123!" (cost 12)
-        _admin_hash = "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
-    cfg["admin"]["password_hash"] = _admin_hash
+        # Paths
+        self.config_path = work_dir / "tacacs.conf"
+        self.log_path = work_dir / "logs" / "server.log"
+        self.auth_db = work_dir / "data" / "local_auth.db"
+        self.devices_db = work_dir / "data" / "devices.db"
+        self.accounting_db = work_dir / "data" / "accounting.db"
+        # Expose additional database paths for tests/diagnostics
+        self.metrics_history_db = work_dir / "data" / "metrics.db"
+        self.audit_trail_db = work_dir / "data" / "audit.db"
 
-    devices_original = _resolve_path(
-        base_dir, cfg.get("devices", "database", fallback="data/devices.db")
-    )
-    devices_new = work_dir / devices_original.name
-    cfg.setdefault("devices", {})
-    cfg["devices"]["database"] = str(devices_new)
-    mapping[devices_original] = devices_new
+        # Process
+        self.process: subprocess.Popen | None = None
+        self.log_file: Any = None
 
-    database_section = cfg.setdefault("database", {})
-    account_original = _resolve_path(
-        base_dir, database_section.get("accounting_db", "data/tacacs_accounting.db")
-    )
-    account_new = work_dir / account_original.name
-    database_section["accounting_db"] = str(account_new)
-    mapping[account_original] = account_new
+        # Server info
+        self.admin_username = config.get("admin_username", "admin")
+        self.admin_password = config.get("admin_password", "admin123")
+        self.api_token = os.environ.get("TEST_API_TOKEN", "test-token")
 
-    metrics_original = _resolve_path(
-        base_dir, database_section.get("metrics_history_db", "data/metrics_history.db")
-    )
-    metrics_new = work_dir / metrics_original.name
-    database_section["metrics_history_db"] = str(metrics_new)
-    mapping[metrics_original] = metrics_new
+    def _create_config_file(self):
+        """Create config file from settings"""
+        cfg = configparser.ConfigParser(interpolation=None)
 
-    audit_original = _resolve_path(
-        base_dir, database_section.get("audit_trail_db", "data/audit_trail.db")
-    )
-    audit_new = work_dir / audit_original.name
-    database_section["audit_trail_db"] = str(audit_new)
-    mapping[audit_original] = audit_new
-
-    cfg.setdefault("logging", {})
-    log_original = _resolve_path(
-        base_dir, cfg["logging"].get("log_file", "logs/tacacs.log")
-    )
-    log_new = work_dir / "logs" / log_original.name
-    cfg["logging"]["log_file"] = str(log_new)
-    mapping[log_original] = log_new
-
-    # Ensure sections exist (actual ports are set by isolated_test_environment)
-    cfg.setdefault("server", {})
-    cfg.setdefault("radius", {})
-    if cfg["radius"].get("enabled", "false").lower() == "true":
-        if not cfg["radius"].get("auth_port"):
-            cfg["radius"]["auth_port"] = str(_find_free_port())
-        if not cfg["radius"].get("acct_port"):
-            cfg["radius"]["acct_port"] = str(_find_free_port())
-
-    # Enable web monitoring/admin API consistently in tests. Port is set later
-    # by isolated_test_environment to 8080 for suite compatibility.
-    cfg.setdefault("monitoring", {})
-    cfg["monitoring"]["enabled"] = "true"
-    cfg["monitoring"]["web_host"] = "127.0.0.1"
-
-    return mapping
-
-
-def _ensure_parent_dirs(paths: list[Path]) -> None:
-    for path in paths:
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def isolated_test_environment(tmp_path_factory):
-    """Use a temporary configuration and databases for all tests."""
-    work_dir = Path(tmp_path_factory.mktemp("tacacs-test-env"))
-    base_config = Path("config/tacacs.conf")
-
-    cfg = configparser.ConfigParser(interpolation=None)
-    cfg.read(base_config)
-    # Use non-privileged, random free ports in tests to avoid conflicts
-    if not cfg.has_section("server"):
+        # Server section (always set a dedicated port to avoid conflicts)
         cfg.add_section("server")
-    tacacs_port = _find_free_port()
-    cfg.set("server", "port", str(tacacs_port))
-    if not cfg["server"].get("host"):
-        cfg.set("server", "host", "127.0.0.1")
-    # Bind to localhost for tests
-    if not cfg["server"].get("host"):
-        cfg.set("server", "host", "127.0.0.1")
-
-    # Enable RADIUS with high, random ports for tests to include RADIUS suites
-    if not cfg.has_section("radius"):
-        cfg.add_section("radius")
-    try:
-        rad_auth_port = _find_free_port()
-        rad_acct_port = _find_free_port()
-    except Exception:
-        rad_auth_port = 49152
-        rad_acct_port = 49153
-    cfg.set("radius", "enabled", "true")
-    cfg.set("radius", "auth_port", str(rad_auth_port))
-    cfg.set("radius", "acct_port", str(rad_acct_port))
-    cfg.set("radius", "host", "127.0.0.1")
-    cfg.set("radius", "share_backends", "true")
-    cfg.set("radius", "share_accounting", "true")
-    # Relax security knobs for parallel/concurrent tests
-    if not cfg.has_section("security"):
-        cfg.add_section("security")
-    # Allow unencrypted TACACS for explicit unencrypted integration tests
-    cfg.set("security", "encryption_required", "false")
-    # Lift per-IP connection cap (respect validation: 1-1000)
-    cfg.set("security", "max_connections_per_ip", "1000")
-    # Make rate limit permissive to avoid throttling tests
-    cfg.set("security", "rate_limit_requests", "1000000")
-    cfg.set("security", "rate_limit_window", "1")
-    path_mapping = _update_config_paths(cfg, base_config.parent, work_dir)
-    _ensure_parent_dirs(list(path_mapping.values()))
-
-    config_path = work_dir / "tacacs_test.conf"
-    with config_path.open("w") as config_file:
-        cfg.write(config_file)
-
-    for original, new in path_mapping.items():
-        if original.exists():
-            shutil.copy2(original, new)
-
-    original_env = os.environ.get("TACACS_CONFIG")
-    os.environ["TACACS_CONFIG"] = str(config_path)
-    # Propagate chosen ports for any tests that read env
-    os.environ["TEST_TACACS_PORT"] = str(tacacs_port)
-    # Pick a free web monitoring port as well to avoid collisions
-    try:
-        # Choose a fresh free port regardless of previous value to avoid conflicts
-        web_port = _find_free_port()
-    except Exception:
-        web_port = 8080
-    cfg["monitoring"]["web_port"] = str(web_port)
-    os.environ["TEST_WEB_PORT"] = str(web_port)
-    # Update config file with selected web port
-    with config_path.open("w") as config_file:
-        cfg.write(config_file)
-
-    # Ensure admin credentials also available via env so defaults pick them up
-    _admin_user_prev = os.environ.get("ADMIN_USERNAME")
-    _admin_hash_prev = os.environ.get("ADMIN_PASSWORD_HASH")
-    _secure_prev = os.environ.get("SECURE_COOKIES")
-    _api_token_prev = os.environ.get("API_TOKEN")
-    _api_required_prev = os.environ.get("API_TOKEN_REQUIRED")
-    os.environ["ADMIN_USERNAME"] = "admin"
-    try:
-        import bcrypt as _bcrypt
-
-        _hash = _bcrypt.hashpw(b"AdminPass123!", _bcrypt.gensalt()).decode()
-    except Exception:
-        # Fallback to a precomputed bcrypt hash for "AdminPass123!" (cost 12)
-        _hash = "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
-    os.environ["ADMIN_PASSWORD_HASH"] = _hash
-
-    auth_db_path = Path(cfg["auth"]["local_auth_db"])
-
-    try:
-        # Expose for any external tooling that wants to collect artifacts
-        os.environ["TACACS_TEST_WORKDIR"] = str(work_dir)
-        # Ensure cookies are not marked secure in HTTP test env
-        os.environ["SECURE_COOKIES"] = "false"
-        # Enable API and enforce token on all /api/* endpoints during tests
-        os.environ["API_TOKEN"] = os.environ.get("TEST_API_TOKEN", "test-token")
-        # Expose the selected local auth DB path explicitly for other fixtures
-        os.environ["TACACS_TEST_AUTH_DB"] = str(auth_db_path)
-        yield {
-            "config_path": config_path,
-            "work_dir": work_dir,
-            "auth_db": auth_db_path,
-        }
-    finally:
-        if original_env is None:
-            os.environ.pop("TACACS_CONFIG", None)
-        else:
-            os.environ["TACACS_CONFIG"] = original_env
-        if _admin_user_prev is None:
-            os.environ.pop("ADMIN_USERNAME", None)
-        else:
-            os.environ["ADMIN_USERNAME"] = _admin_user_prev
-        if _admin_hash_prev is None:
-            os.environ.pop("ADMIN_PASSWORD_HASH", None)
-        else:
-            os.environ["ADMIN_PASSWORD_HASH"] = _admin_hash_prev
-        if _secure_prev is None:
-            os.environ.pop("SECURE_COOKIES", None)
-        else:
-            os.environ["SECURE_COOKIES"] = _secure_prev
-        if _api_token_prev is None:
-            os.environ.pop("API_TOKEN", None)
-        else:
-            os.environ["API_TOKEN"] = _api_token_prev
-        os.environ.pop("TACACS_TEST_AUTH_DB", None)
-        # Clean up the temporary working directory (databases, logs)
+        cfg["server"]["host"] = "127.0.0.1"
+        cfg["server"]["port"] = str(self.tacacs_port)
+        cfg["server"]["log_level"] = self.config_dict.get("log_level", "INFO")
+        # Merge server overrides if provided
         try:
-            shutil.rmtree(work_dir, ignore_errors=True)
+            server_overrides = self.config_dict.get("server") or {}
+            for key, value in server_overrides.items():
+                cfg["server"][str(key)] = str(value)
         except Exception:
             pass
 
+        # RADIUS section
+        if self.enable_radius:
+            cfg.add_section("radius")
+            cfg["radius"]["enabled"] = "true"
+            cfg["radius"]["host"] = "127.0.0.1"
+            cfg["radius"]["auth_port"] = str(self.radius_auth_port)
+            cfg["radius"]["acct_port"] = str(self.radius_acct_port)
+            cfg["radius"]["share_backends"] = self.config_dict.get(
+                "radius_share_backends", "true"
+            )
+            cfg["radius"]["share_accounting"] = self.config_dict.get(
+                "radius_share_accounting", "true"
+            )
+        else:
+            cfg.add_section("radius")
+            cfg["radius"]["enabled"] = "false"
 
-@pytest.fixture
-def test_db():
-    """Create a temporary test database in the allowed workdir.
+        # Admin section (for Web UI and API)
+        if self.enable_admin_api or self.enable_admin_web:
+            cfg.add_section("admin")
+            cfg["admin"]["username"] = self.admin_username
+            # Generate password hash
+            try:
+                import bcrypt
 
-    Some components (accounting DB) enforce that DB files reside under the
-    server's working directory. Place ephemeral DBs under TACACS_TEST_WORKDIR
-    when available to satisfy that constraint.
-    """
-    import uuid
-
-    workdir = os.environ.get("TACACS_TEST_WORKDIR")
-    if workdir:
-        # Place under server workdir's data/ to satisfy allowed-path checks
-        base = Path(workdir) / "data"
-        base.mkdir(parents=True, exist_ok=True)
-    else:
-        base = Path(tempfile.mkdtemp())
-    # Use unique filename to avoid any conflicts
-    db_path = base / f"test_{uuid.uuid4().hex[:8]}.db"
-
-    yield str(db_path)
-
-    # Cleanup only if we created a standalone temp dir
-    if not workdir:
-        shutil.rmtree(base, ignore_errors=True)
-
-
-@pytest.fixture
-def user_service(test_db):
-    """Create a LocalUserService with test database"""
-    return LocalUserService(test_db)
-
-
-@pytest.fixture
-def auth_store(test_db):
-    """Create a LocalAuthStore with test database"""
-    return LocalAuthStore(test_db)
-
-
-@pytest.fixture
-def test_user(user_service):
-    """Create a test user"""
-    import uuid
-
-    username = f"testuser_{uuid.uuid4().hex[:8]}"
-    return user_service.create_user(username, password="TestPass123")
-
-
-@pytest.fixture
-def server_process():
-    """Mock server process for integration tests."""
-    return {"host": "127.0.0.1", "port": 49, "secret": "test123"}
-
-
-@pytest.fixture(scope="session")
-def tacacs_server(isolated_test_environment):
-    """Start TACACS+ server for tests that need it"""
-    server_process = None
-    try:
-        # Reuse the session-scoped TACACS_CONFIG produced by isolated_test_environment
-        # Use the config produced by isolated_test_environment to ensure
-        # consistent DB/ports across tests and subprocess.
-        session_cfg_path = isolated_test_environment.get("config_path")
-        if not session_cfg_path or not Path(session_cfg_path).exists():
-            # Fallback to env if dict missing (defensive)
-            session_cfg_path = os.environ.get("TACACS_CONFIG")
-            if not session_cfg_path or not Path(session_cfg_path).exists():
-                raise RuntimeError(
-                    "Session TACACS_CONFIG not set; cannot start server for tests"
+                password_hash = bcrypt.hashpw(
+                    self.admin_password.encode(), bcrypt.gensalt()
+                ).decode()
+            except Exception:
+                # Fallback hash for "admin123"
+                password_hash = (
+                    "$2b$12$vj2m47XxypTDfG/ZOaUeP.a2lROwySqp7kWzb7OmV/UNHtcOFnA2G"
                 )
-        cfg_path = Path(str(session_cfg_path))
-        cfg_check = configparser.ConfigParser(interpolation=None)
-        cfg_check.read(session_cfg_path)
+            cfg["admin"]["password_hash"] = password_hash
+            cfg["admin"]["session_timeout_minutes"] = "60"
+        else:
+            # No password hash = admin disabled
+            cfg.add_section("admin")
+            cfg["admin"]["username"] = self.admin_username
+            cfg["admin"]["password_hash"] = ""
 
-        # Make minimal, safe adjustments for a local test run
-        if not cfg_check.has_section("server"):
-            cfg_check.add_section("server")
-        cfg_check.set("server", "host", "127.0.0.1")
-        # If the session config chose a privileged/occupied port, switch to a free one
+        # Monitoring section (Web UI / API)
+        if self.enable_admin_api or self.enable_admin_web:
+            cfg.add_section("monitoring")
+            cfg["monitoring"]["enabled"] = "true"
+            cfg["monitoring"]["web_host"] = "127.0.0.1"
+            cfg["monitoring"]["web_port"] = str(self.web_port)
+        else:
+            cfg.add_section("monitoring")
+            cfg["monitoring"]["enabled"] = "false"
+
+        # Auth section
+        cfg.add_section("auth")
+        cfg["auth"]["backends"] = self.config_dict.get("auth_backends", "local")
+        cfg["auth"]["local_auth_db"] = str(self.auth_db)
+
+        # Database section
+        cfg.add_section("database")
+        cfg["database"]["accounting_db"] = str(self.accounting_db)
+        cfg["database"]["metrics_history_db"] = str(self.metrics_history_db)
+        cfg["database"]["audit_trail_db"] = str(self.audit_trail_db)
+        # Allow overriding database paths from test config
         try:
-            port_val = int(cfg_check.get("server", "port", fallback="49"))
-        except Exception:
-            port_val = 49
-        if port_val < 1024:
-            cfg_check.set("server", "port", str(_find_free_port()))
-
-        if not cfg_check.has_section("radius"):
-            cfg_check.add_section("radius")
-        cfg_check.set("radius", "enabled", "false")
-
-        if not cfg_check.has_section("monitoring"):
-            cfg_check.add_section("monitoring")
-        cfg_check.set("monitoring", "enabled", "true")
-        cfg_check.set("monitoring", "web_host", "127.0.0.1")
-        cfg_check.set("monitoring", "web_port", str(_find_free_port()))
-
-        # Ensure admin auth is present (bcrypt or known fallback)
-        if not cfg_check.has_section("admin"):
-            cfg_check.add_section("admin")
-        cfg_check.set("admin", "username", "admin")
-        try:
-            import bcrypt as _bcrypt
-
-            _file_hash = _bcrypt.hashpw(b"AdminPass123!", _bcrypt.gensalt()).decode()
-        except Exception:
-            _file_hash = "$2b$12$wq0c0mQzq1s9sR3q5mFQJe3sEXp5b8fQnUe3k6sTn6ZpI9b0m0vX."
-        cfg_check.set("admin", "password_hash", _file_hash)
-
-        # Persist changes back to the same session config
-        with cfg_path.open("w") as f:
-            cfg_check.write(f)
-
-        # DEBUG: show effective config + auth DB path
-        try:
-            print(f"[SERVER-DEBUG] server_cfg={cfg_path}")
-            print(
-                f"[SERVER-DEBUG] server_auth_db={cfg_check.get('auth', 'local_auth_db')}"
-            )
+            db_overrides = self.config_dict.get("database") or {}
+            for key, value in db_overrides.items():
+                cfg["database"][str(key)] = str(value)
+                # Keep internal paths in sync with overrides to avoid mismatches
+                try:
+                    ov = Path(str(value))
+                    resolved = self.work_dir / ov if not ov.is_absolute() else ov
+                    if str(key) == "accounting_db":
+                        self.accounting_db = resolved
+                    elif str(key) == "metrics_history_db":
+                        self.metrics_history_db = resolved
+                    elif str(key) == "audit_trail_db":
+                        self.audit_trail_db = resolved
+                except Exception:
+                    # Do not fail config creation on path normalization errors
+                    pass
         except Exception:
             pass
 
-        # Start server in background, capture logs for debugging in CI
-        env_log = os.environ.get("TACACS_TEST_LOG", "").strip()
-        if env_log:
-            candidate = Path(env_log)
-            log_path = (
-                candidate / "tacacs_server.log" if candidate.is_dir() else candidate
-            )
-        else:
-            log_path = Path(tempfile.mkdtemp()) / "tacacs_server.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_file = open(log_path, "w+")
-        # Ensure API token is available for subprocess (enables /api/*)
-        if not os.environ.get("API_TOKEN"):
-            os.environ["API_TOKEN"] = os.environ.get("TEST_API_TOKEN", "test-token")
+        # Devices section
+        cfg.add_section("devices")
+        cfg["devices"]["database"] = str(self.devices_db)
+        cfg["devices"]["default_group"] = "default"
 
+        # Security section
+        cfg.add_section("security")
+        cfg["security"]["encryption_required"] = self.config_dict.get(
+            "encryption_required", "false"
+        )
+        cfg["security"]["max_connections_per_ip"] = "1000"
+        # Allow overriding security settings from test config
+        try:
+            sec_overrides = self.config_dict.get("security") or {}
+            for key, value in sec_overrides.items():
+                cfg["security"][str(key)] = str(value)
+        except Exception:
+            pass
+
+        # Logging section
+        cfg.add_section("logging")
+        cfg["logging"]["log_file"] = str(self.log_path)
+        cfg["logging"]["log_level"] = self.config_dict.get("log_level", "INFO")
+        # Merge logging overrides if provided
+        try:
+            logging_overrides = self.config_dict.get("logging") or {}
+            for key, value in logging_overrides.items():
+                cfg["logging"][str(key)] = str(value)
+        except Exception:
+            pass
+
+        # Add or merge any additional custom sections from config_dict
+        for section_name, section_data in self.config_dict.items():
+            if isinstance(section_data, dict):
+                if not cfg.has_section(section_name):
+                    cfg.add_section(section_name)
+                for key, value in section_data.items():
+                    cfg[section_name][str(key)] = str(value)
+
+        # Write config file
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.config_path.open("w") as f:
+            cfg.write(f)
+
+        # Debug: print config file contents for proxy protocol tests
+        if "proxy_protocol" in self.config_dict:
+            print(f"\n=== CONFIG FILE ({self.config_path}) ===")
+            print(self.config_path.read_text())
+            print("=== END CONFIG ===\n")
+
+    def start(self):
+        """Start the server instance"""
+        # Create necessary directories
+        (self.work_dir / "data").mkdir(parents=True, exist_ok=True)
+        (self.work_dir / "logs").mkdir(parents=True, exist_ok=True)
+
+        # Create config file
+        self._create_config_file()
+
+        # Open log file
+        self.log_file = open(self.log_path, "w+")
+
+        # Prepare environment
+        env = os.environ.copy()
+
+        # Add credentials only via environment
+        if "okta_api_token" in self.config_dict:
+            env["OKTA_API_TOKEN"] = self.config_dict["okta_api_token"]
+        if "ldap_bind_password" in self.config_dict:
+            env["LDAP_BIND_PASSWORD"] = self.config_dict["ldap_bind_password"]
+        # No test-time environment overrides here; use server defaults/config only
+
+        if self.enable_admin_api or self.enable_admin_web:
+            env["API_TOKEN"] = self.api_token
+
+        # Start server process
         cmd = [
             "python",
             "-m",
             "tacacs_server.main",
             "--config",
-            str(cfg_path),
+            str(self.config_path),
         ]
-        # Pass current environment to subprocess explicitly
-        server_process = subprocess.Popen(
+
+        self.process = subprocess.Popen(
             cmd,
-            stdout=log_file,
-            stderr=log_file,
+            stdout=self.log_file,
+            stderr=subprocess.STDOUT,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
-            env=dict(os.environ),
+            env=env,
+            cwd=str(self.work_dir),
         )
 
-        # Wait for server to be ready (use configured TACACS port)
-        import socket
-
-        cfg_check = configparser.ConfigParser(interpolation=None)
-        cfg_check.read(str(cfg_path))
-        tacacs_port = int(cfg_check.get("server", "port", fallback="5049"))
-        web_port = int(cfg_check.get("monitoring", "web_port", fallback="8080"))
-        # Determine application log file from config (server writes here via logging)
-        app_log_file = None
-        try:
-            app_log_file = cfg_check.get("logging", "log_file", fallback=None)
-        except Exception:
-            app_log_file = None
-
-        for _ in range(180):  # up to ~90s with 0.5s sleeps
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(1)
-                result = sock.connect_ex(("127.0.0.1", tacacs_port))
-                sock.close()
-                if result == 0:
-                    break
-            except Exception:
-                pass
-            # If the process died, stop waiting and surface logs
-            if server_process.poll() is not None:
-                # Capture both subprocess stdio and application log file tails
-                try:
-                    log_file.seek(0)
-                    contents = log_file.read()[-4000:]
-                except Exception:
-                    contents = ""
-                app_tail = ""
-                if app_log_file:
-                    try:
-                        with open(app_log_file) as _af:
-                            app_tail = _af.read()[-4000:]
-                    except Exception:
-                        app_tail = ""
+        # Wait for server to start
+        # TACACS+ may run regardless of enable_tacacs; wait for the configured port
+        if self.tacacs_port:
+            if not _wait_for_port("127.0.0.1", self.tacacs_port, timeout=30):
+                self.stop()
+                log_contents = self.get_logs()
                 raise RuntimeError(
-                    "Server process exited early.\n"
-                    + (f"Subprocess stdio tail:\n{contents}\n" if contents else "")
-                    + (
-                        f"Application log tail ({app_log_file}):\n{app_tail}"
-                        if app_tail
-                        else ""
-                    )
+                    f"TACACS+ server failed to start on port {self.tacacs_port}\n"
+                    f"Log:\n{log_contents[-2000:]}"
                 )
-            time.sleep(0.5)
-        else:
-            try:
-                log_file.seek(0)
-                contents = log_file.read()[-4000:]
-            except Exception:
-                contents = ""
-            app_tail = ""
-            if app_log_file:
-                try:
-                    with open(app_log_file) as _af:
-                        app_tail = _af.read()[-4000:]
-                except Exception:
-                    app_tail = ""
-            msg = "Server failed to start within timeout.\n"
-            if contents:
-                msg += f"Subprocess stdio tail:\n{contents}\n"
-            if app_tail:
-                msg += f"Application log tail ({app_log_file}):\n{app_tail}"
-            raise RuntimeError(msg)
 
-        # Optionally probe web port
-        try:
-            import requests
+        if (self.enable_admin_api or self.enable_admin_web) and self.web_port:
+            if not _wait_for_port("127.0.0.1", self.web_port, timeout=30):
+                self.stop()
+                log_contents = self.get_logs()
+                raise RuntimeError(
+                    f"Web server failed to start on port {self.web_port}\n"
+                    f"Log:\n{log_contents[-2000:]}"
+                )
 
-            for _ in range(40):
-                try:
-                    r = requests.get(
-                        f"http://127.0.0.1:{web_port}/api/health", timeout=1
-                    )
-                    if r.status_code == 200:
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.5)
-        except Exception:
-            pass
+        # Give server a moment to fully initialize
+        time.sleep(0.5)
 
-        os.environ["TEST_TACACS_PORT"] = str(tacacs_port)
-        os.environ["TEST_WEB_PORT"] = str(web_port)
-        os.environ["TACACS_WEB_BASE"] = f"http://127.0.0.1:{web_port}"
-        os.environ["TACACS_SERVER_PORT"] = str(tacacs_port)
-        os.environ["TACACS_LOG_PATH"] = str(log_path)
-
-        # Debug: Show resolved ports and log file for combined runs
-        print(f"[TEST-BOOT] TACACS 127.0.0.1:{tacacs_port} | Web 127.0.0.1:{web_port}")
-        print(f"[TEST-BOOT] Log file: {log_path}")
-
-        yield {
-            "host": "127.0.0.1",
-            "port": tacacs_port,
-            "web_port": web_port,
-            "pid": server_process.pid if server_process else None,
-            "log_path": str(log_path),
-        }
-
-    finally:
-        # Stop server
-        if server_process:
+    def stop(self):
+        """Stop the server instance"""
+        if self.process:
             try:
                 if hasattr(os, "killpg"):
-                    os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 else:
-                    server_process.terminate()
-                server_process.wait(timeout=10)
+                    self.process.terminate()
+                self.process.wait(timeout=10)
             except Exception:
                 try:
                     if hasattr(os, "killpg"):
-                        os.killpg(os.getpgid(server_process.pid), signal.SIGKILL)
+                        os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
                     else:
-                        server_process.kill()
+                        self.process.kill()
                 except Exception:
                     pass
+            finally:
+                self.process = None
+
+        if self.log_file:
+            try:
+                self.log_file.close()
+            except Exception:
+                pass
+            finally:
+                self.log_file = None
+
+    def get_logs(self) -> str:
+        """Get server logs"""
+        if self.log_path.exists():
+            return self.log_path.read_text()
+        return ""
+
+    def get_base_url(self) -> str:
+        """Get base URL for web API"""
+        if self.web_port:
+            return f"http://127.0.0.1:{self.web_port}"
+        return ""
+
+    def login_admin(self) -> requests.Session:
+        """Create authenticated admin session"""
+        session = requests.Session()
+        session.headers.update({"X-API-Token": self.api_token})
+        base_url = self.get_base_url()
+        if not base_url:
+            raise RuntimeError("Admin Web server not enabled")
+
+        last_exc: RequestException | RuntimeError | None = None
+
+        # Retry a few times to avoid races with uvicorn binding/startup
+        last_exc = None
+        # Proactively wait for the port on each attempt in case uvicorn is still binding
+        for attempt in range(6):
+            # Ensure the port is listening before attempting login
+            if self.web_port:
+                _wait_for_port("127.0.0.1", self.web_port, timeout=2)
+            try:
+                response = session.post(
+                    f"{self.get_base_url()}/admin/login",
+                    json={
+                        "username": self.admin_username,
+                        "password": self.admin_password,
+                    },
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    # Keep header and add cookie for authenticated admin routes
+                    return session
+                last_exc = RuntimeError(
+                    f"Admin login failed: {response.status_code} {response.text}"
+                )
+            except requests.exceptions.RequestException as e:
+                last_exc = e
+            # Exponential backoff with a small cap to give the server time to settle
+            time.sleep(min(0.2 * (attempt + 1), 1.0))
+        # If still failing, raise the last error
+        if last_exc:
+            # Attach recent logs to aid debugging
+            logs_tail = self.get_logs()[-2000:]
+            raise RuntimeError(
+                f"Admin login failed after retries: {last_exc}\n--- recent server log tail ---\n{logs_tail}"
+            )
+        return session
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+        return False
 
 
 @pytest.fixture
-def live_server(tacacs_server):
-    """Alias for tacacs_server fixture for backward compatibility"""
-    return tacacs_server
+def api_session() -> requests.Session:
+    """Session configured with Bearer token for /api endpoints.
+
+    Uses TEST_API_TOKEN from the environment (default 'test-token').
+    """
+    s = requests.Session()
+    token = os.environ.get("TEST_API_TOKEN", "test-token")
+    s.headers.update({"Authorization": f"Bearer {token}"})
+    return s
 
 
 @pytest.fixture
-def run_test_client():
-    """Mock test client runner."""
+def temp_work_dir(tmp_path):
+    """Create a temporary work directory for a test"""
+    work_dir = tmp_path / "server_instance"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    yield work_dir
+    # Cleanup happens automatically via tmp_path
 
-    def _run_client(host, port, secret, username, password):
-        from types import SimpleNamespace
 
-        return SimpleNamespace(
-            returncode=0, stdout="✓ Authentication PASSED", stderr=""
+@pytest.fixture
+def server_factory(temp_work_dir):
+    """
+    Factory fixture to create server instances with custom configuration.
+
+    Usage:
+        def test_something(server_factory):
+            server = server_factory(
+                config={"log_level": "DEBUG"},
+                enable_tacacs=True,
+                enable_admin_api=True
+            )
+            with server:
+                # Test code here
+                logs = server.get_logs()
+    """
+    created_servers = []
+
+    def _create_server(
+        config: dict[str, Any] | None = None,
+        enable_tacacs: bool = True,
+        enable_radius: bool = False,
+        enable_admin_api: bool = False,
+        enable_admin_web: bool = False,
+    ) -> ServerInstance:
+        config = config or {}
+        server = ServerInstance(
+            work_dir=temp_work_dir,
+            config=config,
+            enable_tacacs=enable_tacacs,
+            enable_radius=enable_radius,
+            enable_admin_api=enable_admin_api,
+            enable_admin_web=enable_admin_web,
         )
+        created_servers.append(server)
+        return server
 
-    return _run_client
+    yield _create_server
+
+    # Cleanup all created servers
+    for server in created_servers:
+        try:
+            server.stop()
+        except Exception:
+            pass
 
 
-# ------------------------------
-# RADIUS live test fixture
-# ------------------------------
+@pytest.fixture
+def basic_server(server_factory):
+    """
+    A basic TACACS+ server with no optional features.
+
+    Usage:
+        def test_basic_auth(basic_server):
+            with basic_server:
+                # Server is running
+                assert basic_server.tacacs_port is not None
+                logs = basic_server.get_logs()
+    """
+    return server_factory(
+        enable_tacacs=True,
+        enable_radius=False,
+        enable_admin_api=False,
+        enable_admin_web=False,
+    )
+
+
+@pytest.fixture
+def full_server(server_factory):
+    """
+    A full-featured server with all components enabled.
+
+    Usage:
+        def test_full_stack(full_server):
+            with full_server:
+                # All features available
+                session = full_server.login_admin()
+                logs = full_server.get_logs()
+    """
+    return server_factory(
+        enable_tacacs=True,
+        enable_radius=True,
+        enable_admin_api=True,
+        enable_admin_web=True,
+    )
+
+
+# Backup service initialization is now handled per-test or via server_factory
+# The autouse fixture was causing issues with config isolation between tests
 
 
 @pytest.fixture(scope="session")
-def radius_enabled_server():
-    """Start an in-process RADIUS server (auth + acct) for integration tests.
+def ftp_server(tmp_path_factory):
+    """Fixture that sets up a test FTP server in a separate thread."""
+    import socket
 
-    - Binds to 127.0.0.1 on random free ports
-    - Registers a local test client for 127.0.0.1/32 with secret 'radsecret'
-    - Does not require authentication backends for basic reject/accept flow tests
-    """
-    from tacacs_server.radius.server import RADIUSServer
+    # Create a temporary directory for the FTP server's root
+    ftp_root = tmp_path_factory.mktemp("ftp_root")
 
-    auth_port = _find_free_port()
-    acct_port = _find_free_port()
-    server = RADIUSServer(host="127.0.0.1", port=auth_port, accounting_port=acct_port)
-    # Register local client
-    server.add_client("127.0.0.1/32", secret="radsecret", name="local-test")
-    # Attach a local backend and seed a test user for PASS paths
-    try:
-        from tacacs_server.auth.local import LocalAuthBackend
-        from tacacs_server.auth.local_user_service import LocalUserService
+    # Set up the FTP server
+    authorizer = DummyAuthorizer()
+    authorizer.add_user("testuser", "testpass", str(ftp_root), perm="elradfmw")
 
-        # Use a temporary DB under the test workdir
-        db_path = str(
-            (
-                Path(os.environ.get("TACACS_TEST_WORKDIR", "."))
-                / "radius_local_auth.db"
-            ).resolve()
-        )
-        lus = LocalUserService(db_path)
-        # Create user 'radiususer' with password 'radiuspass'
-        try:
-            lus.create_user("radiususer", password="radiuspass", privilege_level=1)
-        except Exception:
-            pass
-        backend = LocalAuthBackend(db_path, service=lus)
-        server.add_auth_backend(backend)
-    except Exception:
-        # Backend optional; tests can still assert Reject behavior
-        pass
-    # Start threads
-    server.start()
+    handler = FTPHandler
+    handler.authorizer = authorizer
 
-    # Wait briefly for sockets to bind
-    time.sleep(0.2)
+    # Find an available port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        port = s.getsockname()[1]
+        # The socket will be closed when exiting the context
 
+    address = ("127.0.0.1", port)
+    server = FTPServer(address, handler)
+
+    # Start the server in a separate thread
+    server_thread = threading.Thread(target=server.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Yield the server info
     yield {
-        "host": "127.0.0.1",
-        "auth_port": auth_port,
-        "acct_port": acct_port,
-        "secret": "radsecret",
-        "server": server,
+        "host": "localhost",
+        "port": port,
+        "username": "testuser",
+        "password": "testpass",
+        "root": str(ftp_root),
     }
 
-    try:
-        server.stop()
-    except Exception:
-        pass
+    # Cleanup
+    server.close_all()
+    if server_thread.is_alive():
+        server_thread.join(timeout=1.0)
 
 
-# Export RADIUS env for live test to run against in-process server
+# Clean up all temporary files at the end of the session
 @pytest.fixture(scope="session", autouse=True)
-def _export_radius_env_for_live(radius_enabled_server):
-    try:
-        os.environ["TEST_RADIUS_HOST"] = radius_enabled_server["host"]
-        os.environ["TEST_RADIUS_PORT"] = str(radius_enabled_server["auth_port"])
-        os.environ["TEST_RADIUS_SECRET"] = radius_enabled_server["secret"]
-        # Seed default credentials expected by the live test
-        os.environ.setdefault("TEST_RADIUS_USER", "radiususer")
-        os.environ.setdefault("TEST_RADIUS_PASS", "radiuspass")
-        yield
-    finally:
-        pass
+def cleanup_test_artifacts():
+    """Remove any test artifacts left behind"""
+    yield
 
+    import glob
 
-def pytest_sessionfinish(session, exitstatus):
-    """Clean up test databases after all tests complete"""
     patterns = [
         "data/test_*.db*",
         "data/*test*.db*",
-        "data/tmp_*.db*",
-        "data/*_[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9].db*",
-        "data/change_users_*.db*",
-        "data/reload_users_*.db*",
-        "data/seed_users_*.db*",
-        "data/users_*.db*",
-        "data/radius_auth_*.db*",
     ]
 
     for pattern in patterns:
         for file_path in glob.glob(pattern):
             try:
                 Path(file_path).unlink(missing_ok=True)
-            except OSError:
-                pass
-
-
-# ---------------------------------------------------------------------------
-# Global default timeout for all requests calls in tests
-# ---------------------------------------------------------------------------
-_ORIG_REQUEST = requests.Session.request
-_ORIG_SOCKET_CONNECT = socket.socket.connect
-_ORIG_SOCKET_SEND = socket.socket.send
-
-
-@pytest.fixture(autouse=True)
-def _default_requests_timeout(monkeypatch):
-    """Ensure every HTTP request in tests is bounded by a timeout.
-
-    Tests can still override by passing timeout explicitly.
-    """
-
-    # Lightweight request pacing to avoid bursting admin/API endpoints when
-    # suites run together. Targets only localhost admin/API calls.
-    import threading as _th
-
-    _pace_lock = getattr(_default_requests_timeout, "_pace_lock", None) or _th.Lock()
-    _last_ts = getattr(_default_requests_timeout, "_last_ts", 0.0)
-    setattr(_default_requests_timeout, "_pace_lock", _pace_lock)
-
-    def _timed_request(self, method, url, **kwargs):
-        orig_url = url
-        if "timeout" not in kwargs or kwargs["timeout"] is None:
-            kwargs["timeout"] = 5
-        # Optional small pacing for localhost admin/API requests to reduce
-        # burst load during combined suites. Tunable via TEST_HTTP_PACING_MS.
-        try:
-            from urllib.parse import urlparse as _urlparse
-
-            parsed = _urlparse(url)
-            # Conservative default pacing for localhost admin/API requests
-            _http_default = 10
-            if os.environ.get("RUN_PERF_TESTS"):
-                _http_default = 20
-            pacing_ms = int(
-                os.environ.get("TEST_HTTP_PACING_MS", str(_http_default))
-                or _http_default
-            )
-            if (
-                pacing_ms
-                and parsed.hostname in ("127.0.0.1", "localhost")
-                and ("/admin/" in parsed.path or parsed.path.startswith("/api/"))
-            ):
-                import time as _time
-
-                with _pace_lock:
-                    last = getattr(_default_requests_timeout, "_last_ts", 0.0)
-                    now = _time.monotonic()
-                    min_gap = pacing_ms / 1000.0
-                    delta = now - last
-                    if delta < min_gap:
-                        _time.sleep(min_gap - delta)
-                    setattr(_default_requests_timeout, "_last_ts", _time.monotonic())
-        except Exception:
-            pass
-        # Inject API token header for /api/* requests unless explicitly provided
-        try:
-            if "/api/" in url:
-                headers = kwargs.get("headers") or {}
-                if (
-                    "X-API-Token" not in {k.title(): v for k, v in headers.items()}
-                    and "Authorization" not in headers
-                ):
-                    headers["X-API-Token"] = os.environ.get(
-                        "TEST_API_TOKEN", "test-token"
-                    )
-                    kwargs["headers"] = headers
-            # Remap localhost URLs to the active admin web port
-            try:
-                from urllib.parse import urlparse, urlunparse
-
-                parsed = urlparse(url)
-                if parsed.scheme in ("http", "https") and parsed.hostname in (
-                    "localhost",
-                    "127.0.0.1",
-                ):
-                    # Prefer explicit TACACS_WEB_BASE if provided
-                    base = os.environ.get("TACACS_WEB_BASE", "").strip()
-                    new_port = None
-                    if base:
-                        try:
-                            b = urlparse(base)
-                            if b.port:
-                                new_port = str(b.port)
-                        except Exception:
-                            pass
-                    if not new_port:
-                        new_port = os.environ.get("TEST_WEB_PORT")
-                    if new_port:
-                        netloc = f"{parsed.hostname}:{new_port}"
-                        url = urlunparse(parsed._replace(netloc=netloc))
             except Exception:
                 pass
-        except Exception:
-            pass
-        try:
-            return _ORIG_REQUEST(self, method, url, **kwargs)
-        except Exception as _exc:
-            # Emit consolidated diagnostics on request failures
-            try:
-                twp = os.environ.get("TEST_WEB_PORT")
-                twb = os.environ.get("TACACS_WEB_BASE")
-                tsp = os.environ.get("TEST_TACACS_PORT")
-                logp = os.environ.get("TACACS_LOG_PATH")
-                print(
-                    f"[HTTP-ERROR] {method} {orig_url} -> {url} | "
-                    f"TEST_WEB_PORT={twp} TACACS_WEB_BASE={twb} TEST_TACACS_PORT={tsp}"
-                )
-                if logp:
-                    try:
-                        with open(logp) as _lf:
-                            tail = _lf.read()[-1000:]
-                        print(f"[HTTP-ERROR] server log tail:\n{tail}")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            raise
-
-    monkeypatch.setattr(requests.Session, "request", _timed_request, raising=True)
-
-
-@pytest.fixture(autouse=True)
-def _pace_tacacs_connect():
-    """Optionally pace TCP connect() to the TACACS port to avoid bursts.
-
-    Controlled by env var TEST_TACACS_PACING_MS (int milliseconds). If set,
-    applies a minimal inter-connect gap only for connections to
-    (127.0.0.1, TEST_TACACS_PORT). This helps keep concurrent accepts under
-    the server's per-IP cap during combined suites without changing prod code.
-    """
-    try:
-        # Conservative default pacing for TACACS connect bursts
-        _tac_default = 2
-        if os.environ.get("RUN_PERF_TESTS"):
-            _tac_default = 4
-        pacing_ms = int(
-            os.environ.get("TEST_TACACS_PACING_MS", str(_tac_default)) or _tac_default
-        )
-    except Exception:
-        pacing_ms = 0
-    if pacing_ms <= 0:
-        # no pacing requested
-        yield
-        return
-    try:
-        tac_port_env = os.environ.get("TEST_TACACS_PORT")
-        tac_port = int(tac_port_env) if tac_port_env else None
-    except Exception:
-        tac_port = None
-
-    import threading as _th
-    import time as _time
-
-    pace_lock = _th.Lock()
-    last_ts = {"t": 0.0}
-
-    def _paced_connect(self, address):
-        try:
-            if (
-                tac_port
-                and isinstance(address, tuple)
-                and address[0] == "127.0.0.1"
-                and address[1] == tac_port
-            ):
-                min_gap = pacing_ms / 1000.0
-                with pace_lock:
-                    now = _time.monotonic()
-                    delta = now - last_ts["t"]
-                    if delta < min_gap:
-                        _time.sleep(min_gap - delta)
-                    last_ts["t"] = _time.monotonic()
-        except Exception:
-            pass
-        return _ORIG_SOCKET_CONNECT(self, address)
-
-    # Apply monkeypatch
-    socket.socket.connect = _paced_connect
-    try:
-        yield
-    finally:
-        # Restore original connect in _restore_socket_after_test fixture as well
-        pass
-
-
-@pytest.fixture(autouse=True)
-def _restore_socket_after_test():
-    """Ensure socket monkeypatches are restored after each test.
-
-    Guards against cross-test leakage from chaos/security monkeypatches.
-    """
-    try:
-        yield
-    finally:
-        try:
-            socket.socket.connect = _ORIG_SOCKET_CONNECT
-            socket.socket.send = _ORIG_SOCKET_SEND
-        except Exception:
-            pass

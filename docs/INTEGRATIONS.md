@@ -51,34 +51,65 @@ group_attribute = memberOf
 
 ### Okta Integration
 
-#### API Token Setup
+The server integrates with Okta using the Authentication API (AuthN) for user authentication. Group membership can be fetched from the Management API to enforce device-scoped policies.
 
-1. Log into Okta Admin Console
-2. Navigate to Security > API > Tokens
-3. Create new token with appropriate permissions
-4. Configure in TACACS+ server
+For a complete guide on Okta integration, including MFA setup, the device-scoped authorization flow, and troubleshooting, please see the detailed [Okta Integration Guide](OKTA.md).
+
+#### Basic Configuration
+
+1.  Log into the Okta Admin Console, navigate to **Security > API > Tokens**, and create a token. This is required for the server to look up a user's group memberships.
+2.  Add `okta` to the `backends` list in the `[auth]` section of your configuration.
+3.  Configure the `[okta]` section with your organization's details.
 
 ```ini
 [okta]
+# Your Okta organization URL
 org_url = https://company.okta.com
-token = ${OKTA_API_TOKEN}
-timeout = 10
-group_filter = tacacs_
-default_privilege = 1
+
+# Okta Management API token (required for group lookups)
+api_token = ${OKTA_API_TOKEN}
+
+# Optional: Require membership in an allowed Okta group for authentication to succeed.
+# See OKTA.md for details on the device-scoped enforcement.
+require_group_for_auth = false
 ```
 
-#### Group Mapping
-
-```python
-# Example group mapping configuration
-OKTA_GROUP_MAPPINGS = {
-    "tacacs_admin": 15,      # Full administrative access
-    "tacacs_operator": 7,    # Operator level access
-    "tacacs_readonly": 1,    # Read-only access
-}
-```
+**Note:** Unlike other backends, privilege levels are not directly mapped from Okta groups. Instead, privilege is determined by the server's policy engine based on the user's membership in local user groups, which can be linked to Okta groups. See `OKTA.md` for a detailed explanation.
 
 ## Network Device Integration
+
+## Load Balancers & Proxy Protocol
+
+This server supports HAProxy PROXY protocol v2 (TCP) for extracting the original client IP when connections are forwarded by a proxy/load balancer.
+
+### Behavior
+
+- On connection accept, the server detects and consumes a PROXY v2 header if present.
+- If the header is present and valid, the server sets:
+  - `client_ip` to the original source (from the header)
+  - `proxy_ip` to the immediate peer (the load balancer IP)
+- If no header is present, `client_ip` is the TCP peer address and `proxy_ip` is `None`.
+
+### Proxy-aware device selection
+
+Device matching uses a two-stage policy:
+
+1. Exact: `client_ip ∈ device.network` AND `proxy_ip ∈ group.proxy_network` (longest prefix wins)
+2. Fallback: `client_ip ∈ device.network` AND `group.proxy_network` is NULL (longest prefix wins)
+
+This allows tenant isolation (devices match only through their proxy) while preserving backward compatibility for direct connections.
+
+### Configuration
+
+- Configure device groups with a `proxy_network` (CIDR) to require a specific proxy path.
+- Direct-only groups omit `proxy_network`.
+
+### Notes
+
+- PROXY v2 is a TCP feature; RADIUS (UDP) is not affected.
+- Metrics:
+  - JSON `/api/stats` includes `connections.proxied` and `connections.direct`.
+  - Prometheus exports `tacacs_connections_proxied_total` and `tacacs_connections_direct_total`.
 
 ### Cisco IOS/IOS-XE
 

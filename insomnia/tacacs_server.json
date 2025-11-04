@@ -1,0 +1,255 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2025-11-01T13:20:00.000Z",
+  "__export_source": "tacacs_server:insomnia",
+  "resources": [
+    {
+      "_id": "wrk_tacacs",
+      "_type": "workspace",
+      "parentId": null,
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "TACACS+ Server",
+      "description": "TACACS+ Server API Workspace"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "parentId": "wrk_tacacs",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Base Environment",
+      "data": {
+        "base_url": "http://localhost:8080",
+        "api_token": "",
+        "admin_username": "admin",
+        "admin_password": "admin",
+        "last_execution_id": ""
+      },
+      "dataPropertyOrder": {
+        "&": ["base_url", "api_token", "admin_username", "admin_password", "last_execution_id"]
+      }
+    },
+    {
+      "_id": "fld_public",
+      "_type": "request_group",
+      "parentId": "wrk_tacacs",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Public",
+      "description": "Public endpoints"
+    },
+    {
+      "_id": "req_health",
+      "_type": "request",
+      "parentId": "fld_public",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Health",
+      "method": "GET",
+      "url": "{{ _.base_url }}/health",
+      "parameters": [],
+      "headers": []
+    },
+    {
+      "_id": "req_tacacs_health",
+      "_type": "request",
+      "parentId": "fld_public",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "TACACS Health",
+      "method": "GET",
+      "url": "{{ _.base_url }}/tacacs-health",
+      "parameters": [],
+      "headers": []
+    },
+    {
+      "_id": "req_metrics",
+      "_type": "request",
+      "parentId": "fld_public",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Metrics",
+      "method": "GET",
+      "url": "{{ _.base_url }}/metrics",
+      "parameters": [],
+      "headers": []
+    },
+    {
+      "_id": "fld_admin",
+      "_type": "request_group",
+      "parentId": "wrk_tacacs",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Admin",
+      "description": "Admin session (cookie) flows"
+    },
+    {
+      "_id": "req_admin_login",
+      "_type": "request",
+      "parentId": "fld_admin",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Admin Login (Form)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/admin/login",
+      "body": {
+        "mimeType": "application/x-www-form-urlencoded",
+        "params": [
+          {"name": "username", "value": "{{ _.admin_username }}"},
+          {"name": "password", "value": "{{ _.admin_password }}"}
+        ]
+      },
+      "headers": [
+        {"name": "Content-Type", "value": "application/x-www-form-urlencoded"}
+      ]
+    },
+    {
+      "_id": "req_config_status",
+      "_type": "request",
+      "parentId": "fld_admin",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Config Status (cookie)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/admin/config/status",
+      "parameters": [],
+      "headers": []
+    },
+    {
+      "_id": "fld_api",
+      "_type": "request_group",
+      "parentId": "wrk_tacacs",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "API Token",
+      "description": "Token-based access (X-API-Token or Bearer)"
+    },
+    {
+      "_id": "req_backup_destinations",
+      "_type": "request",
+      "parentId": "fld_api",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "List Backup Destinations (token)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/admin/backup/destinations",
+      "parameters": [],
+      "headers": [
+        {"name": "X-API-Token", "value": "{{ _.api_token }}"}
+      ]
+    },
+    {
+      "_id": "req_status",
+      "_type": "request",
+      "parentId": "fld_api",
+      "modified": 1698834000000,
+      "created": 1698834000000,
+      "name": "Server Status (token)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/api/status",
+      "parameters": [],
+      "headers": [
+        {"name": "X-API-Token", "value": "{{ _.api_token }}"}
+      ]
+    }
+    ,
+    {"_id":"fld_devices","_type":"request_group","parentId":"wrk_tacacs","modified":1698834000001,"created":1698834000001,"name":"Devices","description":"Device CRUD (token)"},
+    {"_id":"req_devices_list","_type":"request","parentId":"fld_devices","modified":1698834000001,"created":1698834000001,"name":"List Devices","method":"GET","url":"{{ _.base_url }}/api/devices","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_devices_create","_type":"request","parentId":"fld_devices","modified":1698834000001,"created":1698834000001,"name":"Create Device","method":"POST","url":"{{ _.base_url }}/api/devices","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"router1\",\n  \"ip\": \"192.0.2.10\",\n  \"group_id\": 1\n}"}},
+    {"_id":"req_devices_get","_type":"request","parentId":"fld_devices","modified":1698834000001,"created":1698834000001,"name":"Get Device","method":"GET","url":"{{ _.base_url }}/api/devices/1","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_devices_update","_type":"request","parentId":"fld_devices","modified":1698834000001,"created":1698834000001,"name":"Update Device","method":"PUT","url":"{{ _.base_url }}/api/devices/1","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"router1-upd\"\n}"}},
+    {"_id":"req_devices_delete","_type":"request","parentId":"fld_devices","modified":1698834000001,"created":1698834000001,"name":"Delete Device","method":"DELETE","url":"{{ _.base_url }}/api/devices/1","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+
+    {"_id":"fld_device_groups","_type":"request_group","parentId":"wrk_tacacs","modified":1698834000002,"created":1698834000002,"name":"Device Groups","description":"Device Group CRUD (token)"},
+    {"_id":"req_dgroups_list","_type":"request","parentId":"fld_device_groups","name":"List Groups","method":"GET","url":"{{ _.base_url }}/api/device-groups","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_dgroups_create","_type":"request","parentId":"fld_device_groups","name":"Create Group","method":"POST","url":"{{ _.base_url }}/api/device-groups","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"default\"\n}"}},
+    {"_id":"req_dgroups_get","_type":"request","parentId":"fld_device_groups","name":"Get Group","method":"GET","url":"{{ _.base_url }}/api/device-groups/1","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_dgroups_update","_type":"request","parentId":"fld_device_groups","name":"Update Group","method":"PUT","url":"{{ _.base_url }}/api/device-groups/1","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"description\": \"Core devices\"\n}"}},
+    {"_id":"req_dgroups_delete","_type":"request","parentId":"fld_device_groups","name":"Delete Group","method":"DELETE","url":"{{ _.base_url }}/api/device-groups/1","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+
+    {"_id":"fld_users","_type":"request_group","parentId":"wrk_tacacs","name":"Users","description":"Local Users (token)"},
+    {"_id":"req_users_list","_type":"request","parentId":"fld_users","name":"List Users","method":"GET","url":"{{ _.base_url }}/api/users","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_users_create","_type":"request","parentId":"fld_users","name":"Create User","method":"POST","url":"{{ _.base_url }}/api/users","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"username\": \"alice\",\n  \"password\": \"secret\",\n  \"privilege_level\": 15\n}"}},
+    {"_id":"req_users_get","_type":"request","parentId":"fld_users","name":"Get User","method":"GET","url":"{{ _.base_url }}/api/users/alice","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_users_update","_type":"request","parentId":"fld_users","name":"Update User","method":"PUT","url":"{{ _.base_url }}/api/users/alice","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"privilege_level\": 1\n}"}},
+    {"_id":"req_users_delete","_type":"request","parentId":"fld_users","name":"Delete User","method":"DELETE","url":"{{ _.base_url }}/api/users/alice","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+
+    {"_id":"fld_user_groups","_type":"request_group","parentId":"wrk_tacacs","name":"User Groups","description":"User Groups (token)"},
+    {"_id":"req_ugroups_list","_type":"request","parentId":"fld_user_groups","name":"List User Groups","method":"GET","url":"{{ _.base_url }}/api/user-groups","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_ugroups_create","_type":"request","parentId":"fld_user_groups","name":"Create User Group","method":"POST","url":"{{ _.base_url }}/api/user-groups","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"netops\"\n}"}},
+    {"_id":"req_ugroups_get","_type":"request","parentId":"fld_user_groups","name":"Get User Group","method":"GET","url":"{{ _.base_url }}/api/user-groups/netops","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_ugroups_update","_type":"request","parentId":"fld_user_groups","name":"Update User Group","method":"PUT","url":"{{ _.base_url }}/api/user-groups/netops","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"description\": \"Network operators\"\n}"}},
+    {"_id":"req_ugroups_delete","_type":"request","parentId":"fld_user_groups","name":"Delete User Group","method":"DELETE","url":"{{ _.base_url }}/api/user-groups/netops","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+
+    {"_id":"fld_proxies","_type":"request_group","parentId":"wrk_tacacs","name":"Proxies","description":"RADIUS/TCP proxies (token)"},
+    {"_id":"req_proxies_list","_type":"request","parentId":"fld_proxies","name":"List Proxies","method":"GET","url":"{{ _.base_url }}/api/proxies","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_proxies_create","_type":"request","parentId":"fld_proxies","name":"Create Proxy","method":"POST","url":"{{ _.base_url }}/api/proxies","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"east\",\n  \"network\": \"10.0.0.0/24\"\n}"}},
+    {"_id":"req_proxies_get","_type":"request","parentId":"fld_proxies","name":"Get Proxy","method":"GET","url":"{{ _.base_url }}/api/proxies/1","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_proxies_update","_type":"request","parentId":"fld_proxies","name":"Update Proxy","method":"PUT","url":"{{ _.base_url }}/api/proxies/1","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"east-1\",\n  \"network\": \"10.0.1.0/24\"\n}"}},
+    {"_id":"req_proxies_delete","_type":"request","parentId":"fld_proxies","name":"Delete Proxy","method":"DELETE","url":"{{ _.base_url }}/api/proxies/1","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+
+    {"_id":"fld_admin_config","_type":"request_group","parentId":"wrk_tacacs","name":"Admin Config","description":"Admin cookie protected"},
+    {"_id":"req_cfg_status_cookie","_type":"request","parentId":"fld_admin_config","name":"Status","method":"GET","url":"{{ _.base_url }}/api/admin/config/status"},
+    {"_id":"req_cfg_sections","_type":"request","parentId":"fld_admin_config","name":"Sections","method":"GET","url":"{{ _.base_url }}/api/admin/config/sections"},
+    {"_id":"req_cfg_history","_type":"request","parentId":"fld_admin_config","name":"History","method":"GET","url":"{{ _.base_url }}/api/admin/config/history?limit=50"},
+    {"_id":"req_cfg_versions","_type":"request","parentId":"fld_admin_config","name":"Versions","method":"GET","url":"{{ _.base_url }}/api/admin/config/versions"},
+    {"_id":"req_cfg_restore","_type":"request","parentId":"fld_admin_config","name":"Restore Version","method":"POST","url":"{{ _.base_url }}/api/admin/config/versions/1/restore"},
+    {"_id":"req_cfg_export","_type":"request","parentId":"fld_admin_config","name":"Export","method":"GET","url":"{{ _.base_url }}/api/admin/config/export"},
+    {"_id":"req_cfg_import","_type":"request","parentId":"fld_admin_config","name":"Import","method":"POST","url":"{{ _.base_url }}/api/admin/config/import","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"config\": {}\n}"}},
+    {"_id":"req_cfg_clear_overrides","_type":"request","parentId":"fld_admin_config","name":"Clear Overrides","method":"DELETE","url":"{{ _.base_url }}/api/admin/config/overrides"},
+
+    {"_id":"fld_admin_backup","_type":"request_group","parentId":"wrk_tacacs","name":"Admin Backup","description":"Backup endpoints (cookie)"},
+    {"_id":"req_bkp_destinations","_type":"request","parentId":"fld_admin_backup","name":"List Destinations","method":"GET","url":"{{ _.base_url }}/api/admin/backup/destinations"},
+    {"_id":"req_bkp_create_dest","_type":"request","parentId":"fld_admin_backup","name":"Create Destination","method":"POST","url":"{{ _.base_url }}/api/admin/backup/destinations","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"local\",\n  \"type\": \"local\",\n  \"config\": {\n    \"base_dir\": \"data/backups\"\n  }\n}"}},
+    {"_id":"req_bkp_create_dest_sftp","_type":"request","parentId":"fld_admin_backup","name":"Create Destination (SFTP)","method":"POST","url":"{{ _.base_url }}/api/admin/backup/destinations","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"sftp-remote\",\n  \"type\": \"sftp\",\n  \"config\": {\n    \"host\": \"sftp.example.com\",\n    \"port\": 22,\n    \"username\": \"backup\",\n    \"password\": \"change-me\",\n    \"base_path\": \"/backups/tacacs\",\n    \"passive\": true,\n    \"timeout\": 30\n  },\n  \"retention_days\": 30\n}"}},
+    {"_id":"req_bkp_create_dest_ftp","_type":"request","parentId":"fld_admin_backup","name":"Create Destination (FTP/FTPS)","method":"POST","url":"{{ _.base_url }}/api/admin/backup/destinations","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"ftp-remote\",\n  \"type\": \"ftp\",\n  \"config\": {\n    \"host\": \"ftp.example.com\",\n    \"port\": 21,\n    \"username\": \"backup\",\n    \"password\": \"change-me\",\n    \"base_path\": \"/backups/tacacs\",\n    \"use_tls\": false,\n    \"verify_ssl\": true,\n    \"passive\": true,\n    \"timeout\": 30\n  }\n}"}},
+    {"_id":"req_bkp_create_dest_azure","_type":"request","parentId":"fld_admin_backup","name":"Create Destination (Azure Blob)","method":"POST","url":"{{ _.base_url }}/api/admin/backup/destinations","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"name\": \"azure-backups\",\n  \"type\": \"azure\",\n  \"config\": {\n    \"account_name\": \"myaccount\",\n    \"account_key\": \"<KEY>\",\n    \"container_name\": \"backups\",\n    \"base_path\": \"tacacs\",\n    \"endpoint_suffix\": \"core.windows.net\"\n  },\n  \"retention_days\": 30\n}"}},
+    {"_id":"req_bkp_get_dest","_type":"request","parentId":"fld_admin_backup","name":"Get Destination","method":"GET","url":"{{ _.base_url }}/api/admin/backup/destinations/1"},
+    {"_id":"req_bkp_update_ret","_type":"request","parentId":"fld_admin_backup","name":"Update Retention","method":"PUT","url":"{{ _.base_url }}/api/admin/backup/destinations/1/retention","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"strategy\": \"simple\",\n  \"keep_days\": 30\n}"}},
+    {"_id":"req_bkp_apply_ret","_type":"request","parentId":"fld_admin_backup","name":"Apply Retention Now","method":"POST","url":"{{ _.base_url }}/api/admin/backup/destinations/1/apply-retention"},
+    {"_id":"req_bkp_update_dest","_type":"request","parentId":"fld_admin_backup","name":"Update Destination","method":"PUT","url":"{{ _.base_url }}/api/admin/backup/destinations/1","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"enabled\": true\n}"}},
+    {"_id":"req_bkp_delete_dest","_type":"request","parentId":"fld_admin_backup","name":"Delete Destination","method":"DELETE","url":"{{ _.base_url }}/api/admin/backup/destinations/1"},
+    {"_id":"req_bkp_test_dest","_type":"request","parentId":"fld_admin_backup","name":"Test Destination","method":"POST","url":"{{ _.base_url }}/api/admin/backup/destinations/1/test"},
+    {"_id":"req_bkp_trigger","_type":"request","parentId":"fld_admin_backup","name":"Trigger Backup","method":"POST","url":"{{ _.base_url }}/api/admin/backup/trigger","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"destination_id\": \"1\",\n  \"comment\": \"manual test\"\n}"}},
+    {"_id":"req_bkp_executions","_type":"request","parentId":"fld_admin_backup","name":"List Executions","method":"GET","url":"{{ _.base_url }}/api/admin/backup/executions"},
+    {"_id":"req_bkp_stats","_type":"request","parentId":"fld_admin_backup","name":"Backup Stats","method":"GET","url":"{{ _.base_url }}/api/admin/backup/stats"}
+    ,
+    {"_id":"req_bkp_get_schedule","_type":"request","parentId":"fld_admin_backup","name":"Get Schedule","method":"GET","url":"{{ _.base_url }}/api/admin/backup/schedule"},
+    {"_id":"req_bkp_create_schedule","_type":"request","parentId":"fld_admin_backup","name":"Create Schedule","method":"POST","url":"{{ _.base_url }}/api/admin/backup/schedule","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"destination_id\": \"1\",\n  \"schedule_type\": \"cron\",\n  \"schedule_value\": \"0 4 * * *\",\n  \"job_name\": \"daily_backup\"\n}"}},
+    {"_id":"req_bkp_delete_schedule","_type":"request","parentId":"fld_admin_backup","name":"Delete Schedule","method":"DELETE","url":"{{ _.base_url }}/api/admin/backup/schedule/daily_backup"},
+    {"_id":"req_bkp_pause_schedule","_type":"request","parentId":"fld_admin_backup","name":"Pause Schedule","method":"POST","url":"{{ _.base_url }}/api/admin/backup/schedule/daily_backup/pause"},
+    {"_id":"req_bkp_resume_schedule","_type":"request","parentId":"fld_admin_backup","name":"Resume Schedule","method":"POST","url":"{{ _.base_url }}/api/admin/backup/schedule/daily_backup/resume"},
+    {"_id":"req_bkp_trigger_schedule","_type":"request","parentId":"fld_admin_backup","name":"Trigger Schedule Now","method":"POST","url":"{{ _.base_url }}/api/admin/backup/schedule/daily_backup/trigger"},
+    {"_id":"req_bkp_delete_backup","_type":"request","parentId":"fld_admin_backup","name":"Delete Backup","method":"DELETE","url":"{{ _.base_url }}/api/admin/backup/backups","parameters":[{"name":"backup_path","value":"instance/dir/file.tar.gz"},{"name":"destination_id","value":"1"}]}
+    ,
+    {"_id":"req_bkp_list_backups","_type":"request","parentId":"fld_admin_backup","name":"List Backups","method":"GET","url":"{{ _.base_url }}/api/admin/backup/list","parameters":[{"name":"destination_id","value":"1"}]},
+    {"_id":"req_bkp_exec_detail","_type":"request","parentId":"fld_admin_backup","name":"Execution Detail","method":"GET","url":"{{ _.base_url }}/api/admin/backup/executions/{{ _.last_execution_id }}"},
+    {"_id":"req_bkp_restore","_type":"request","parentId":"fld_admin_backup","name":"Restore Backup","method":"POST","url":"{{ _.base_url }}/api/admin/backup/restore","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"backup_path\": \"instance/dir/file.tar.gz\",\n  \"destination_id\": \"1\",\n  \"components\": [\"config\", \"devices\", \"users\"],\n  \"confirm\": true\n}"}},
+    {"_id":"req_bkp_create_schedule_interval","_type":"request","parentId":"fld_admin_backup","name":"Create Schedule (Interval)","method":"POST","url":"{{ _.base_url }}/api/admin/backup/schedule","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"destination_id\": \"1\",\n  \"schedule_type\": \"interval\",\n  \"schedule_value\": \"hours:24\",\n  \"job_name\": \"hourly_backup\"\n}"}}
+    ,
+    {"_id":"req_cfg_validate","_type":"request","parentId":"fld_admin_config","name":"Validate Change","method":"POST","url":"{{ _.base_url }}/api/admin/config/validate","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"section\": \"server\",\n  \"key\": \"port\",\n  \"value\": \"49\"\n}"}},
+    {"_id":"req_cfg_reload","_type":"request","parentId":"fld_admin_config","name":"Reload Config","method":"POST","url":"{{ _.base_url }}/api/admin/config/reload"},
+    {"_id":"req_cfg_section_get","_type":"request","parentId":"fld_admin_config","name":"Get Section","method":"GET","url":"{{ _.base_url }}/api/admin/config/server"},
+    {"_id":"req_cfg_section_put","_type":"request","parentId":"fld_admin_config","name":"Update Section","method":"PUT","url":"{{ _.base_url }}/api/admin/config/server","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"updates\": {\n    \"port\": 49\n  }\n}"}},
+    {"_id":"req_cfg_put_multi","_type":"request","parentId":"fld_admin_config","name":"Update Multiple Sections","method":"PUT","url":"{{ _.base_url }}/api/admin/config","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"server\": {\n    \"host\": \"0.0.0.0\"\n  }\n}"}},
+    {"_id":"req_cfg_drift","_type":"request","parentId":"fld_admin_config","name":"Detect Drift","method":"GET","url":"{{ _.base_url }}/api/admin/config/drift"},
+    {"_id":"req_cfg_clear_section_overrides","_type":"request","parentId":"fld_admin_config","name":"Clear Section Overrides","method":"DELETE","url":"{{ _.base_url }}/api/admin/config/server/overrides"},
+    {"_id":"req_cfg_clear_key_override","_type":"request","parentId":"fld_admin_config","name":"Clear Key Override","method":"DELETE","url":"{{ _.base_url }}/api/admin/config/server/host/override"}
+    ,
+    {"_id":"fld_misc","_type":"request_group","parentId":"wrk_tacacs","name":"Misc","description":"Misc API"},
+    {"_id":"req_accounting","_type":"request","parentId":"fld_misc","name":"Accounting Records","method":"GET","url":"{{ _.base_url }}/api/accounting?hours=24&limit=100"},
+
+    {"_id":"fld_webhooks","_type":"request_group","parentId":"wrk_tacacs","name":"Webhooks (Admin)","description":"Admin cookie protected"},
+    {"_id":"req_wh_get","_type":"request","parentId":"fld_webhooks","name":"Get Webhooks Config","method":"GET","url":"{{ _.base_url }}/admin/webhooks-config"},
+    {"_id":"req_wh_put","_type":"request","parentId":"fld_webhooks","name":"Update Webhooks Config","method":"PUT","url":"{{ _.base_url }}/admin/webhooks-config","headers":[{"name":"Content-Type","value":"application/json"}],"body":{"mimeType":"application/json","text":"{\n  \"urls\": [\"http://example.com/hook\"],\n  \"headers\": {\n    \"X-Test\": \"1\"\n  },\n  \"template\": {\n    \"event\": \"test\"\n  },\n  \"timeout\": 5,\n  \"threshold_count\": 3,\n  \"threshold_window\": 60\n}"}},
+
+    {"_id":"fld_cmd_auth","_type":"request_group","parentId":"wrk_tacacs","name":"Command Authorization","description":"Token protected"},
+    {"_id":"req_cmd_rules","_type":"request","parentId":"fld_cmd_auth","name":"List Rules","method":"GET","url":"{{ _.base_url }}/api/command-authorization","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_cmd_create","_type":"request","parentId":"fld_cmd_auth","name":"Create Rule","method":"POST","url":"{{ _.base_url }}/api/command-authorization/rules","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"action\": \"permit\",\n  \"match_type\": \"prefix\",\n  \"pattern\": \"show\",\n  \"min_privilege\": 0,\n  \"max_privilege\": 15\n}"}},
+    {"_id":"req_cmd_delete","_type":"request","parentId":"fld_cmd_auth","name":"Delete Rule","method":"DELETE","url":"{{ _.base_url }}/api/command-authorization/rules/1","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_cmd_settings","_type":"request","parentId":"fld_cmd_auth","name":"Get Settings","method":"GET","url":"{{ _.base_url }}/api/command-authorization/settings","headers":[{"name":"X-API-Token","value":"{{ _.api_token }}"}]},
+    {"_id":"req_cmd_check","_type":"request","parentId":"fld_cmd_auth","name":"Check Command","method":"POST","url":"{{ _.base_url }}/api/command-authorization/check","headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-API-Token","value":"{{ _.api_token }}"}],"body":{"mimeType":"application/json","text":"{\n  \"command\": \"show version\",\n  \"privilege_level\": 15\n}"}}
+  ]
+}

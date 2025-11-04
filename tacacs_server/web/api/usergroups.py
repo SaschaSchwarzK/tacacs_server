@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/user-groups", tags=["User Groups"])
 
 
 def get_group_service() -> LocalUserGroupService:
-    from tacacs_server.web.monitoring import get_local_user_group_service
+    from tacacs_server.web.web import get_local_user_group_service
 
     service = get_local_user_group_service()
     if not service:
@@ -34,7 +34,7 @@ def get_group_service() -> LocalUserGroupService:
 
 
 def _get_user_service() -> LocalUserService | None:
-    from tacacs_server.web.monitoring import get_local_user_service
+    from tacacs_server.web.web import get_local_user_service
 
     return get_local_user_service()
 

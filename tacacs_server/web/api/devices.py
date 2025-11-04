@@ -2,8 +2,15 @@
 
 """Device API endpoints."""
 
-from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi import APIRouter, Body, Query, status
 from fastapi import Path as PathParam
+
+from tacacs_server.exceptions import (
+    ConfigValidationError,
+    ResourceNotFoundError,
+    ServiceUnavailableError,
+    TacacsServerError,
+)
 
 from ...devices.service import (
     DeviceNotFound,
@@ -22,16 +29,11 @@ router = APIRouter(prefix="/api/devices", tags=["Devices"])
 
 def get_device_service() -> DeviceService:
     """Get device service instance (validated non-None)."""
-    from tacacs_server.web.monitoring import get_device_service as _get
+    from tacacs_server.web.web import get_device_service as _get
 
     service = _get()
     if service is None:
-        from fastapi import HTTPException, status
-
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Device service unavailable",
-        )
+        raise ServiceUnavailableError("Device service unavailable")
     return service
 
 
@@ -64,8 +66,10 @@ async def list_devices(
             enabled=enabled,
         )
         return devices
+    except TacacsServerError:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list devices: {str(e)}")
+        raise TacacsServerError("Failed to list devices", {"error": str(e)})
 
 
 @router.get(
@@ -82,14 +86,12 @@ async def get_device(
         service = get_device_service()
         device = service.get_device_by_id(device_id)
         if not device:
-            raise HTTPException(
-                status_code=404, detail=f"Device with ID {device_id} not found"
-            )
+            raise ResourceNotFoundError(f"Device with ID {device_id} not found")
         return device
-    except HTTPException:
+    except TacacsServerError:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get device: {str(e)}")
+        raise TacacsServerError("Failed to get device", {"error": str(e)})
 
 
 @router.post(
@@ -100,23 +102,33 @@ async def get_device(
     description="Register a new network device",
 )
 async def create_device(device: DeviceCreate):
-    """Create a new network device."""
+    """Create a new network device (strict schema)."""
     try:
         service = get_device_service()
+        # Resolve group id: accept int id or string name
+        group_id: int
+        if isinstance(device.device_group_id, str):
+            group = service.store.get_group_by_name(device.device_group_id)
+            if not group:
+                raise ResourceNotFoundError("Device group not found")
+            group_id = group.id
+        else:
+            group_id = int(device.device_group_id)
+
         new_device = service.create_device_from_dict(
             name=device.name,
             ip_address=device.ip_address,
-            device_group_id=device.device_group_id,
+            device_group_id=group_id,
             enabled=device.enabled,
             metadata=device.metadata,
         )
         return new_device
     except (GroupNotFound, DeviceValidationError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ConfigValidationError(str(e))
+    except TacacsServerError:
+        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create device: {str(e)}"
-        )
+        raise TacacsServerError("Failed to create device", {"error": str(e)})
 
 
 @router.put(
@@ -142,15 +154,13 @@ async def update_device(
         )
         return updated_device
     except DeviceNotFound:
-        raise HTTPException(
-            status_code=404, detail=f"Device with ID {device_id} not found"
-        )
+        raise ResourceNotFoundError(f"Device with ID {device_id} not found")
     except (GroupNotFound, DeviceValidationError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ConfigValidationError(str(e))
+    except TacacsServerError:
+        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to update device: {str(e)}"
-        )
+        raise TacacsServerError("Failed to update device", {"error": str(e)})
 
 
 @router.delete(
@@ -166,10 +176,8 @@ async def delete_device(device_id: int = PathParam(..., ge=1, description="Devic
         service.delete_device(device_id)
         return None
     except DeviceNotFound:
-        raise HTTPException(
-            status_code=404, detail=f"Device with ID {device_id} not found"
-        )
+        raise ResourceNotFoundError(f"Device with ID {device_id} not found")
+    except TacacsServerError:
+        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to delete device: {str(e)}"
-        )
+        raise TacacsServerError("Failed to delete device", {"error": str(e)})

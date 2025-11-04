@@ -76,7 +76,8 @@ jobs:
 
       - name: Bandit (security lint)
         run: |
-          poetry run bandit -r . -x ./tests,./.venv
+          # Use project .bandit config to exclude tests and venv/site-packages
+          poetry run bandit -r . --configfile bandit.yml
 
       - name: pip-audit (vuln scan)
         run: |
@@ -163,7 +164,7 @@ jobs:
           docker run -d --rm --name tacacs-ci -p 8080:8080 tacacs:ci
           # Wait for readiness
           for i in {1..30}; do
-            curl -fsS http://127.0.0.1:8080/health && break || sleep 1;
+            curl -fsS http://127.0.0.1:8080/api/health && break || sleep 1;
           done
           curl -fsS http://127.0.0.1:8080/ready
       - name: Logs on failure
