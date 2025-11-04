@@ -1,4 +1,27 @@
-"""Fixed encryption tests - adapts to new log format"""
+"""
+TACACS+ Encryption Test Suite
+
+This module contains comprehensive tests for TACACS+ encryption functionality,
+verifying the server's handling of various encryption scenarios and edge cases.
+
+Test Organization:
+- Special character handling in shared secrets
+- Boundary testing with long secrets
+- Unicode and non-ASCII character support
+- Mixed encryption mode operation
+- Key rotation during active sessions
+
+Security Focus:
+- Verifies proper encryption/decryption of authentication data
+- Ensures secure handling of shared secrets
+- Validates protocol compliance for encrypted sessions
+
+Dependencies:
+- pytest for test framework
+- hashlib for MD5 operations
+- socket for network communication
+- struct for binary data handling
+"""
 
 import hashlib
 import socket
@@ -17,6 +40,25 @@ from tacacs_server.tacacs.constants import (
 def _md5_pad(
     session_id: int, key: str, version: int, seq_no: int, length: int
 ) -> bytes:
+    """
+    Generate MD5 padding for TACACS+ packet encryption.
+
+    This function implements the MD5-based key derivation function used in TACACS+
+    to generate a deterministic padding sequence for XOR encryption.
+
+    Args:
+        session_id: The 32-bit session ID for the TACACS+ connection
+        key: The shared secret key for encryption (UTF-8 encoded)
+        version: TACACS+ protocol version (typically 0xC for current versions)
+        seq_no: Sequence number for the packet (1-255)
+        length: Desired length of the padding in bytes
+
+    Returns:
+        bytes: Pseudo-random bytes for XOR encryption
+
+    Raises:
+        ValueError: If input parameters are invalid
+    """
     pad = bytearray()
     sid = struct.pack("!L", session_id)
     key_b = key.encode("utf-8")
@@ -32,6 +74,19 @@ def _md5_pad(
 
 
 def _xor_body(body: bytes, session_id: int, key: str, version: int, seq: int) -> bytes:
+    """
+    Apply XOR encryption to packet body using MD5 padding.
+
+    Args:
+        body: The packet body to encrypt
+        session_id: The session ID for the TACACS+ connection
+        key: The shared secret key for encryption
+        version: TACACS+ protocol version
+        seq: Sequence number for the packet
+
+    Returns:
+        bytes: Encrypted packet body, or original body if no key provided
+    """
     if not key:
         return body
     pad = _md5_pad(session_id, key, version, seq, len(body))
@@ -41,11 +96,35 @@ def _xor_body(body: bytes, session_id: int, key: str, version: int, seq: int) ->
 def _mk_header(
     version_major: int, ptype: int, seq: int, flags: int, session: int, length: int
 ) -> bytes:
+    """
+    Create a TACACS+ packet header.
+
+    Args:
+        version_major: Major version number (lower nibble of version byte)
+        ptype: Packet type (1=AUTHEN, 2=AUTHOR, 3=ACCT)
+        seq: Sequence number
+        flags: Packet flags
+        session: Session ID
+        length: Length of the packet body
+
+    Returns:
+        bytes: Packed TACACS+ header
+    """
     version = ((version_major & 0x0F) << 4) | 0
     return struct.pack("!BBBBLL", version, ptype, seq, flags, session, length)
 
 
 def _mk_auth_body(username: str, password: str) -> bytes:
+    """
+    Create a TACACS+ authentication packet body.
+
+    Args:
+        username: Username for authentication
+        password: Password for authentication
+
+    Returns:
+        bytes: Packed authentication packet body
+    """
     user_b = username.encode("utf-8")
     port_b = b"console"
     rem_b = b"127.0.0.1"
@@ -62,6 +141,15 @@ def _mk_auth_body(username: str, password: str) -> bytes:
 
 
 def _setup_device_and_user(server, username: str, password: str, secret: str) -> None:
+    """
+    Set up a test device and user with the specified credentials.
+
+    Args:
+        server: Test server instance
+        username: Username for the test user
+        password: Password for the test user
+        secret: Shared secret for the device
+    """
     from tacacs_server.auth.local_user_service import LocalUserService
     from tacacs_server.devices.store import DeviceStore
 
@@ -85,6 +173,22 @@ def _auth_once(
     seq: int,
     flags: int = 0,
 ) -> tuple[bool, str]:
+    """
+    Perform a single TACACS+ authentication attempt.
+
+    Args:
+        host: Server hostname or IP address
+        port: Server port
+        secret: Shared secret for encryption
+        username: Username for authentication
+        password: Password for authentication
+        session_id: Session ID for the connection
+        seq: Sequence number for the packet
+        flags: Packet flags (default: 0)
+
+    Returns:
+        tuple: (success, message) where success is a boolean
+    """
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(2)
     version = ((TAC_PLUS_MAJOR_VER & 0x0F) << 4) | 0
@@ -139,6 +243,21 @@ def _auth_on_socket(
     seq: int,
     flags: int = 0,
 ) -> tuple[bool, int]:
+    """
+    Perform authentication on an existing socket connection.
+
+    Args:
+        sock: Connected socket to use for communication
+        secret: Shared secret for encryption
+        username: Username for authentication
+        password: Password for authentication
+        session_id: Session ID for the connection
+        seq: Sequence number for the packet
+        flags: Packet flags (default: 0)
+
+    Returns:
+        tuple: (success, message) where success is a boolean
+    """
     version = ((TAC_PLUS_MAJOR_VER & 0x0F) << 4) | 0
     body = _mk_auth_body(username, password)
     enc = (
@@ -175,6 +294,21 @@ def _auth_on_socket(
 
 @pytest.mark.integration
 def test_encryption_with_special_characters_secret(server_factory):
+    """
+    Test TACACS+ authentication with a shared secret containing special characters.
+
+    Verifies that the server can handle authentication when the shared secret
+    contains various special characters, including punctuation and symbols.
+
+    Test Steps:
+    1. Start a test server
+    2. Configure a device with a secret containing special characters
+    3. Attempt authentication with the special-character secret
+    4. Verify authentication succeeds
+
+    Args:
+        server_factory: Pytest fixture that creates a test server instance
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         secret = "a!@#$%^&*()_+-=[]{}|;:'\",.<>/?~` complicated"
@@ -193,6 +327,22 @@ def test_encryption_with_special_characters_secret(server_factory):
 
 @pytest.mark.integration
 def test_encryption_with_very_long_secret(server_factory):
+    """
+    Test TACACS+ authentication with a very long shared secret.
+
+    Verifies that the server can handle authentication when the shared secret
+    exceeds typical length limits (longer than 256 characters).
+
+    Test Steps:
+    1. Start a test server
+    2. Configure a device with an unusually long secret
+    3. Verify the secret length is greater than 256 characters
+    4. Attempt authentication with the long secret
+    5. Verify authentication succeeds
+
+    Args:
+        server_factory: Pytest fixture that creates a test server instance
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         secret = ("long-SECRET-🛡️-" * 30)[:320]
@@ -212,6 +362,21 @@ def test_encryption_with_very_long_secret(server_factory):
 
 @pytest.mark.integration
 def test_encryption_with_non_ascii_secret(server_factory):
+    """
+    Test TACACS+ authentication with a non-ASCII shared secret.
+
+    Verifies that the server can handle authentication when the shared secret
+    contains non-ASCII Unicode characters from various scripts.
+
+    Test Steps:
+    1. Start a test server
+    2. Configure a device with a secret containing non-ASCII characters
+    3. Attempt authentication with the non-ASCII secret
+    4. Verify authentication succeeds
+
+    Args:
+        server_factory: Pytest fixture that creates a test server instance
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         secret = "пароль-秘密-كلمةالسر-şifre-密钥-🔑"
@@ -230,6 +395,22 @@ def test_encryption_with_non_ascii_secret(server_factory):
 
 @pytest.mark.integration
 def test_mixed_encrypted_unencrypted_sessions(server_factory):
+    """
+    Test handling of mixed encrypted and unencrypted sessions.
+
+    Verifies that the server can handle both encrypted and unencrypted
+    authentication attempts when encryption is not strictly required.
+
+    Test Steps:
+    1. Start a test server with encryption not required
+    2. Set up a test device and user
+    3. Perform both encrypted and unencrypted authentication attempts
+    4. Verify both authentication methods succeed
+    5. Check server logs for authentication events
+
+    Args:
+        server_factory: Pytest fixture that creates a test server instance
+    """
     server = server_factory(
         enable_tacacs=True, config={"security": {"encryption_required": "false"}}
     )
@@ -269,6 +450,26 @@ def test_mixed_encrypted_unencrypted_sessions(server_factory):
 
 @pytest.mark.integration
 def test_encryption_key_rotation_session_cache(server_factory):
+    """
+    Test encryption key rotation during active sessions.
+
+    Verifies that the server handles key rotation correctly, including:
+    - Continuing to accept connections with old key during rotation
+    - Properly rejecting connections with old key after rotation
+    - Accepting new connections with new key
+    - Maintaining session state during rotation
+
+    Test Steps:
+    1. Start a test server
+    2. Set up initial device with first secret
+    3. Establish authenticated session
+    4. Rotate to a new secret
+    5. Verify behavior with both old and new secrets
+    6. Check server logs for authentication events
+
+    Args:
+        server_factory: Pytest fixture that creates a test server instance
+    """
     server = server_factory(enable_tacacs=True)
     with server:
         secret1 = "rotate-ONE-KEY"

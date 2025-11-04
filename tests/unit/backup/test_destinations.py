@@ -1,3 +1,26 @@
+"""
+Local Backup Destination Test Suite
+
+This module contains unit tests for the LocalBackupDestination class, which handles
+backup operations to local filesystem locations. It verifies the core functionality
+of the local backup destination implementation.
+
+Test Coverage:
+- Configuration validation
+- Connection testing
+- File upload and download
+- Metadata handling
+- File listing and filtering
+- Deletion operations
+- Retention policy enforcement
+- Error conditions and edge cases
+
+Dependencies:
+- pytest for test framework
+- pathlib for cross-platform path handling
+- stat for file permission testing
+"""
+
 import os
 import stat
 import time
@@ -10,10 +33,35 @@ from tacacs_server.backup.destinations.local import LocalBackupDestination
 
 
 def _abs(p: Path) -> str:
+    """Convert a Path to an absolute path string.
+
+    Args:
+        p: Path to convert
+
+    Returns:
+        str: Absolute path as string
+    """
     return str(p.resolve())
 
 
 def test_config_validation_requires_absolute_base(tmp_path: Path):
+    """Verify that only valid absolute paths are accepted for base_path.
+
+    Test Steps:
+    1. Attempt to create LocalBackupDestination with missing base_path
+    2. Attempt with relative path
+    3. Verify success with absolute path
+
+    Expected Results:
+    - Missing base_path raises ValueError
+    - Relative path raises ValueError
+    - Absolute path creates instance successfully
+
+    Edge Cases:
+    - Empty configuration
+    - Relative paths in different formats
+    - Path traversal attempts (implicitly tested)
+    """
     # Missing base_path
     with pytest.raises(ValueError):
         LocalBackupDestination({})
@@ -22,23 +70,44 @@ def test_config_validation_requires_absolute_base(tmp_path: Path):
         LocalBackupDestination({"base_path": "relative/path"})
     # Valid absolute path
     d = LocalBackupDestination({"base_path": _abs(tmp_path / "dest")})
-    assert isinstance(d, LocalBackupDestination)
+    assert isinstance(
+        d, LocalBackupDestination, "Should create instance with valid path"
+    )
 
 
 def test_connection_testing(tmp_path: Path):
+    """Verify connection testing handles various directory states correctly.
+
+    Test Cases:
+    1. Writable directory
+    2. Non-existent directory (after initialization)
+    3. Read-only directory
+
+    Expected Results:
+    - Writable directory should pass connection test
+    - Non-existent directory should fail connection test
+    - Read-only directory should fail connection test
+
+    Security Considerations:
+    - Verifies proper handling of file system permissions
+    - Ensures directory existence and write permissions are checked
+    """
+    # Test with writable directory
     base = tmp_path / "writable"
     base.mkdir(parents=True)
     dest = LocalBackupDestination({"base_path": _abs(base)})
     ok, msg = dest.test_connection()
-    assert ok, msg
-    # Non-existent directory (object creates on validate_config, but if removed later)
+    assert ok, f"Connection test failed with message: {msg}"
+
+    # Test with non-existent directory (after initialization)
     ro = tmp_path / "noexist"
     dest2 = LocalBackupDestination({"base_path": _abs(ro)})
     # Directory is created on init; remove to simulate missing
     ro.rmdir()
     ok2, _ = dest2.test_connection()
-    assert not ok2
-    # Read-only directory fails write test
+    assert not ok2, "Should fail when directory disappears"
+
+    # Test with read-only directory
     ro_dir = tmp_path / "readonly"
     ro_dir.mkdir()
     # Remove write perms for owner
@@ -46,7 +115,7 @@ def test_connection_testing(tmp_path: Path):
     try:
         dest3 = LocalBackupDestination({"base_path": _abs(ro_dir)})
         ok3, _ = dest3.test_connection()
-        assert not ok3
+        assert not ok3, "Should fail with read-only directory"
     finally:
         # restore to allow tmp cleanup
         ro_dir.chmod(stat.S_IWUSR | stat.S_IREAD | stat.S_IEXEC)

@@ -9,7 +9,6 @@ import hashlib
 import secrets
 import socket
 import struct
-import time
 
 
 def md5_pad(session_id: int, key: str, version: int, seq_no: int, length: int) -> bytes:

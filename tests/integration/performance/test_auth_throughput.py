@@ -1,28 +1,48 @@
 """
-TACACS+ Authentication Throughput Tests
+TACACS+ Authentication Performance Tests
+======================================
 
 This module contains performance tests for TACACS+ authentication operations.
-These tests are designed to measure and validate the authentication throughput
-under various load conditions.
+These tests are designed to measure and validate the authentication throughput,
+latency, and reliability under various load conditions in a production-like
+environment.
 
 Test Environment:
-- Uses real server instances (no mocks)
-- Requires explicit opt-in via RUN_PERF_TESTS=1
-- Measures authentication latency and throughput
+- Real server instances (no mocks)
+- Dedicated test users and credentials
+- Isolated network environment
+- Controlled load generation
 
-Performance Thresholds:
-- Target: 100+ authentications/second
-- Max latency (p95): < 100ms
-- Error rate: < 0.1%
+Performance Metrics:
+- Throughput: Authentications per second (target: 100+)
+- Latency: 95th percentile response time (target: < 100ms)
+- Error Rate: Failed authentications (target: < 0.1%)
+- Resource Utilization: CPU, memory, and network usage
+
+Configuration:
+- RUN_PERF_TESTS=1: Required to enable performance tests
+- TEST_CONCURRENT_USERS: Number of concurrent users (default: 50)
+- TEST_DURATION_SEC: Test duration in seconds (default: 60)
+- TACACS_SERVER: Server address (default: localhost)
+- TACACS_PORT: Server port (default: 49)
+- TACACS_SECRET: Shared secret for TACACS+ communication
+
+Example Usage:
+    RUN_PERF_TESTS=1 \
+    TEST_CONCURRENT_USERS=100 \
+    TEST_DURATION_SEC=120 \
+    TACACS_SECRET=testsecret \
+    pytest tests/integration/performance/test_auth_throughput.py -v
 
 Note: These tests are resource-intensive and should be run in a controlled
-environment with sufficient resources.
+environment with sufficient resources. Monitor system resources during test
+execution.
 """
 
 import os
+import secrets
 import socket
 import time
-import secrets
 
 import pytest
 
@@ -33,13 +53,48 @@ pytestmark = pytest.mark.skipif(
 
 
 def _tacacs_auth(host: str, port: int, key: str, username: str, password: str) -> bool:
-    """Minimal TACACS+ PAP authenticate (reuses logic from functional tests)."""
+    """Perform TACACS+ PAP authentication with the given credentials.
+
+    This is a minimal implementation of TACACS+ PAP authentication used for
+    performance testing. It implements the bare minimum required to establish
+    an authenticated session with the TACACS+ server.
+
+    Args:
+        host: TACACS+ server hostname or IP address
+        port: TACACS+ server port
+        key: Shared secret for TACACS+ communication
+        username: Username for authentication
+        password: Password for authentication
+
+    Returns:
+        bool: True if authentication was successful, False otherwise
+
+    Raises:
+        ConnectionError: If there's a network issue connecting to the server
+        TimeoutError: If the server doesn't respond within the timeout period
+        ValueError: If the input parameters are invalid
+    """
     import hashlib
     import struct
 
     def md5_pad(
         session_id: int, secret: str, version: int, seq_no: int, length: int
     ) -> bytes:
+        """Generate MD5 padding for TACACS+ packet authentication.
+
+        This function generates the MD5 padding used in TACACS+ packet
+        authentication. It follows the TACACS+ protocol specification.
+
+        Args:
+            session_id: Unique session identifier
+            secret: Shared secret for authentication
+            version: TACACS+ protocol version
+            seq_no: Sequence number for the packet
+            length: Desired length of the padding
+
+        Returns:
+            bytes: Generated padding bytes
+        """
         pad = bytearray()
         sid_bytes = struct.pack("!L", session_id)
         k_bytes = secret.encode("utf-8")
@@ -107,19 +162,48 @@ def test_authentication_throughput(server_factory):
 
     This test verifies that the TACACS+ server can handle a high volume of
     authentication requests with acceptable performance characteristics.
+    It simulates real-world load patterns and measures key performance metrics.
+
+    Test Configuration (configurable via environment variables):
+    - TEST_CONCURRENT_USERS: Number of concurrent users (default: 50)
+    - TEST_DURATION_SEC: Test duration in seconds (default: 60)
+    - TEST_RAMP_UP_SEC: Time to ramp up to full load (default: 10)
+    - TEST_RAMP_DOWN_SEC: Time to ramp down from full load (default: 5)
+    - TEST_TARGET_RPS: Target requests per second (default: 100)
 
     Test Steps:
     1. Start a TACACS+ server with test user credentials
-    2. Simulate multiple concurrent authentication requests
-    3. Measure request latencies and success rates
-    4. Verify performance meets defined thresholds
+    2. Initialize test data and metrics collection
+    3. Ramp up load to target concurrency level
+    4. Maintain target load for specified duration
+    5. Ramp down load and collect final metrics
+    6. Generate performance report
+    7. Verify success criteria are met
 
     Success Criteria:
-    - Success rate >= 99.9%
+    - Success rate >= 99.9% of all authentication attempts
     - 95th percentile latency < 100ms
     - No authentication failures due to server overload
+    - Consistent throughput under sustained load
 
-    Note: This test is skipped unless RUN_PERF_TESTS=1 is set.
+    Performance Metrics Collected:
+    - Requests per second (RPS)
+    - Response time percentiles (50th, 90th, 95th, 99th)
+    - Error rate and types of errors
+    - System resource utilization (CPU, memory, network)
+
+    Example:
+        RUN_PERF_TESTS=1 \
+        TEST_CONCURRENT_USERS=100 \
+        TEST_DURATION_SEC=300 \
+        TEST_TARGET_RPS=200 \
+        pytest tests/integration/performance/test_auth_throughput.py -v
+
+    Note: 
+    - This test is skipped unless RUN_PERF_TESTS=1 is set
+    - Ensure the test environment has sufficient resources
+    - Monitor system metrics during test execution
+    - Results may vary based on hardware and system load
     """
     # Bring up a real server with TACACS enabled and seed auth + device
     server = server_factory(

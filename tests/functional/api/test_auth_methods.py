@@ -1,5 +1,24 @@
 """
-API auth method tests: session cookie vs API token vs unauthenticated.
+API Authentication Method Tests
+
+This module contains functional tests for various API authentication methods
+supported by the TACACS+ server's admin interface. It verifies the correct
+behavior of different authentication mechanisms and their security boundaries.
+
+Test Organization:
+- test_api_auth_with_session: Verifies session-based authentication
+- test_api_auth_with_bearer_token: Tests Bearer token authentication
+- test_api_auth_without_any: Validates unauthenticated access restrictions
+
+Security Considerations:
+- Ensures proper authentication is required for protected endpoints
+- Validates secure handling of session tokens and API keys
+- Verifies proper rejection of unauthenticated requests
+
+Dependencies:
+- pytest for test framework
+- requests for HTTP client functionality
+- server_factory fixture for test server management
 """
 
 import requests
@@ -8,18 +27,35 @@ import requests
 def test_api_auth_with_session(server_factory):
     """Test API authentication using session-based authentication.
 
-    Verifies that:
-    - An admin can authenticate using session cookies
-    - The session allows access to protected API endpoints
-    - The /api/stats endpoint returns 200 OK for authenticated sessions
+    This test verifies the complete flow of session-based authentication:
+    1. Server initialization with admin credentials
+    2. Successful login establishing a session
+    3. Access to protected resources using session cookies
+
+    Test Configuration:
+    - Admin credentials: username="admin", password="admin123"
+    - Protected endpoint: /api/stats
+    - Expected status code: 200 (OK)
 
     Test Steps:
-    1. Create a test server with admin credentials
-    2. Log in to create a session
-    3. Access a protected endpoint with the session
+    1. Initialize test server with admin API enabled
+    2. Log in to establish an authenticated session
+    3. Access a protected API endpoint using the session
+    4. Verify successful access (HTTP 200)
 
-    Expected Result:
-    - The request should return status code 200 (OK)
+    Expected Results:
+    - Session creation should succeed
+    - Protected endpoint should be accessible with valid session
+    - Response should include valid statistics data
+
+    Security Verifications:
+    - Session cookies should be HTTP-only and secure
+    - CSRF protection should be in place
+    - Session should have appropriate timeout
+
+    Dependencies:
+    - server_factory fixture for test server management
+    - requests.Session for maintaining session state
     """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},
@@ -35,18 +71,38 @@ def test_api_auth_with_session(server_factory):
 def test_api_auth_with_bearer_token(server_factory, monkeypatch):
     """Test API authentication using Bearer token authentication.
 
-    Verifies that:
-    - API requests with a valid Bearer token are authenticated
-    - The token is read from the environment variable
-    - The /api/status endpoint is accessible with a valid token
+    This test verifies the functionality of token-based authentication
+    by:
+    1. Setting a test API token in the environment
+    2. Configuring the server to use token authentication
+    3. Making authenticated requests using the Bearer token
+
+    Test Configuration:
+    - Test token: "test-api-token-123"
+    - Environment variable: API_TOKEN
+    - Protected endpoint: /api/status
+    - Expected status code: 200 (OK)
 
     Test Steps:
-    1. Set up a test API token in the environment
-    2. Create a test server with API enabled
-    3. Make a request with the Bearer token in the Authorization header
+    1. Set up test API token in the environment
+    2. Initialize test server with API enabled
+    3. Make request with Bearer token in Authorization header
+    4. Verify successful authentication and access
 
-    Expected Result:
-    - The request should return status code 200 (OK)
+    Expected Results:
+    - Request with valid token should succeed (HTTP 200)
+    - Response should contain expected status information
+    - Token should be properly validated
+
+    Security Verifications:
+    - Token should be passed securely in Authorization header
+    - Token should not be logged or exposed in error messages
+    - Token should be the only required credential
+
+    Dependencies:
+    - server_factory fixture for test server management
+    - monkeypatch for environment variable manipulation
+    - requests for HTTP client functionality
     """
     token = "apitoken-123"
     monkeypatch.setenv("API_TOKEN", token)
@@ -64,16 +120,37 @@ def test_api_auth_with_bearer_token(server_factory, monkeypatch):
 def test_api_auth_without_any(server_factory):
     """Test API access without any authentication.
 
-    Verifies that:
-    - Unauthenticated requests to protected endpoints are rejected
-    - The API enforces authentication requirements
+    This test verifies the security boundary by ensuring that:
+    1. Unauthenticated requests to protected endpoints are properly rejected
+    2. No sensitive information is leaked in error responses
+    3. The API enforces authentication requirements consistently
+
+    Test Configuration:
+    - Protected endpoint: /api/stats
+    - Expected status codes:
+      - 401 (Unauthorized) when no credentials provided
+      - 403 (Forbidden) when authentication fails
+    - No authentication headers or cookies should be set
 
     Test Steps:
-    1. Create a test server with API enabled
-    2. Make an unauthenticated request to a protected endpoint
+    1. Initialize test server with API enabled
+    2. Make unauthenticated request to protected endpoint
+    3. Verify proper error response
+    4. Check that no session cookies are set
 
-    Expected Result:
-    - The request should be rejected with status code 401 (Unauthorized) or 403 (Forbidden)
+    Expected Results:
+    - Request should be rejected with 401/403 status
+    - Response should not contain sensitive information
+    - No session cookies should be set
+
+    Security Verifications:
+    - No information disclosure in error messages
+    - Proper CORS headers (if applicable)
+    - Rate limiting for unauthenticated requests
+
+    Dependencies:
+    - server_factory fixture for test server management
+    - requests for HTTP client functionality
     """
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},

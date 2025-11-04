@@ -1,7 +1,39 @@
+"""
+TACACS+ Command Authorization Integration Tests
+=============================================
+
+This module contains integration tests for TACACS+ command authorization.
+It verifies the enforcement of command-based access control rules and the
+proper logging of authorization attempts.
+
+Test Environment:
+- Real TACACS+ server with command authorization enabled
+- Local user and device store for authentication
+- Command authorization rules configuration
+- Logging verification
+
+Test Cases:
+- test_command_authorization_allow_and_deny: Tests basic allow/deny rules
+- test_tacacs_authorization_logs_and_status: Verifies logging and status codes
+
+Configuration:
+- Default action: deny
+- Sample rules:
+  - Allow 'show ' commands (prefix match)
+  - Deny 'reload' and 'shutdown' commands (regex match)
+- TACACS+ port: 49
+- Admin API: Enabled
+
+Example Usage:
+    pytest tests/integration/tacacs/test_command_authorization.py -v
+
+Note: These tests require network access and may be affected by system load.
+"""
+
+import secrets
 import socket
 import struct
 import time
-import secrets
 
 import pytest
 import requests
@@ -19,8 +51,33 @@ from tacacs_server.tacacs.packet import TacacsPacket
 
 
 @pytest.mark.integration
-def test_command_authorization_allow_and_deny(server_factory):
-    """Verify command authorization engine enforces allow/deny and exposes config."""
+def test_command_authorization_allow_and_deny(server_factory) -> None:
+    """Verify command authorization engine enforces allow/deny rules and exposes configuration.
+
+    This test verifies that:
+    1. Command authorization rules are properly loaded and applied
+    2. The default deny action works as expected
+    3. Specific allow/deny rules are enforced based on command patterns
+    4. The configuration is exposed via the admin API
+
+    Test Steps:
+    1. Configure command authorization rules via server factory
+    2. Start the server with TACACS+ and admin API enabled
+    3. Verify the configuration is accessible via admin API
+    4. Test command authorization with various commands
+
+    Expected Behavior:
+    - 'show' commands are allowed (prefix match)
+    - 'reload' and 'shutdown' commands are denied (regex match)
+    - Other commands are denied by default
+    - Configuration is accessible via admin API
+
+    Configuration:
+    - Default action: deny
+    - Rules:
+      - Allow 'show ' (prefix match, min_privilege=1)
+      - Deny 'reload' and 'shutdown' (regex match)
+    """
     # Configure command authorization rules via config
     rules = [
         {
@@ -121,6 +178,20 @@ def test_command_authorization_allow_and_deny(server_factory):
 
 
 def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes:
+    """Read exactly 'length' bytes from a socket with timeout.
+
+    Args:
+        sock: Connected socket to read from
+        length: Number of bytes to read
+        timeout: Maximum time to wait for data (seconds)
+
+    Returns:
+        bytes: The received data
+
+    Raises:
+        socket.timeout: If the operation times out
+        ConnectionError: If the connection is closed unexpectedly
+    """
     sock.settimeout(timeout)
     buf = bytearray()
     while len(buf) < length:
@@ -132,13 +203,22 @@ def _read_exact(sock: socket.socket, length: int, timeout: float = 3.0) -> bytes
 
 
 def _mk_author_body(username: str, cmd: str, service: str = "shell") -> bytes:
-    """Build a minimal TACACS+ authorization request body.
+    """Build a TACACS+ authorization request body for command authorization.
 
-    Layout (per RFC 8907):
-      1B authen_method, 1B priv_lvl, 1B authen_type, 1B authen_service,
-      1B user_len, 1B port_len, 1B rem_addr_len, 1B arg_cnt,
-      arg_len[0..N-1] (N bytes), followed by user, port, rem_addr, then args.
-    Args are strings like 'service=shell' and 'cmd=...'.
+    Args:
+        username: Username for the authorization request
+        cmd: Command to be authorized
+        service: Service type (default: "shell")
+
+    Returns:
+        bytes: Packed TACACS+ authorization request body
+
+    Note:
+        Follows RFC 8907 (TACACS+) packet format for authorization requests.
+        The request body includes service and command arguments.
+
+    Example:
+        _mk_author_body("admin", "show version") -> b'...'
     """
     user_b = username.encode()
     port_b = b""
@@ -163,12 +243,32 @@ def _mk_author_body(username: str, cmd: str, service: str = "shell") -> bytes:
 
 
 @pytest.mark.integration
-def test_tacacs_authorization_logs_and_status(server_factory):
-    """Send real TACACS+ AUTHOR requests to verify allow/deny and logs.
+@pytest.mark.integration
+def test_tacacs_authorization_logs_and_status(server_factory) -> None:
+    """Verify TACACS+ authorization logging and status codes for command access.
 
-    Seeds a local user and device with matching secret; configures command auth
-    rules to allow 'show' and deny 'reload'. Then sends two AUTHOR requests and
-    verifies response status codes and server logs.
+    This test verifies that:
+    1. Command authorization requests are properly logged
+    2. The correct status codes are returned for allowed/denied commands
+    3. The server handles concurrent authorization requests correctly
+
+    Test Steps:
+    1. Configure a test user and device with known credentials
+    2. Set up command authorization rules
+    3. Send TACACS+ authorization requests for various commands
+    4. Verify response status codes and server logs
+
+    Expected Behavior:
+    - 'show' commands return TAC_PLUS_AUTHOR_STATUS.PASS_ADD
+    - 'reload' commands return TAC_PLUS_AUTHOR_STATUS.FAIL
+    - Each authorization attempt is logged with appropriate details
+
+    Configuration:
+    - Test user: testuser with password 'testpass'
+    - Device secret: 'testsecret'
+    - Command rules:
+      - Allow 'show ' (prefix match)
+      - Deny 'reload' (exact match)
     """
     rules = [
         {

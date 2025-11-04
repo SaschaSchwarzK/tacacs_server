@@ -1,3 +1,24 @@
+"""
+Backup Service Test Suite
+
+This module contains unit tests for the TACACS+ backup service functionality.
+It verifies the core backup and restore operations, including database handling,
+manifest creation, and integration with backup destinations.
+
+Test Coverage:
+- Backup service initialization and configuration
+- Manifest file creation and validation
+- Database backup and restore operations
+- Complete backup workflow
+- Complete restore workflow
+- Error handling and edge cases
+
+Dependencies:
+- pytest for test framework
+- sqlite3 for in-memory database testing
+- pathlib for cross-platform path handling
+"""
+
 import os
 import sqlite3
 from pathlib import Path
@@ -12,12 +33,35 @@ from tacacs_server.config.config import TacacsConfig
 
 
 class FakeDestination(BackupDestination):
+    """Mock backup destination for testing backup service functionality.
+
+    This class simulates a backup destination for testing purposes, tracking
+    all uploads and downloads without making actual external calls.
+
+    Attributes:
+        uploads: List of (local_path, remote_filename) tuples for tracking uploads
+        downloads: List of (remote_path, local_path) tuples for tracking downloads
+    """
+
     def __init__(self, config):
+        """Initialize the fake destination with configuration.
+
+        Args:
+            config: Dictionary containing destination configuration
+        """
         super().__init__(config)
         self.uploads: list[tuple[str, str]] = []
         self.downloads: list[tuple[str, str]] = []
 
     def validate_config(self) -> None:
+        """Validate the destination configuration.
+
+        Ensures the configuration contains required fields and that the base path
+        is properly scoped within the test directory to prevent path traversal.
+
+        Raises:
+            ValueError: If configuration is invalid or base path is not secure
+        """
         import os
         from pathlib import Path
 
@@ -29,21 +73,53 @@ class FakeDestination(BackupDestination):
         base_path = (test_root / os.path.normpath(base)).resolve()
         try:
             base_path.relative_to(test_root.resolve())
-        except ValueError:
-            raise ValueError("base path escapes test root")
+        except ValueError as e:
+            raise ValueError("base path escapes test root") from e
         base_path.mkdir(parents=True, exist_ok=True)
 
     def test_connection(self) -> tuple[bool, str]:
+        """Test connection to the backup destination.
+
+        Returns:
+            tuple[bool, str]: Always returns (True, "OK") for the fake destination
+        """
         return True, "OK"
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
+        """Simulate uploading a backup file to the destination.
+
+        Args:
+            local_file_path: Path to the local file to upload
+            remote_filename: Target filename at the destination
+
+        Returns:
+            str: Path where the file was saved
+
+        Note:
+            In this fake implementation, the file is actually just moved within
+            the local filesystem for testing purposes.
+        """
         self.uploads.append((local_file_path, remote_filename))
         dest = Path(self.config["base"]) / remote_filename
         dest.parent.mkdir(parents=True, exist_ok=True)
-        Path(local_file_path).replace(dest) if Path(local_file_path).exists() else None
+        if Path(local_file_path).exists():
+            Path(local_file_path).replace(dest)
         return str(dest)
 
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
+        """Simulate downloading a backup file from the destination.
+
+        Args:
+            remote_path: Path to the file at the destination
+            local_file_path: Target path to save the downloaded file
+
+        Returns:
+            bool: True if download was successful, False otherwise
+
+        Note:
+            In this fake implementation, the file is just moved within the
+            local filesystem for testing purposes.
+        """
         self.downloads.append((remote_path, local_file_path))
         try:
             Path(local_file_path).parent.mkdir(parents=True, exist_ok=True)

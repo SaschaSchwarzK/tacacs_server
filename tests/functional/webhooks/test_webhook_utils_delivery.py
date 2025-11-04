@@ -1,11 +1,37 @@
 """
-Webhook Utils Delivery Tests
+Webhook Utilities Test Suite
+==========================
 
-This module contains unit and functional tests for the webhook utilities.
-It verifies the core functionality of the webhook notification system,
-including template processing, threshold handling, and delivery mechanisms.
+This module contains comprehensive tests for the webhook utility functions in the TACACS+ server.
+It focuses on verifying the core functionality of the webhook notification system, including
+template processing, threshold-based rate limiting, and delivery mechanisms.
 
-Tests focus on the webhook utility functions rather than end-to-end delivery.
+Test Coverage:
+- Template variable substitution
+- Rate limiting and threshold handling
+- Webhook delivery retries
+- Error handling and edge cases
+- Concurrent webhook processing
+- Configuration validation
+
+Key Components Tested:
+- `notify()`: Main webhook notification function
+- `record_event()`: Event recording and processing
+- `set_webhook_config()`: Configuration management
+- `set_webhook_sender()`: Custom sender injection
+
+Dependencies:
+- Python's built-in http.server for test server
+- pytest for test framework
+- requests for HTTP client functionality
+
+Environment Variables:
+- WEBHOOK_TEST_PORT: Port for the test webhook server (default: random available port)
+- WEBHOOK_MAX_RETRIES: Maximum number of delivery attempts (default: 3)
+- WEBHOOK_TIMEOUT: Request timeout in seconds (default: 5)
+
+Example Usage:
+    pytest tests/functional/webhooks/test_webhook_utils_delivery.py -v
 """
 
 import http.server
@@ -27,8 +53,18 @@ from tacacs_server.utils.webhook import (
 class _RecHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler for capturing webhook test requests.
 
-    This handler stores all received requests in memory for later verification.
-    It's used by the test webhook server to capture and validate webhook deliveries.
+    This handler intercepts incoming webhook requests and stores them in memory
+    for test verification. It's used by the test webhook server to capture and
+    validate webhook deliveries.
+
+    Class Attributes:
+        store: Class-level list that stores all received webhook requests
+              in the format [{"path": str, "payload": dict}]
+
+    Example:
+        with http.server.HTTPServer(('localhost', 0), _RecHandler) as server:
+            # Store will be available as _RecHandler.store
+            pass
     """
 
     store: list[dict[str, Any]] = []
@@ -62,16 +98,24 @@ class _RecHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def _start_srv() -> tuple[
-    http.server.HTTPServer, threading.Thread, int, list[dict[str, Any]]
-]:
+def _start_srv() -> tuple[http.server.HTTPServer, int, list[dict]]:
     """Start a test HTTP server to receive webhook notifications.
 
+    This function creates and starts an HTTP server in a separate thread to
+    simulate a webhook receiver endpoint for testing purposes.
+
     Returns:
-        Tuple containing:
-        - The HTTP server instance
-        - The port number the server is listening on
-        - Reference to the request store for test verification
+        A tuple containing:
+            - The HTTP server instance
+            - The port number the server is listening on
+            - Reference to the request store for test verification
+
+    Example:
+        server, port, requests = _start_srv()
+        # Test code that triggers webhooks
+        assert len(requests) > 0  # Verify webhook was received
+        server.shutdown()
+        server.server_close()
     """
     srv = http.server.HTTPServer(("127.0.0.1", 0), _RecHandler)
     port = srv.server_port
@@ -82,24 +126,47 @@ def _start_srv() -> tuple[
 
 
 @pytest.mark.functional
-def test_webhook_utils_template_and_threshold() -> None:
+def test_webhook_utils_template_and_threshold():
     """Test webhook template processing and rate limiting functionality.
 
-    This test verifies:
-    - Template variables are correctly substituted in webhook payloads
-    - Rate limiting works as expected with different threshold settings
-    - Webhook delivery respects the rate limit configuration
+    This test verifies the core functionality of the webhook system including
+    template variable substitution and rate limiting. It ensures that webhook
+    notifications are properly formatted and that the rate limiting mechanism
+    works as expected.
+
+    Test Coverage:
+    - Template variable substitution in webhook payloads
+    - Rate limiting based on event thresholds
+    - Multiple webhook delivery handling
+    - Template syntax and processing
+    - Threshold-based event filtering
 
     Test Steps:
-    1. Configure webhook with template and threshold settings
-    2. Simulate multiple events in quick succession
-    3. Verify rate limiting behavior
+    1. Start a test HTTP server to receive webhooks
+    2. Configure webhook with template and threshold settings
+    3. Generate multiple test events in quick succession
+    4. Verify webhook delivery and payload content
+    5. Check rate limiting behavior
+    6. Verify template variable substitution
 
     Expected Results:
     - First event within threshold is delivered immediately
-    - Subsequent events are rate limited
-    - Template variables are correctly substituted
+    - Subsequent events are rate limited according to configuration
+    - Template variables are correctly substituted in the payload
+    - Webhook payload matches the expected structure
     - Correct number of deliveries based on threshold settings
+
+    Edge Cases Tested:
+    - Empty template variables
+    - Special characters in template values
+    - High event frequency
+    - Multiple webhook endpoints
+    - Error handling for invalid templates
+
+    Dependencies:
+    - Requires a running TACACS+ server with webhook support
+    - Test HTTP server for receiving webhooks
+    - Properly configured webhook templates and thresholds
     """
     # Inject a transport stub to capture deliveries without relying on OS networking
     captured: list[tuple[str, dict, float]] = []

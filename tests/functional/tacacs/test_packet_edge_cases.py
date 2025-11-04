@@ -1,14 +1,37 @@
 """
-TACACS+ Packet Handling Edge Case Tests
+TACACS+ Packet Handling Edge Case Test Suite
 
-Covers:
-- maximum body length
-- zero-length body
-- multiple sequential packets in same session
-- out-of-order sequence numbers (should be rejected)
-- packet fragmentation scenarios
-- corrupted packet headers
-- response to unknown packet types
+This module contains comprehensive tests for TACACS+ packet handling edge cases,
+verifying protocol compliance and robustness of the server implementation.
+
+Test Organization:
+- Packet Size Boundaries
+  - Maximum body length handling
+  - Zero-length body packets
+  - Incomplete packet bodies
+
+- Session Management
+  - Multiple sequential packets in same session
+  - Out-of-order sequence numbers
+  - Session state persistence
+
+- Network Conditions
+  - Packet fragmentation and reassembly
+  - Corrupted packet headers
+  - Unknown packet types
+  - Connection handling during partial transmissions
+
+Security Considerations:
+- Validates proper handling of malformed packets
+- Ensures secure defaults for packet processing
+- Verifies proper state management to prevent session hijacking
+- Confirms appropriate error responses to prevent information leakage
+
+Dependencies:
+- pytest for test framework
+- socket for network communication
+- struct for binary data handling
+- hashlib for cryptographic operations
 """
 
 import socket
@@ -28,35 +51,85 @@ def _mk_header(
 ) -> bytes:
     """Create a TACACS+ packet header with the specified parameters.
 
+    This helper function constructs a properly formatted TACACS+ packet header
+    according to the protocol specification. The header is 12 bytes in length
+    and contains metadata about the packet including version, type, and length.
+
     Args:
-        version_major: Major version of the TACACS+ protocol
-        ptype: Packet type (AUTH, AUTHOR, ACCOUNT)
-        seq: Sequence number for packet ordering
-        flags: Packet flags (e.g., encryption, single connection)
-        session: Session identifier
-        length: Length of the packet body
+        version_major: Major version of the TACACS+ protocol (upper 4 bits).
+                      Should be TAC_PLUS_MAJOR_VER for current versions.
+        ptype: Packet type from TAC_PLUS_PACKET_TYPE:
+               - TAC_PLUS_AUTHEN (0x01): Authentication
+               - TAC_PLUS_AUTHOR (0x02): Authorization
+               - TAC_PLUS_ACCT (0x03): Accounting
+        seq: Sequence number (1-255) for packet ordering within a session.
+             Must increment by 1 for each packet in the session.
+        flags: Bitmask of packet flags:
+               - TAC_PLUS_UNENCRYPTED_FLAG (0x01): Body is not encrypted
+               - TAC_PLUS_SINGLE_CONNECT_FLAG (0x04): Single connection mode
+        session: 32-bit session identifier that remains constant for the
+                 duration of a TACACS+ session.
+        length: Length of the packet body in bytes (0-65535).
 
     Returns:
-        bytes: Packed TACACS+ header
+        bytes: 12-byte packed TACACS+ header in network byte order.
+
+    Raises:
+        struct.error: If any parameter is out of valid range for its field.
+
+    Example:
+        # Create a header for an authentication packet
+        header = _mk_header(
+            version_major=0xc,
+            ptype=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
+            seq=1,
+            flags=0,
+            session=0x12345678,
+            length=42
+        )
     """
     version = ((version_major & 0x0F) << 4) | 0  # minor 0
     return struct.pack("!BBBBLL", version, ptype, seq, flags, session, length)
 
 
 def _mk_auth_body(username: str, password: str) -> bytes:
-    """Create a TACACS+ authentication packet body.
+    """Create a TACACS+ authentication packet body for PAP authentication.
+
+    This function constructs a TACACS+ authentication packet body using the Password
+    Authentication Protocol (PAP) method. The body contains user credentials and
+    connection information in a specific binary format.
+
+    The packet body structure is as follows:
+    - Header (8 bytes):
+      - action (1 byte): Authentication action (1 = LOGIN)
+      - priv_lvl (1 byte): Privilege level (15 = maximum)
+      - authen_type (1 byte): Authentication type (2 = PAP)
+      - service (1 byte): Service type (1 = LOGIN)
+      - user_len (1 byte): Length of username
+      - port_len (1 byte): Length of port string
+      - rem_addr_len (1 byte): Length of remote address
+      - data_len (1 byte): Length of password data
+    - Username (variable length): The username to authenticate
+    - Port (7 bytes): Fixed string 'console'
+    - Remote address (9 bytes): Fixed string '127.0.0.1'
+    - Data (variable length): The password to authenticate with
 
     Args:
-        username: Username for authentication
-        password: Password for authentication
+        username: Username for authentication. Will be UTF-8 encoded.
+        password: Password for authentication. Will be UTF-8 encoded.
 
     Returns:
-        bytes: Packed authentication packet body with the following structure:
-               - Header (8 bytes): action, priv_lvl, authen_type, service, user_len, port_len, rem_addr_len, data_len
-               - Username (variable length)
-               - Port (fixed 'console')
-               - Remote address (fixed '127.0.0.1')
-               - Data (password, variable length)
+        bytes: Packed authentication packet body in network byte order.
+
+    Example:
+        # Create an authentication body for user 'admin' with password 'secret'
+        body = _mk_auth_body('admin', 'secret')
+        # body will be 24 bytes: 8-byte header + 5 (admin) + 7 (console) + 9 (127.0.0.1) + 6 (secret)
+
+    Note:
+        This function is specifically for testing purposes and uses hardcoded
+        values for port ('console') and remote address ('127.0.0.1') which
+        are typical for testing scenarios.
     """
     user_b = username.encode("utf-8")
     port_b = b"console"

@@ -110,7 +110,9 @@ class LocalUserService:
             return self.get_user(username)
         except LocalUserNotFound:
             try:
-                logger.info("LocalUserService: user lookup miss", extra={"username": username})
+                logger.info(
+                    "LocalUserService: user lookup miss", extra={"username": username}
+                )
             except Exception:
                 # Fallback without structured extras
                 logger.info("LocalUserService: user '%s' not found", username)
@@ -254,7 +256,9 @@ class LocalUserService:
                     extra={"username": username},
                 )
             except Exception:
-                logger.info("LocalUserService: delete skipped for missing user '%s'", username)
+                logger.info(
+                    "LocalUserService: delete skipped for missing user '%s'", username
+                )
             return False
 
     def reload(self) -> None:

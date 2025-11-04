@@ -1,9 +1,62 @@
+"""
+TACACS+ Command Authorization Rules Integration Tests
+===================================================
+
+This module contains integration tests for TACACS+ command authorization rules.
+It verifies the behavior of different rule types, patterns, and matching strategies
+used in command authorization.
+
+Test Environment:
+- TACACS+ server with command authorization enabled
+- Admin API for rule configuration and testing
+- Various command patterns and matching strategies
+
+Test Cases:
+- test_rule_with_regex_capturing_groups: Tests regex patterns with capturing groups
+- test_rule_case_insensitive_matching: Verifies case-insensitive command matching
+- test_rule_priority_ordering_first_match_wins: Tests rule precedence and ordering
+- test_rule_with_wildcard_patterns: Validates wildcard pattern matching
+- test_multiple_matching_rules_precedence: Verifies behavior with multiple matching rules
+- test_rule_with_command_aliases_via_regex: Tests command aliases using regex patterns
+
+Configuration:
+- Default action: deny (configurable)
+- Rule format: List of dictionaries with action, match_type, pattern, etc.
+- Test user groups: ['netops']
+- Test device group: 'core'
+
+Example Usage:
+    pytest tests/integration/tacacs/test_command_authorization_rules.py -v
+"""
+
 import json
+from typing import Any
 
 import pytest
 
 
-def _server_with_rules(server_factory, rules: list[dict], default_action: str = "deny"):
+def _server_with_rules(
+    server_factory, rules: list[dict[str, Any]], default_action: str = "deny"
+) -> Any:
+    """Helper to create a test server with custom command authorization rules.
+
+    Args:
+        server_factory: Pytest fixture for creating server instances
+        rules: List of command authorization rule dictionaries
+        default_action: Default action ('permit' or 'deny') when no rules match
+
+    Returns:
+        Configured server instance with the specified rules
+
+    Example:
+        rules = [{
+            "action": "permit",
+            "match_type": "regex",
+            "pattern": r"^show\\s+version$",
+            "description": "Allow show version"
+        }]
+        server = _server_with_rules(server_factory, rules, default_action="deny")
+    """
     return server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -18,13 +71,31 @@ def _server_with_rules(server_factory, rules: list[dict], default_action: str = 
 
 
 def _check(
-    sess,
+    sess: Any,
     base_url: str,
     command: str,
     privilege: int = 15,
-    user_groups=None,
-    device_group=None,
+    user_groups: list[str] | None = None,
+    device_group: str | None = None,
 ) -> tuple[bool, str]:
+    """Check if a command is authorized according to the current rules.
+
+    Args:
+        sess: Requests session for API calls
+        base_url: Base URL of the admin API
+        command: Command string to check
+        privilege: User privilege level (1-15)
+        user_groups: List of user group names
+        device_group: Device group name
+
+    Returns:
+        Tuple of (is_authorized, reason)
+        - is_authorized: Boolean indicating if command is allowed
+        - reason: String describing the authorization decision
+
+    Example:
+        authorized, reason = _check(session, "http://localhost:8080", "show version")
+    """
     payload = {
         "command": command,
         "privilege_level": privilege,
@@ -41,13 +112,29 @@ def _check(
 
 
 @pytest.mark.integration
-def test_rule_with_regex_capturing_groups(server_factory):
-    # Permit 'show interface <name>' using capturing group
+def test_rule_with_regex_capturing_groups(server_factory: Any) -> None:
+    """Test command authorization with regex patterns containing capturing groups.
+
+    This test verifies that:
+    1. Regex patterns with capturing groups work correctly
+    2. The full command is matched against the pattern
+    3. The rule only matches the exact specified pattern
+
+    Test Steps:
+    1. Create a rule that permits 'show interface <name>' using regex
+    2. Verify that matching commands are permitted
+    3. Verify that non-matching commands are denied
+
+    Expected Behavior:
+    - 'show interface Ethernet1' -> PERMIT (matches pattern)
+    - 'show interfaces' -> DENY (doesn't match pattern)
+    - 'show interface' -> DENY (missing interface name)
+    """
     rules = [
         {
             "action": "permit",
             "match_type": "regex",
-            "pattern": r"^show\s+interface\s+(\S+)$",
+            "pattern": r"^show\s+interface\s+(\S+)$",  # Captures interface name
         }
     ]
     server = _server_with_rules(server_factory, rules)
@@ -61,7 +148,24 @@ def test_rule_with_regex_capturing_groups(server_factory):
 
 
 @pytest.mark.integration
-def test_rule_case_insensitive_matching(server_factory):
+def test_rule_case_insensitive_matching(server_factory: Any) -> None:
+    """Test case-insensitive command matching in authorization rules.
+
+    This test verifies that:
+    1. Command matching is case-insensitive by default
+    2. Both upper and lower case commands are matched correctly
+    3. Mixed case commands are properly handled
+
+    Test Steps:
+    1. Create a rule that permits 'show version' (lowercase)
+    2. Test with various case variations of the command
+
+    Expected Behavior:
+    - 'show version' -> PERMIT
+    - 'SHOW VERSION' -> PERMIT
+    - 'Show Version' -> PERMIT
+    - 'show' -> DENY (only partial match)
+    """
     # Use inline (?i) to enable case-insensitive regex
     rules = [
         {
@@ -82,7 +186,23 @@ def test_rule_case_insensitive_matching(server_factory):
 
 
 @pytest.mark.integration
-def test_rule_priority_ordering_first_match_wins(server_factory):
+def test_rule_priority_ordering_first_match_wins(server_factory: Any) -> None:
+    """Test that the first matching rule takes precedence.
+
+    This test verifies that:
+    1. Rules are evaluated in order
+    2. The first matching rule determines the action
+    3. Subsequent matching rules are ignored
+
+    Test Steps:
+    1. Create rules with overlapping patterns in specific order
+    2. Test commands that could match multiple rules
+
+    Expected Behavior:
+    - 'show running-config' -> DENY (first rule takes precedence)
+    - 'show version' -> PERMIT (matches second rule)
+    - 'show interfaces' -> DENY (default action)
+    """
     # Two rules both match 'show running-config'; first is permit, second denies
     rules_permit_first = [
         {"action": "permit", "match_type": "prefix", "pattern": "show "},

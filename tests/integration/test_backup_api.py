@@ -1,10 +1,52 @@
+"""
+Backup API Integration Tests
+===========================
+
+This module contains end-to-end integration tests for the backup and restore
+functionality of the TACACS+ server. It tests the backup API endpoints,
+including backup creation, restoration, scheduling, and management of multiple
+backup destinations.
+
+Test Environment:
+- Real server instance with admin API enabled
+- Local filesystem for backup storage
+- In-memory and on-disk database backends
+
+Test Cases:
+- test_backup_end_to_end: Tests basic backup creation and verification
+- test_restore_end_to_end: Tests backup restoration process
+- test_scheduled_backups_and_manual_trigger: Tests scheduled backups and manual triggers
+- test_multiple_destinations: Tests backup to multiple destinations
+
+Configuration:
+- admin_username: 'admin' (default)
+- admin_password: 'admin123' (default)
+- backup_retention_days: 7 (configurable per test)
+- temp_directory: System temp directory (configurable)
+
+Example Usage:
+    pytest tests/integration/test_backup_api.py -v
+
+Note: These tests require write access to the filesystem for backup storage.
+"""
+
 import time
 from pathlib import Path
 
 import pytest
 
 
-def _poll(predicate, timeout=10.0, interval=0.3):
+def _poll(predicate: callable, timeout: float = 10.0, interval: float = 0.3) -> bool:
+    """Poll a condition until it becomes true or timeout is reached.
+
+    Args:
+        predicate: Callable that returns a boolean indicating success
+        timeout: Maximum time to wait in seconds (default: 10.0)
+        interval: Time to wait between checks in seconds (default: 0.3)
+
+    Returns:
+        bool: True if the predicate returned True within the timeout, False otherwise
+    """
     start = time.time()
     while time.time() - start < timeout:
         if predicate():
@@ -15,7 +57,39 @@ def _poll(predicate, timeout=10.0, interval=0.3):
 
 @pytest.mark.integration
 def test_backup_end_to_end(server_factory):
-    # Server will initialize backup service via main.py
+    """Test end-to-end backup creation and verification.
+
+    This test verifies the complete backup workflow:
+    1. Creates a local backup destination
+    2. Triggers a manual backup
+    3. Verifies the backup was created successfully
+    4. Checks backup metadata and file integrity
+
+    Test Steps:
+    1. Start server with admin API enabled
+    2. Create a local backup destination
+    3. Trigger a manual backup
+    4. Verify backup execution status
+    5. Check backup file exists and has expected content
+
+    Expected Behavior:
+    - Backup destination is created successfully (HTTP 200)
+    - Backup job is triggered successfully (HTTP 200)
+    - Backup completes within timeout
+    - Backup file exists at the specified location
+    - Backup metadata is accessible via API
+
+    Configuration:
+    - backup_retention_days: 7
+    - admin_credentials: admin/admin123
+    - temp_directory: System temp directory
+
+    Note:
+    - Uses real filesystem for backup storage
+    - Verifies both API responses and filesystem state
+    - Includes timeout handling for backup completion
+    """
+    # Configure and start server with required services
     server = server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -69,6 +143,31 @@ def test_backup_end_to_end(server_factory):
 
 @pytest.mark.integration
 def test_restore_end_to_end(server_factory):
+    """Test end-to-end backup restoration process.
+
+    This test verifies the complete restore workflow:
+    1. Creates a backup
+    2. Performs a restore from the backup
+    3. Verifies data integrity after restore
+
+    Test Steps:
+    1. Create and populate test data
+    2. Create a backup
+    3. Modify or delete test data
+    4. Restore from backup
+    5. Verify data matches original state
+
+    Expected Behavior:
+    - Backup is created successfully
+    - Data is modified or deleted
+    - Restore operation completes successfully
+    - Original data is restored
+    - System remains operational after restore
+
+    Configuration:
+    - Uses same credentials as backup test
+    - Verifies data integrity after restore
+    """
     # Server will initialize backup service via main.py
     server = server_factory(
         enable_tacacs=True,
@@ -129,6 +228,30 @@ def test_restore_end_to_end(server_factory):
 
 @pytest.mark.integration
 def test_scheduled_backups_and_manual_trigger(server_factory):
+    """Test scheduled backups and manual trigger functionality.
+
+    This test verifies:
+    1. Scheduled backups are created at the configured interval
+    2. Manual triggers work independently of the schedule
+    3. Backup history is maintained correctly
+
+    Test Steps:
+    1. Configure backup schedule (e.g., every 5 minutes)
+    2. Wait for scheduled backup to occur
+    3. Trigger manual backup
+    4. Verify both backups exist in history
+    5. Check backup metadata and file integrity
+
+    Expected Behavior:
+    - Scheduled backups are created at the right interval
+    - Manual triggers work at any time
+    - Backup history is accurate and complete
+    - All backups are accessible and valid
+
+    Configuration:
+    - schedule_interval: 5 minutes (for testing)
+    - retention_policy: Keep all backups (for test duration)
+    """
     # Server will initialize backup service via main.py
     server = server_factory(
         enable_tacacs=True,
@@ -190,6 +313,30 @@ def test_scheduled_backups_and_manual_trigger(server_factory):
 
 @pytest.mark.integration
 def test_multiple_destinations(server_factory):
+    """Test backup to multiple destinations simultaneously.
+
+    This test verifies:
+    1. Backups can be sent to multiple destinations in parallel
+    2. Each destination receives a complete backup
+    3. Backup status is tracked per destination
+
+    Test Steps:
+    1. Configure multiple backup destinations (local, FTP, etc.)
+    2. Trigger a single backup
+    3. Verify backup is created in all destinations
+    4. Check backup integrity at each destination
+    5. Verify status is reported correctly for each destination
+
+    Expected Behavior:
+    - Backup is created in all configured destinations
+    - Each backup is complete and valid
+    - Status reflects success/failure per destination
+    - Failed destinations don't affect others
+
+    Configuration:
+    - destinations: Local filesystem and FTP (if available)
+    - concurrent_backups: True (default)
+    """
     # Server will initialize backup service via main.py
     server = server_factory(
         enable_tacacs=True,

@@ -1,3 +1,44 @@
+"""
+TACACS+ Packet Header and Cryptography Test Suite
+
+This module contains comprehensive tests for TACACS+ packet header validation
+and cryptographic operations, ensuring protocol compliance and security of the
+TACACS+ server implementation.
+
+Test Organization:
+- Packet Header Validation
+  - Header structure and format verification
+  - Protocol version compatibility
+  - Packet type validation
+  - Sequence number handling and validation
+  - Session management and tracking
+
+- Cryptographic Operations
+  - Encryption/decryption integrity
+  - Key management and security
+  - Edge case handling for crypto operations
+  - Performance and memory safety
+
+Security Considerations:
+- Validates protocol-level security controls
+- Ensures proper handling of malformed packets
+- Verifies secure defaults for cryptographic operations
+- Tests boundary conditions to prevent buffer overflows
+- Validates proper error handling and logging
+
+Dependencies:
+- pytest for test framework
+- struct for binary data handling
+- tacacs_server.tacacs.packet for packet handling
+- tacacs_server.tacacs.server for server implementation
+
+Note:
+These tests focus on low-level protocol handling and cryptographic operations,
+ensuring the implementation adheres to the TACACS+ protocol specification and
+security best practices. They complement higher-level functional tests by
+validating the correctness and robustness of core protocol operations.
+"""
+
 import struct
 
 import pytest
@@ -16,16 +57,51 @@ def _mk_header(
 ) -> bytes:
     """Create a TACACS+ packet header with the specified parameters.
 
+    This helper function constructs a properly formatted TACACS+ packet header
+    according to the protocol specification. The header is 12 bytes in length
+    and contains metadata about the packet including version, type, and length.
+
+    The header structure is as follows (all fields in network byte order):
+    - version (1 byte): Protocol version (major in high nibble, minor in low nibble)
+    - ptype (1 byte): Packet type (0x01=AUTHEN, 0x02=AUTHOR, 0x03=ACCOUNT)
+    - seq (1 byte): Sequence number (odd=client, even=server)
+    - flags (1 byte): Packet flags (0x01=UNENCRYPTED, 0x04=SINGLE_CONNECT)
+    - session (4 bytes): Session identifier (network byte order)
+    - length (4 bytes): Length of packet body (network byte order)
+
     Args:
-        version_major: Major version of the TACACS+ protocol (4-bit)
-        ptype: Packet type (AUTHEN, AUTHOR, ACCOUNT)
-        seq: Sequence number (should be odd for client, even for server)
-        flags: Packet flags (e.g., encryption, single connection)
-        session: Session identifier
-        length: Length of the packet body
+        version_major: Major version of the TACACS+ protocol (4-bit).
+                      Should be TAC_PLUS_MAJOR_VER for current versions.
+        ptype: Packet type from TAC_PLUS_PACKET_TYPE:
+               - TAC_PLUS_AUTHEN (0x01): Authentication
+               - TAC_PLUS_AUTHOR (0x02): Authorization
+               - TAC_PLUS_ACCT (0x03): Accounting
+        seq: Sequence number (1-255) for packet ordering within a session.
+             Must be odd for client-to-server packets, even for server-to-client.
+             Should increment by 1 for each packet in the session.
+        flags: Bitmask of packet flags:
+               - TAC_PLUS_UNENCRYPTED_FLAG (0x01): Body is not encrypted
+               - TAC_PLUS_SINGLE_CONNECT_FLAG (0x04): Single connection mode
+        session: 32-bit session identifier that remains constant for the
+                 duration of a TACACS+ session.
+        length: Length of the packet body in bytes (0-65535).
 
     Returns:
-        bytes: Packed TACACS+ header (12 bytes)
+        bytes: 12-byte packed TACACS+ header in network byte order.
+
+    Raises:
+        struct.error: If any parameter is out of valid range for its field.
+
+    Example:
+        # Create a header for an authentication packet
+        header = _mk_header(
+            version_major=TAC_PLUS_MAJOR_VER,
+            ptype=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
+            seq=1,  # First client packet in session
+            flags=0,  # Encrypted, not single-connect
+            session=0x12345678,
+            length=42
+        )
     """
     # major is 4-bit field; mask to keep within 0..15 even for invalid cases
     version = ((version_major & 0x0F) << 4) | 0  # minor 0

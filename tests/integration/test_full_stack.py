@@ -1,15 +1,74 @@
-"""Fixed full stack integration tests"""
+"""
+Full Stack Integration Tests
+===========================
+
+This module contains end-to-end integration tests for the TACACS+ server.
+These tests verify the complete system functionality by exercising multiple
+components together, including authentication, authorization, and accounting.
+
+Test Coverage:
+- TACACS+ protocol implementation
+- Authentication workflows
+- Session management
+- Configuration persistence
+- Multi-instance isolation
+- Logging and monitoring
+- Error handling and recovery
+
+Dependencies:
+- pytest for test framework
+- socket for low-level network communication
+- hashlib for cryptographic operations
+- secrets for secure random number generation
+
+Environment Variables:
+- TACACS_SERVER_HOST: Hostname of the TACACS+ server (default: 127.0.0.1)
+- TACACS_SERVER_PORT: Port of the TACACS+ server (default: 49)
+- TACACS_SHARED_SECRET: Shared secret for TACACS+ authentication
+
+Example Usage:
+    pytest tests/integration/test_full_stack.py -v
+"""
 
 import hashlib
+import secrets
 import socket
 import struct
 import time
-import secrets
 
 
 def tacacs_authenticate(
     host: str, port: int, key: str, username: str, password: str
 ) -> bool:
+    """Perform TACACS+ authentication with the given credentials.
+
+    This helper function implements the TACACS+ authentication protocol
+    to verify user credentials against a TACACS+ server.
+
+    Args:
+        host: TACACS+ server hostname or IP address
+        port: TACACS+ server port
+        key: Shared secret for TACACS+ communication
+        username: Username for authentication
+        password: Password for authentication
+
+    Returns:
+        bool: True if authentication was successful, False otherwise
+
+    Raises:
+        ConnectionError: If there's a network issue communicating with the server
+        TimeoutError: If the server doesn't respond within the timeout period
+        ValueError: If the input parameters are invalid
+
+    Example:
+        success = tacacs_authenticate(
+            host="127.0.0.1",
+            port=49,
+            key="shared_secret",
+            username="testuser",
+            password="testpass"
+        )
+    """
     sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -85,6 +144,32 @@ def tacacs_authenticate(
 
 
 def test_full_stack_all_components(server_factory):
+    """Test the complete TACACS+ server stack with all components.
+
+    This test verifies that all major components of the TACACS+ server
+    work together correctly, including:
+    - Server startup and initialization
+    - TACACS+ authentication
+    - Session management
+    - Configuration handling
+    - Logging and monitoring
+
+    Test Steps:
+    1. Start the server with default configuration
+    2. Perform TACACS+ authentication
+    3. Verify authentication results
+    4. Check server logs for expected entries
+    5. Verify session state
+
+    Expected Results:
+    - Server starts successfully
+    - Authentication succeeds with valid credentials
+    - Logs contain expected authentication events
+    - Session state is properly maintained
+
+    Args:
+        server_factory: Pytest fixture that provides a configured TACACS+ server instance
+    """
     # Updated: ensure admin credentials match what server_factory expects
     server = server_factory(
         config={

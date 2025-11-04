@@ -1,4 +1,36 @@
-"""Fixed accounting tests - adapts to new log format and JSON structure"""
+"""
+TACACS+ Accounting Service Integration Tests
+==========================================
+
+This module contains integration tests for the TACACS+ accounting service.
+It verifies the proper recording and management of accounting records
+for network access and command execution events.
+
+Test Environment:
+- Real TACACS+ server instance
+- SQLite database for accounting records
+- Simulated TACACS+ clients
+- Various network conditions and edge cases
+
+Test Cases:
+- test_accounting_start_update_stop: Basic accounting flow
+- test_accounting_flags_variations: Different TACACS+ flag combinations
+- test_accounting_session_correlation: Session tracking and correlation
+- test_accounting_db_storage_verification: Database storage integrity
+- test_accounting_concurrent_sessions: Handling of multiple sessions
+- test_accounting_disconnect_mid_session: Handling of client disconnections
+
+Configuration:
+- TACACS+ shared secret: 'testing123'
+- Database: SQLite with WAL mode
+- Timeout: 5 seconds for database operations
+- Port: Default TACACS+ port (49)
+
+Example Usage:
+    pytest tests/integration/tacacs/test_accounting_service.py -v
+
+Note: These tests require network access and may be affected by system load.
+"""
 
 import socket
 import sqlite3
@@ -20,6 +52,20 @@ from tacacs_server.tacacs.packet import TacacsPacket
 
 
 def _read_exact(sock: socket.socket, length: int, timeout: float = 2.0) -> bytes:
+    """Read exactly 'length' bytes from a socket with timeout.
+
+    Args:
+        sock: Connected socket to read from
+        length: Number of bytes to read
+        timeout: Maximum time to wait for data (seconds)
+
+    Returns:
+        bytes: The received data
+
+    Raises:
+        socket.timeout: If the operation times out
+        ConnectionError: If the connection is closed unexpectedly
+    """
     sock.settimeout(timeout)
     buf = bytearray()
     while len(buf) < length:
@@ -31,6 +77,19 @@ def _read_exact(sock: socket.socket, length: int, timeout: float = 2.0) -> bytes
 
 
 def _mk_acct_body(username: str, flags: int, args: list[str]) -> bytes:
+    """Create a TACACS+ accounting request body.
+
+    Args:
+        username: Username for the accounting record
+        flags: TACACS+ accounting flags
+        args: List of attribute-value pairs (e.g., ["cmd=show", "arg=version"])
+
+    Returns:
+        bytes: Packed TACACS+ accounting request body
+
+    Note:
+        Follows RFC 8907 (TACACS+) packet format for accounting requests.
+    """
     user_b = username.encode()
     port_b = b""
     rem_b = b""
@@ -56,7 +115,22 @@ def _mk_acct_body(username: str, flags: int, args: list[str]) -> bytes:
     return body
 
 
-def _send_acct(host: str, port: int, session_id: int, body: bytes) -> int | None:
+def _send_acct(host: str, port: int, session_id: int, body: bytes) -> TacacsPacket:
+    """Send a TACACS+ accounting request and return the response.
+
+    Args:
+        host: TACACS+ server hostname or IP
+        port: TACACS+ server port
+        session_id: Unique session identifier
+        body: Pre-built TACACS+ accounting request body
+
+    Returns:
+        TacacsPacket: Parsed response from server
+
+    Raises:
+        ConnectionError: If the connection fails
+        TimeoutError: If the request times out
+    """
     pkt = TacacsPacket(
         version=(TAC_PLUS_MAJOR_VER << 4) | 0,
         packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT,
@@ -78,7 +152,7 @@ def _send_acct(host: str, port: int, session_id: int, body: bytes) -> int | None
         rbody = _read_exact(s, header.length)
         if len(rbody) < 1:
             return None
-        return rbody[0]
+        return TacacsPacket.unpack(rbody)
     except Exception:
         return None
     finally:
@@ -88,8 +162,22 @@ def _send_acct(host: str, port: int, session_id: int, body: bytes) -> int | None
             pass
 
 
-def _db_rows(db_path: str, where: str = "", params: tuple = ()) -> list[tuple]:
+def _db_rows(db_path: str, where: str = "", params: tuple = ()) -> list[sqlite3.Row]:
+    """Query the accounting database and return matching rows.
+
+    Args:
+        db_path: Path to the SQLite database file
+        where: WHERE clause (without the 'WHERE' keyword)
+        params: Parameters for the WHERE clause
+
+    Returns:
+        List of database rows matching the query
+
+    Note:
+        Uses row_factory to return dictionaries for easier access to columns.
+    """
     con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
     try:
         cur = con.cursor()
         q = (
@@ -102,7 +190,19 @@ def _db_rows(db_path: str, where: str = "", params: tuple = ()) -> list[tuple]:
         con.close()
 
 
-def _db_path_from_logs(server) -> str | None:
+def _db_path_from_logs(server) -> str:
+    """Extract the database path from server logs.
+
+    Args:
+        server: Test server instance with get_logs() method
+
+    Returns:
+        str: Path to the accounting database file
+
+    Note:
+        Supports both JSON and text log formats.
+        May raise if the path cannot be determined.
+    """
     logs = server.get_logs()
     candidates: list[str] = []
     # Updated: look for JSON format database path
@@ -134,6 +234,14 @@ def _db_path_from_logs(server) -> str | None:
 
 
 def _db_path(server) -> str:
+    """Get the path to the accounting database.
+
+    Args:
+        server: Test server instance with accounting_db attribute
+
+    Returns:
+        str: Path to the accounting database file
+    """
     alt = _db_path_from_logs(server)
     if alt:
         p = Path(alt)
@@ -146,7 +254,19 @@ def _db_path(server) -> str:
     return str(cfg)
 
 
-def _wait_for_table(db_path: str, timeout: float = 5.0) -> None:
+def _wait_for_table(db_path: str, timeout: float = 5.0) -> bool:
+    """Wait for the accounting table to become available.
+
+    Args:
+        db_path: Path to the SQLite database
+        timeout: Maximum time to wait (seconds)
+
+    Returns:
+        bool: True if the table exists, False on timeout
+
+    Note:
+        Uses polling to handle database initialization delays.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:

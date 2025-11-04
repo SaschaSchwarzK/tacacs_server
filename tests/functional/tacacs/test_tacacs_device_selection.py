@@ -1,11 +1,36 @@
 """
-TACACS Device Selection Tests
+TACACS+ Device Selection Test Suite
 
-Verify device selection by longest-prefix match using real TACACS server.
+This module contains tests for verifying the device selection logic in the TACACS+ server,
+which uses longest-prefix matching to select the appropriate device configuration based
+on the client's IP address.
+
+Test Coverage:
+- Device selection by longest-prefix match
+- Fallback behavior when exact matches don't exist
+- Proper secret selection based on network specificity
+- Handling of overlapping network ranges
+
+Helper Functions:
+    - _dump_diag: Diagnostic utility for troubleshooting test failures
+
+Note: These tests verify the core device selection logic that determines which
+shared secret is used for TACACS+ packet encryption based on the client's IP address.
 """
 
 
 def _dump_diag(server, session=None, base: str | None = None, note: str = "") -> None:
+    """Diagnostic utility to help troubleshoot test failures.
+
+    This function collects and prints diagnostic information including server logs
+    and device configurations to help identify issues during test failures.
+
+    Args:
+        server: The test server instance
+        session: Optional authenticated session for API access
+        base: Base URL for API requests
+        note: Optional note to include in the diagnostic output
+    """
     try:
         print("\n=== TACACS DIAGNOSTICS START", note, "===")
         try:
@@ -25,11 +50,36 @@ def _dump_diag(server, session=None, base: str | None = None, note: str = "") ->
                 print("Failed to query /api/devices:", e)
         print("=== TACACS DIAGNOSTICS END ===\n")
     except Exception:
+        # Silently ignore any errors during diagnostics
         pass
 
 
 def test_tacacs_device_most_specific_wins(server_factory):
-    """With /32, /24, /16 present, only /32 secret succeeds."""
+    """Test that the most specific device configuration is selected.
+
+    This test verifies that when multiple network ranges match a client's IP,
+    the most specific one (longest prefix) is selected. Specifically, a /32
+    match should be preferred over /24 or /16 matches.
+
+    Test Setup:
+    1. Configure devices with overlapping IP ranges:
+       - 192.168.1.1/32 (most specific)
+       - 192.168.1.0/24
+       - 192.168.0.0/16 (least specific)
+    2. Each with different shared secrets
+
+    Test Steps:
+    1. Send TACACS+ request from 192.168.1.1
+    2. Verify the /32 device's secret is used
+
+    Expected Results:
+    - Authentication should only succeed with the /32 device's secret
+    - More general configurations should be ignored
+
+    Edge Cases/Notes:
+    - Tests the core longest-prefix matching algorithm
+    - Verifies proper secret selection for authentication
+    """
     server = server_factory(
         config={"auth_backends": "local", "devices": {"auto_register": "false"}},
         enable_tacacs=True,
@@ -102,7 +152,31 @@ def test_tacacs_device_most_specific_wins(server_factory):
 
 
 def test_tacacs_device_prefers_narrower_when_no_host(server_factory):
-    """With only /24 and /16 present, /24 secret succeeds and /16 fails."""
+    """Test that the most specific available match is selected when no exact match exists.
+
+    This test verifies the fallback behavior when no exact (/32) match exists
+    for a client's IP address. The server should select the most specific
+    available network range that contains the client's IP.
+
+    Test Setup:
+    1. Configure devices with overlapping IP ranges:
+       - 192.168.1.0/24 (more specific)
+       - 192.168.0.0/16 (less specific)
+    2. Each with different shared secrets
+
+    Test Steps:
+    1. Send TACACS+ request from 192.168.1.5
+    2. Verify the /24 device's secret is used
+
+    Expected Results:
+    - Authentication should succeed with the /24 device's secret
+    - The broader /16 secret should be ignored
+
+    Edge Cases/Notes:
+    - Tests fallback behavior in the matching algorithm
+    - Verifies proper secret selection for authentication
+    - Ensures broader network ranges don't override more specific ones
+    """
     server = server_factory(
         config={"auth_backends": "local"},
         enable_tacacs=True,
@@ -111,6 +185,7 @@ def test_tacacs_device_prefers_narrower_when_no_host(server_factory):
 
     with server:
         import time as _time
+
         from tacacs_server.auth.local_user_service import LocalUserService
         from tests.functional.tacacs.test_tacacs_basic import tacacs_authenticate
 
@@ -209,4 +284,3 @@ def test_tacacs_device_prefers_narrower_when_no_host(server_factory):
         if ok16:
             _dump_diag(server, session, base, note="/16 should fail when /24 present")
         assert not ok16, f"/16 secret should fail when /24 present (msg={msg16})"
-

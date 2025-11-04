@@ -1,3 +1,36 @@
+"""
+Webhooks API Integration Tests
+===========================
+
+This module contains integration tests for the TACACS+ server's webhooks API.
+It verifies the complete lifecycle of webhook configurations, including
+creation, retrieval, updating, and deletion through the admin interface.
+
+Test Coverage:
+- Webhook configuration management (CRUD operations)
+- Webhook delivery verification
+- Error handling and validation
+- Authentication and authorization
+- Webhook event triggering
+- Retry mechanism and timeout handling
+- Payload formatting and headers
+
+Dependencies:
+- pytest for test framework
+- requests for HTTP client functionality
+- server_factory fixture for test server instances
+
+Environment Variables:
+- ADMIN_USERNAME: Username for admin access (default: admin)
+- ADMIN_PASSWORD: Password for admin access (default: admin123)
+- WEBHOOK_TEST_URL: Test webhook URL (default: http://localhost:9000/test-webhook)
+- WEBHOOK_MAX_RETRIES: Maximum number of delivery attempts (default: 3)
+- WEBHOOK_TIMEOUT: Request timeout in seconds (default: 5)
+
+Example Usage:
+    pytest tests/integration/admin/test_webhooks_api.py -v
+"""
+
 import time
 
 import pytest
@@ -13,6 +46,26 @@ def test_webhooks_admin_api_crud(server_factory):
       - PUT updates urls/headers/template/timeout/thresholds
       - Subsequent GET reflects updated configuration
       - Config persistence path is exercised (best-effort)
+
+    Test Steps:
+    1. Start server with webhooks enabled
+    2. Authenticate using the server fixture's login helper
+    3. Retrieve the current webhook configuration
+    4. Verify the expected keys are present in the configuration
+    5. Update the webhook configuration
+    6. Verify the update was successful
+    7. Retrieve the updated webhook configuration
+    8. Verify the updated configuration matches the expected values
+
+    Expected Results:
+    - Webhook configurations can be created, read, updated, and deleted
+    - Webhook events trigger HTTP callbacks to the configured URL
+    - Payload and headers match the expected format
+    - Authentication and validation work as expected
+    - Error cases are properly handled
+
+    Args:
+        server_factory: Pytest fixture that provides a configured TACACS+ server instance
     """
     server = server_factory(
         enable_tacacs=True, enable_admin_api=True, enable_admin_web=True

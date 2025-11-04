@@ -1,15 +1,69 @@
+"""
+Backup Destinations Integration Tests
+===================================
+
+This module contains integration tests for various backup destination types
+supported by the TACACS+ server. It verifies that backups can be created
+and managed across different storage backends.
+
+Test Environment:
+- Real FTP server for remote backup testing
+- Local filesystem for local backup testing
+- Temporary directories for test isolation
+
+Test Cases:
+- test_ftp_destination_integration: Tests backup to an FTP server
+
+Dependencies:
+- pyftpdlib: Required for FTP server emulation
+
+Configuration:
+- FTP server: 127.0.0.1 with random port
+- FTP credentials: testuser/testpass
+- Test data: Automatically generated
+
+Example Usage:
+    pytest tests/integration/test_backup_destinations.py -v
+
+Note: These tests require network access for FTP testing and may be skipped
+if dependencies are not available.
+"""
+
 from __future__ import annotations
 
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 
 @pytest.fixture(scope="function")
-def ftp_server(tmp_path):
-    """Start a real FTP server for integration testing."""
+def ftp_server(tmp_path: Path) -> dict[str, Any]:
+    """Start a real FTP server for integration testing.
+
+    This fixture sets up an FTP server with the following configuration:
+    - Runs on localhost with a random available port
+    - Uses a temporary directory as the FTP root
+    - Authenticates with testuser/testpass
+    - Provides full permissions (read/write/delete)
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory
+
+    Yields:
+        Dict containing server information:
+        - 'host': Server hostname (always '127.0.0.1')
+        - 'port': Server port (random available port)
+        - 'user': FTP username ('testuser')
+        - 'password': FTP password ('testpass')
+        - 'root_dir': FTP root directory (temporary path)
+
+    Note:
+        The server is automatically started before the test and stopped after.
+        Uses pyftpdlib for the FTP server implementation.
+    """
     try:
         from pyftpdlib.authorizers import DummyAuthorizer
         from pyftpdlib.handlers import FTPHandler
@@ -66,10 +120,51 @@ def ftp_server(tmp_path):
 
 
 @pytest.mark.integration
-def test_ftp_destination_integration(ftp_server, tmp_path: Path):
-    """Integration test with real FTP server."""
+def test_ftp_destination_integration(
+    ftp_server: dict[str, Any], tmp_path: Path
+) -> None:
+    """Test backup to FTP destination with a real FTP server.
+
+    This test verifies that backups can be successfully uploaded to an FTP server
+    with the following steps:
+    1. Creates a test backup file
+    2. Configures an FTP destination
+    3. Uploads the backup to the FTP server
+    4. Verifies the file was uploaded correctly
+    5. Tests backup listing and retrieval
+
+    Test Steps:
+    1. Create a test backup file with known content
+    2. Initialize FTP destination with test server details
+    3. Upload backup to FTP server
+    4. Verify file exists on FTP server
+    5. List backups and verify metadata
+    6. Download and verify backup content
+
+    Expected Behavior:
+    - Backup is successfully uploaded to FTP server
+    - File size and modification time are preserved
+    - Backup can be listed and retrieved
+    - Downloaded content matches original
+
+    Configuration:
+    - FTP server: Local test server (see ftp_server fixture)
+    - Test file: test_backup.tar.gz with known content
+    - FTP path: /backups/
+
+    Dependencies:
+    - tacacs_server.backup.destinations.ftp
+    - tacacs_server.backup.models
+    """
+
     from tacacs_server.backup.destinations.ftp import FTPBackupDestination
 
+    # Create test backup file with known content
+    test_content = "test backup content"
+    test_file = tmp_path / "test_backup.tar.gz"
+    test_file.write_text(test_content)
+
+    # Configure FTP destination with test server details
     config = {
         "host": ftp_server["host"],
         "port": ftp_server["port"],
