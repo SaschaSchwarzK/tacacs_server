@@ -21,6 +21,28 @@ from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
 from requests.exceptions import RequestException
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register custom command line options."""
+
+    parser.addoption(
+        "--e2e",
+        action="store_true",
+        default=False,
+        help="Run end-to-end tests that require external services like Docker.",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip e2e tests unless explicitly requested."""
+
+    if config.getoption("--e2e"):
+        return
+
+    skip_marker = pytest.mark.skip(reason="use --e2e to run end-to-end tests")
+    for item in items:
+        if "e2e" in item.keywords:
+            item.add_marker(skip_marker)
+
 
 @pytest.fixture(autouse=True, scope="session")
 def _backup_env_roots(tmp_path_factory: pytest.TempPathFactory):
