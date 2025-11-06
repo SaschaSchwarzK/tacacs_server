@@ -1,18 +1,35 @@
 #!/usr/bin/env python3
-"""
-Simple LDAP probe:
- - Resolves a user's DN by uid
- - Verifies the user's password by binding as the user
- - Lists groups (groupOfUniqueNames) where the user's DN is a member
+"""LDAP Probe Utility for TACACS+ Server Testing
 
-Usage examples:
+This module provides a command-line utility to probe and debug LDAP server connections
+used by the TACACS+ server. It can:
+ - Resolve a user's DN by uid
+ - Verify user credentials by binding as the user
+ - List groups where the user is a member
+ - Test LDAP server connectivity and authentication
+
+Features:
+- Supports both plain and SSL/TLS connections
+- Compatible with OpenLDAP and other LDAPv3 servers
+- Detailed error reporting and debug output
+
+Environment Variables:
+    LDAP_SERVER: Default LDAP server hostname
+    LDAP_PORT: Default LDAP port (default: 389 or 636 for SSL)
+    LDAP_BASE_DN: Default base DN for searches
+    LDAP_ADMIN_DN: Default admin DN for binding
+    LDAP_ADMIN_PASSWORD: Default admin password
+
+Example Usage:
+  # Test connection with admin credentials
   python ldap_probe.py --host 127.0.0.1 --port 389 \
       --base-dn "dc=example,dc=org" --admin-dn "cn=admin,dc=example,dc=org" \
-      --admin-password secret --uid adminA --password password
+      --admin-password secret
 
-  python ldap_probe.py --host 127.0.0.1 --port 636 --use-ssl \
+  # Test user authentication with SSL
+  python ldap_probe.py --host ldap.example.com --port 636 --use-ssl \
       --base-dn "dc=example,dc=org" --admin-dn "cn=admin,dc=example,dc=org" \
-      --admin-password secret --uid adminA --password password
+      --admin-password secret --uid testuser --password userpass
 """
 
 from __future__ import annotations
@@ -42,6 +59,25 @@ def _server(host: str, port: int, use_ssl: bool, timeout: float, insecure: bool)
 
 
 def admin_bind(host: str, port: int, use_ssl: bool, admin_dn: str, admin_password: str, timeout: float, insecure: bool, start_tls: bool) -> ldap3.Connection:
+    """Bind to LDAP server with admin credentials.
+
+    Args:
+        host: LDAP server hostname or IP address
+        port: LDAP server port
+        use_ssl: Whether to use SSL/TLS for the connection
+        admin_dn: Distinguished Name for admin authentication
+        admin_password: Password for admin authentication
+        timeout: Connection timeout in seconds
+        insecure: If True, skip certificate verification
+        start_tls: If True, issue StartTLS after connection
+
+    Returns:
+        ldap3.Connection: Active LDAP connection on success
+
+    Raises:
+        ldap3.core.exceptions.LDAPException: If connection or bind fails
+        ValueError: If authentication fails
+    """
     srv = _server(host, port, use_ssl, timeout, insecure)
     int_timeout = int(timeout)
     conn = ldap3.Connection(srv, user=admin_dn, password=admin_password, receive_timeout=int_timeout)
@@ -59,6 +95,19 @@ def admin_bind(host: str, port: int, use_ssl: bool, admin_dn: str, admin_passwor
 
 
 def find_user_dn(conn: ldap3.Connection, base_dn: str, uid: str) -> Optional[str]:
+    """Find a user's DN by their UID.
+
+    Args:
+        conn: Active LDAP connection
+        base_dn: Base DN to search under
+        uid: User ID to search for
+
+    Returns:
+        str: Distinguished Name of the user
+
+    Raises:
+        ValueError: If user is not found or multiple users match
+    """
     ok = conn.search(search_base=base_dn, search_filter=f"(uid={uid})", attributes=["cn", "uid"])
     if not ok or not conn.entries:
         return None
@@ -67,6 +116,21 @@ def find_user_dn(conn: ldap3.Connection, base_dn: str, uid: str) -> Optional[str
 
 
 def verify_user_password(host: str, port: int, use_ssl: bool, user_dn: str, password: str, timeout: float, insecure: bool, start_tls: bool) -> bool:
+    """Verify a user's password by attempting to bind with their credentials.
+
+    Args:
+        host: LDAP server hostname or IP address
+        port: LDAP server port
+        use_ssl: Whether to use SSL/TLS for the connection
+        user_dn: User's Distinguished Name
+        password: User's password to verify
+        timeout: Connection timeout in seconds
+        insecure: If True, skip certificate verification
+        start_tls: If True, issue StartTLS after connection
+
+    Returns:
+        bool: True if authentication succeeded, False otherwise
+    """
     srv = _server(host, port, use_ssl, timeout, insecure)
     int_timeout = int(timeout)
     conn = ldap3.Connection(srv, user=user_dn, password=password, receive_timeout=int_timeout)
@@ -87,6 +151,16 @@ def verify_user_password(host: str, port: int, use_ssl: bool, user_dn: str, pass
 
 
 def user_groups(conn: ldap3.Connection, base_dn: str, user_dn: str) -> List[str]:
+    """List groups where the specified user is a member.
+
+    Args:
+        conn: Active LDAP connection
+        base_dn: Base DN to search for groups
+        user_dn: User's Distinguished Name to find groups for
+
+    Returns:
+        list[str]: List of group entries with their attributes
+    """
     # Our test directory creates groupOfUniqueNames entries under ou=groups
     groups_base = f"ou=groups,{base_dn}"
     flt = f"(uniqueMember={user_dn})"

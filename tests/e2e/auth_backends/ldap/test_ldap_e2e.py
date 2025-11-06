@@ -1,4 +1,20 @@
-"""End-to-end test verifying TACACS+ server with LDAP backend in Docker."""
+"""End-to-end test verifying TACACS+ server with LDAP backend in Docker.
+
+This module contains end-to-end tests that verify the integration between the TACACS+ server
+and an LDAP backend. It uses Docker containers to spin up both the TACACS+ server and an
+OpenLDAP server for testing authentication and authorization flows.
+
+Test Environment:
+- Creates a Docker network for isolated testing
+- Builds and runs an OpenLDAP container with test data
+- Builds and runs the TACACS+ server configured to use the LDAP backend
+- Performs authentication and authorization tests against the running services
+
+Prerequisites:
+- Docker must be installed and running on the host system
+- Sufficient permissions to run Docker commands
+- Available ports for container services
+"""
 
 from __future__ import annotations
 
@@ -21,7 +37,24 @@ from tests.functional.tacacs.test_tacacs_basic import tacacs_authenticate
 
 @pytest.mark.e2e
 def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
-    """Build containers, configure TACACS for LDAP, and authenticate a user."""
+    """Test TACACS+ server integration with LDAP backend.
+
+    This test performs the following steps:
+    1. Builds Docker images for both TACACS+ server and OpenLDAP
+    2. Creates a Docker network for communication between containers
+    3. Starts the OpenLDAP container with test data
+    4. Configures and starts the TACACS+ server with LDAP backend
+    5. Verifies authentication and authorization of test users
+    6. Cleans up all test resources
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory for test files
+
+    Raises:
+        AssertionError: If any test assertion fails
+        subprocess.CalledProcessError: If any Docker command fails
+        TimeoutError: If services don't start within expected time
+    """
 
     if not shutil.which("docker"):
         pytest.skip("Docker is required for LDAP E2E test")
@@ -201,6 +234,8 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                 "PYTHONUNBUFFERED=1",
                 "-e",
                 "TACACS_BACKEND_TIMEOUT=10",
+                "-e",
+                "TACACS_LDAP_DEBUG=1",
                 "-e",
                 f"LDAP_BIND_PASSWORD={ldap_admin_password}",
                 "-v",
@@ -613,6 +648,59 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
 
         if not success:
             log_tail = ""
+            # From TACACS container: TCP connectivity + LDAP bind/search diagnostics
+            try:
+                ldap_host_for_tacacs = config["ldap"]["server"]
+                tcp_probe = subprocess.run(
+                    [
+                        "docker","exec",tacacs_container,"sh","-lc",
+                        (
+                            "echo '--- tcp probe from tacacs -> %s:389 ---' && "
+                            "/opt/venv/bin/python - <<'PY'\n"
+                            "import socket,sys; host='%s';\n"
+                            "try:\n"
+                            "    s=socket.create_connection((host,389),timeout=5); s.close(); print('tcp_connect_ok')\n"
+                            "except Exception as e:\n"
+                            "    print('tcp_connect_error:', e)\n"
+                            "PY\n"
+                        ) % (ldap_host_for_tacacs, ldap_host_for_tacacs)
+                    ],
+                    check=False, capture_output=True, text=True,
+                )
+                log_tail += "\n" + (tcp_probe.stdout or "") + ("\n" + tcp_probe.stderr if tcp_probe.stderr else "")
+            except Exception:
+                pass
+            try:
+                # LDAP bind and search using ldap3 inside TACACS container
+                probe_py = (
+                    "import sys,ldap3; host='%s'; base='%s'; admin='cn=admin,%s'; user_dn='uid=%s,ou=people,%s';\n"
+                    "out=[]; srv=ldap3.Server(host,use_ssl=False,connect_timeout=5);\n"
+                    "try:\n"
+                    "  c=ldap3.Connection(srv,user=admin,password='%s'); out.append('admin_bind='+str(c.bind())); c.unbind()\n"
+                    "except Exception as e: out.append('admin_bind_error='+repr(e))\n"
+                    "try:\n"
+                    "  cu=ldap3.Connection(srv,user=user_dn,password='%s'); out.append('user_bind='+str(cu.bind())); cu.unbind()\n"
+                    "except Exception as e: out.append('user_bind_error='+repr(e))\n"
+                    "print('--- ldap probe inside tacacs ---\\n'+'\\n'.join(out))\n"
+                ) % (
+                    config["ldap"]["server"],
+                    ldap_base_dn,
+                    ldap_base_dn,
+                    target_user["username"],
+                    ldap_base_dn,
+                    ldap_admin_password,
+                    target_user["password"],
+                )
+                ldap_probe = subprocess.run(
+                    [
+                        "docker","exec",tacacs_container,"sh","-lc",
+                        f"/opt/venv/bin/python - <<'PY'\n{probe_py}\nPY\n",
+                    ],
+                    check=False, capture_output=True, text=True,
+                )
+                log_tail += "\n" + (ldap_probe.stdout or "") + ("\n" + ldap_probe.stderr if ldap_probe.stderr else "")
+            except Exception:
+                pass
             # Try reading server log file
             try:
                 log_path = logs_dir / "server.log"
