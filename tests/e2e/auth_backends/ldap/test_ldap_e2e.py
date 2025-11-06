@@ -834,16 +834,41 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
 
 
 def _run_docker(args: list[str]) -> None:
+    """Execute a Docker command with the given arguments.
+
+    Args:
+        args: List of command-line arguments to pass to Docker
+
+    Raises:
+        subprocess.CalledProcessError: If the Docker command fails
+    """
     subprocess.run(["docker", *args], check=True)
 
 
 def _find_free_port() -> int:
+    """Find an available TCP port on localhost.
+
+    Returns:
+        int: An available port number between 1024 and 65535
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
 
 def _wait_for_ldap(port: int, password: str, base_dn: str, timeout: float = 120.0, container_name: str | None = None) -> None:
+    """Wait for an LDAP server to become available and responsive.
+
+    Args:
+        port: TCP port where LDAP server is expected to be listening
+        password: LDAP admin password for authentication
+        base_dn: Base DN for the LDAP directory
+        timeout: Maximum time to wait in seconds (default: 120)
+        container_name: Optional container name for additional diagnostics
+
+    Raises:
+        TimeoutError: If the LDAP server doesn't become ready within the timeout
+    """
     deadline = time.time() + timeout
     server = ldap3.Server("127.0.0.1", port=port, use_ssl=False)
     while time.time() < deadline:
@@ -889,6 +914,15 @@ def _wait_for_ldap(port: int, password: str, base_dn: str, timeout: float = 120.
     )
 
 def _docker_logs(container_name: str | None, tail: int = 200) -> str:
+    """Retrieve logs from a Docker container.
+
+    Args:
+        container_name: Name or ID of the container
+        tail: Number of lines to retrieve from the end of logs (default: 200)
+
+    Returns:
+        str: Combined stdout and stderr output from the container
+    """
     if not container_name:
         return ""
     try:
@@ -904,6 +938,15 @@ def _docker_logs(container_name: str | None, tail: int = 200) -> str:
 
 
 def _wait_for_http(url: str, timeout: float = 60.0) -> None:
+    """Wait for an HTTP service to become available and respond with success status.
+
+    Args:
+        url: HTTP URL to check
+        timeout: Maximum time to wait in seconds (default: 60)
+
+    Raises:
+        TimeoutError: If the service doesn't become ready within the timeout
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -918,6 +961,14 @@ def _wait_for_http(url: str, timeout: float = 60.0) -> None:
 
 
 def _get_docker_host_ip(container_name: str) -> str:
+    """Get the host IP address as seen from inside a container.
+
+    Args:
+        container_name: Name or ID of the container to run the check in
+
+    Returns:
+        str: The host's IP address (defaults to '172.17.0.1' if detection fails)
+    """
     try:
         result = subprocess.run(
             [
@@ -941,6 +992,21 @@ def _get_docker_host_ip(container_name: str) -> str:
 
 
 def _load_group_records(path: Path) -> list[dict[str, str]]:
+    """Load group records from a CSV file.
+
+    The CSV file should have the following format:
+        group_name,description
+        admin,Administrators group
+        users,Regular users
+
+    Lines starting with '#' and empty lines are ignored.
+
+    Args:
+        path: Path to the CSV file containing group definitions
+
+    Returns:
+        list[dict[str, str]]: List of group records with 'name' and 'description' keys
+    """
     records: list[dict[str, str]] = []
     with path.open("r", encoding="utf-8") as fh:
         reader = csv.reader(fh)
@@ -956,6 +1022,29 @@ def _load_group_records(path: Path) -> list[dict[str, str]]:
 
 
 def _load_user_records(path: Path) -> list[dict[str, object]]:
+    """Load user records from a CSV file.
+
+    The CSV file should have the following format:
+        username,password,first_name,last_name,groups
+        user1,password1,John,Doe,group1|group2
+        user2,password2,Jane,Smith,group2|group3
+
+    Where:
+    - username: Unique user identifier
+    - password: User's password
+    - first_name: User's first name (optional)
+    - last_name: User's last name (optional)
+    - groups: Pipe-separated list of group memberships (optional)
+
+    Lines starting with '#' and empty lines are ignored.
+
+    Args:
+        path: Path to the CSV file containing user definitions
+
+    Returns:
+        list[dict[str, object]]: List of user records with 'username', 'password',
+                                 and 'groups' keys
+    """
     records: list[dict[str, object]] = []
     with path.open("r", encoding="utf-8") as fh:
         reader = csv.reader(fh)
