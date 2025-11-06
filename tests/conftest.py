@@ -21,6 +21,7 @@ from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
 from requests.exceptions import RequestException
 
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Register custom command line options."""
 
@@ -32,7 +33,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     """Skip e2e tests unless explicitly requested."""
 
     if config.getoption("--e2e"):

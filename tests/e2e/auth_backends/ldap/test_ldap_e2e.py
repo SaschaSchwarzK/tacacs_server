@@ -146,7 +146,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
             capture_output=True,
             text=True,
         )
-        build_logs["tacacs_build"] = (proc_t.stdout or "") + ("\n" + proc_t.stderr if proc_t.stderr else "")
+        build_logs["tacacs_build"] = (proc_t.stdout or "") + (
+            "\n" + proc_t.stderr if proc_t.stderr else ""
+        )
         if proc_t.returncode != 0:
             raise AssertionError(
                 f"TACACS image build failed (exit {proc_t.returncode})\n--- tacacs build logs ---\n{build_logs['tacacs_build']}"
@@ -158,7 +160,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
             capture_output=True,
             text=True,
         )
-        build_logs["ldap_build"] = (proc_l.stdout or "") + ("\n" + proc_l.stderr if proc_l.stderr else "")
+        build_logs["ldap_build"] = (proc_l.stdout or "") + (
+            "\n" + proc_l.stderr if proc_l.stderr else ""
+        )
         if proc_l.returncode != 0:
             raise AssertionError(
                 f"LDAP image build failed (exit {proc_l.returncode})\n--- ldap build logs ---\n{build_logs['ldap_build']}"
@@ -191,7 +195,12 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
         )
         started_containers.append(ldap_container)
 
-        _wait_for_ldap(ldap_host_port, ldap_admin_password, ldap_base_dn, container_name=ldap_container)
+        _wait_for_ldap(
+            ldap_host_port,
+            ldap_admin_password,
+            ldap_base_dn,
+            container_name=ldap_container,
+        )
 
         # Resolve LDAP container IP and switch tacacs LDAP server to literal IP to avoid DNS/timing issues
         try:
@@ -289,9 +298,15 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
 
             ps_out = _exec("ps -ef || ps aux || true")
             ports_out = _exec("(ss -lntp || netstat -lntp || true) 2>&1")
-            cfg_out = _exec("echo '--- config file ---'; cat /app/config/tacacs.container.ini 2>/dev/null || true")
-            env_out = _exec("env | sort | egrep '^(API_TOKEN|LDAP|SERVER_|PORT|HOST)=' || true")
-            curl_out = _exec("curl -sv --max-time 5 http://127.0.0.1:8080/health 2>&1 || true")
+            cfg_out = _exec(
+                "echo '--- config file ---'; cat /app/config/tacacs.container.ini 2>/dev/null || true"
+            )
+            env_out = _exec(
+                "env | sort | egrep '^(API_TOKEN|LDAP|SERVER_|PORT|HOST)=' || true"
+            )
+            curl_out = _exec(
+                "curl -sv --max-time 5 http://127.0.0.1:8080/health 2>&1 || true"
+            )
             # Inspect container state for exit reason
             try:
                 insp = subprocess.run(
@@ -306,7 +321,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                inspect_out = (insp.stdout or "") + ("\n" + insp.stderr if insp.stderr else "")
+                inspect_out = (insp.stdout or "") + (
+                    "\n" + insp.stderr if insp.stderr else ""
+                )
             except Exception:
                 inspect_out = "(inspect failed)"
 
@@ -324,7 +341,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                inspect_cfg = (insp_cfg.stdout or "") + ("\n" + insp_cfg.stderr if insp_cfg.stderr else "")
+                inspect_cfg = (insp_cfg.stdout or "") + (
+                    "\n" + insp_cfg.stderr if insp_cfg.stderr else ""
+                )
             except Exception:
                 inspect_cfg = "(inspect config failed)"
             try:
@@ -340,7 +359,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                inspect_mounts = (insp_mnt.stdout or "") + ("\n" + insp_mnt.stderr if insp_mnt.stderr else "")
+                inspect_mounts = (insp_mnt.stdout or "") + (
+                    "\n" + insp_mnt.stderr if insp_mnt.stderr else ""
+                )
             except Exception:
                 inspect_mounts = "(inspect mounts failed)"
 
@@ -352,7 +373,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                ldap_logs = (dl_ldap.stdout or "") + ("\n" + dl_ldap.stderr if dl_ldap.stderr else "")
+                ldap_logs = (dl_ldap.stdout or "") + (
+                    "\n" + dl_ldap.stderr if dl_ldap.stderr else ""
+                )
             except Exception:
                 ldap_logs = "(failed to read ldap docker logs)"
             try:
@@ -368,7 +391,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                inspect_ldap = (insp_l.stdout or "") + ("\n" + insp_l.stderr if insp_l.stderr else "")
+                inspect_ldap = (insp_l.stdout or "") + (
+                    "\n" + insp_l.stderr if insp_l.stderr else ""
+                )
             except Exception:
                 inspect_ldap = "(inspect ldap failed)"
 
@@ -409,7 +434,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                             files.append(f"--- host logs: {p.name} ---\n{tail}\n")
                         except Exception:
                             files.append(f"--- host logs: {p.name} --- (unreadable)\n")
-                host_logs_dump = "".join(files) if files else "(no files under host logs dir)"
+                host_logs_dump = (
+                    "".join(files) if files else "(no files under host logs dir)"
+                )
             except Exception:
                 host_logs_dump = "(failed to enumerate host logs dir)"
 
@@ -426,8 +453,8 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                 f"--- docker inspect .Mounts ---\n{inspect_mounts}\n"
                 f"--- ldap docker logs ---\n{ldap_logs}\n"
                 f"--- ldap docker inspect .State ---\n{inspect_ldap}\n"
-                f"--- tacacs image build logs ---\n{build_logs.get('tacacs_build','(no build logs)')}\n"
-                f"--- ldap image build logs ---\n{build_logs.get('ldap_build','(no build logs)')}\n"
+                f"--- tacacs image build logs ---\n{build_logs.get('tacacs_build', '(no build logs)')}\n"
+                f"--- ldap image build logs ---\n{build_logs.get('ldap_build', '(no build logs)')}\n"
                 f"--- stdouterr.log (host mount) ---\n{stdouterr_txt}\n"
                 f"--- process exit code ---\n{exitcode_txt}\n"
                 f"{host_logs_dump}"
@@ -436,7 +463,7 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                 f"TACACS container did not become healthy: {e}\n{diag}"
             )
 
-        host_ip = _get_docker_host_ip(tacacs_container)
+        _ = _get_docker_host_ip(tacacs_container)
 
         session = requests.Session()
         session.headers.update({"X-API-Token": api_token})
@@ -445,7 +472,12 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
         # Sanity-check LDAP from the host using the published port
         try:
             server = ldap3.Server("127.0.0.1", port=ldap_host_port, use_ssl=False)
-            with ldap3.Connection(server, user=f"cn=admin,{ldap_base_dn}", password=ldap_admin_password, auto_bind=True) as admin_conn:
+            with ldap3.Connection(
+                server,
+                user=f"cn=admin,{ldap_base_dn}",
+                password=ldap_admin_password,
+                auto_bind=True,
+            ) as admin_conn:
                 admin_conn.search(
                     search_base=f"ou=people,{ldap_base_dn}",
                     search_filter=f"(uid={users_data[0]['username']})",
@@ -453,7 +485,12 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                 )
             # Probe the target user credentials as well
             target_dn = f"uid={users_data[0]['username']},ou=people,{ldap_base_dn}"
-            with ldap3.Connection(server, user=target_dn, password=users_data[0]['password'], auto_bind=True):
+            with ldap3.Connection(
+                server,
+                user=target_dn,
+                password=users_data[0]["password"],
+                auto_bind=True,
+            ):
                 pass
         except Exception as e:
             raise AssertionError(f"LDAP sanity check failed from host: {e}")
@@ -466,9 +503,7 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                 "privilege_level": 15 if "admin" in group_name else 5,
                 "ldap_group": f"cn={group['name']},ou=groups,{ldap_base_dn}",
             }
-            resp = session.post(
-                f"{base_url}/api/user-groups", json=payload, timeout=15
-            )
+            resp = session.post(f"{base_url}/api/user-groups", json=payload, timeout=15)
             resp.raise_for_status()
 
         # Fetch created user groups to build name->id mapping
@@ -478,7 +513,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
             ug_resp.raise_for_status()
             ug_list = (
                 ug_resp.json()
-                if ug_resp.headers.get("content-type", "").startswith("application/json")
+                if ug_resp.headers.get("content-type", "").startswith(
+                    "application/json"
+                )
                 else []
             )
             for record in ug_list:
@@ -522,7 +559,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
             dg_list.raise_for_status()
             dg_json = (
                 dg_list.json()
-                if dg_list.headers.get("content-type", "").startswith("application/json")
+                if dg_list.headers.get("content-type", "").startswith(
+                    "application/json"
+                )
                 else []
             )
             group_id_map = {
@@ -531,7 +570,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                 if isinstance(item, dict)
             }
             group_id = group_id_map.get(effective_group_name)
-            assert group_id, f"Device group '{effective_group_name}' not found after creation. Response list: {dg_json}"
+            assert group_id, (
+                f"Device group '{effective_group_name}' not found after creation. Response list: {dg_json}"
+            )
 
             # If the group pre-existed and we couldn't set secret via PUT due to route conflicts,
             # we rely on our dedicated e2e group to carry the expected secret; skip PUT.
@@ -581,14 +622,19 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                         pass
                     # User bind
                     with ldap3.Connection(
-                        server, user=user_dn, password=target_user["password"], auto_bind=True
+                        server,
+                        user=user_dn,
+                        password=target_user["password"],
+                        auto_bind=True,
                     ):
                         ldap_ready = True
                         break
                 except ldap3.core.exceptions.LDAPException:
                     time.sleep(0.25)
             if not ldap_ready:
-                raise AssertionError("LDAP did not accept binds in readiness window before TACACS auth")
+                raise AssertionError(
+                    "LDAP did not accept binds in readiness window before TACACS auth"
+                )
         except Exception as e:
             raise AssertionError(f"LDAP readiness pre-check failed: {e}")
 
@@ -602,8 +648,12 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                 "import ldap3.core.exceptions as E\n"
                 "while time.time()<deadline:\n"
                 "  try:\n"
-                "    c=ldap3.Connection(srv, user=admin, password='" + ldap_admin_password + "'); ok=c.bind(); c.unbind();\n"
-                "    cu=ldap3.Connection(srv, user=user, password='" + target_user['password'] + "'); ok=ok and cu.bind(); cu.unbind();\n"
+                "    c=ldap3.Connection(srv, user=admin, password='"
+                + ldap_admin_password
+                + "'); ok=c.bind(); c.unbind();\n"
+                "    cu=ldap3.Connection(srv, user=user, password='"
+                + target_user["password"]
+                + "'); ok=ok and cu.bind(); cu.unbind();\n"
                 "    break\n"
                 "  except E.LDAPException:\n"
                 "    time.sleep(0.5)\n"
@@ -616,7 +666,7 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     tacacs_container,
                     "sh",
                     "-lc",
-                    f"/opt/venv/bin/python -c \"{probe_code}\"",
+                    f'/opt/venv/bin/python -c "{probe_code}"',
                 ],
                 check=False,
                 capture_output=True,
@@ -624,7 +674,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
             )
             if pr.returncode != 0:
                 raise AssertionError(
-                    "LDAP probe inside TACACS container failed before auth.\n" + (pr.stdout or "") + ("\n" + pr.stderr if pr.stderr else "")
+                    "LDAP probe inside TACACS container failed before auth.\n"
+                    + (pr.stdout or "")
+                    + ("\n" + pr.stderr if pr.stderr else "")
                 )
         except Exception as e:
             raise AssertionError(f"In-container LDAP probe failed: {e}")
@@ -651,54 +703,68 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
             # From TACACS container: TCP connectivity + LDAP bind/search diagnostics
             try:
                 ldap_host_for_tacacs = config["ldap"]["server"]
+                tcp_probe_cmd = (
+                    f"echo '--- tcp probe from tacacs -> {ldap_host_for_tacacs}:389 ---' && "
+                    "/opt/venv/bin/python - <<'PY'\n"
+                    f"import socket,sys; host='{ldap_host_for_tacacs}';\n"
+                    "try:\n"
+                    "    s=socket.create_connection((host,389),timeout=5); s.close(); print('tcp_connect_ok')\n"
+                    "except Exception as e:\n"
+                    "    print('tcp_connect_error:', e)\n"
+                    "PY\n"
+                )
                 tcp_probe = subprocess.run(
                     [
-                        "docker","exec",tacacs_container,"sh","-lc",
-                        (
-                            "echo '--- tcp probe from tacacs -> %s:389 ---' && "
-                            "/opt/venv/bin/python - <<'PY'\n"
-                            "import socket,sys; host='%s';\n"
-                            "try:\n"
-                            "    s=socket.create_connection((host,389),timeout=5); s.close(); print('tcp_connect_ok')\n"
-                            "except Exception as e:\n"
-                            "    print('tcp_connect_error:', e)\n"
-                            "PY\n"
-                        ) % (ldap_host_for_tacacs, ldap_host_for_tacacs)
+                        "docker",
+                        "exec",
+                        tacacs_container,
+                        "sh",
+                        "-lc",
+                        tcp_probe_cmd,
                     ],
-                    check=False, capture_output=True, text=True,
+                    check=False,
+                    capture_output=True,
+                    text=True,
                 )
-                log_tail += "\n" + (tcp_probe.stdout or "") + ("\n" + tcp_probe.stderr if tcp_probe.stderr else "")
+                log_tail += (
+                    "\n"
+                    + (tcp_probe.stdout or "")
+                    + ("\n" + tcp_probe.stderr if tcp_probe.stderr else "")
+                )
             except Exception:
                 pass
             try:
                 # LDAP bind and search using ldap3 inside TACACS container
                 probe_py = (
-                    "import sys,ldap3; host='%s'; base='%s'; admin='cn=admin,%s'; user_dn='uid=%s,ou=people,%s';\n"
+                    f"import sys,ldap3; host='{config['ldap']['server']}'; base='{ldap_base_dn}'; "
+                    f"admin='cn=admin,{ldap_base_dn}'; user_dn='uid={target_user['username']},ou=people,{ldap_base_dn}';\n"
                     "out=[]; srv=ldap3.Server(host,use_ssl=False,connect_timeout=5);\n"
                     "try:\n"
-                    "  c=ldap3.Connection(srv,user=admin,password='%s'); out.append('admin_bind='+str(c.bind())); c.unbind()\n"
+                    f"  c=ldap3.Connection(srv,user=admin,password='{ldap_admin_password}'); out.append('admin_bind='+str(c.bind())); c.unbind()\n"
                     "except Exception as e: out.append('admin_bind_error='+repr(e))\n"
                     "try:\n"
-                    "  cu=ldap3.Connection(srv,user=user_dn,password='%s'); out.append('user_bind='+str(cu.bind())); cu.unbind()\n"
+                    f"  cu=ldap3.Connection(srv,user=user_dn,password='{target_user['password']}'); out.append('user_bind='+str(cu.bind())); cu.unbind()\n"
                     "except Exception as e: out.append('user_bind_error='+repr(e))\n"
                     "print('--- ldap probe inside tacacs ---\\n'+'\\n'.join(out))\n"
-                ) % (
-                    config["ldap"]["server"],
-                    ldap_base_dn,
-                    ldap_base_dn,
-                    target_user["username"],
-                    ldap_base_dn,
-                    ldap_admin_password,
-                    target_user["password"],
                 )
                 ldap_probe = subprocess.run(
                     [
-                        "docker","exec",tacacs_container,"sh","-lc",
+                        "docker",
+                        "exec",
+                        tacacs_container,
+                        "sh",
+                        "-lc",
                         f"/opt/venv/bin/python - <<'PY'\n{probe_py}\nPY\n",
                     ],
-                    check=False, capture_output=True, text=True,
+                    check=False,
+                    capture_output=True,
+                    text=True,
                 )
-                log_tail += "\n" + (ldap_probe.stdout or "") + ("\n" + ldap_probe.stderr if ldap_probe.stderr else "")
+                log_tail += (
+                    "\n"
+                    + (ldap_probe.stdout or "")
+                    + ("\n" + ldap_probe.stderr if ldap_probe.stderr else "")
+                )
             except Exception:
                 pass
             # Try reading server log file
@@ -757,7 +823,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                combined2 = (dlt.stdout or "") + ("\n" + dlt.stderr if dlt.stderr else "")
+                combined2 = (dlt.stdout or "") + (
+                    "\n" + dlt.stderr if dlt.stderr else ""
+                )
                 log_tail += "\n--- tacacs server.log (exec) ---\n" + combined2
             except Exception:
                 pass
@@ -775,7 +843,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                ldap_combined = (dl_ldap.stdout or "") + ("\n" + dl_ldap.stderr if dl_ldap.stderr else "")
+                ldap_combined = (dl_ldap.stdout or "") + (
+                    "\n" + dl_ldap.stderr if dl_ldap.stderr else ""
+                )
                 log_tail += "\n--- docker logs (ldap) ---\n" + ldap_combined
             except Exception:
                 pass
@@ -788,13 +858,17 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                         tacacs_container,
                         "sh",
                         "-lc",
-                        f"python - <<'PY'\nimport socket\ns=socket.create_connection(('" + ldap_container + "',389),5)\nprint('tcp_connect_ok')\ns.close()\nPY",
+                        "python - <<'PY'\nimport socket\ns=socket.create_connection(('"
+                        + ldap_container
+                        + "',389),5)\nprint('tcp_connect_ok')\ns.close()\nPY",
                     ],
                     check=False,
                     capture_output=True,
                     text=True,
                 )
-                tcp_out = (tcp_probe.stdout or "") + ("\n" + tcp_probe.stderr if tcp_probe.stderr else "")
+                tcp_out = (tcp_probe.stdout or "") + (
+                    "\n" + tcp_probe.stderr if tcp_probe.stderr else ""
+                )
                 log_tail += "\n--- tcp probe from tacacs -> ldap:389 ---\n" + tcp_out
             except Exception:
                 pass
@@ -816,7 +890,9 @@ def test_tacacs_server_with_ldap_backend(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                ldap_out = (ldap_probe.stdout or "") + ("\n" + ldap_probe.stderr if ldap_probe.stderr else "")
+                ldap_out = (ldap_probe.stdout or "") + (
+                    "\n" + ldap_probe.stderr if ldap_probe.stderr else ""
+                )
                 log_tail += "\n--- ldap probe inside ldap container ---\n" + ldap_out
             except Exception:
                 pass
@@ -856,7 +932,13 @@ def _find_free_port() -> int:
         return sock.getsockname()[1]
 
 
-def _wait_for_ldap(port: int, password: str, base_dn: str, timeout: float = 120.0, container_name: str | None = None) -> None:
+def _wait_for_ldap(
+    port: int,
+    password: str,
+    base_dn: str,
+    timeout: float = 120.0,
+    container_name: str | None = None,
+) -> None:
     """Wait for an LDAP server to become available and responsive.
 
     Args:
@@ -910,8 +992,10 @@ def _wait_for_ldap(port: int, password: str, base_dn: str, timeout: float = 120.
     # Include LDAP container logs to aid debugging
     logs = _docker_logs(container_name) if container_name else ""
     raise TimeoutError(
-        "LDAP container did not become ready in time" + (f"\n--- ldap logs ---\n{logs}" if logs else "")
+        "LDAP container did not become ready in time"
+        + (f"\n--- ldap logs ---\n{logs}" if logs else "")
     )
+
 
 def _docker_logs(container_name: str | None, tail: int = 200) -> str:
     """Retrieve logs from a Docker container.
@@ -1057,7 +1141,9 @@ def _load_user_records(path: Path) -> list[dict[str, object]]:
             password = row[1].strip()
             groups = []
             if len(row) > 4:
-                groups = [item.strip().lower() for item in row[4].split("|") if item.strip()]
+                groups = [
+                    item.strip().lower() for item in row[4].split("|") if item.strip()
+                ]
             records.append(
                 {
                     "username": username,

@@ -2,10 +2,10 @@
 LDAP Authentication Backend
 """
 
+import os
 import threading
 from queue import Empty, Queue
 from typing import Any
-import os
 
 from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.logger import get_logger
@@ -47,6 +47,7 @@ class LDAPAuthBackend(AuthenticationBackend):
             self.user_attribute = cfg.get("user_attribute", user_attribute)
             self.bind_dn = cfg.get("bind_dn") or None
             self.bind_password = cfg.get("bind_password") or None
+
             # Robust boolean parsing: accept true/false strings
             def _to_bool(v, default=False):
                 if isinstance(v, bool):
@@ -119,14 +120,18 @@ class LDAPAuthBackend(AuthenticationBackend):
                 self._release_connection(conn)
                 ok = False
                 server = ldap3.Server(
-                    self.ldap_server, use_ssl=self.use_tls, connect_timeout=self._connect_timeout
+                    self.ldap_server,
+                    use_ssl=self.use_tls,
+                    connect_timeout=self._connect_timeout,
                 )
                 if self._debug:
                     logger.debug(
                         f"ldap_auth: user bind (fresh connection) dn='{user_dn}' server='{self.ldap_server}' tls={self.use_tls}"
                     )
                 try:
-                    with ldap3.Connection(server, user=user_dn, password=password) as tmp:
+                    with ldap3.Connection(
+                        server, user=user_dn, password=password
+                    ) as tmp:
                         ok = tmp.bind()
                 except Exception:
                     ok = False
@@ -135,14 +140,18 @@ class LDAPAuthBackend(AuthenticationBackend):
                 self._release_connection(conn)
                 ok = False
                 server = ldap3.Server(
-                    self.ldap_server, use_ssl=self.use_tls, connect_timeout=self._connect_timeout
+                    self.ldap_server,
+                    use_ssl=self.use_tls,
+                    connect_timeout=self._connect_timeout,
                 )
                 if self._debug:
                     logger.debug(
                         f"ldap_auth: direct user bind dn='{user_dn}' server='{self.ldap_server}' tls={self.use_tls}"
                     )
                 try:
-                    with ldap3.Connection(server, user=user_dn, password=password) as tmp:
+                    with ldap3.Connection(
+                        server, user=user_dn, password=password
+                    ) as tmp:
                         ok = tmp.bind()
                 except Exception:
                     ok = False
@@ -202,16 +211,22 @@ class LDAPAuthBackend(AuthenticationBackend):
                         f"server='{self.ldap_server}' tls={self.use_tls} timeout={self._connect_timeout}"
                     )
                 server = ldap3.Server(
-                    self.ldap_server, use_ssl=self.use_tls, connect_timeout=self._connect_timeout
+                    self.ldap_server,
+                    use_ssl=self.use_tls,
+                    connect_timeout=self._connect_timeout,
                 )
                 try:
-                    with ldap3.Connection(server, self.bind_dn, self.bind_password) as conn:
+                    with ldap3.Connection(
+                        server, self.bind_dn, self.bind_password
+                    ) as conn:
                         if not conn.bind():
                             logger.error("Failed to bind with service account")
                             return None
 
                         # Escape username for LDAP filter to prevent injection
-                        escaped_username = ldap3.utils.conv.escape_filter_chars(username)
+                        escaped_username = ldap3.utils.conv.escape_filter_chars(
+                            username
+                        )
                         search_filter = f"({self.user_attribute}={escaped_username})"
                         if self._debug:
                             logger.debug(
@@ -239,6 +254,7 @@ class LDAPAuthBackend(AuthenticationBackend):
                         # brief delay before retrying
                         try:
                             import time as _t
+
                             _t.sleep(0.2)
                         except Exception:
                             pass
@@ -257,7 +273,9 @@ class LDAPAuthBackend(AuthenticationBackend):
 
         try:
             server = ldap3.Server(
-                self.ldap_server, use_ssl=self.use_tls, connect_timeout=self._connect_timeout
+                self.ldap_server,
+                use_ssl=self.use_tls,
+                connect_timeout=self._connect_timeout,
             )
 
             # Use service account if available, otherwise anonymous bind

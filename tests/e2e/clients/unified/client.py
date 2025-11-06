@@ -2,29 +2,42 @@
 import argparse
 import subprocess
 import sys
-
 from pathlib import Path
 
 
 def run_tacacs(host: str, port: int, secret: str, username: str, password: str) -> int:
     script = Path("/app/tacacs_client.py")
-    cmd = [sys.executable, str(script), "--host", host, "--port", str(port), "--secret", secret, "--username", username, "--password", password]
+    cmd = [
+        sys.executable,
+        str(script),
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--secret",
+        secret,
+        "--username",
+        username,
+        "--password",
+        password,
+    ]
     return subprocess.call(cmd)
 
 
 def run_radius(host: str, port: int, secret: str, username: str, password: str) -> int:
-    import os
-    import socket
     import hashlib
+    import os
     import secrets as _secrets
+    import socket
+
     # Build minimal RADIUS Access-Request with User-Name and User-Password (RFC 2865)
     CODE_ACCESS_REQUEST = 1
     ID = _secrets.randbits(8)
     RA = os.urandom(16)
 
     def _attr(t: int, v: bytes) -> bytes:
-        l = 2 + len(v)
-        return bytes([t, l]) + v
+        length = 2 + len(v)
+        return bytes([t, length]) + v
 
     # PAP password obfuscation: p1 = MD5(secret + RA); c1 = p ^ p1; (no multi-block for short pw)
     p = password.encode("utf-8")
@@ -36,10 +49,12 @@ def run_radius(host: str, port: int, secret: str, username: str, password: str) 
     m.update(RA)
     p1 = m.digest()
     c1 = bytes(a ^ b for a, b in zip(p[:16], p1))
-    attrs = b"".join([
-        _attr(1, username.encode("utf-8")),  # User-Name
-        _attr(2, c1),  # User-Password (single block)
-    ])
+    attrs = b"".join(
+        [
+            _attr(1, username.encode("utf-8")),  # User-Name
+            _attr(2, c1),  # User-Password (single block)
+        ]
+    )
     length = 20 + len(attrs)
     header = bytes([CODE_ACCESS_REQUEST, ID]) + length.to_bytes(2, "big") + RA
     pkt = header + attrs
@@ -84,9 +99,13 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.mode == "tacacs":
-        return run_tacacs(args.host, args.port, args.secret, args.username, args.password)
+        return run_tacacs(
+            args.host, args.port, args.secret, args.username, args.password
+        )
     else:
-        return run_radius(args.host, args.port, args.secret, args.username, args.password)
+        return run_radius(
+            args.host, args.port, args.secret, args.username, args.password
+        )
 
 
 if __name__ == "__main__":

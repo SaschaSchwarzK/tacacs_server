@@ -38,7 +38,6 @@ import argparse
 import json
 import ssl
 import sys
-from typing import List, Optional
 
 try:
     import ldap3
@@ -48,17 +47,35 @@ except Exception as e:  # pragma: no cover
     sys.exit(2)
 
 
-def _server(host: str, port: int, use_ssl: bool, timeout: float, insecure: bool) -> ldap3.Server:
+def _server(
+    host: str, port: int, use_ssl: bool, timeout: float, insecure: bool
+) -> ldap3.Server:
     # Some environments/backends expect integer timeouts
     int_timeout = int(timeout)
     tls = None
     if use_ssl:
         # Allow toggling cert validation for dev/ephemeral self-signed certs
         tls = ldap3.Tls(validate=ssl.CERT_NONE if insecure else ssl.CERT_REQUIRED)
-    return ldap3.Server(host=host, port=port, use_ssl=use_ssl, get_info=ldap3.ALL, connect_timeout=int_timeout, tls=tls)
+    return ldap3.Server(
+        host=host,
+        port=port,
+        use_ssl=use_ssl,
+        get_info=ldap3.ALL,
+        connect_timeout=int_timeout,
+        tls=tls,
+    )
 
 
-def admin_bind(host: str, port: int, use_ssl: bool, admin_dn: str, admin_password: str, timeout: float, insecure: bool, start_tls: bool) -> ldap3.Connection:
+def admin_bind(
+    host: str,
+    port: int,
+    use_ssl: bool,
+    admin_dn: str,
+    admin_password: str,
+    timeout: float,
+    insecure: bool,
+    start_tls: bool,
+) -> ldap3.Connection:
     """Bind to LDAP server with admin credentials.
 
     Args:
@@ -80,7 +97,9 @@ def admin_bind(host: str, port: int, use_ssl: bool, admin_dn: str, admin_passwor
     """
     srv = _server(host, port, use_ssl, timeout, insecure)
     int_timeout = int(timeout)
-    conn = ldap3.Connection(srv, user=admin_dn, password=admin_password, receive_timeout=int_timeout)
+    conn = ldap3.Connection(
+        srv, user=admin_dn, password=admin_password, receive_timeout=int_timeout
+    )
     if start_tls:
         # For StartTLS we must not use SSL at socket open, but then upgrade
         if use_ssl:
@@ -94,7 +113,7 @@ def admin_bind(host: str, port: int, use_ssl: bool, admin_dn: str, admin_passwor
     return conn
 
 
-def find_user_dn(conn: ldap3.Connection, base_dn: str, uid: str) -> Optional[str]:
+def find_user_dn(conn: ldap3.Connection, base_dn: str, uid: str) -> str | None:
     """Find a user's DN by their UID.
 
     Args:
@@ -108,14 +127,25 @@ def find_user_dn(conn: ldap3.Connection, base_dn: str, uid: str) -> Optional[str
     Raises:
         ValueError: If user is not found or multiple users match
     """
-    ok = conn.search(search_base=base_dn, search_filter=f"(uid={uid})", attributes=["cn", "uid"])
+    ok = conn.search(
+        search_base=base_dn, search_filter=f"(uid={uid})", attributes=["cn", "uid"]
+    )
     if not ok or not conn.entries:
         return None
     # First entry DN
     return str(conn.entries[0].entry_dn)
 
 
-def verify_user_password(host: str, port: int, use_ssl: bool, user_dn: str, password: str, timeout: float, insecure: bool, start_tls: bool) -> bool:
+def verify_user_password(
+    host: str,
+    port: int,
+    use_ssl: bool,
+    user_dn: str,
+    password: str,
+    timeout: float,
+    insecure: bool,
+    start_tls: bool,
+) -> bool:
     """Verify a user's password by attempting to bind with their credentials.
 
     Args:
@@ -133,7 +163,9 @@ def verify_user_password(host: str, port: int, use_ssl: bool, user_dn: str, pass
     """
     srv = _server(host, port, use_ssl, timeout, insecure)
     int_timeout = int(timeout)
-    conn = ldap3.Connection(srv, user=user_dn, password=password, receive_timeout=int_timeout)
+    conn = ldap3.Connection(
+        srv, user=user_dn, password=password, receive_timeout=int_timeout
+    )
     try:
         if start_tls:
             if use_ssl:
@@ -150,7 +182,7 @@ def verify_user_password(host: str, port: int, use_ssl: bool, user_dn: str, pass
             pass
 
 
-def user_groups(conn: ldap3.Connection, base_dn: str, user_dn: str) -> List[str]:
+def user_groups(conn: ldap3.Connection, base_dn: str, user_dn: str) -> list[str]:
     """List groups where the specified user is a member.
 
     Args:
@@ -170,19 +202,36 @@ def user_groups(conn: ldap3.Connection, base_dn: str, user_dn: str) -> List[str]
     return [str(e.cn.value) for e in conn.entries if getattr(e, "cn", None) is not None]
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Probe LDAP for user existence, password check, and groups")
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(
+        description="Probe LDAP for user existence, password check, and groups"
+    )
     p.add_argument("--host", default="127.0.0.1", help="LDAP host (default: 127.0.0.1)")
     p.add_argument("--port", type=int, default=389, help="LDAP port (389 or 636)")
     p.add_argument("--use-ssl", action="store_true", help="Use SSL (LDAPS)")
-    p.add_argument("--timeout", type=float, default=5.0, help="Connect/receive timeout seconds (default: 5.0)")
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=5.0,
+        help="Connect/receive timeout seconds (default: 5.0)",
+    )
     p.add_argument("--base-dn", required=True, help="Base DN, e.g., dc=example,dc=org")
-    p.add_argument("--admin-dn", required=True, help="Admin DN, e.g., cn=admin,dc=example,dc=org")
+    p.add_argument(
+        "--admin-dn", required=True, help="Admin DN, e.g., cn=admin,dc=example,dc=org"
+    )
     p.add_argument("--admin-password", required=True, help="Admin password")
     p.add_argument("--uid", required=True, help="User uid to check, e.g., adminA")
     p.add_argument("--password", required=True, help="User password to verify")
-    p.add_argument("--insecure", action="store_true", help="Disable cert validation for SSL/StartTLS")
-    p.add_argument("--start-tls", action="store_true", help="Use StartTLS on plain LDAP connection (use --port 389, do not pass --use-ssl)")
+    p.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable cert validation for SSL/StartTLS",
+    )
+    p.add_argument(
+        "--start-tls",
+        action="store_true",
+        help="Use StartTLS on plain LDAP connection (use --port 389, do not pass --use-ssl)",
+    )
     args = p.parse_args(argv)
 
     result = {
@@ -198,7 +247,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     }
 
     try:
-        conn = admin_bind(args.host, args.port, args.use_ssl, args.admin_dn, args.admin_password, args.timeout, args.insecure, args.start_tls)
+        conn = admin_bind(
+            args.host,
+            args.port,
+            args.use_ssl,
+            args.admin_dn,
+            args.admin_password,
+            args.timeout,
+            args.insecure,
+            args.start_tls,
+        )
     except Exception as e:
         result["errors"].append(f"admin_bind: {e}")
         print(json.dumps(result, indent=2))
@@ -212,7 +270,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(json.dumps(result, indent=2))
             return 2
 
-        result["password_ok"] = verify_user_password(args.host, args.port, args.use_ssl, dn, args.password, args.timeout, args.insecure, args.start_tls)
+        result["password_ok"] = verify_user_password(
+            args.host,
+            args.port,
+            args.use_ssl,
+            dn,
+            args.password,
+            args.timeout,
+            args.insecure,
+            args.start_tls,
+        )
         try:
             result["groups"] = user_groups(conn, args.base_dn, dn)
         except LDAPException as e:

@@ -7,7 +7,6 @@ as a successful connectivity signal.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import time
@@ -35,8 +34,24 @@ def test_clients_can_connect_to_tacacs(tmp_path: Path) -> None:
 
     # Build server and client images
     _run(["docker", "build", "-t", server_image, str(project_root)])
-    _run(["docker", "build", "-t", unified_image, str(project_root / "tests/e2e/clients/unified")])
-    _run(["docker", "build", "-t", proxy_image, str(project_root / "tests/e2e/clients/proxies")])
+    _run(
+        [
+            "docker",
+            "build",
+            "-t",
+            unified_image,
+            str(project_root / "tests/e2e/clients/unified"),
+        ]
+    )
+    _run(
+        [
+            "docker",
+            "build",
+            "-t",
+            proxy_image,
+            str(project_root / "tests/e2e/clients/proxies"),
+        ]
+    )
 
     proxy1 = None
     proxy2 = None
@@ -73,77 +88,156 @@ def test_clients_can_connect_to_tacacs(tmp_path: Path) -> None:
 
         # Prime server via HTTP API: create users, device group, device
         import requests
+
         base_url = f"http://127.0.0.1:{api_port}"
         sess = requests.Session()
-        sess.headers.update({"X-API-Token": api_token, "content-type": "application/json"})
+        sess.headers.update(
+            {"X-API-Token": api_token, "content-type": "application/json"}
+        )
 
         # Create two users: one accepted, one rejected (either wrong password or disabled)
-        _api_post(sess, f"{base_url}/api/users", {
-            "username": "user_accept",
-            "password": "GoodPass1!",
-            "privilege_level": 15,
-            "service": "exec",
-            "groups": [],
-            "enabled": True,
-            "description": "E2E accepted user"
-        }, tolerate_exists=True)
+        _api_post(
+            sess,
+            f"{base_url}/api/users",
+            {
+                "username": "user_accept",
+                "password": "GoodPass1!",
+                "privilege_level": 15,
+                "service": "exec",
+                "groups": [],
+                "enabled": True,
+                "description": "E2E accepted user",
+            },
+            tolerate_exists=True,
+        )
 
-        _api_post(sess, f"{base_url}/api/users", {
-            "username": "user_reject",
-            "password": "BadPass1!",
-            "privilege_level": 1,
-            "service": "exec",
-            "groups": [],
-            "enabled": True,
-            "description": "E2E rejected user (we will send wrong password)"
-        }, tolerate_exists=True)
+        _api_post(
+            sess,
+            f"{base_url}/api/users",
+            {
+                "username": "user_reject",
+                "password": "BadPass1!",
+                "privilege_level": 1,
+                "service": "exec",
+                "groups": [],
+                "enabled": True,
+                "description": "E2E rejected user (we will send wrong password)",
+            },
+            tolerate_exists=True,
+        )
 
         # Create device group with TACACS secret and a device covering all IPs
-        _api_post(sess, f"{base_url}/api/device-groups", {
-            "name": "e2e-clients",
-            "description": "Clients group",
-            "tacacs_secret": "TacacsSecret123!",
-            "radius_secret": "testing123"
-        }, tolerate_exists=True)
+        _api_post(
+            sess,
+            f"{base_url}/api/device-groups",
+            {
+                "name": "e2e-clients",
+                "description": "Clients group",
+                "tacacs_secret": "TacacsSecret123!",
+                "radius_secret": "testing123",
+            },
+            tolerate_exists=True,
+        )
 
         # Resolve group id
         dg_list = sess.get(f"{base_url}/api/device-groups", timeout=10)
         dg_list.raise_for_status()
-        group_map = {str(it.get("name", "")).lower(): int(it.get("id", 0)) for it in dg_list.json() if isinstance(it, dict)}
+        group_map = {
+            str(it.get("name", "")).lower(): int(it.get("id", 0))
+            for it in dg_list.json()
+            if isinstance(it, dict)
+        }
         gid = group_map.get("e2e-clients")
         assert gid, "Device group e2e-clients not found"
 
-        _api_post(sess, f"{base_url}/api/devices", {
-            "name": "e2e-any",
-            "ip_address": "0.0.0.0/0",
-            "device_group_id": gid,
-            "enabled": True
-        }, tolerate_exists=True)
+        _api_post(
+            sess,
+            f"{base_url}/api/devices",
+            {
+                "name": "e2e-any",
+                "ip_address": "0.0.0.0/0",
+                "device_group_id": gid,
+                "enabled": True,
+            },
+            tolerate_exists=True,
+        )
 
         # Phase 1: direct to server (two clients do TACACS and RADIUS)
-        _assert_cmd([
-            "docker","run","--rm","--network",network_name,"--entrypoint","",unified_image,
-            "sh","-lc",
-            f"python /app/client.py --mode tacacs --host {server_container} --port 5049 --secret TacacsSecret123! --username user_accept --password GoodPass1!"
-        ], server_container, label="tacacs_direct_accept", expect_zero=True)
+        _assert_cmd(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                network_name,
+                "--entrypoint",
+                "",
+                unified_image,
+                "sh",
+                "-lc",
+                f"python /app/client.py --mode tacacs --host {server_container} --port 5049 --secret TacacsSecret123! --username user_accept --password GoodPass1!",
+            ],
+            server_container,
+            label="tacacs_direct_accept",
+            expect_zero=True,
+        )
 
-        _assert_cmd([
-            "docker","run","--rm","--network",network_name,"--entrypoint","",unified_image,
-            "sh","-lc",
-            f"python /app/client.py --mode tacacs --host {server_container} --port 5049 --secret TacacsSecret123! --username user_reject --password WrongPass!"
-        ], server_container, label="tacacs_direct_reject", expect_zero=False)
+        _assert_cmd(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                network_name,
+                "--entrypoint",
+                "",
+                unified_image,
+                "sh",
+                "-lc",
+                f"python /app/client.py --mode tacacs --host {server_container} --port 5049 --secret TacacsSecret123! --username user_reject --password WrongPass!",
+            ],
+            server_container,
+            label="tacacs_direct_reject",
+            expect_zero=False,
+        )
 
-        _assert_cmd([
-            "docker","run","--rm","--network",network_name,"--entrypoint","",unified_image,
-            "sh","-lc",
-            f"python /app/client.py --mode radius --host {server_container} --port 1812 --secret testing123 --username user_accept --password GoodPass1!"
-        ], server_container, label="radius_direct_accept", expect_zero=True)
+        _assert_cmd(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                network_name,
+                "--entrypoint",
+                "",
+                unified_image,
+                "sh",
+                "-lc",
+                f"python /app/client.py --mode radius --host {server_container} --port 1812 --secret testing123 --username user_accept --password GoodPass1!",
+            ],
+            server_container,
+            label="radius_direct_accept",
+            expect_zero=True,
+        )
 
-        _assert_cmd([
-            "docker","run","--rm","--network",network_name,"--entrypoint","",unified_image,
-            "sh","-lc",
-            f"python /app/client.py --mode radius --host {server_container} --port 1812 --secret testing123 --username user_reject --password WrongPass!"
-        ], server_container, label="radius_direct_reject", expect_zero=False)
+        _assert_cmd(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                network_name,
+                "--entrypoint",
+                "",
+                unified_image,
+                "sh",
+                "-lc",
+                f"python /app/client.py --mode radius --host {server_container} --port 1812 --secret testing123 --username user_reject --password WrongPass!",
+            ],
+            server_container,
+            label="radius_direct_reject",
+            expect_zero=False,
+        )
 
         # End of direct tests; proxies are covered in a dedicated test.
 
@@ -171,17 +265,24 @@ def _run_return(cmd: list[str]) -> int:
     return p.returncode
 
 
-def _assert_cmd(cmd: list[str], server_container: str, label: str, expect_zero: bool) -> None:
+def _assert_cmd(
+    cmd: list[str], server_container: str, label: str, expect_zero: bool
+) -> None:
     p = subprocess.run(cmd, check=False, capture_output=True, text=True)
     rc = p.returncode
     out = (p.stdout or "") + ("\n" + p.stderr if p.stderr else "")
     if (expect_zero and rc != 0) or ((not expect_zero) and rc == 0):
         # Grab server logs for context
         try:
-            logs = subprocess.run([
-                "docker","logs","--tail","500",server_container
-            ], check=False, capture_output=True, text=True)
-            server_logs = (logs.stdout or "") + ("\n" + logs.stderr if logs.stderr else "")
+            logs = subprocess.run(
+                ["docker", "logs", "--tail", "500", server_container],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            server_logs = (logs.stdout or "") + (
+                "\n" + logs.stderr if logs.stderr else ""
+            )
         except Exception:
             server_logs = "(failed to read server docker logs)"
         raise AssertionError(
@@ -199,6 +300,7 @@ def _find_free_port() -> int:
 
 def _wait_http(url: str, timeout: float) -> None:
     import time
+
     import requests
 
     end = time.time() + timeout
@@ -215,8 +317,13 @@ def _wait_http(url: str, timeout: float) -> None:
 
 def _api_post(sess, url: str, payload: dict, tolerate_exists: bool = False) -> None:
     import requests as _r
+
     r = sess.post(url, json=payload, timeout=15)
-    if tolerate_exists and r.status_code in (400, 409) and "already exists" in (r.text or ""):
+    if (
+        tolerate_exists
+        and r.status_code in (400, 409)
+        and "already exists" in (r.text or "")
+    ):
         return
     try:
         r.raise_for_status()
