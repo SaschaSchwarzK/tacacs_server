@@ -11,7 +11,7 @@ def test_local_destination_lifecycle(tmp_path: Path):
     dest_dir = tmp_path / "local_backups"
     dest_dir.mkdir()
 
-    config = {"base_path": str(dest_dir)}
+    config = {"base_path": str(dest_dir), "allowed_root": str(tmp_path)}
     destination = LocalBackupDestination(config)
 
     # 1. Test Connection

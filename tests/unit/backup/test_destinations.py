@@ -69,7 +69,9 @@ def test_config_validation_requires_absolute_base(tmp_path: Path):
     with pytest.raises(ValueError):
         LocalBackupDestination({"base_path": "relative/path"})
     # Valid absolute path
-    d = LocalBackupDestination({"base_path": _abs(tmp_path / "dest")})
+    d = LocalBackupDestination(
+        {"base_path": _abs(tmp_path / "dest"), "allowed_root": _abs(tmp_path)}
+    )
     assert isinstance(d, LocalBackupDestination), (
         "Should create instance with valid path"
     )
@@ -95,13 +97,17 @@ def test_connection_testing(tmp_path: Path):
     # Test with writable directory
     base = tmp_path / "writable"
     base.mkdir(parents=True)
-    dest = LocalBackupDestination({"base_path": _abs(base)})
+    dest = LocalBackupDestination(
+        {"base_path": _abs(base), "allowed_root": _abs(tmp_path)}
+    )
     ok, msg = dest.test_connection()
     assert ok, f"Connection test failed with message: {msg}"
 
     # Test with non-existent directory (after initialization)
     ro = tmp_path / "noexist"
-    dest2 = LocalBackupDestination({"base_path": _abs(ro)})
+    dest2 = LocalBackupDestination(
+        {"base_path": _abs(ro), "allowed_root": _abs(tmp_path)}
+    )
     # Directory is created on init; remove to simulate missing
     ro.rmdir()
     ok2, _ = dest2.test_connection()
@@ -113,7 +119,9 @@ def test_connection_testing(tmp_path: Path):
     # Remove write perms for owner
     ro_dir.chmod(stat.S_IREAD | stat.S_IEXEC)
     try:
-        dest3 = LocalBackupDestination({"base_path": _abs(ro_dir)})
+        dest3 = LocalBackupDestination(
+            {"base_path": _abs(ro_dir), "allowed_root": _abs(tmp_path)}
+        )
         ok3, _ = dest3.test_connection()
         assert not ok3, "Should fail with read-only directory"
     finally:
@@ -132,7 +140,9 @@ def test_upload_download_and_preserve(tmp_path: Path):
     # Set a known mtime
     mtime = time.time() - 60
     os.utime(src, (mtime, mtime))
-    dest = LocalBackupDestination({"base_path": _abs(base)})
+    dest = LocalBackupDestination(
+        {"base_path": _abs(base), "allowed_root": _abs(tmp_path)}
+    )
     remote = dest.upload_backup(str(src), "sub/dir/file.tar.gz")
     rp = Path(remote)
     assert rp.exists()
@@ -157,7 +167,9 @@ def test_listing_and_metadata(tmp_path: Path):
     (base / "b.tgz").write_bytes(b"bb")
     (base / "c.zip").write_bytes(b"ccc")
     (base / "ignored.txt").write_text("x")
-    dest = LocalBackupDestination({"base_path": _abs(base)})
+    dest = LocalBackupDestination(
+        {"base_path": _abs(base), "allowed_root": _abs(tmp_path)}
+    )
     items = dest.list_backups()
     names = [i.filename for i in items]
     assert set(names) >= {"a.tar.gz", "b.tgz", "c.zip"}
@@ -173,7 +185,9 @@ def test_delete_and_manifest(tmp_path: Path):
     f.write_bytes(b"data")
     # Create a manifest file alongside expected suffix
     (base / "old.tar.gz.manifest.json").write_text("{}", encoding="utf-8")
-    dest = LocalBackupDestination({"base_path": _abs(base)})
+    dest = LocalBackupDestination(
+        {"base_path": _abs(base), "allowed_root": _abs(tmp_path)}
+    )
     assert dest.delete_backup(str(f)) is True
     assert not f.exists()
     assert not (base / "old.tar.gz.manifest.json").exists()
@@ -193,7 +207,9 @@ def test_retention_policy(tmp_path: Path):
     new_ts = (datetime.now() - timedelta(days=1)).timestamp()
     os.utime(old, (old_ts, old_ts))
     os.utime(new, (new_ts, new_ts))
-    dest = LocalBackupDestination({"base_path": _abs(base)})
+    dest = LocalBackupDestination(
+        {"base_path": _abs(base), "allowed_root": _abs(tmp_path)}
+    )
     deleted = dest.apply_retention_policy(7)
     assert deleted >= 1
     assert not old.exists()

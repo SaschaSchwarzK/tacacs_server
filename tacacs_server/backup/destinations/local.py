@@ -21,10 +21,19 @@ class LocalBackupDestination(BackupDestination):
         if not isinstance(base_path, str) or not base_path:
             raise ValueError("'base_path' must be a non-empty string")
         # Normalize and harden base path via policy
+        from pathlib import Path as _P
+
         from tacacs_server.backup.path_policy import validate_base_directory
 
+        # Optionally constrain base_path to be under an allowed_root (useful in tests)
+        allowed_root_cfg = self.config.get("allowed_root")
+        allowed_root = (
+            _P(allowed_root_cfg).resolve()
+            if isinstance(allowed_root_cfg, str) and allowed_root_cfg
+            else None
+        )
         try:
-            validated = validate_base_directory(base_path)
+            validated = validate_base_directory(base_path, allowed_root=allowed_root)
         except Exception as exc:
             raise ValueError(f"Invalid base_path: {exc}")
         # Persist normalized resolved path back to config
@@ -127,9 +136,9 @@ class LocalBackupDestination(BackupDestination):
         return h.hexdigest()
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
-        src = Path(local_file_path)
-        if not src.is_file():
-            raise FileNotFoundError(str(src))
+        from tacacs_server.backup.path_policy import safe_input_file
+
+        src = safe_input_file(local_file_path)
         # Validate relative path (allow subdirectories with safe segments)
         from .base import BackupDestination as _BD
 
@@ -138,7 +147,7 @@ class LocalBackupDestination(BackupDestination):
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".tmp")
         try:
-            shutil.copy2(src, tmp)
+            shutil.copy2(str(src), tmp)
             tmp.replace(dest)  # atomic rename on same FS
         except OSError as exc:
             raise OSError(f"Failed to store backup: {exc}")

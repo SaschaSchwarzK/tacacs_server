@@ -326,7 +326,10 @@ class AzureBlobBackupDestination(BackupDestination):
         delay = 1.0
         for attempt in range(1, max_attempts + 1):
             try:
-                with open(local_file_path, "rb") as data:
+                from tacacs_server.backup.path_policy import safe_input_file
+
+                src_path = safe_input_file(local_file_path)
+                with open(str(src_path), "rb") as data:
                     blob_client.upload_blob(
                         data,
                         overwrite=True,

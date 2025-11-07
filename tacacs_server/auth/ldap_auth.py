@@ -4,6 +4,7 @@ LDAP Authentication Backend
 
 import os
 import threading
+import time as _t
 from queue import Empty, Queue
 from typing import Any
 
@@ -252,12 +253,7 @@ class LDAPAuthBackend(AuthenticationBackend):
                                 f"ldap_auth: find_user_dn exception on attempt {attempts} to server '{self.ldap_server}': {e!r} (retrying)"
                             )
                         # brief delay before retrying
-                        try:
-                            import time as _t
-
-                            _t.sleep(0.2)
-                        except Exception:
-                            pass
+                        _t.sleep(0.2)
                         continue
                     logger.error(f"Error finding user DN for {username}: {e}")
                     break

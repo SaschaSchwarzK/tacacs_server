@@ -12,14 +12,26 @@ DEFAULT_TEMP_ROOT = Path("/var/run/tacacs/tmp")
 
 
 def _env_path(name: str) -> Path | None:
+    """Read a path from env and return as Path if non-empty."""
     val = os.getenv(name)
     if not val:
         return None
-    p = Path(val)
+    return Path(val)
+
+
+def _ensure_dir_secure(p: Path) -> Path:
+    """Create directory if missing, resolve it, and ensure no symlink base/parents."""
     try:
-        return p.resolve()
+        p.mkdir(parents=True, exist_ok=True)
     except Exception:
-        return p
+        pass
+    resolved = p.resolve()
+    if resolved.is_symlink():
+        raise ValueError("Base directory may not be a symlink")
+    for parent in resolved.parents:
+        if parent.is_symlink():
+            raise ValueError("A parent of the base directory is a symlink")
+    return resolved
 
 
 def get_backup_root() -> Path:
@@ -28,12 +40,11 @@ def get_backup_root() -> Path:
     Uses BACKUP_ROOT if set; otherwise defaults to /data/backups.
     Ensures the directory exists.
     """
-    base = _env_path("BACKUP_ROOT") or DEFAULT_BACKUP_ROOT
-    try:
-        base.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    return base.resolve()
+    raw = _env_path("BACKUP_ROOT") or DEFAULT_BACKUP_ROOT
+    base = Path(raw)
+    if not base.is_absolute():
+        raise ValueError("BACKUP_ROOT must be an absolute path")
+    return _ensure_dir_secure(base)
 
 
 def get_temp_root() -> Path:
@@ -42,12 +53,11 @@ def get_temp_root() -> Path:
     Uses BACKUP_TEMP if set; otherwise defaults to /var/run/tacacs/tmp.
     Ensures the directory exists.
     """
-    base = _env_path("BACKUP_TEMP") or DEFAULT_TEMP_ROOT
-    try:
-        base.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    return base.resolve()
+    raw = _env_path("BACKUP_TEMP") or DEFAULT_TEMP_ROOT
+    base = Path(raw)
+    if not base.is_absolute():
+        raise ValueError("BACKUP_TEMP must be an absolute path")
+    return _ensure_dir_secure(base)
 
 
 def _safe_under(base: Path, rel_path: str) -> Path:
@@ -55,6 +65,7 @@ def _safe_under(base: Path, rel_path: str) -> Path:
 
     # Validate relative path, reject absolute/suspicious segments
     rel = _BD.validate_relative_path(rel_path)
+    base = base.resolve()
     tgt = (base / rel).resolve()
     # Containment guard
     if os.path.commonpath([str(base), str(tgt)]) != str(base):
@@ -96,14 +107,16 @@ def validate_relpath(path: str, *, max_segments: int = 10) -> str:
     return _BD.validate_relative_path(path, max_segments=max_segments)
 
 
-def validate_base_directory(path: str) -> Path:
+def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path:
     """Validate a user-supplied base directory for local storage.
 
     - Must be absolute, no NULs
+    - Must reside inside allowed_root (or DEFAULT_BACKUP_ROOT if not specified)
     - Resolve final path; reject if the base itself or any of its parents are symlinks
     - Ensure the directory exists (best-effort)
     Returns resolved Path.
     """
+    import os
     from pathlib import Path as _P
 
     if not isinstance(path, str) or not path or "\x00" in path:
@@ -111,11 +124,25 @@ def validate_base_directory(path: str) -> Path:
     p = _P(path)
     if not p.is_absolute():
         raise ValueError("Base directory must be an absolute path")
+    # Ensure directory exists and is secure (no symlinks on base or parents)
     try:
         p.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
     resolved = p.resolve()
+    # Optional containment enforcement when an allowed_root is provided
+    if allowed_root is not None:
+        allowed_root = _P(allowed_root).resolve()
+        try:
+            resolved.relative_to(allowed_root)
+        except ValueError:
+            raise ValueError(
+                f"Base directory '{resolved}' escapes allowed root '{allowed_root}'"
+            )
+        if os.path.commonpath([str(allowed_root), str(resolved)]) != str(allowed_root):
+            raise ValueError(
+                f"Base directory must be under allowed root {allowed_root}: {resolved}"
+            )
     # Reject if base or any parent is a symlink
     if resolved.is_symlink():
         raise ValueError("Base directory may not be a symlink")
@@ -141,3 +168,19 @@ def join_safe_backup(*segments: str) -> Path:
     rel = "/".join(s.strip("/") for s in segments if s)
     rel = validate_relpath(rel)
     return safe_local_output(rel)
+
+
+def safe_input_file(path: str) -> Path:
+    """Validate an input file path for read-only operations.
+
+    - Reject empty or NUL-containing paths
+    - Resolve to an absolute path
+    - Require the path exists, is a regular file, and is not a symlink
+    Returns resolved Path.
+    """
+    if not isinstance(path, str) or not path or "\x00" in path:
+        raise ValueError("Invalid input file path")
+    p = Path(path).resolve()
+    if not p.exists() or not p.is_file() or p.is_symlink():
+        raise ValueError("Input path must be an existing regular file")
+    return p
