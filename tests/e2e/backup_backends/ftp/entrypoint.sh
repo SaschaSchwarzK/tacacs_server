@@ -36,10 +36,16 @@ echo "$SFTP_USER:$SFTP_PASS" | chpasswd
 chown -R "$SFTP_USER":"$SFTP_USER" "$SFTP_USER_HOME"
 chmod 700 "$SFTP_USER_HOME"
 
+# Ensure parent home directory ownership/perms are secure and predictable for sshd checks
+chown root:root /home || true
+chmod 755 /home || true
+
 # Generate user SSH keypair for SFTP login and export it for tests
 # Prefer ed25519; also support legacy RSA. Install all available pubkeys into authorized_keys.
 USER_KEY_ED25519="$EXPORT_DIR/${SFTP_USER}_id_ed25519"
 USER_KEY_RSA="$EXPORT_DIR/${SFTP_USER}_id_rsa"
+AUTH_KEYS_DIR="/var/lib/ssh-authorized/$SFTP_USER"
+AUTH_KEYS_ALT="$AUTH_KEYS_DIR/authorized_keys"
 
 if [[ "$SFTP_KEY_TYPE" == "ed25519" ]]; then
   [[ -f "$USER_KEY_ED25519" && -f "$USER_KEY_ED25519.pub" ]] || \
@@ -51,6 +57,10 @@ fi
 
 # Build authorized_keys using a single selected pubkey (ed25519 preferred), to avoid mismatches
 AUTH_KEYS="$SFTP_USER_HOME/.ssh/authorized_keys"
+# Prepare a container-local authorized_keys location to avoid host bind-mount permission quirks
+mkdir -p "$AUTH_KEYS_DIR"
+chown "$SFTP_USER":"$SFTP_USER" "$AUTH_KEYS_DIR"
+chmod 700 "$AUTH_KEYS_DIR"
 SELECTED_PUB=""
 if [[ -f "$USER_KEY_ED25519.pub" ]]; then
   SELECTED_PUB="$USER_KEY_ED25519.pub"
@@ -62,11 +72,18 @@ if [[ -n "$SELECTED_PUB" ]]; then
   cat "$SELECTED_PUB" > "$AUTH_KEYS"
   chmod 600 "$AUTH_KEYS"
   chown "$SFTP_USER":"$SFTP_USER" "$AUTH_KEYS"
+  # Also install a copy into container-local path to bypass potential bind-mount semantics
+  cat "$SELECTED_PUB" > "$AUTH_KEYS_ALT"
+  chmod 600 "$AUTH_KEYS_ALT"
+  chown "$SFTP_USER":"$SFTP_USER" "$AUTH_KEYS_ALT"
   echo "[sshd] Installed authorized_keys from: $SELECTED_PUB" >&2
   ssh-keygen -lf "$SELECTED_PUB" >&2 || true
 fi
 chmod 600 "$SFTP_USER_HOME/.ssh/authorized_keys"
 chown -R "$SFTP_USER":"$SFTP_USER" "$SFTP_USER_HOME/.ssh"
+
+# Flush metadata/content to disk before starting sshd (avoid races)
+sync || true
 
 # Log effective permissions to help diagnose pubkey issues
 echo "[sshd] Home perms:" >&2
@@ -127,14 +144,25 @@ chown "$FTP_USER":ftpusers "$FTP_USER_HOME/upload"
 /usr/sbin/sshd -t || { echo "sshd config test failed" >&2; cat /etc/ssh/sshd_config >&2; exit 1; }
 # Normalize key-related sshd settings to avoid earlier conflicting lines
 sed -i -E '/^[#[:space:]]*AuthorizedKeysFile[[:space:]]/d' /etc/ssh/sshd_config || true
-echo 'AuthorizedKeysFile %h/.ssh/authorized_keys' >> /etc/ssh/sshd_config
+echo 'AuthorizedKeysFile %h/.ssh/authorized_keys /var/lib/ssh-authorized/%u/authorized_keys' >> /etc/ssh/sshd_config
 sed -i -E '/^[#[:space:]]*PubkeyAuthentication[[:space:]]/d' /etc/ssh/sshd_config || true
 echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
+sed -i -E '/^[#[:space:]]*StrictModes[[:space:]]/d' /etc/ssh/sshd_config || true
+echo 'StrictModes no' >> /etc/ssh/sshd_config
+# Ensure modern and legacy pubkey algorithms are accepted for tests
+sed -i -E '/^[#[:space:]]*PubkeyAcceptedAlgorithms[[:space:]]/d' /etc/ssh/sshd_config || true
+echo 'PubkeyAcceptedAlgorithms +rsa-sha2-512,rsa-sha2-256,ssh-ed25519,ssh-rsa' >> /etc/ssh/sshd_config
+# Widen server host key algorithms to avoid negotiation issues in CI
+sed -i -E '/^[#[:space:]]*HostKeyAlgorithms[[:space:]]/d' /etc/ssh/sshd_config || true
+echo 'HostKeyAlgorithms +ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-512,rsa-sha2-256,ssh-rsa' >> /etc/ssh/sshd_config
 
 echo "[sshd] Effective Key Settings:" >&2
 grep -nE 'AuthorizedKeysFile|PubkeyAuthentication|LogLevel|StrictModes|PubkeyAcceptedAlgorithms|HostKeyAlgorithms' /etc/ssh/sshd_config >&2 || true
 echo "[sshd] sshd -T (subset):" >&2
 sshd -T 2>/dev/null | grep -E 'authorizedkeysfile|pubkeyauthentication|loglevel|strictmodes|hostkeyalgorithms|pubkeyacceptedalgorithms' >&2 || true
+# Restart any existing sshd (if any), then start fresh
+pkill sshd 2>/dev/null || true
+sleep 1
 /usr/sbin/sshd -D -E /dev/stderr &
 
 # Optionally keep container alive and restart vsftpd if it exits

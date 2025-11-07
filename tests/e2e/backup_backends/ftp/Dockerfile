@@ -68,6 +68,8 @@ RUN echo 'PubkeyAcceptedAlgorithms +ssh-rsa' >> /etc/ssh/sshd_config \
 # Add entrypoint
 ADD entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+ADD probe_sshd.sh /probe_sshd.sh
+RUN chmod +x /probe_sshd.sh
 
 EXPOSE 21 22 30000-30009
 CMD ["/entrypoint.sh"]

@@ -65,30 +65,81 @@ class SFTPConnection:
             "timeout": int(self.config.get("timeout", 30)),
             "banner_timeout": int(self.config.get("timeout", 30)),
             "auth_timeout": int(self.config.get("timeout", 30)),
+            "allow_agent": False,
+            "look_for_keys": False,
         }
         if str(self.config.get("authentication", "password")).lower() == "password":
             connect_kwargs["password"] = self.config.get("password")
         else:
-            # Key-based auth
+            # Key-based auth: support RSA, Ed25519, and ECDSA keys
             pkey = None
+            key_str = str(self.config.get("private_key", ""))
+            key_pass = self.config.get("private_key_passphrase")
+
+            # Resolve Paramiko key classes safely (they exist in Paramiko, but avoid attribute errors)
+            RSAKey = getattr(paramiko_mod, "RSAKey", None)
+            Ed25519Key = getattr(paramiko_mod, "Ed25519Key", None)
+            ECDSAKey = getattr(paramiko_mod, "ECDSAKey", None)
+
+            def _try_load_callable(loader, src):
+                try:
+                    return loader(src, password=key_pass)
+                except Exception:
+                    return None
+
             try:
-                if (
-                    str(self.config.get("private_key", ""))
-                    .strip()
-                    .startswith("-----BEGIN")
-                ):
-                    key_file = io.StringIO(str(self.config.get("private_key")))
-                    pkey = paramiko_mod.RSAKey.from_private_key(
-                        key_file, password=self.config.get("private_key_passphrase")
-                    )
+                if key_str.strip().startswith("-----BEGIN"):
+                    # Load from PEM string
+                    # Try RSA, then Ed25519, then ECDSA
+                    if RSAKey is not None:
+                        pkey = _try_load_callable(
+                            RSAKey.from_private_key, io.StringIO(key_str)
+                        )
+                    if pkey is None and Ed25519Key is not None:
+                        pkey = _try_load_callable(
+                            Ed25519Key.from_private_key, io.StringIO(key_str)
+                        )
+                    if pkey is None and ECDSAKey is not None:
+                        pkey = _try_load_callable(
+                            ECDSAKey.from_private_key, io.StringIO(key_str)
+                        )
                 else:
-                    pkey = paramiko_mod.RSAKey.from_private_key_file(
-                        str(self.config.get("private_key")),
-                        password=self.config.get("private_key_passphrase"),
-                    )
+                    # Load from file path
+                    path = str(self.config.get("private_key"))
+                    if RSAKey is not None:
+                        pkey = _try_load_callable(RSAKey.from_private_key_file, path)
+                    if pkey is None and Ed25519Key is not None:
+                        pkey = _try_load_callable(
+                            Ed25519Key.from_private_key_file, path
+                        )
+                    if pkey is None and ECDSAKey is not None:
+                        pkey = _try_load_callable(ECDSAKey.from_private_key_file, path)
             except Exception as exc:
                 raise ValueError(f"Invalid private key: {exc}")
+            if pkey is None:
+                raise ValueError("Unsupported or invalid private key provided")
+
+            try:
+                import base64
+                import hashlib
+
+                key_data = base64.b64decode(pkey.get_base64())
+                fingerprint_sha256 = (
+                    base64.b64encode(hashlib.sha256(key_data).digest())
+                    .rstrip(b"=")
+                    .decode("utf-8")
+                )
+                _logger.info(
+                    "SFTP private key loaded; SHA256 fingerprint: %s",
+                    f"SHA256:{fingerprint_sha256}",
+                )
+            except Exception:
+                _logger.warning("Failed to calculate private key fingerprint")
+
             connect_kwargs["pkey"] = pkey
+            # If a password is also provided, allow password fallback after key
+            if self.config.get("password"):
+                connect_kwargs["password"] = self.config.get("password")
 
         try:
             ssh.connect(**connect_kwargs)
