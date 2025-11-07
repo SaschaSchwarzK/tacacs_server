@@ -139,9 +139,14 @@ def test_upload_download_and_preserve(tmp_path: Path):
     # Check timestamp preservation (allowing some FS variance)
     assert abs(rp.stat().st_mtime - mtime) < 2.5
     # Download to a new path
-    dl = tmp_path / "dl.tar.gz"
-    ok = dest.download_backup(str(rp), str(dl))
-    assert ok and dl.read_bytes() == content
+    # Request download into a relative filename; file will be stored under temp root
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    # Use a unique name to avoid collisions across tests using shared temp root
+    rel_name = f"dl_{tmp_path.name}.tar.gz"
+    ok = dest.download_backup(str(rp), rel_name)
+    expected = safe_temp_path(rel_name)
+    assert ok and expected.read_bytes() == content
 
 
 def test_listing_and_metadata(tmp_path: Path):

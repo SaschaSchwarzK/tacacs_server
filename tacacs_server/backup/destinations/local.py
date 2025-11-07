@@ -20,16 +20,18 @@ class LocalBackupDestination(BackupDestination):
         base_path = self.config.get("base_path")
         if not isinstance(base_path, str) or not base_path:
             raise ValueError("'base_path' must be a non-empty string")
-        p = Path(base_path)
-        if not p.is_absolute():
-            raise ValueError("'base_path' must be an absolute path")
+        # Normalize and harden base path via policy
+        from tacacs_server.backup.path_policy import validate_base_directory
+
         try:
-            p.mkdir(parents=True, exist_ok=True)
+            validated = validate_base_directory(base_path)
         except Exception as exc:
-            raise ValueError(f"Cannot create base_path: {exc}")
+            raise ValueError(f"Invalid base_path: {exc}")
+        # Persist normalized resolved path back to config
+        self.config["base_path"] = str(validated)
 
     def _root(self) -> Path:
-        return Path(str(self.config["base_path"]))
+        return Path(str(self.config["base_path"])).resolve()
 
     def _safe_local_path(self, local_path: str) -> Path:
         """Anchor local outputs to a safe temp subdirectory, rejecting config/local_root entirely.
@@ -157,10 +159,21 @@ class LocalBackupDestination(BackupDestination):
         else:
             safe_rel = _BD.validate_relative_path(remote_path)
             src = self._safe_join(safe_rel)
-        # If caller provided an absolute target path (tests), honor it.
+        # Build safe destination path using centralized path policy
+        from tacacs_server.backup.path_policy import get_temp_root, safe_temp_path
+
         dst = Path(local_file_path)
         if not dst.is_absolute():
-            dst = self._safe_local_path(local_file_path)
+            dst = safe_temp_path(str(dst.name))
+        else:
+            try:
+                base = get_temp_root().resolve()
+                dst_resolved = dst.resolve()
+                dst_resolved.relative_to(base)
+                dst = dst_resolved
+            except Exception:
+                # Fallback to safe temp path using the basename
+                dst = safe_temp_path(str(dst.name))
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             shutil.copy2(src, dst)

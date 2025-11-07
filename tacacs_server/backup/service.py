@@ -402,7 +402,16 @@ class BackupService:
             raise ValueError("backup_type must be a non-empty string")
 
         execution_id = execution_id or str(uuid.uuid4())
-        backup_dir = os.path.join(str(self.temp_dir), execution_id)
+        # Build a validated workspace under the temp root
+        from tacacs_server.backup.destinations.base import (
+            BackupDestination as _BD_valid,
+        )
+        from tacacs_server.backup.path_policy import join_safe_temp as _join_temp
+
+        safe_exec = _BD_valid.validate_path_segment(
+            execution_id, allow_dot=False, max_len=64
+        )
+        backup_dir = str(_join_temp(safe_exec))
         archive_path = None
         t0 = datetime.now(UTC)
 
@@ -526,7 +535,9 @@ class BackupService:
                 str(backup_type), allow_dot=False, max_len=32
             )
             filename = f"backup-{safe_instance}-{timestamp}-{safe_type}.tar.gz"
-            archive_path = os.path.join(str(self.temp_dir), filename)
+            from tacacs_server.backup.path_policy import safe_temp_path as _safe_temp
+
+            archive_path = str(_safe_temp(filename))
             self._create_tarball(backup_dir, archive_path)
 
             # Get encryption settings from config
@@ -559,7 +570,12 @@ class BackupService:
                 except Exception:
                     pass
 
-                encrypted_path = archive_path + ".enc"
+                from tacacs_server.backup.path_policy import (
+                    safe_temp_path as _safe_temp,
+                )
+
+                enc_name = os.path.basename(archive_path) + ".enc"
+                encrypted_path = str(_safe_temp(enc_name))
                 enc_info = BackupEncryption.encrypt_file(
                     archive_path, encrypted_path, passphrase_cfg
                 )
@@ -791,11 +807,20 @@ class BackupService:
                         }
                     )
                 )
-                local_archive = os.path.join(
-                    str(self.temp_dir), os.path.basename(source_path)
-                )
+                # Download from destination to validated temp path
                 try:
-                    local_archive = self._safe_local_path(local_archive)
+                    from tacacs_server.backup.destinations.base import (
+                        BackupDestination as _BD_valid,
+                    )
+                    from tacacs_server.backup.path_policy import (
+                        safe_temp_path as _safe_temp,
+                    )
+
+                    base_name = os.path.basename(source_path)
+                    safe_name = _BD_valid.validate_path_segment(
+                        base_name, allow_dot=True, max_len=255
+                    )
+                    local_archive = str(_safe_temp(safe_name))
                 except Exception:
                     return False, "Invalid local archive path"
                 destination.download_backup(source_path, local_archive)
@@ -812,10 +837,18 @@ class BackupService:
                 # If a local source path is provided, stage it under our temp_dir
                 # to avoid operating directly on user-controlled locations.
                 try:
-                    safe_name = os.path.basename(source_path)
-                    staged_path = self._safe_local_path(
-                        os.path.join(str(self.temp_dir), safe_name)
+                    from tacacs_server.backup.destinations.base import (
+                        BackupDestination as _BD_valid,
                     )
+                    from tacacs_server.backup.path_policy import (
+                        safe_temp_path as _safe_temp,
+                    )
+
+                    base_name = os.path.basename(source_path)
+                    safe_name = _BD_valid.validate_path_segment(
+                        base_name, allow_dot=True, max_len=255
+                    )
+                    staged_path = str(_safe_temp(safe_name))
                     shutil.copy2(source_path, staged_path)
                     local_archive = staged_path
                 except Exception:
@@ -832,22 +865,31 @@ class BackupService:
                 if not BackupEncryption.verify_passphrase(local_archive, passphrase):
                     return False, "Incorrect encryption passphrase"
 
-                decrypted_path = local_archive[:-4]
+                from tacacs_server.backup.path_policy import (
+                    safe_temp_path as _safe_temp,
+                )
+
+                dec_name = os.path.basename(local_archive)[:-4]
                 try:
-                    decrypted_path = self._safe_local_path(decrypted_path)
+                    from tacacs_server.backup.destinations.base import (
+                        BackupDestination as _BD_valid,
+                    )
+
+                    dec_name = _BD_valid.validate_path_segment(
+                        dec_name, allow_dot=True, max_len=255
+                    )
                 except Exception:
                     return False, "Invalid decrypted path"
+                decrypted_path = str(_safe_temp(dec_name))
                 _logger.info(f"Decrypting {local_archive} to {decrypted_path}")
                 if not decrypt_file(local_archive, decrypted_path, passphrase):
                     return False, "Decryption failed - file may be corrupted"
                 archive_for_extract = decrypted_path
 
             # Step 3: Extract and verify archive
-            restore_root = os.path.join(str(self.temp_dir), f"restore_{uuid.uuid4()}")
-            try:
-                restore_root = self._safe_local_path(restore_root)
-            except Exception:
-                return False, "Invalid restore path"
+            from tacacs_server.backup.path_policy import join_safe_temp as _join_temp
+
+            restore_root = str(_join_temp(f"restore_{uuid.uuid4()}"))
             self._extract_tarball(archive_for_extract, restore_root)
 
             manifest_path = os.path.join(restore_root, "manifest.json")

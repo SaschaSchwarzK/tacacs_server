@@ -41,9 +41,14 @@ def test_local_destination_lifecycle(tmp_path: Path):
     assert info.filename == "backup1.tar.gz"
 
     # 5. Download
-    download_path = tmp_path / "downloaded_backup.tar.gz"
-    assert destination.download_backup(remote_path_str, str(download_path))
-    assert download_path.read_bytes() == dummy_content
+    # Download using a relative target name; destination stores under temp root
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    # Use a unique relative name to avoid cross-test collisions in shared temp
+    rel_name = f"downloaded_{tmp_path.name}.tar.gz"
+    assert destination.download_backup(remote_path_str, rel_name)
+    expected_dl = safe_temp_path(rel_name)
+    assert expected_dl.read_bytes() == dummy_content
 
     # 6. Delete
     assert destination.delete_backup(remote_path_str)

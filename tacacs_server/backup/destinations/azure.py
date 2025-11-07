@@ -374,11 +374,20 @@ class AzureBlobBackupDestination(BackupDestination):
             # If caller provided an absolute path, honor it (tests use tmp paths)
             from pathlib import Path as _P
 
-            from tacacs_server.backup.path_policy import safe_temp_path
+            from tacacs_server.backup.path_policy import get_temp_root, safe_temp_path
 
             dst_path = _P(local_file_path)
             if not dst_path.is_absolute():
                 dst_path = safe_temp_path(str(dst_path.name))
+            else:
+                # Validate absolute path stays under our controlled temp root; otherwise fallback
+                try:
+                    base = get_temp_root().resolve()
+                    dst_resolved = dst_path.resolve()
+                    dst_resolved.relative_to(base)
+                    dst_path = dst_resolved
+                except Exception:
+                    dst_path = safe_temp_path(str(dst_path.name))
             dst_path.parent.mkdir(parents=True, exist_ok=True)
             with self._safe_open_for_write(dst_path) as file:
                 download_stream = blob_client.download_blob(

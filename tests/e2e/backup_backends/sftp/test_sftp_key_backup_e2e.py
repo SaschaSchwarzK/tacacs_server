@@ -130,7 +130,6 @@ def _poll(predicate, timeout: float = 90.0, interval: float = 0.5) -> bool:
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("key_type", ["ed25519", "rsa"])
-@pytest.mark.parametrize("key_type", ["ed25519", "rsa"])
 def test_backup_to_sftp_key_e2e(tmp_path: Path, key_type: str) -> None:
     """End-to-end test for SFTP backup functionality with key-based authentication.
 

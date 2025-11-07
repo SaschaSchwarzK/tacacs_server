@@ -202,9 +202,12 @@ def test_list_blobs_filtering_and_download(mock_bsc, tmp_path: Path):
     mock_container.get_blob_client.return_value = mock_blob
     mock_blob.download_blob.return_value.readall.return_value = b"data"
     mock_blob.get_blob_properties.return_value.size = 4
-    p = tmp_path / "dl.tar.gz"
-    ok = dest.download_backup("a/test1.tar.gz", str(p))
-    assert ok and p.read_bytes() == b"data"
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    rel_name = "dl.tar.gz"
+    ok = dest.download_backup("a/test1.tar.gz", rel_name)
+    expected = safe_temp_path(rel_name)
+    assert ok and expected.read_bytes() == b"data"
 
     assert dest.delete_backup("a/test1.tar.gz") is True
     assert mock_blob.delete_blob.called
