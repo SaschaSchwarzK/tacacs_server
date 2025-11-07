@@ -140,14 +140,6 @@ jobs:
             test-results/junit.xml
             coverage.xml
             ${{ runner.temp }}/tacacs_logs/**
-          exclude: |
-            **/*.env
-            **/*.key
-            **/*.pem
-            **/*secret*
-            **/*password*
-            **/*token*
-            **/*credential*
 
   docker-smoke:
     name: Docker Build • Smoke Test
