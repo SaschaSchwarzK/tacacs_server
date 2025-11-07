@@ -146,28 +146,28 @@ class SFTPBackupDestination(BackupDestination):
         self.known_hosts_file: str | None = self.config.get("known_hosts_file")
 
     def validate_config(self) -> None:
+        cfg = self.config or {}
         # Required common
-        missing = [
-            k for k in ("host", "username", "base_path") if not self.config.get(k)
-        ]
+        missing = [k for k in ("host", "username", "base_path") if not cfg.get(k)]
         if missing:
             raise ValueError(f"Missing required config: {', '.join(missing)}")
         # Auth-specific
-        auth = self.authentication
+        auth = str(cfg.get("authentication", "password")).lower()
         if auth not in ("password", "key"):
             raise ValueError("authentication must be 'password' or 'key'")
-        if auth == "password" and not self.password:
+        if auth == "password" and not cfg.get("password"):
             raise ValueError("password required for password authentication")
-        if auth == "key" and not self.private_key:
+        if auth == "key" and not cfg.get("private_key"):
             raise ValueError("private_key required for key authentication")
         # Port
-        if self.port < 1 or self.port > 65535:
+        port = int(cfg.get("port", 22) or 22)
+        if port < 1 or port > 65535:
             raise ValueError("Invalid SFTP port; must be 1-65535")
         # base path
-        bp = self.base_path.replace("\\", "/")
+        bp = str(cfg.get("base_path", "/")).replace("\\", "/")
         if ".." in bp or "\x00" in bp:
             raise ValueError("Invalid base_path")
-        if not self.host_key_verify:
+        if not bool(cfg.get("host_key_verify", True)):
             _logger.warning("SFTP host_key_verify disabled — security risk")
 
     @contextmanager
