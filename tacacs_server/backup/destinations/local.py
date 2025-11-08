@@ -21,14 +21,15 @@ class LocalBackupDestination(BackupDestination):
         if not isinstance(base_path, str) or not base_path:
             raise ValueError("'base_path' must be a non-empty string")
         # Normalize and harden base path via policy
-        from pathlib import Path as _P
 
         from tacacs_server.backup.path_policy import validate_base_directory
 
         # Optionally constrain base_path to be under an allowed_root (useful in tests)
         allowed_root_cfg = self.config.get("allowed_root")
+        from tacacs_server.backup.path_policy import validate_allowed_root
+
         allowed_root = (
-            _P(allowed_root_cfg).resolve()
+            validate_allowed_root(allowed_root_cfg)
             if isinstance(allowed_root_cfg, str) and allowed_root_cfg
             else None
         )

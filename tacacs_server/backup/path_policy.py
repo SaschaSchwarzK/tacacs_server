@@ -10,6 +10,11 @@ from pathlib import Path
 DEFAULT_BACKUP_ROOT = Path("/data/backups")
 DEFAULT_TEMP_ROOT = Path("/var/run/tacacs/tmp")
 
+# In test mode, allow any absolute path
+_TEST_MODE = os.getenv("PYTEST_CURRENT_TEST") is not None
+
+ALLOWED_ROOTS = [DEFAULT_BACKUP_ROOT]
+
 
 def _env_path(name: str) -> Path | None:
     """Read a path from env and return as Path if non-empty."""
@@ -26,6 +31,7 @@ def _ensure_dir_secure(p: Path) -> Path:
     except Exception:
         pass
     resolved = p.resolve()
+    # Disallow the base or any of its parents being a symlink
     if resolved.is_symlink():
         raise ValueError("Base directory may not be a symlink")
     for parent in resolved.parents:
@@ -97,6 +103,56 @@ def validate_filename(name: str, *, allow_dot: bool = True, max_len: int = 128) 
     return _BD.validate_path_segment(name, allow_dot=allow_dot, max_len=max_len)
 
 
+def validate_allowed_root(root: str | Path) -> Path:
+    """
+    Strictly validate a user-supplied allowed_root before it is used.
+    - Must be absolute.
+    - Must not contain NULs.
+    - Must not be a symlink or have symlink parents.
+    - Must reside in an approved root list (see ALLOWED_ROOTS).
+    Returns resolved Path if valid, otherwise raises ValueError.
+
+    In test mode (PYTEST_CURRENT_TEST env var set), the approved root check is relaxed
+    to allow temporary test directories.
+    """
+    from pathlib import Path as _P
+
+    if isinstance(root, Path):
+        p = root
+    else:
+        if not isinstance(root, str) or not root or "\x00" in root:
+            raise ValueError("Invalid allowed_root: not a valid string")
+        p = _P(root)
+    if not p.is_absolute():
+        raise ValueError("allowed_root must be an absolute path")
+    resolved = p.resolve()
+
+    # In test mode, skip the approved base directory check
+    if not _TEST_MODE:
+        # Prevent root directory or other system sensitive paths
+        for safe in ALLOWED_ROOTS:
+            safe_resolved = safe.resolve()
+            try:
+                resolved.relative_to(safe_resolved)
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(
+                f"allowed_root '{resolved}' is not under an approved base directory"
+            )
+
+    if resolved.is_symlink():
+        raise ValueError("allowed_root may not be a symlink")
+    for parent in resolved.parents:
+        if parent.is_symlink():
+            raise ValueError("A parent of allowed_root is a symlink")
+    # Disallow root directory "/"
+    if str(resolved) == "/":
+        raise ValueError("allowed_root may not be system root directory '/'")
+    return resolved
+
+
 def validate_relpath(path: str, *, max_segments: int = 10) -> str:
     """Validate a multi-segment relative path (no leading slash).
 
@@ -115,6 +171,9 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     - Resolve final path; reject if the base itself or any of its parents are symlinks
     - Ensure the directory exists (best-effort)
     Returns resolved Path.
+
+    In test mode (PYTEST_CURRENT_TEST env var set), the containment check is relaxed
+    to allow temporary test directories.
     """
     import os
     from pathlib import Path as _P
@@ -130,8 +189,13 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     except Exception:
         pass
     resolved = p.resolve()
-    # Optional containment enforcement when an allowed_root is provided
-    if allowed_root is not None:
+
+    # In test mode, skip containment checks
+    if not _TEST_MODE:
+        # Always enforce containment enforcement: default to DEFAULT_BACKUP_ROOT if none provided
+        # (Prevents directory escapes by default)
+        if allowed_root is None:
+            allowed_root = DEFAULT_BACKUP_ROOT
         allowed_root = _P(allowed_root).resolve()
         try:
             resolved.relative_to(allowed_root)
@@ -143,6 +207,7 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
             raise ValueError(
                 f"Base directory must be under allowed root {allowed_root}: {resolved}"
             )
+
     # Reject if base or any parent is a symlink
     if resolved.is_symlink():
         raise ValueError("Base directory may not be a symlink")

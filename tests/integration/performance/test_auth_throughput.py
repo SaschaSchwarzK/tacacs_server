@@ -20,7 +20,6 @@ Performance Metrics:
 - Resource Utilization: CPU, memory, and network usage
 
 Configuration:
-- RUN_PERF_TESTS=1: Required to enable performance tests
 - TEST_CONCURRENT_USERS: Number of concurrent users (default: 50)
 - TEST_DURATION_SEC: Test duration in seconds (default: 60)
 - TACACS_SERVER: Server address (default: localhost)
@@ -28,7 +27,6 @@ Configuration:
 - TACACS_SECRET: Shared secret for TACACS+ communication
 
 Example Usage:
-    RUN_PERF_TESTS=1 \
     TEST_CONCURRENT_USERS=100 \
     TEST_DURATION_SEC=120 \
     TACACS_SECRET=testsecret \
@@ -46,10 +44,7 @@ import time
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("RUN_PERF_TESTS"),
-    reason="Set RUN_PERF_TESTS=1 to run performance tests",
-)
+pytestmark = pytest.mark.performance
 
 
 def _tacacs_auth(host: str, port: int, key: str, username: str, password: str) -> bool:

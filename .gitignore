@@ -29,3 +29,4 @@ CHANGELOG.md
 *.txt
 developer/
 tests/e2e/backup_backends/ftp/export/
+test_backups_root/

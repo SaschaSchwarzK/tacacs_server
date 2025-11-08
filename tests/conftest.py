@@ -29,22 +29,74 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--e2e",
         action="store_true",
         default=False,
-        help="Run end-to-end tests that require external services like Docker.",
+        help="Run only end-to-end tests (requires external services like Docker).",
+    )
+    parser.addoption(
+        "--security",
+        action="store_true",
+        default=False,
+        help="Run only security tests (penetration/advanced).",
+    )
+    parser.addoption(
+        "--performance",
+        action="store_true",
+        default=False,
+        help="Run only performance tests (long-running).",
     )
 
 
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Skip e2e tests unless explicitly requested."""
+    """Control which test categories run based on CLI options.
 
+    - By default: exclude e2e, security, and performance tests
+    - With --e2e/--security/--performance: run only those categories (union)
+    """
+
+    selected: set[str] = set()
     if config.getoption("--e2e"):
+        selected.add("e2e")
+    if config.getoption("--security"):
+        selected.add("security")
+    if config.getoption("--performance"):
+        selected.add("performance")
+
+    # Auto-mark tests based on path conventions if not explicitly marked
+    for item in items:
+        n = str(getattr(item, "fspath", item.nodeid))
+        if "tests/e2e/" in n and "e2e" not in item.keywords:
+            item.add_marker(pytest.mark.e2e)
+        if "tests/security/" in n and "security" not in item.keywords:
+            item.add_marker(pytest.mark.security)
+        if "tests/performance/" in n and "performance" not in item.keywords:
+            item.add_marker(pytest.mark.performance)
+
+    if selected:
+        # Deselect any test that doesn't match the selected categories
+        kept: list[pytest.Item] = []
+        removed: list[pytest.Item] = []
+        for item in items:
+            if any(m in item.keywords for m in selected):
+                kept.append(item)
+            else:
+                removed.append(item)
+        if removed:
+            config.hook.pytest_deselected(items=removed)
+            items[:] = kept
         return
 
-    skip_marker = pytest.mark.skip(reason="use --e2e to run end-to-end tests")
+    # Default behavior (no category selected): skip long-running/special tests
+    skip_reason = "use --e2e/--security/--performance to run these tests"
     for item in items:
-        if "e2e" in item.keywords:
-            item.add_marker(skip_marker)
+        if any(m in item.keywords for m in ("e2e", "security", "performance")):
+            item.add_marker(pytest.mark.skip(reason=skip_reason))
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Configure test run; no env toggles needed for category selection."""
+    # Intentionally empty: category selection is handled via marks and deselection.
+    return
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -56,6 +108,26 @@ def _backup_env_roots(tmp_path_factory: pytest.TempPathFactory):
     temp_root = tmp_path_factory.mktemp("backups_tmp")
     _os.environ["BACKUP_ROOT"] = str(backup_root)
     _os.environ["BACKUP_TEMP"] = str(temp_root)
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _cleanup_repo_test_backups_root():
+    """Ensure repo-local test_backups_root is removed before the test session.
+
+    Some integration/unit tests temporarily set BACKUP_ROOT to a repo-local
+    directory (e.g., <repo>/test_backups_root). Clean it up at session start to
+    prevent leftovers from previous runs causing FileExistsError or pollution.
+    """
+    import shutil as _shutil
+    from pathlib import Path as _P
+
+    try:
+        repo_root = _P(__file__).resolve().parents[1]
+        forced_root = repo_root / "test_backups_root"
+        _shutil.rmtree(forced_root, ignore_errors=True)
+    except Exception:
+        pass
     yield
 
 
