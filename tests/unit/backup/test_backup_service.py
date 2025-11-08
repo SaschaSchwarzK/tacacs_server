@@ -69,14 +69,14 @@ class FakeDestination(BackupDestination):
             raise ValueError("missing base")
         # Use the test backup root from environment
         import tacacs_server.backup.path_policy as _pp
+        from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
 
-        test_root = _pp.get_backup_root()
-        base_path = (test_root / os.path.normpath(base)).resolve()
-        try:
-            base_path.relative_to(test_root.resolve())
-        except ValueError as e:
-            raise ValueError("base path escapes test root") from e
-        base_path.mkdir(parents=True, exist_ok=True)
+        test_root = str(_pp.get_backup_root())
+        base_rel = _secure_rel(os.path.normpath(base))
+        base_path = os.path.normpath(os.path.join(test_root, base_rel))
+        if os.path.commonpath([test_root, base_path]) != test_root:
+            raise ValueError("base path escapes test root")
+        os.makedirs(base_path, exist_ok=True)
 
     def test_connection(self) -> tuple[bool, str]:
         """Test connection to the backup destination.
@@ -102,13 +102,16 @@ class FakeDestination(BackupDestination):
         """
         self.uploads.append((local_file_path, remote_filename))
         import tacacs_server.backup.path_policy as _pp
+        from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
 
-        test_root = _pp.get_backup_root()
-        dest = test_root / self.config.get("base", "") / remote_filename
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if Path(local_file_path).exists():
+        test_root = str(_pp.get_backup_root())
+        base_rel = _secure_rel(self.config.get("base", ""))
+        name_rel = _secure_rel(remote_filename)
+        dest = os.path.normpath(os.path.join(test_root, base_rel, name_rel))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if os.path.exists(local_file_path):
             Path(local_file_path).replace(dest)
-        return str(dest)
+        return dest
 
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         """Simulate downloading a backup file from the destination.
@@ -126,7 +129,7 @@ class FakeDestination(BackupDestination):
         """
         self.downloads.append((remote_path, local_file_path))
         try:
-            Path(local_file_path).parent.mkdir(parents=True, exist_ok=True)
+            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
             Path(remote_path).replace(local_file_path)
             return True
         except Exception:
@@ -136,8 +139,9 @@ class FakeDestination(BackupDestination):
         items = []
         import tacacs_server.backup.path_policy as _pp
 
-        test_root = _pp.get_backup_root()
-        base = test_root / self.config.get("base", "")
+        test_root = str(_pp.get_backup_root())
+        base_rel = self.config.get("base", "")
+        base = Path(os.path.normpath(os.path.join(test_root, base_rel)))
         for p in base.rglob("*.tar.gz"):
             st = p.stat()
             items.append(

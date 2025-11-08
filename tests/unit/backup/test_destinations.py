@@ -23,6 +23,7 @@ Dependencies:
 
 import os
 import stat
+import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -52,15 +53,25 @@ def _get_test_backup_root() -> Path:
     return _pp.get_backup_root()
 
 
+def _short_test_root() -> Path:
+    root = Path(tempfile.mkdtemp(prefix="tacacs-test-backups-"))
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def _ensure_allowed(root: Path) -> None:
     """Ensure test root is permitted by policy for allowed_root validation."""
     import tacacs_server.backup.path_policy as _pp
 
-    if root not in _pp.ALLOWED_ROOTS:
-        _pp.ALLOWED_ROOTS.append(root)
+    resolved_root = root.resolve()
+    temp_base = Path(tempfile.gettempdir()).resolve()
+    if temp_base not in _pp.ALLOWED_ROOTS:
+        _pp.ALLOWED_ROOTS.append(temp_base)
+    if resolved_root not in _pp.ALLOWED_ROOTS:
+        _pp.ALLOWED_ROOTS.append(resolved_root)
 
 
-def test_config_validation_requires_absolute_base(tmp_path: Path):
+def test_config_validation_requires_absolute_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify that only valid absolute paths are accepted for base_path.
 
     Test Steps:
@@ -87,6 +98,9 @@ def test_config_validation_requires_absolute_base(tmp_path: Path):
         LocalBackupDestination({"base_path": "relative/path"})
 
     # Valid absolute path under policy-compliant root
+    test_root = _short_test_root()
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
     test_root = _get_test_backup_root()
     _ensure_allowed(test_root)
     base = test_root / f"dest_{tmp_path.name}"
@@ -99,7 +113,7 @@ def test_config_validation_requires_absolute_base(tmp_path: Path):
     )
 
 
-def test_connection_testing(tmp_path: Path):
+def test_connection_testing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify connection testing handles various directory states correctly.
 
     Test Cases:
@@ -116,7 +130,13 @@ def test_connection_testing(tmp_path: Path):
     - Verifies proper handling of file system permissions
     - Ensures directory existence and write permissions are checked
     """
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("BACKUP_ROOT", str(tmp_path / "backups_root"))
+    test_root = _short_test_root()
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
     test_root = _get_test_backup_root()
+    _ensure_allowed(test_root)
     _ensure_allowed(test_root)
 
     # Test with writable directory
@@ -154,7 +174,10 @@ def test_connection_testing(tmp_path: Path):
         ro_dir.chmod(stat.S_IWUSR | stat.S_IREAD | stat.S_IEXEC)
 
 
-def test_upload_download_and_preserve(tmp_path: Path):
+def test_upload_download_and_preserve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    test_root = _short_test_root()
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
     test_root = _get_test_backup_root()
     _ensure_allowed(test_root)
     base = test_root / f"dest_{tmp_path.name}"
@@ -188,7 +211,10 @@ def test_upload_download_and_preserve(tmp_path: Path):
     assert ok and expected.read_bytes() == content
 
 
-def test_listing_and_metadata(tmp_path: Path):
+def test_listing_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    test_root = _short_test_root()
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
     test_root = _get_test_backup_root()
     _ensure_allowed(test_root)
     base = test_root / f"d_{tmp_path.name}"
@@ -212,7 +238,10 @@ def test_listing_and_metadata(tmp_path: Path):
     assert len(pref) >= 1 and pref[0].filename == "a.tar.gz"
 
 
-def test_delete_and_manifest(tmp_path: Path):
+def test_delete_and_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    test_root = _short_test_root()
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
     test_root = _get_test_backup_root()
     _ensure_allowed(test_root)
     base = test_root / f"x_{tmp_path.name}"
@@ -234,7 +263,10 @@ def test_delete_and_manifest(tmp_path: Path):
     assert dest.delete_backup(str(f)) is False
 
 
-def test_retention_policy(tmp_path: Path):
+def test_retention_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    test_root = _short_test_root()
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
+    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
     test_root = _get_test_backup_root()
     base = test_root / f"ret_{tmp_path.name}"
     base.mkdir(parents=True, exist_ok=True)

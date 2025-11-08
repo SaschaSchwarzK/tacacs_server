@@ -849,7 +849,14 @@ class BackupService:
                         base_name, allow_dot=True, max_len=255
                     )
                     staged_path = str(_safe_temp(safe_name))
-                    shutil.copy2(source_path, staged_path)
+                    # Validate local source path before copying
+                    try:
+                        from tacacs_server.backup.path_policy import safe_input_file as _safe_in
+
+                        src_checked = _safe_in(source_path)
+                        shutil.copy2(str(src_checked), staged_path)
+                    except Exception:
+                        return False, "Invalid or unsafe local source path"
                     local_archive = staged_path
                 except Exception:
                     return False, "Invalid or inaccessible local source path"
