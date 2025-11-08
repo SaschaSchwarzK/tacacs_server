@@ -185,20 +185,20 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     if not p.is_absolute():
         raise ValueError("Base directory must be an absolute path")
     # Ensure directory exists and is secure (no symlinks on base or parents)
-    resolved = p.resolve()
-
-    # In test mode, skip containment checks
+    resolved = p.resolve(strict=False)
+    eff_allowed: Path | None = None
+    # In test mode, skip containment checks entirely
     if not _TEST_MODE:
-        # Always enforce containment: default to secure backup root if none provided
-        if allowed_root is None:
-            allowed_root = get_backup_root()
-        else:
-            allowed_root = validate_allowed_root(allowed_root)
+        eff_allowed = (
+            get_backup_root()
+            if allowed_root is None
+            else validate_allowed_root(allowed_root)
+        )
         try:
-            resolved.relative_to(allowed_root)
+            resolved.relative_to(eff_allowed)
         except ValueError:
             raise ValueError(
-                f"Base directory '{resolved}' escapes allowed root '{allowed_root}'"
+                f"Base directory '{resolved}' escapes allowed root '{eff_allowed}'"
             )
 
     # Reject if base or any parent is a symlink
@@ -207,12 +207,22 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     for parent in resolved.parents:
         if parent.is_symlink():
             raise ValueError("A parent of the base directory is a symlink")
-    # Only now, after all validation, create the directory if missing (best effort)
+    # Only now, after validation, create the directory if missing (best effort)
     try:
-        resolved.mkdir(parents=True, exist_ok=True)
+        Path(resolved).mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    return resolved
+    # Re-resolve to collapse any symlinks created between checks and mkdir
+    resolved_final = Path(resolved).resolve()
+    # Final containment guard (non-test mode): verify resolved path is under effective root
+    if not _TEST_MODE and eff_allowed is not None:
+        try:
+            resolved_final.relative_to(eff_allowed)
+        except ValueError:
+            raise ValueError(
+                f"Base directory '{resolved_final}' escapes allowed root '{eff_allowed}'"
+            )
+    return resolved_final
 
 
 def join_safe_temp(*segments: str) -> Path:
