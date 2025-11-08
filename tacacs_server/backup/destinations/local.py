@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 from datetime import UTC, datetime
-import os
 from pathlib import Path
 
 from tacacs_server.utils.logger import get_logger
@@ -43,7 +43,7 @@ class LocalBackupDestination(BackupDestination):
 
     def _root(self) -> Path:
         # Normalize base path without resolving symlinks
-        return Path(os.path.normpath(str(self.config["base_path"])) )
+        return Path(os.path.normpath(str(self.config["base_path"])))
 
     def _safe_local_path(self, local_path: str) -> Path:
         """Anchor local outputs to a safe temp subdirectory, rejecting config/local_root entirely.
@@ -145,7 +145,9 @@ class LocalBackupDestination(BackupDestination):
 
         src = safe_input_file(local_file_path)
         # Validate relative path (allow subdirectories with safe segments)
-        from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
+        from tacacs_server.backup.path_policy import (
+            _sanitize_relpath_secure as _secure_rel,
+        )
 
         safe_rel = _secure_rel(remote_filename)
         dest = self._safe_join(safe_rel)
@@ -160,7 +162,9 @@ class LocalBackupDestination(BackupDestination):
 
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
         # Accept absolute remote path under base, otherwise validate relative
-        from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
+        from tacacs_server.backup.path_policy import (
+            _sanitize_relpath_secure as _secure_rel,
+        )
 
         rp = Path(remote_path)
         if rp.is_absolute():
@@ -237,7 +241,9 @@ class LocalBackupDestination(BackupDestination):
                     raise ValueError("Absolute remote path must reside under base_path")
                 p = Path(p_norm)
             else:
-                from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
+                from tacacs_server.backup.path_policy import (
+                    _sanitize_relpath_secure as _secure_rel,
+                )
 
                 safe_rel = _secure_rel(remote_path)
                 p = self._safe_join(safe_rel)
@@ -266,7 +272,9 @@ class LocalBackupDestination(BackupDestination):
                     raise ValueError("Absolute remote path must reside under base_path")
                 p = Path(p_norm)
             else:
-                from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
+                from tacacs_server.backup.path_policy import (
+                    _sanitize_relpath_secure as _secure_rel,
+                )
 
                 safe_rel = _secure_rel(remote_path)
                 p = self._safe_join(safe_rel)

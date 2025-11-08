@@ -70,7 +70,9 @@ def test_container_name_validation():
 
 
 @patch("azure.storage.blob.BlobServiceClient")
-def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_connection_string_upload_sets_metadata_and_tags(
+    mock_bsc, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Verify upload with connection string sets metadata and tags correctly.
 
     Test Steps:

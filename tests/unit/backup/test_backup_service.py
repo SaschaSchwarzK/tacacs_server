@@ -69,7 +69,9 @@ class FakeDestination(BackupDestination):
             raise ValueError("missing base")
         # Use the test backup root from environment
         import tacacs_server.backup.path_policy as _pp
-        from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
+        from tacacs_server.backup.path_policy import (
+            _sanitize_relpath_secure as _secure_rel,
+        )
 
         test_root = str(_pp.get_backup_root())
         base_rel = _secure_rel(os.path.normpath(base))
@@ -102,7 +104,9 @@ class FakeDestination(BackupDestination):
         """
         self.uploads.append((local_file_path, remote_filename))
         import tacacs_server.backup.path_policy as _pp
-        from tacacs_server.backup.path_policy import _sanitize_relpath_secure as _secure_rel
+        from tacacs_server.backup.path_policy import (
+            _sanitize_relpath_secure as _secure_rel,
+        )
 
         test_root = str(_pp.get_backup_root())
         base_rel = _secure_rel(self.config.get("base", ""))

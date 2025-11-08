@@ -5,8 +5,8 @@ This test suite demonstrates that the fixed version properly rejects
 malicious path inputs that could lead to path traversal attacks.
 """
 
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 

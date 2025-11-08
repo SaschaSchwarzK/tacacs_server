@@ -143,7 +143,7 @@ def _safe_under(base: Path, rel_path: str) -> Path:
     # Reject symlink as final target and in parents between base and target
     try:
         for parent in [fullpath] + list(fullpath.parents):
-            if parent == fullpath.anchor:
+            if str(parent) == fullpath.anchor:
                 break
             if parent == base_resolved:
                 break
@@ -223,14 +223,14 @@ def validate_allowed_root(root: str | Path) -> Path:
                 # Normalize result to a stable form for checks and return
 
                 # Final check for symlinks on the final path
-                if os.path.islink(os.path.normpath(resolved)):
+                if os.path.islink(os.path.normpath(str(resolved))):
                     raise ValueError("allowed_root may not be a symlink")
-                if resolved == "/":
+                if str(resolved) == "/":
                     raise ValueError(
                         "allowed_root may not be system root directory '/'"
                     )
 
-                return Path(os.path.normpath(resolved))
+                return Path(os.path.normpath(str(resolved)))
             except ValueError:
                 # This will trigger if p is not under safe_base or traversal is detected
                 continue

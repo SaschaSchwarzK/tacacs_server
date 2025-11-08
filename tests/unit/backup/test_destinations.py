@@ -71,7 +71,9 @@ def _ensure_allowed(root: Path) -> None:
         _pp.ALLOWED_ROOTS.append(resolved_root)
 
 
-def test_config_validation_requires_absolute_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_config_validation_requires_absolute_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Verify that only valid absolute paths are accepted for base_path.
 
     Test Steps:

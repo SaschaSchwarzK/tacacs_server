@@ -851,7 +851,9 @@ class BackupService:
                     staged_path = str(_safe_temp(safe_name))
                     # Validate local source path before copying
                     try:
-                        from tacacs_server.backup.path_policy import safe_input_file as _safe_in
+                        from tacacs_server.backup.path_policy import (
+                            safe_input_file as _safe_in,
+                        )
 
                         src_checked = _safe_in(source_path)
                         shutil.copy2(str(src_checked), staged_path)
