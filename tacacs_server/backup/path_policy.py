@@ -13,7 +13,7 @@ DEFAULT_TEMP_ROOT = Path("/var/run/tacacs/tmp")
 # In test mode, allow any absolute path
 _TEST_MODE = os.getenv("PYTEST_CURRENT_TEST") is not None
 
-ALLOWED_ROOTS = [DEFAULT_BACKUP_ROOT]
+ALLOWED_ROOTS = [DEFAULT_BACKUP_ROOT.resolve()]
 
 
 def _env_path(name: str) -> Path | None:
@@ -73,8 +73,10 @@ def _safe_under(base: Path, rel_path: str) -> Path:
     rel = _BD.validate_relative_path(rel_path)
     base = base.resolve()
     tgt = (base / rel).resolve()
-    # Containment guard
-    if os.path.commonpath([str(base), str(tgt)]) != str(base):
+    # Containment guard using pathlib
+    try:
+        tgt.relative_to(base)
+    except ValueError:
         raise ValueError("Path escapes allowed root")
     # Disallow symlinked base for defense-in-depth
     if base.is_symlink():
@@ -131,7 +133,7 @@ def validate_allowed_root(root: str | Path) -> Path:
     if not _TEST_MODE:
         # Prevent root directory or other system sensitive paths
         for safe in ALLOWED_ROOTS:
-            safe_resolved = safe.resolve()
+            safe_resolved = Path(safe).resolve()
             try:
                 resolved.relative_to(safe_resolved)
                 break
@@ -175,7 +177,6 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     In test mode (PYTEST_CURRENT_TEST env var set), the containment check is relaxed
     to allow temporary test directories.
     """
-    import os
     from pathlib import Path as _P
 
     if not isinstance(path, str) or not path or "\x00" in path:
@@ -192,20 +193,16 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
 
     # In test mode, skip containment checks
     if not _TEST_MODE:
-        # Always enforce containment enforcement: default to DEFAULT_BACKUP_ROOT if none provided
-        # (Prevents directory escapes by default)
+        # Always enforce containment: default to secure backup root if none provided
         if allowed_root is None:
-            allowed_root = DEFAULT_BACKUP_ROOT
-        allowed_root = _P(allowed_root).resolve()
+            allowed_root = get_backup_root()
+        else:
+            allowed_root = validate_allowed_root(allowed_root)
         try:
             resolved.relative_to(allowed_root)
         except ValueError:
             raise ValueError(
                 f"Base directory '{resolved}' escapes allowed root '{allowed_root}'"
-            )
-        if os.path.commonpath([str(allowed_root), str(resolved)]) != str(allowed_root):
-            raise ValueError(
-                f"Base directory must be under allowed root {allowed_root}: {resolved}"
             )
 
     # Reject if base or any parent is a symlink
