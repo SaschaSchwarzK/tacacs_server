@@ -185,10 +185,6 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     if not p.is_absolute():
         raise ValueError("Base directory must be an absolute path")
     # Ensure directory exists and is secure (no symlinks on base or parents)
-    try:
-        p.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
     resolved = p.resolve()
 
     # In test mode, skip containment checks
@@ -211,6 +207,11 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     for parent in resolved.parents:
         if parent.is_symlink():
             raise ValueError("A parent of the base directory is a symlink")
+    # Only now, after all validation, create the directory if missing (best effort)
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
     return resolved
 
 
