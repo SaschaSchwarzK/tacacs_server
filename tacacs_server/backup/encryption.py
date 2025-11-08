@@ -135,6 +135,7 @@ class BackupEncryption:
 
             _P(output_path).parent.mkdir(parents=True, exist_ok=True)
         except Exception:
+            # Intentional no-op: best-effort parent creation for output path
             pass
         with open(output_path, "wb") as f_out:
             # Header format: MAGIC(4) + VERSION(1) + SALT(16)
@@ -205,6 +206,7 @@ class BackupEncryption:
 
                 _P(output_path).parent.mkdir(parents=True, exist_ok=True)
             except Exception:
+                # Intentional no-op: best-effort parent creation for output path
                 pass
             with open(output_path, "wb") as f:
                 f.write(plaintext)

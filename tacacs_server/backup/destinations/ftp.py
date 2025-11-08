@@ -147,6 +147,7 @@ class FTPBackupDestination(BackupDestination):
                     )
                 client.context = ctx
             except Exception:
+                # Intentional no-op: cleanup best-effort
                 pass
             return client
         # Plain FTP (insecure). Permitted for tests/back-compat; warn earlier in validate_config.
@@ -254,6 +255,7 @@ class FTPBackupDestination(BackupDestination):
                     f"Upload verification failed: size mismatch ({size} != {local_size})"
                 )
         except Exception as exc:
+            # Non-critical verification
             _logger.warning("ftp_upload_verify_failed", error=str(exc))
         return rp
 

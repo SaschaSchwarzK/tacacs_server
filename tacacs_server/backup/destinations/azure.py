@@ -353,12 +353,14 @@ class AzureBlobBackupDestination(BackupDestination):
                     {str(k): str(v) for k, v in meta_cfg.items()}
                 )
         except Exception as exc:
+            # Non-critical: metadata is best-effort
             _logger.debug("azure_set_metadata_failed", error=str(exc))
         try:
             tags_cfg = self.config.get("default_tags") or {}
             if isinstance(tags_cfg, dict) and tags_cfg:
                 blob_client.set_blob_tags({str(k): str(v) for k, v in tags_cfg.items()})
         except Exception as exc:
+            # Non-critical: tags are best-effort
             _logger.debug("azure_set_tags_failed", error=str(exc))
 
         url = getattr(blob_client, "url", None)
