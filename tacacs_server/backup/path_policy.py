@@ -184,38 +184,45 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     p = _P(path)
     if not p.is_absolute():
         raise ValueError("Base directory must be an absolute path")
-    # Ensure directory exists and is secure (no symlinks on base or parents)
-    resolved = p.resolve(strict=False)
+    # Resolve as much as possible without requiring existence
+    cand = p.resolve(strict=False)
+    # Determine effective allowed root (skip in test mode)
     eff_allowed: Path | None = None
-    # In test mode, skip containment checks entirely
     if not _TEST_MODE:
         eff_allowed = (
             get_backup_root()
             if allowed_root is None
             else validate_allowed_root(allowed_root)
         )
+        # Early containment check before any directory creation
         try:
-            resolved.relative_to(eff_allowed)
+            cand.relative_to(eff_allowed)
         except ValueError:
             raise ValueError(
-                f"Base directory '{resolved}' escapes allowed root '{eff_allowed}'"
+                f"Base directory '{cand}' escapes allowed root '{eff_allowed}'"
             )
-
-    # Reject if base or any parent is a symlink
-    if resolved.is_symlink():
-        raise ValueError("Base directory may not be a symlink")
-    for parent in resolved.parents:
-        if parent.is_symlink():
+    # Verify existing parents are not symlinks
+    cur = cand
+    while True:
+        if cur.exists() and cur.is_symlink():
             raise ValueError("A parent of the base directory is a symlink")
-    # Only now, after validation, create the directory if missing (best effort)
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+    # Create after validation
     try:
-        Path(resolved).mkdir(parents=True, exist_ok=True)
+        cand.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    # Re-resolve to collapse any symlinks created between checks and mkdir
-    resolved_final = Path(resolved).resolve()
-    # Final containment guard (non-test mode): verify resolved path is under effective root
-    if not _TEST_MODE and eff_allowed is not None:
+    # Resolve strictly and re-validate
+    resolved_final = cand.resolve(strict=True)
+    if resolved_final.is_symlink():
+        raise ValueError("Base directory may not be a symlink")
+    for ancestor in resolved_final.parents:
+        if ancestor.is_symlink():
+            raise ValueError("A parent of the base directory is a symlink")
+    if eff_allowed is not None:
         try:
             resolved_final.relative_to(eff_allowed)
         except ValueError:

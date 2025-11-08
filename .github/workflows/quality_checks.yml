@@ -191,7 +191,7 @@ jobs:
   performance-tests:
     name: Performance Tests
     runs-on: ubuntu-latest
-    needs: [setup, quality, tests]
+    needs: [setup, quality, tests, security-tests]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -213,7 +213,7 @@ jobs:
   e2e-tests:
     name: End-to-End Tests
     runs-on: ubuntu-latest
-    needs: [setup, quality, tests]
+    needs: [setup, quality, tests, docker-smoke, performance-tests, security-tests]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -233,113 +233,6 @@ jobs:
           name: test-artifacts-e2e
           path: |
             test-results/junit-e2e.xml
-
-  # chaos-tests:
-  #   name: Chaos Engineering Tests
-  #   runs-on: ubuntu-latest
-  #   needs: [setup, tests]
-  #   timeout-minutes: 10
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./.github/actions/setup-python-poetry
-
-  #     - name: Run Chaos Tests
-  #       run: |
-  #         poetry run python scripts/run_advanced_tests.py --test-type chaos
-
-  # security-tests:
-  #   name: Security Penetration Tests
-  #   runs-on: ubuntu-latest
-  #   needs: [setup, tests]
-  #   timeout-minutes: 10
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./.github/actions/setup-python-poetry
-
-  #     - name: Run Security Tests
-  #       run: |
-  #         poetry run python scripts/run_advanced_tests.py --test-type security
-
-  # contract-tests:
-  #   name: API Contract Tests
-  #   runs-on: ubuntu-latest
-  #   needs: [setup, tests]
-  #   timeout-minutes: 5
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./.github/actions/setup-python-poetry
-
-  #     - name: Run Contract Tests
-  #       run: |
-  #         poetry run python scripts/run_advanced_tests.py --test-type contract
-
-  # e2e-tests:
-  #   name: End-to-End Integration Tests
-  #   runs-on: ubuntu-latest
-  #   needs: [setup, tests]
-  #   timeout-minutes: 10
-  #   env:
-  #     PYTHONPATH: ${{ github.workspace }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./.github/actions/setup-python-poetry
-  #     - name: Poetry install (with dev)
-  #       run: poetry install --with dev
-  #     - name: Export app env
-  #       run: |
-  #         {
-  #           echo "APP_HOST=127.0.0.1"
-  #           echo "APP_PORT=8000"
-  #           echo "ENV=ci"
-  #         } >> $GITHUB_ENV
-
-  #     - name: Run E2E Tests
-  #       run: |
-  #         export PYTEST_ADDOPTS="--log-cli-level=INFO -vv -s"
-  #         poetry run python scripts/run_advanced_tests.py --test-type e2e
-      
-      
-
-  #     - name: Upload advanced test artifacts
-  #       uses: actions/upload-artifact@v4
-  #       if: always()
-  #       with:
-  #         name: advanced-test-artifacts
-  #         path: |
-  #           test-results/
-  #           logs/
-  #         exclude: |
-  #           **/*.env
-  #           **/*.key
-  #           **/*.pem
-  #           **/*secret*
-  #           **/*password*
-  #           **/*token*
-  #           **/*credential*
-
-  # advanced-tests-summary:
-  #   name: Advanced Tests Summary
-  #   runs-on: ubuntu-latest
-  #   needs: [chaos-tests, security-tests, contract-tests, e2e-tests]
-  #   if: always()
-  #   steps:
-  #     - name: Check Advanced Tests Results
-  #       run: |
-  #         echo "Advanced Tests Summary:"
-  #         echo "- Chaos Tests: ${{ needs.chaos-tests.result }}"
-  #         echo "- Security Tests: ${{ needs.security-tests.result }}"
-  #         echo "- Contract Tests: ${{ needs.contract-tests.result }}"
-  #         echo "- E2E Tests: ${{ needs.e2e-tests.result }}"
-          
-  #         if [[ "${{ needs.chaos-tests.result }}" == "success" && \
-  #               "${{ needs.security-tests.result }}" == "success" && \
-  #               "${{ needs.contract-tests.result }}" == "success" && \
-  #               "${{ needs.e2e-tests.result }}" == "success" ]]; then
-  #           echo "✅ All advanced tests passed!"
-  #         else
-  #           echo "⚠️ Some advanced tests failed or were skipped"
-  #           exit 1
-  #         fi
 
   codeql:
     name: CodeQL (Python)

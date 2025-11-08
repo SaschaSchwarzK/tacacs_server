@@ -181,20 +181,33 @@ def test_restore_end_to_end(server_factory):
             json={"destination_id": dest_id},
             timeout=5,
         )
-        assert _poll(
-            lambda: session.get(f"{base}/api/admin/backup/list", timeout=5)
-            .json()
-            .get("backups"),
-            timeout=15.0,
-        )
-        backups = (
-            session.get(f"{base}/api/admin/backup/list", timeout=5)
-            .json()
-            .get("backups")
-        )
-        if not backups:
-            pytest.skip("No backups listed to restore in this environment")
-        bp = backups[0].get("path") or backups[0].get("remote_path")
+
+        def _has_dest_backup() -> bool:
+            try:
+                lst = session.get(f"{base}/api/admin/backup/list", timeout=5)
+                if lst.status_code != 200:
+                    return False
+                items = lst.json().get("backups") or []
+                return any(str(b.get("destination_id")) == str(dest_id) for b in items)
+            except Exception:
+                return False
+
+        assert _poll(_has_dest_backup, timeout=30.0)
+        # Pick the newest backup for our destination_id specifically
+        blist = session.get(f"{base}/api/admin/backup/list", timeout=5)
+        assert blist.status_code == 200, blist.text
+        items = [
+            b
+            for b in (blist.json().get("backups") or [])
+            if str(b.get("destination_id")) == str(dest_id)
+        ]
+        assert items, "No backups found for our destination"
+        # Sort by timestamp if available, otherwise use returned order
+        try:
+            items.sort(key=lambda x: str(x.get("timestamp") or ""), reverse=True)
+        except Exception:
+            pass
+        bp = items[0].get("path") or items[0].get("remote_path")
 
         # Modify configuration (set server port override)
         upd = {"section": "server", "updates": {"port": 5055}}
