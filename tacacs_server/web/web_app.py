@@ -207,7 +207,7 @@ def create_app(
                             "Authentication initialized from config_service (hash)"
                         )
         except Exception:
-            pass
+            pass  # Config service auth retrieval failed, will try other methods
 
     # 2) Dict-like config with plaintext
     if not admin_password_hash and config_service is not None:
@@ -233,7 +233,7 @@ def create_app(
                     "Authentication initialized from config_service (plaintext)"
                 )
         except Exception:
-            pass
+            pass  # Plaintext password hashing failed, will try other methods
 
     # Support plain ADMIN_PASSWORD env by hashing at startup when no hash provided
     if not admin_password_hash:
@@ -294,7 +294,7 @@ def create_app(
             device_service = DeviceService(ds)
             app.state.device_service = device_service
         except Exception:
-            pass
+            pass  # Device service initialization failed, will continue without it
     # If no user service was provided, try to build one from tacacs_server.auth_db
     if not user_service and tacacs_server is not None:
         try:
@@ -329,7 +329,7 @@ def create_app(
                 default_path,
             )
         except Exception:
-            pass
+            pass  # User service initialization failed, will continue without it
 
     app.state.user_service = user_service
     # Auto-provision user group service if not provided
@@ -379,9 +379,9 @@ def create_app(
         try:
             utils_set_config(config_service)
         except Exception:
-            pass
+            pass  # Config utils initialization failed, will continue
     except Exception:
-        pass
+        pass  # Service initialization failed, will continue with defaults
 
     # ========================================================================
     # SECURITY HEADERS MIDDLEWARE
@@ -420,7 +420,7 @@ def create_app(
                 correlation_id=corr,
             )
         except Exception:
-            pass
+            pass  # Context binding failed, request will proceed without context
 
         response = await call_next(request)
 
@@ -441,7 +441,7 @@ def create_app(
                 correlation_id=(request.headers.get("X-Correlation-ID") or None),
             )
         except Exception:
-            pass
+            pass  # Response logging failed, will continue
 
         # Security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -469,13 +469,13 @@ def create_app(
         try:
             del response.headers["server"]
         except KeyError:
-            pass
+            pass  # Server header already removed or not present
 
         try:
             if _ctx_token is not None:
                 clear_context(_ctx_token)
         except Exception:
-            pass
+            pass  # Context cleanup failed, will be cleaned up on next request
 
         return response
 
@@ -507,7 +507,7 @@ def create_app(
                     pxy = getter() or {}
                     proxy_enabled = bool(pxy.get("enabled", proxy_enabled))
             except Exception:
-                pass
+                pass  # Proxy config retrieval failed, will use default
             # Legacy flag under server network
             if proxy_enabled is False:
                 try:
@@ -516,7 +516,7 @@ def create_app(
                         net_cfg = getter() or {}
                         proxy_enabled = bool(net_cfg.get("proxy_enabled", False))
                 except Exception:
-                    pass
+                    pass  # Network config retrieval failed, will use default
         # Fallback to tacacs_server runtime flag if present
         if proxy_enabled is False and tacacs_server is not None:
             proxy_enabled = bool(getattr(tacacs_server, "proxy_enabled", False))
@@ -528,9 +528,9 @@ def create_app(
             _web_admin.templates.env.globals["proxy_enabled"] = proxy_enabled
             logger.debug("Template global proxy_enabled set to %s", proxy_enabled)
         except Exception:
-            pass
+            pass  # Template global setting failed, will use default
     except Exception:
-        pass
+        pass  # Proxy config initialization failed, will use defaults
 
     # ========================================================================
     # INCLUDE ROUTERS
@@ -659,7 +659,7 @@ def create_app(
                 try:
                     srv.reset_stats()
                 except Exception:
-                    pass
+                    pass  # Stats reset failed, will continue
             return {"success": True, "message": "Statistics reset"}
         except Exception:
             return JSONResponse({"detail": "Reset failed"}, status_code=500)
@@ -713,7 +713,7 @@ def create_app(
                 env=os.getenv("ENV") or os.getenv("APP_ENV") or "dev",
             )
         except Exception:
-            pass
+            pass  # Startup logging failed, will continue
         logger.debug("Admin Interface: /admin/")
         logger.debug("API Documentation: /api/docs")
         logger.debug("Prometheus Metrics: /metrics")
@@ -772,7 +772,7 @@ def create_app(
                 sample=backup_routes[:3],
             )
         except Exception:
-            pass
+            pass  # Backup routes logging failed, will continue
 
         # Log resolved DB/service paths for isolation diagnostics
         try:
@@ -791,7 +791,7 @@ def create_app(
                 cwd=os.getcwd(),
             )
         except Exception:
-            pass
+            pass  # DB paths logging failed, will continue
 
     @app.on_event("shutdown")
     async def shutdown():
@@ -804,7 +804,7 @@ def create_app(
                 component="web_app",
             )
         except Exception:
-            pass
+            pass  # Shutdown logging failed, will continue
 
     return app
 

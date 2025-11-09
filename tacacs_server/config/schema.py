@@ -104,7 +104,7 @@ class TacacsConfigSchema(BaseModel):
             if "ldap" in backends and self.ldap is None:
                 raise ValueError("LDAP backend selected but [ldap] section is missing")
         except Exception:
-            pass
+            pass  # Backend parsing failed, skip cross-field validation
         # Validate source_url constraints
         if self.source_url:
             if not self.source_url.lower().startswith("https://"):

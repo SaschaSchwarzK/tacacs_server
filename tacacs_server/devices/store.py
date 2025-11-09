@@ -137,7 +137,7 @@ class DeviceStore:
         try:
             get_db_manager().register(self, self.close_connections)
         except Exception:
-            pass
+            pass  # DB manager registration failed, cleanup will be manual
         self._ensure_schema()
         # Proxy-aware lookup accelerators
         self._idx_lock = threading.RLock()
@@ -183,7 +183,7 @@ class DeviceStore:
             try:
                 self._conn.close()
             except Exception:
-                pass
+                pass  # Connection already closed, ignore
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             self._ensure_schema()
@@ -191,7 +191,7 @@ class DeviceStore:
         try:
             self.refresh_indexes()
         except Exception:
-            pass
+            pass  # Index refresh failed, will retry on next operation
 
     # ------------------------------------------------------------------
     # Schema management
@@ -259,7 +259,7 @@ class DeviceStore:
                     "CREATE INDEX IF NOT EXISTS idx_groups_proxy_id ON device_groups(proxy_id)"
                 )
             except sqlite3.OperationalError:
-                pass
+                pass  # Index already exists
             # Proxies table to manage proxy networks independently
             cur.execute(
                 """
@@ -303,7 +303,7 @@ class DeviceStore:
                     """
                 )
             except sqlite3.OperationalError:
-                pass
+                pass  # Index already exists
 
             # Skip automatic legacy column drop; handled via explicit migration if needed
             # Try adding proxy_id if missing
@@ -325,20 +325,20 @@ class DeviceStore:
                         "ALTER TABLE devices ADD COLUMN network_start_int INTEGER"
                     )
                 except sqlite3.OperationalError:
-                    pass
+                    pass  # Column already exists
                 try:
                     cur.execute(
                         "ALTER TABLE devices ADD COLUMN network_end_int INTEGER"
                     )
                 except sqlite3.OperationalError:
-                    pass
+                    pass  # Column already exists
             # Drop legacy text-range index creation; we only use integer indexes now
             try:
                 cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_devices_net_range_int ON devices(network_start_int, network_end_int)"
                 )
             except sqlite3.OperationalError:
-                pass
+                pass  # Index already exists
             # Ensure default realm exists and backfill NULL realm_id
             cur.execute(
                 "INSERT OR IGNORE INTO realms(name, description) VALUES(?, ?)",
@@ -529,7 +529,7 @@ class DeviceStore:
         try:
             self._identity_cache.clear()
         except Exception:
-            pass
+            pass  # Cache clear failed, will be cleared on next operation
 
     def ensure_group(
         self,
@@ -1073,7 +1073,7 @@ class DeviceStore:
                 updates.append("network_end_int = ?")
                 params.append(int(network_obj.broadcast_address))
         else:
-            network_obj = None  # kept for future IPv6 extensions
+            _ = None  # Network parsing failed or not provided
 
         if group is not None and clear_group:
             raise ValueError("Cannot set group and clear it simultaneously")
@@ -1321,7 +1321,7 @@ class DeviceStore:
                             ):
                                 exact.append(d)
                         except ValueError:
-                            pass
+                            pass  # IP address parsing failed, skip this device
                 if exact:
                     chosen = max(exact, key=lambda d: d.network.prefixlen)
                     chosen_id = chosen.id
