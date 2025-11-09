@@ -26,8 +26,9 @@ class BackupMetadata:
 class BackupDestination(ABC):
     def __init__(self, config: dict[str, Any]):
         self.config = config or {}
-        self.validate_config()
         self._logger = get_logger(__name__)
+        # Always validate configuration immediately to catch errors early.
+        self.validate_config()
 
     @abstractmethod
     def validate_config(self) -> None:
@@ -118,33 +119,36 @@ class BackupDestination(ABC):
         deleted_count = 0
         for b in to_delete:
             try:
-                if self.delete_backup(b.path):
-                    deleted_count += 1
-                    try:
-                        age_days = 0
-                        try:
-                            ts = (
-                                b.timestamp.replace("Z", "+00:00")
-                                if isinstance(b.timestamp, str)
-                                else str(b.timestamp)
-                            )
-                            bt = datetime.fromisoformat(ts)
-                            if bt.tzinfo is None:
-                                bt = bt.replace(tzinfo=UTC)
-                            age_days = (datetime.now(UTC) - bt).days
-                        except Exception:
-                            pass
-                        self._logger.info(
-                            json.dumps(
-                                {
-                                    "event": "backup_deleted_by_retention",
-                                    "path": b.path,
-                                    "age_days": age_days,
-                                }
-                            )
+                if not self.delete_backup(b.path):
+                    continue
+                deleted_count += 1
+                age_days = 0
+                try:
+                    ts = (
+                        b.timestamp.replace("Z", "+00:00")
+                        if isinstance(b.timestamp, str)
+                        else str(b.timestamp)
+                    )
+                    bt = datetime.fromisoformat(ts)
+                    if bt.tzinfo is None:
+                        bt = bt.replace(tzinfo=UTC)
+                    age_days = (datetime.now(UTC) - bt).days
+                except Exception as exc:
+                    self._logger.debug("Failed to compute age for %s: %s", b.path, exc)
+                try:
+                    self._logger.info(
+                        json.dumps(
+                            {
+                                "event": "backup_deleted_by_retention",
+                                "path": b.path,
+                                "age_days": age_days,
+                            }
                         )
-                    except Exception:
-                        pass
+                    )
+                except Exception as exc:
+                    self._logger.debug(
+                        "Failed to log deletion event for %s: %s", b.path, exc
+                    )
             except Exception as e:
                 self._logger.error(f"Failed to delete backup {b.path}: {e}")
         return deleted_count

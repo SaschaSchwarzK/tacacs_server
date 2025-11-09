@@ -132,8 +132,10 @@ class DatabaseLogger:
             # Register with DB manager so connections can be closed on restore
             try:
                 get_db_manager().register(self, self.close)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Failed to register accounting DB with maintenance manager: %s", exc
+                )
 
         except Exception as e:
             logger.exception("Failed to initialize database: %s", e)
@@ -165,7 +167,8 @@ class DatabaseLogger:
                 handler.setFormatter(formatter)
                 self._syslog.addHandler(handler)
                 self._syslog.setLevel(logging.INFO)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to configure accounting syslog: %s", exc)
             self._syslog = None
 
     def _now_utc_iso(self) -> str:
@@ -686,8 +689,8 @@ class DatabaseLogger:
         # Close any existing resources first
         try:
             self.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to update accounting stats: %s", exc)
         try:
             db_file = Path(self.db_path).resolve()
             if not db_file.parent.exists():

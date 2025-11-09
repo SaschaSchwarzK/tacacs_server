@@ -6,6 +6,10 @@ import os
 
 from fastapi import FastAPI
 
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 DEFAULT_CSP = (
     "default-src 'self'; "
     # Allow inline scripts for the admin UI templates (modals, buttons).
@@ -64,8 +68,8 @@ def install_security_headers(app: FastAPI) -> None:
                 for key in list(resp.headers.keys()):
                     if key.lower() == h_to_remove.lower():
                         del resp.headers[key]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to remove default headers: %s", exc)
 
         # Fallback: if a Server header still appears, replace with generic
         try:
@@ -75,7 +79,7 @@ def install_security_headers(app: FastAPI) -> None:
                     if key.lower() == "server":
                         del resp.headers[key]
                 resp.headers["Server"] = "AAA-Server"
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to scrub Server header: %s", exc)
 
         return resp

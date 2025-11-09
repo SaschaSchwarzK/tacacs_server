@@ -128,6 +128,7 @@ def main():
 
     args = parser.parse_args()
 
+    old_stdout = None
     if args.quiet:
         # Redirect stdout to suppress normal output, keep stderr for errors
         import io
@@ -138,7 +139,7 @@ def main():
     try:
         success = validate_configuration(args.config_file)
 
-        if args.quiet:
+        if args.quiet and old_stdout is not None:
             sys.stdout = old_stdout
             if not success:
                 print("Configuration validation failed", file=sys.stderr)

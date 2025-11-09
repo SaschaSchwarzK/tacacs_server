@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from fastapi import Path as PathParam
 
@@ -29,7 +31,7 @@ def get_user_service() -> LocalUserService:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="User service unavailable",
         )
-    return service
+    return cast(LocalUserService, service)
 
 
 def _user_to_response(record) -> dict:

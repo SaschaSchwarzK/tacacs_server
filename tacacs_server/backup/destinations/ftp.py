@@ -171,12 +171,13 @@ class FTPBackupDestination(BackupDestination):
             try:
                 if ftp:
                     ftp.quit()
-            except Exception:
-                try:
-                    if ftp and hasattr(ftp, "close"):
+            except Exception as exc:
+                if ftp and hasattr(ftp, "close"):
+                    try:
                         ftp.close()
-                except Exception:
-                    pass
+                    except Exception as close_exc:
+                        _logger.warning("FTP close failed: %s", close_exc)
+                _logger.warning("FTP quit failed: %s", exc)
 
     def _ensure_remote_dirs(self, ftp, remote_dir: str) -> None:
         parts = self._normalize_remote_path(remote_dir).strip("/").split("/")
@@ -185,8 +186,8 @@ class FTPBackupDestination(BackupDestination):
             cur = f"{cur}/{part}" if cur else f"/{part}"
             try:
                 ftp.mkd(cur)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("FTP ensure dir failed (%s): %s", cur, exc)
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
@@ -353,8 +354,8 @@ class FTPBackupDestination(BackupDestination):
                 ftp.delete(rp)
                 try:
                     ftp.delete(rp + ".manifest.json")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("FTP manifest cleanup failed for %s: %s", rp, exc)
             return True
         except Exception as exc:
             _logger.warning(

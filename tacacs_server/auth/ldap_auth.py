@@ -373,22 +373,23 @@ class LDAPAuthBackend(AuthenticationBackend):
             try:
                 if not conn.bound:
                     conn.open()
-            except Exception:
+            except Exception as exc:
+                logger.warning("LDAP pooled connection reopen failed: %s", exc)
                 conn = self._build_connection()
                 try:
                     ldap_pool_reconnects.inc()
-                except Exception:
-                    pass
+                except Exception as exc2:
+                    logger.debug("ldap_pool_reconnects.inc() failed: %s", exc2)
         except Empty:
             conn = self._build_connection()
             try:
                 ldap_pool_reconnects.inc()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("LDAP pool reconnect counter failed: %s", exc)
         try:
             ldap_pool_borrows.inc()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("LDAP pool borrow counter failed: %s", exc)
         return conn
 
     def _release_connection(self, conn: ldap3.Connection) -> None:
@@ -399,13 +400,13 @@ class LDAPAuthBackend(AuthenticationBackend):
             try:
                 if conn.bound:
                     conn.unbind()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("LDAP connection unbind failed: %s", exc)
             with self._pool_lock:
                 if self._pool is not None and not self._pool.full():
                     self._pool.put_nowait(conn)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("LDAP connection release failed: %s", exc)
 
     def test_connection(self) -> dict[str, Any]:
         """Test LDAP connection and return status"""

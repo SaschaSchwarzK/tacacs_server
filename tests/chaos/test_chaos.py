@@ -321,7 +321,19 @@ class CPUExhaustionExperiment(ChaosExperiment):
         self._stop = threading.Event()
 
     def steady_state_hypothesis(self) -> bool:
-        return psutil.cpu_percent(interval=0.5) < 90
+        base = self._base_url()
+        sess = self._session()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            for path in ("/api/health", "/api/status", "/"):
+                try:
+                    r = sess.get(f"{base}{path}", timeout=2)
+                    if r.status_code == 200:
+                        return True
+                except Exception:
+                    pass
+            time.sleep(0.2)
+        return False
 
     def inject_chaos(self):
         def burner():

@@ -2,6 +2,8 @@
 
 """Device Group API endpoints."""
 
+from typing import cast
+
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from fastapi import Path as PathParam
 
@@ -29,7 +31,7 @@ def get_device_service() -> DeviceService:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Device service unavailable",
         )
-    return service
+    return cast(DeviceService, service)
 
 
 # ============================================================================

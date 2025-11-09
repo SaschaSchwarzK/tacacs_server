@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -196,12 +197,13 @@ class AzureBlobBackupDestination(BackupDestination):
 
                         if not isinstance(exc, ResourceExistsError):
                             raise
-            except Exception:
+            except Exception as exc:
                 # Fallback to best-effort create ignoring conflicts
+                _logger.warning("Container existence check failed: %s", exc)
                 try:
                     self.container_client.create_container()
-                except Exception:
-                    pass
+                except Exception as exc2:
+                    _logger.warning("Container create retry failed: %s", exc2)
 
             # Test upload, download, delete
             test_blob = ".connect_test"
@@ -293,6 +295,7 @@ class AzureBlobBackupDestination(BackupDestination):
             raise ValueError("Target file may not be a symlink")
         return tgt
 
+    @contextmanager
     def _safe_open_for_write(self, path):
         """
         Open a file for writing securely, preventing symlink attacks.
@@ -306,14 +309,19 @@ class AzureBlobBackupDestination(BackupDestination):
         # O_NOFOLLOW is not available on Windows
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
+        fd = None
+        file = None
         try:
             fd = os.open(str(path), flags, 0o600)
+            file = os.fdopen(fd, "wb")
+            yield file
         except OSError as e:
-            # If the error is "File is a symlink", raise descriptive error
             if getattr(e, "errno", None) in (errno.ELOOP, getattr(errno, "EMLINK", -1)):
                 raise ValueError(f"Symlink detected at open: {path}") from e
             raise
-        return open(fd, "wb")
+        finally:
+            if file is not None and not file.closed:
+                file.close()
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._ensure_clients()
@@ -468,8 +476,8 @@ class AzureBlobBackupDestination(BackupDestination):
             try:
                 man = f"{blob_name}.manifest.json"
                 self.container_client.get_blob_client(man).delete_blob()
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to delete manifest %s: %s", man, exc)
             return True
         except Exception as exc:
             _logger.warning(
@@ -532,8 +540,10 @@ class AzureBlobBackupDestination(BackupDestination):
                             bc = self.container_client.get_blob_client(meta.path)
                             bc.set_standard_blob_tier("Cool")
                             moved += 1
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            _logger.warning(
+                                "Failed to tier blob %s: %s", meta.path, exc
+                            )
                 except Exception:
                     continue
         except Exception as exc:

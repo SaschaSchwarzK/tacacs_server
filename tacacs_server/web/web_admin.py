@@ -120,8 +120,8 @@ def _redact(data):
             }
         if isinstance(data, list):
             return [_redact(v) for v in data]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Redact helper failed: %s", exc)
     return data
 
 
@@ -141,8 +141,8 @@ def _log_ui(action: str, request: Request, *, details: dict | None = None) -> No
             action,
             _redact(details),
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("UI log hook failed: %s", exc)
 
 
 # ============================================================================

@@ -156,8 +156,8 @@ class SFTPConnection:
             transport = ssh.get_transport()
             if transport:
                 transport.set_keepalive(30)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to configure SFTP keepalive: %s", exc)
         # Open SFTP
         self.sftp_client = ssh.open_sftp()
         return self.sftp_client
@@ -166,13 +166,13 @@ class SFTPConnection:
         try:
             if self.sftp_client:
                 self.sftp_client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to close SFTP client: %s", exc)
         try:
             if self.ssh_client:
                 self.ssh_client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to close SSH client: %s", exc)
 
 
 class SFTPBackupDestination(BackupDestination):
@@ -243,8 +243,8 @@ class SFTPBackupDestination(BackupDestination):
             try:
                 self._sftp_makedirs(sftp, self.base_path)
                 sftp.chdir(self.base_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to prepare base path on SFTP: %s", exc)
             yield sftp
 
     @staticmethod
@@ -340,9 +340,10 @@ class SFTPBackupDestination(BackupDestination):
             cur = f"{cur}/{part}" if cur else f"/{part}"
             try:
                 sftp.mkdir(cur)
-            except OSError:
-                # already exists
-                pass
+            except OSError as exc:
+                _logger.debug(
+                    "Directory %s already exists or failed to create: %s", cur, exc
+                )
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
@@ -392,8 +393,10 @@ class SFTPBackupDestination(BackupDestination):
                 # cleanup partial
                 try:
                     sftp.remove(rp)
-                except Exception:
-                    pass
+                except Exception as cleanup_exc:
+                    _logger.warning(
+                        "Failed to cleanup partial upload %s: %s", rp, cleanup_exc
+                    )
                 raise RuntimeError(f"Upload failed: {exc}")
             # verify size
             try:
@@ -477,8 +480,8 @@ class SFTPBackupDestination(BackupDestination):
                 sftp.remove(rp)
                 try:
                     sftp.remove(rp + ".manifest.json")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("Failed to delete manifest for %s: %s", rp, exc)
             return True
         except Exception as exc:
             _logger.warning(

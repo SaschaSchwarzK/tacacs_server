@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from fastapi import Path as PathParam
 
@@ -30,7 +32,7 @@ def get_group_service() -> LocalUserGroupService:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="User group service unavailable",
         )
-    return service
+    return cast(LocalUserGroupService, service)
 
 
 def _get_user_service() -> LocalUserService | None:
