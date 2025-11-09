@@ -40,7 +40,7 @@ def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
 
 def format_bytes(bytes_val):
     """Format bytes to human readable size"""
-    if not bytes_val and bytes_val != 0:
+    if bytes_val in (None, ""):
         return "0 B"
     try:
         bytes_val = int(bytes_val)
@@ -59,7 +59,7 @@ def format_bytes(bytes_val):
 
 def format_duration(seconds):
     """Format seconds to human readable duration"""
-    if not seconds and seconds != 0:
+    if seconds in (None, ""):
         return "0s"
     try:
         seconds = int(seconds)

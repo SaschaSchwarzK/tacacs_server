@@ -38,7 +38,6 @@ class BackupServiceProtocol(Protocol):
     ) -> str: ...
 
 
-# Registry to avoid pickling bound methods (APScheduler jobstores pickle callables)
 _SCHEDULERS: dict[str, BackupScheduler] = {}
 
 _log = get_logger(__name__)

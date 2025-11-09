@@ -315,7 +315,7 @@ def create_app(
                 if db_path:
                     user_service = LocalUserService(str(db_path), store=store)
         except Exception:
-            user_service = user_service
+            logger.exception("web_app.create_app: failed to derive LocalUserService")
 
     # Final default fallback so the UI works even if services weren't wired
     if not user_service:

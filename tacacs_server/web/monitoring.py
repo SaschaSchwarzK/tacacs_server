@@ -29,14 +29,14 @@ _metrics: dict[str, float] = {
     "connections_active": 0,
     "connections_total": 0,
 }
-_last_flush_ts: float = 0.0
+_flush_state = {"last_flush_ts": 0.0}
 _flush_interval_sec: float = 5.0
 
 
 def _maybe_flush_snapshot() -> None:  # pragma: no cover
-    global _last_flush_ts
+    state = _flush_state
     now = time.time()
-    if (now - _last_flush_ts) < _flush_interval_sec:
+    if (now - state["last_flush_ts"]) < _flush_interval_sec:
         return
     try:
         # Build snapshot with optional system metrics (CPU/mem)
@@ -56,7 +56,7 @@ def _maybe_flush_snapshot() -> None:  # pragma: no cover
         get_metrics_history().record_snapshot(snapshot)
     except Exception as exc:
         logger.warning("Failed to record metrics snapshot: %s", exc)
-    _last_flush_ts = now
+    state["last_flush_ts"] = now
 
 
 def get_tacacs_server() -> Any | None:

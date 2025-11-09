@@ -540,8 +540,6 @@ class OktaAuthBackend(AuthenticationBackend):
                 priv = self._get_privilege_for_userid(
                     str(okta_user_id), username, allowed_okta_groups=allowed_set
                 )
-        else:
-            pass
 
         # If device-scoped allowed groups provided or require_group_for_auth true and no privilege, fail
         if (kwargs.get("allowed_okta_groups") and priv == 0) or (

@@ -82,7 +82,9 @@ class TestPathInjectionPrevention:
 
     def test_environment_variable_injection_prevented(self, monkeypatch, tmp_path):
         """Test that malicious environment variables are rejected."""
-        from tacacs_server.backup.path_policy import get_backup_root
+        import tacacs_server.backup.path_policy as _pp
+
+        get_backup_root = _pp.get_backup_root
 
         # Try to inject a path traversal via environment variable
         malicious_paths = [

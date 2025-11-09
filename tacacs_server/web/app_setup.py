@@ -18,8 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from .api_models import ErrorResponse
-from .openapi_config import configure_openapi_ui, custom_openapi_schema
+from .openapi_config import configure_openapi_ui
 from .middleware import install_security_headers
 from .errors import install_exception_handlers as _install_exc
 
@@ -387,7 +386,7 @@ def integrate_with_existing_app():
     # If you already have a FastAPI app
     from fastapi import FastAPI
 
-    from .openapi_config import configure_openapi_ui, custom_openapi_schema
+    from .openapi_config import configure_openapi_ui
 
     # Your existing app
     app = FastAPI(

@@ -20,8 +20,8 @@ def test_local_destination_lifecycle(tmp_path: Path):
     # policy forbids symlinked parents; to test behavior without relaxing policy,
     # temporarily relax parent-symlink checks in validate_base_directory.
     import tacacs_server.backup.path_policy as _pp
-    from tacacs_server.backup.path_policy import get_backup_root
 
+    get_backup_root = _pp.get_backup_root
     _orig_vbd = _pp.validate_base_directory
 
     def _relaxed_validate_base_directory(

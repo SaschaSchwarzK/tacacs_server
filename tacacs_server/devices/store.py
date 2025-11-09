@@ -1073,7 +1073,7 @@ class DeviceStore:
                 updates.append("network_end_int = ?")
                 params.append(int(network_obj.broadcast_address))
         else:
-            network_obj = None
+            network_obj = None  # kept for future IPv6 extensions
 
         if group is not None and clear_group:
             raise ValueError("Cannot set group and clear it simultaneously")

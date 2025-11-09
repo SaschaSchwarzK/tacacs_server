@@ -309,19 +309,17 @@ class AzureBlobBackupDestination(BackupDestination):
         # O_NOFOLLOW is not available on Windows
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
-        fd = None
-        file = None
         try:
             fd = os.open(str(path), flags, 0o600)
             file = os.fdopen(fd, "wb")
-            yield file
+            try:
+                yield file
+            finally:
+                file.close()
         except OSError as e:
             if getattr(e, "errno", None) in (errno.ELOOP, getattr(errno, "EMLINK", -1)):
                 raise ValueError(f"Symlink detected at open: {path}") from e
             raise
-        finally:
-            if file is not None and not file.closed:
-                file.close()
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._ensure_clients()

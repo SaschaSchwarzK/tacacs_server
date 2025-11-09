@@ -6,7 +6,6 @@ Implements fine-grained command authorization with regex patterns and privilege 
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from re import Pattern
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -53,7 +52,7 @@ class CommandRule:
     attrs: dict[str, str] | None = None
 
     # Compiled pattern cache (for regex/wildcard), None otherwise
-    _compiled_pattern: Pattern[str] | None = field(init=False, default=None)
+    _compiled_pattern: re.Pattern[str] | None = field(init=False, default=None)
 
     def __post_init__(self):
         """Compile regex patterns for efficiency"""
