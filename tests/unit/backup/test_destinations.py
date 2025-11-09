@@ -30,8 +30,8 @@ from pathlib import Path
 
 import pytest
 
+import tacacs_server.backup.path_policy as _pp
 from tacacs_server.backup.destinations.local import LocalBackupDestination
-from tacacs_server.backup.path_policy import safe_temp_path
 
 
 def _abs(p: Path) -> str:
@@ -48,8 +48,6 @@ def _abs(p: Path) -> str:
 
 def _get_test_backup_root() -> Path:
     """Get the test backup root that's been set up by conftest."""
-    import tacacs_server.backup.path_policy as _pp
-
     return _pp.get_backup_root()
 
 
@@ -61,7 +59,6 @@ def _short_test_root() -> Path:
 
 def _ensure_allowed(root: Path) -> None:
     """Ensure test root is permitted by policy for allowed_root validation."""
-    import tacacs_server.backup.path_policy as _pp
 
     resolved_root = root.resolve()
     temp_base = Path(tempfile.gettempdir()).resolve()
@@ -209,7 +206,7 @@ def test_upload_download_and_preserve(tmp_path: Path, monkeypatch: pytest.Monkey
     # Use a unique name to avoid collisions across tests using shared temp root
     rel_name = f"dl_{tmp_path.name}.tar.gz"
     ok = dest.download_backup(str(rp), rel_name)
-    expected = safe_temp_path(rel_name)
+    expected = _pp.safe_temp_path(rel_name)
     assert ok and expected.read_bytes() == content
 
 

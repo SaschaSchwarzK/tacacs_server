@@ -311,7 +311,11 @@ class AzureBlobBackupDestination(BackupDestination):
             flags |= os.O_NOFOLLOW
         try:
             fd = os.open(str(path), flags, 0o600)
-            file = os.fdopen(fd, "wb")
+            try:
+                file = os.fdopen(fd, "wb")
+            except Exception:
+                os.close(fd)
+                raise
             try:
                 yield file
             finally:

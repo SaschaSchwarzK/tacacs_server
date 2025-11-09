@@ -6,11 +6,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tacacs_server.utils.logger import get_logger
-
 from .base import BackupDestination, BackupMetadata
-
-_logger = get_logger(__name__)
 
 
 class LocalBackupDestination(BackupDestination):

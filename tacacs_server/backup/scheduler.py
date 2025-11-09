@@ -18,7 +18,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from tacacs_server.utils.logger import get_logger
 
 
-# Registry to avoid pickling bound methods (APScheduler jobstores pickle callables)
 class ExecutionStoreProtocol(Protocol):
     def list_destinations(
         self, *, enabled_only: bool

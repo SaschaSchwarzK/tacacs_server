@@ -103,11 +103,11 @@ class TestPathInjectionPrevention:
 
     def test_null_byte_injection_prevented(self):
         """Test that null bytes in paths are rejected."""
-        from tacacs_server.backup.path_policy import (
-            safe_input_file,
-            validate_allowed_root,
-            validate_base_directory,
-        )
+        import tacacs_server.backup.path_policy as _pp
+
+        safe_input_file = _pp.safe_input_file
+        validate_allowed_root = _pp.validate_allowed_root
+        validate_base_directory = _pp.validate_base_directory
 
         null_byte_paths = [
             "/tmp/test\x00/etc/passwd",

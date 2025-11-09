@@ -27,7 +27,9 @@ class BackupDestination(ABC):
     def __init__(self, config: dict[str, Any]):
         self.config = config or {}
         self._logger = get_logger(__name__)
-        # Always validate configuration immediately to catch errors early.
+        # Ensure every destination validates its configuration upon construction.
+        # Subclasses that need pre-validation setup should perform it before
+        # calling super().__init__.
         self.validate_config()
 
     @abstractmethod
