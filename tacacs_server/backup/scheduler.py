@@ -6,7 +6,7 @@ import threading
 import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -15,8 +15,28 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-# Move imports above declarations to satisfy linters
 from tacacs_server.utils.logger import get_logger
+
+
+# Registry to avoid pickling bound methods (APScheduler jobstores pickle callables)
+class ExecutionStoreProtocol(Protocol):
+    def list_destinations(
+        self, *, enabled_only: bool
+    ) -> list[dict[str, Any]] | None: ...
+
+
+class BackupServiceProtocol(Protocol):
+    execution_store: ExecutionStoreProtocol
+
+    def execute_backup(
+        self,
+        destination_id: str,
+        *,
+        triggered_by: str,
+        backup_type: str = ...,
+        execution_id: str | None = ...,
+    ) -> str: ...
+
 
 # Registry to avoid pickling bound methods (APScheduler jobstores pickle callables)
 _SCHEDULERS: dict[str, BackupScheduler] = {}
@@ -32,16 +52,13 @@ def _execute_job_static(
 ) -> None:
     sch = _SCHEDULERS.get(reg_id)
     if not sch:
+        _log.warning("Scheduler registry missing entry for %s", reg_id)
         return
     sch._execute_job_impl(job_id, destination_id, execution_id)
 
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-if TYPE_CHECKING:
-    from tacacs_server.backup.service import BackupService
 
 
 class BackupScheduler:
@@ -52,7 +69,7 @@ class BackupScheduler:
     counts in a scheduler-agnostic way.
     """
 
-    def __init__(self, backup_service: BackupService) -> None:
+    def __init__(self, backup_service: BackupServiceProtocol) -> None:
         self.backup_service = backup_service
         os.makedirs("data", exist_ok=True)
         self._meta_path = os.path.join("data", "backup_jobs_meta.json")
@@ -81,8 +98,8 @@ class BackupScheduler:
                     # Ensure dict shape for typing
                     if isinstance(data, dict):
                         return data
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("Failed to load scheduler metadata: %s", exc)
         return {"jobs": {}}
 
     def _save_metadata(self) -> None:
@@ -90,8 +107,8 @@ class BackupScheduler:
             with self._meta_lock:
                 with open(self._meta_path, "w", encoding="utf-8") as fh:
                     json.dump(self._metadata, fh, indent=2, sort_keys=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("Failed to persist scheduler metadata: %s", exc)
 
     # --- lifecycle ---
     def start(self) -> None:
@@ -110,21 +127,20 @@ class BackupScheduler:
             )
             try:
                 _log.info("Scheduled daily retention policy enforcement at 04:00")
-            except Exception:
-                pass
-        except Exception:
-            # Don't prevent startup if scheduling fails
-            pass
+            except Exception as exc:
+                _log.warning("Failed to log retention schedule information: %s", exc)
+        except Exception as exc:
+            _log.warning("Failed to schedule daily retention enforcement job: %s", exc)
 
     def stop(self) -> None:
         try:
             self.scheduler.shutdown(wait=False)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("Failed to shut down scheduler: %s", exc)
         try:
             _SCHEDULERS.pop(self._registry_id, None)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("Failed to remove scheduler registry entry: %s", exc)
 
     # --- job management ---
     def add_job(
@@ -183,8 +199,8 @@ class BackupScheduler:
     def remove_job(self, job_id: str) -> bool:
         try:
             self.scheduler.remove_job(job_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("Failed to remove job %s: %s", job_id, exc)
         with self._meta_lock:
             removed = self._metadata.get("jobs", {}).pop(job_id, None) is not None
             self._save_metadata()
@@ -198,7 +214,8 @@ class BackupScheduler:
                     self._metadata["jobs"][job_id]["status"] = "paused"
                     self._save_metadata()
             return True
-        except Exception:
+        except Exception as exc:
+            _log.warning("Failed to pause job %s: %s", job_id, exc)
             return False
 
     def resume_job(self, job_id: str) -> bool:
@@ -209,7 +226,8 @@ class BackupScheduler:
                     self._metadata["jobs"][job_id]["status"] = "scheduled"
                     self._save_metadata()
             return True
-        except Exception:
+        except Exception as exc:
+            _log.warning("Failed to resume job %s: %s", job_id, exc)
             return False
 
     def trigger_job_now(self, job_id: str) -> str:
@@ -305,8 +323,12 @@ class BackupScheduler:
                                 }
                             )
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        _log.warning(
+                            "Failed to log retention completion for %s: %s",
+                            dest.get("id"),
+                            exc,
+                        )
                 except Exception as e:
                     _log.error(
                         f"Retention enforcement failed for {dest.get('name')}: {e}"

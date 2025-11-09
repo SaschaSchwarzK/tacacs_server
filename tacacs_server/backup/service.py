@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -9,9 +11,8 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from tacacs_server.config.config import TacacsConfig
 from tacacs_server.utils.logger import get_logger
 
 from .database_utils import (
@@ -29,7 +30,10 @@ from .database_utils import (
 from .destinations import create_destination
 from .encryption import BackupEncryption, decrypt_file
 from .execution_store import BackupExecutionStore
-from .scheduler import BackupScheduler
+
+if TYPE_CHECKING:
+    from tacacs_server.backup.scheduler import BackupScheduler
+    from tacacs_server.config.config import TacacsConfig
 
 _logger = get_logger("tacacs_server.backup.service", component="backup")
 
@@ -61,7 +65,11 @@ class BackupService:
             from tacacs_server.backup.path_policy import get_temp_root
 
             self.temp_dir = get_temp_root()
-        except Exception:
+        except Exception as exc:
+            _logger.warning(
+                "Failed to determine temporary backup root, falling back to /var/run/tacacs/tmp: %s",
+                exc,
+            )
             self.temp_dir = Path("/var/run/tacacs/tmp")
         self._ensure_temp_dir()
         self.instance_name = (
@@ -72,7 +80,9 @@ class BackupService:
         # Initialize scheduler (not started by default)
         self.scheduler: BackupScheduler | None = None
         try:
-            self.scheduler = BackupScheduler(self)
+            from .scheduler import BackupScheduler as _BackupScheduler
+
+            self.scheduler = _BackupScheduler(self)
         except Exception as e:
             _logger.warning(f"Scheduler initialization failed: {e}")
             self.scheduler = None
@@ -220,6 +230,22 @@ class BackupService:
 
         return manifest
 
+    def _cleanup_sidecars(self, backup_dir: str, phase: str) -> None:
+        """Remove SQLite -wal/-shm files created during backup operations."""
+        try:
+            for fname in os.listdir(backup_dir):
+                if not (fname.endswith("-wal") or fname.endswith("-shm")):
+                    continue
+                path = os.path.join(backup_dir, fname)
+                try:
+                    os.remove(path)
+                except Exception as exc:
+                    _logger.warning(
+                        "Failed to remove %s sidecar %s: %s", phase, path, exc
+                    )
+        except Exception as exc:
+            _logger.warning("Failed to enumerate sidecars during %s: %s", phase, exc)
+
     @staticmethod
     def _calculate_sha256(filepath: str) -> str:
         h = hashlib.sha256()
@@ -277,8 +303,6 @@ class BackupService:
             int: Size of the created tarball in bytes
         """
         try:
-            from typing import Any
-
             raw_cfg: Any = getattr(self.config, "get_backup_config", lambda: {})()
             cfg: dict[str, Any] = raw_cfg if isinstance(raw_cfg, dict) else {}
             compression_level = int(cfg.get("compression_level", 6))
@@ -302,76 +326,56 @@ class BackupService:
         remote_filename: str,
         execution_id: str,
     ) -> str:
-        """Upload with periodic progress logs (best-effort callback).
-
-        Args:
-            local_path: Path to the local file to upload
-            destination: Destination object with upload method
-            remote_filename: Filename to use at the destination
-            execution_id: ID of the backup execution
-
-        Returns:
-            str: Remote path where the file was uploaded
-        """
+        """Upload a file to the destination and log duration/size."""
         file_size = os.path.getsize(local_path)
-        last_log_time = 0.0
-        bytes_uploaded = 0
-
-        def progress_callback(chunk):
-            nonlocal bytes_uploaded, last_log_time
-            bytes_uploaded += len(chunk)
-
-            # Log progress at most once per second
-            current_time = time.time()
-            if current_time - last_log_time >= 1.0:
-                last_log_time = current_time
-                percent = (bytes_uploaded / file_size) * 100 if file_size > 0 else 0
-                try:
-                    if HAS_HUMANIZE:
-                        size_str = f"{humanize.naturalsize(bytes_uploaded, binary=True)}/{humanize.naturalsize(file_size, binary=True)}"
-                    else:
-                        size_str = f"{bytes_uploaded}/{file_size} bytes"
-                    _logger.info(
-                        f"Backup upload progress: {percent:.1f}% ({size_str})",
-                        extra={
-                            "event": "backup_upload_progress",
-                            "execution_id": execution_id,
-                            "bytes_uploaded": bytes_uploaded,
-                            "total_bytes": file_size,
-                            "percent_complete": round(percent, 2),
-                        },
-                    )
-                except Exception as e:
-                    _logger.warning("Failed to log upload progress: %s", e)
-
-        # Try to pass progress_callback if destination supports it
+        start_time = time.time()
+        success = False
         try:
             if hasattr(destination, "upload"):
-                return str(
+                result = str(
                     destination.upload(
                         local_path,
                         remote_filename=remote_filename,
                     )
                 )
             elif hasattr(destination, "upload_backup"):
-                return str(
+                result = str(
                     destination.upload_backup(
                         local_path, remote_filename=remote_filename
                     )
                 )
             else:
-                # Fallback to simple upload if neither method is available
                 _logger.warning(
-                    "Destination doesn't support progress callbacks, using simple upload"
+                    "Destination doesn't support upload callbacks, falling back to default upload"
                 )
                 if hasattr(destination, "upload"):
-                    return str(destination.upload(local_path, remote_filename))
+                    result = str(destination.upload(local_path, remote_filename))
                 else:
-                    return str(destination.upload_backup(local_path, remote_filename))
-
-        except Exception as e:
-            _logger.error("Upload failed: %s", str(e))
+                    result = str(destination.upload_backup(local_path, remote_filename))
+            success = True
+            return result
+        except Exception as exc:
+            _logger.error("Upload failed: %s", str(exc))
             raise
+        finally:
+            duration = time.time() - start_time
+            if HAS_HUMANIZE:
+                size_label = humanize.naturalsize(file_size, binary=True)
+            else:
+                size_label = f"{file_size} bytes"
+            if success:
+                _logger.info(
+                    "Backup upload completed",
+                    extra={
+                        "event": "backup_upload_completed",
+                        "execution_id": execution_id,
+                        "duration_seconds": duration,
+                        "size_bytes": file_size,
+                        "size_label": size_label,
+                    },
+                )
+            else:
+                _logger.warning("Backup upload failed after %.2fs", duration)
 
     def execute_backup(
         self,
@@ -434,8 +438,8 @@ class BackupService:
                         }
                     )
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to log backup start event: %s", exc)
 
             # Step 2: Create temporary workspace
             os.makedirs(backup_dir, exist_ok=True)
@@ -493,15 +497,7 @@ class BackupService:
                 json.dump(config_dict, f, indent=2)
 
             # Step 5: Remove transient SQLite sidecar files to stabilize archive
-            try:
-                for fname in os.listdir(backup_dir):
-                    if fname.endswith("-wal") or fname.endswith("-shm"):
-                        try:
-                            os.remove(os.path.join(backup_dir, fname))
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            self._cleanup_sidecars(backup_dir, "pre-manifest cleanup")
 
             # Step 6: Create manifest
             manifest = self._create_manifest(backup_dir, backup_type, triggered_by)
@@ -511,15 +507,7 @@ class BackupService:
                 json.dump(manifest, f, indent=2)
 
             # Step 7: Remove any sidecars that may have been created during manifest DB reads
-            try:
-                for fname in os.listdir(backup_dir):
-                    if fname.endswith("-wal") or fname.endswith("-shm"):
-                        try:
-                            os.remove(os.path.join(backup_dir, fname))
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            self._cleanup_sidecars(backup_dir, "post-manifest cleanup")
 
             # Step 8: Create compressed archive
             timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -567,8 +555,8 @@ class BackupService:
                             }
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("Failed to log encryption event: %s", exc)
 
                 from tacacs_server.backup.path_policy import (
                     safe_temp_path as _safe_temp,
@@ -592,14 +580,18 @@ class BackupService:
                     }
                     # Also track compressed size pre-encryption for reporting
                     manifest["compressed_size_bytes"] = os.path.getsize(archive_path)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning(
+                        "Failed to update manifest after encryption: %s", exc
+                    )
 
                 # Replace archive with encrypted version
                 try:
                     os.remove(archive_path)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning(
+                        "Failed to remove plain archive after encryption: %s", exc
+                    )
                 archive_path = encrypted_path
                 # Ensure filename has .enc extension
                 if not filename.endswith(".enc"):
@@ -625,8 +617,8 @@ class BackupService:
                             }
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("Failed to log encryption completion: %s", exc)
 
             # Step 7: Upload to destination
             dest_config = self.execution_store.get_destination(destination_id)
@@ -691,8 +683,8 @@ class BackupService:
                         }
                     )
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to log backup completion: %s", exc)
             return execution_id
         except Exception as exc:
             try:
@@ -706,28 +698,30 @@ class BackupService:
                         }
                     )
                 )
-            except Exception:
-                pass
+            except Exception as log_exc:
+                _logger.warning("Failed to log backup failure: %s", log_exc)
             try:
                 self.execution_store.update_execution(
                     execution_id, status="failed", error_message=str(exc)
                 )
                 self.execution_store.set_last_backup(destination_id, status="failed")
-            except Exception:
-                pass
+            except Exception as update_exc:
+                _logger.warning(
+                    "Failed to update execution status after failure: %s", update_exc
+                )
             return execution_id
         finally:
             # Step 9: Cleanup
             try:
                 if backup_dir and os.path.isdir(backup_dir):
                     shutil.rmtree(backup_dir, ignore_errors=True)
-            except Exception:
-                pass
+            except Exception as cleanup_exc:
+                _logger.warning("Failed to remove backup workspace: %s", cleanup_exc)
             try:
                 if archive_path and os.path.exists(archive_path):
                     os.remove(archive_path)
-            except Exception:
-                pass
+            except Exception as cleanup_exc:
+                _logger.warning("Failed to remove temporary archive: %s", cleanup_exc)
             # Step 10: Apply retention policy (best-effort)
             try:
                 dest_config = self.execution_store.get_destination(destination_id)
@@ -744,7 +738,12 @@ class BackupService:
                             if isinstance(cfg_raw, str)
                             else (cfg_raw or {})
                         )
-                    except Exception:
+                    except Exception as parse_exc:
+                        _logger.warning(
+                            "Failed to parse retention config for %s: %s",
+                            destination_id,
+                            parse_exc,
+                        )
                         retention_cfg = {}
                     try:
                         from tacacs_server.backup.retention import (
@@ -756,12 +755,19 @@ class BackupService:
 
                         rule = _Rule(strategy=_Strat(strat), **retention_cfg)
                         destination.apply_retention_policy(retention_rule=rule)
-                    except Exception:
+                    except Exception as rule_exc:
+                        _logger.warning(
+                            "Advanced retention enforcement failed for %s: %s",
+                            destination_id,
+                            rule_exc,
+                        )
                         # Fallback to days if strategy invalid
                         rd = int(dest_config.get("retention_days", 30))
                         destination.apply_retention_policy(retention_days=rd)
-            except Exception:
-                pass
+            except Exception as retention_exc:
+                _logger.warning(
+                    "Retention policy enforcement failed: %s", retention_exc
+                )
 
     def restore_backup(
         self,
@@ -946,8 +952,11 @@ class BackupService:
             try:
                 get_db_manager().enter_maintenance()
                 maintenance_entered = True
-            except Exception:
-                pass
+            except Exception as maintenance_exc:
+                _logger.warning(
+                    "Failed to enter maintenance mode before restore: %s",
+                    maintenance_exc,
+                )
             components_to_restore = components or list(allowed)
             databases_restored = self._perform_component_restore(
                 components_to_restore, restore_root
@@ -990,7 +999,10 @@ class BackupService:
                     # Convert any absolute path to a relative under temp_dir
                     rel = os.path.relpath(path, str(self.temp_dir))
                     safe_path = self._safe_local_path(rel)
-                except Exception:
+                except Exception as safe_exc:
+                    _logger.warning(
+                        "Cleanup path validation failed for %s: %s", path, safe_exc
+                    )
                     return
                 try:
                     if is_dir:
@@ -999,8 +1011,8 @@ class BackupService:
                     else:
                         if os.path.exists(safe_path):
                             os.remove(safe_path)
-                except Exception:
-                    pass
+                except Exception as cleanup_exc:
+                    _logger.warning("Failed to clean %s: %s", safe_path, cleanup_exc)
 
             if restore_root:
                 _safe_cleanup(restore_root, is_dir=True)
@@ -1012,13 +1024,15 @@ class BackupService:
             if maintenance_entered:
                 try:
                     get_db_manager().exit_maintenance()
-                except Exception:
-                    pass
+                except Exception as maintenance_exit_exc:
+                    _logger.warning(
+                        "Failed to exit maintenance mode: %s", maintenance_exit_exc
+                    )
             if post_restart:
                 try:
                     restart_services()
-                except Exception:
-                    pass
+                except Exception as restart_exc:
+                    _logger.warning("Failed to restart services: %s", restart_exc)
 
     def _perform_component_restore(
         self, components: list[str], restore_root: str
@@ -1093,6 +1107,11 @@ class BackupService:
         """Securely extract tarball to the destination directory."""
         os.makedirs(dest_dir, exist_ok=True)
         with tarfile.open(archive_path, "r:gz") as tar:
+            abs_dest = os.path.abspath(dest_dir)
+            for member in tar.getmembers():
+                member_path = os.path.abspath(os.path.join(dest_dir, member.name))
+                if os.path.commonpath([abs_dest, member_path]) != abs_dest:
+                    raise RuntimeError(f"Unsafe path inside tarball: {member.name}")
             # Python 3.14 changes tarfile defaults to filter extracted archives.
             # Use the safe 'data' filter when available; fall back for older Pythons.
             try:
@@ -1188,10 +1207,12 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
     except Exception as e:
         _logger.warning(f"Backup path roots check failed: {e}")
     try:
-        _backup_service_instance.scheduler = BackupScheduler(_backup_service_instance)
+        from tacacs_server.backup.scheduler import BackupScheduler as _BackupScheduler
+
+        _backup_service_instance.scheduler = _BackupScheduler(_backup_service_instance)
         _backup_service_instance.scheduler.start()
-    except Exception:
-        pass
+    except Exception as exc:
+        _logger.warning("Failed to start scheduler during init: %s", exc)
     # Ensure a default local destination exists when none are configured.
     try:
         rows = _backup_service_instance.execution_store.list_destinations()
@@ -1230,7 +1251,7 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
     return _backup_service_instance
 
 
-def get_backup_service() -> "BackupService":
+def get_backup_service() -> BackupService:
     """Get global backup service instance."""
     global _backup_service_instance
 
