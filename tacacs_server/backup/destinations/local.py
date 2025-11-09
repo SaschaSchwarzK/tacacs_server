@@ -9,6 +9,8 @@ from typing import Any
 
 from werkzeug.utils import secure_filename
 
+from tacacs_server.backup.path_policy import validate_allowed_root
+
 from .base import BackupDestination, BackupMetadata
 
 
@@ -62,7 +64,7 @@ class LocalBackupDestination(BackupDestination):
         # Optionally constrain base_path to be under an allowed_root (useful in tests)
         allowed_root_cfg = self.config.get("allowed_root")
         allowed_root = (
-            os.path.normpath(allowed_root_cfg)
+            os.path.normpath(validate_allowed_root(allowed_root_cfg))
             if isinstance(allowed_root_cfg, str) and allowed_root_cfg
             else None
         )
@@ -98,7 +100,7 @@ class LocalBackupDestination(BackupDestination):
 
     def test_connection(self) -> tuple[bool, str]:
         try:
-            root = self._root()
+            root = validate_allowed_root(self._root())
             if not root.is_dir():
                 return False, "Base path does not exist"
             # Use hardcoded test filename to avoid taint
