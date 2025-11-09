@@ -6,47 +6,14 @@ exclude_dirs: ["tests", "scripts", "venv", ".venv", "env", "site-packages", "dis
 
 # Optional global skips (keep minimal; prefer inline `# nosec` with justification)
 skips:
+  - B101 # Issue: [B101:assert_used] Use of assert detected.
   - B104 # Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
   - B110 # Issue: [B110:try_except_pass] Try, Except, Pass detected.
   - B112 # Issue: [B112:try_except_continue] Try, Except, Continue detected.
-#  - B101
-#  - B105
-#  - B106
-#  - B107
-#  - B110
-#  - B112
-#  - B324
-#  - B104
-#  - B608
-#  - B310
-#  - B301
-#  - B403
-#  - B102
-#  - B307
-#  - B314
-#  - B405
-#  - B701
-#  - B108
-#  - B302
-#  - B311
-#  - B404
-#  - B603
-#  - B607
-#  - B606
-#  - B202
-#  - B604
-#  - B610
-#  - B613
-#  - B602
-#  - B408
-#  - B406
-#  - B317
-#  - B318
-#  - B704
-#  - B413
-#  - B303
-#  - B305
-#  - B411
-#  - B504
-#  - B306
-#  - B605
+  - B105 # Issue: [B105:hardcoded_password_string] Possible hardcoded password
+  - B106 # Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: '$2b$12$example'
+  - B107 # Issue: [B107:hardcoded_password_default] Possible hardcoded password: ''
+  - B202 # Issue: [B202:tarfile_unsafe_members] tarfile.extractall used without any validation. Please check and discard dangerous members.
+  - B310 # Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+  - B311 # [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+  - B608 # Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
