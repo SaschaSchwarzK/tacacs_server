@@ -23,6 +23,7 @@ class AzureBlobBackupDestination(BackupDestination):
         # Use loose Any typing to avoid mypy issues when azure stubs are absent
         self.blob_service_client: Any | None = None
         self.container_client: Any | None = None
+        self.validate_config()
 
     # --- configuration / validation ---
     def validate_config(self) -> None:
@@ -309,13 +310,11 @@ class AzureBlobBackupDestination(BackupDestination):
         # O_NOFOLLOW is not available on Windows
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
+        fd = None
         try:
             fd = os.open(str(path), flags, 0o600)
-            try:
-                file = os.fdopen(fd, "wb")
-            except Exception:
-                os.close(fd)
-                raise
+            file = os.fdopen(fd, "wb")
+            fd = None  # fdopen takes ownership, no need to close fd separately
             try:
                 yield file
             finally:
@@ -324,6 +323,9 @@ class AzureBlobBackupDestination(BackupDestination):
             if getattr(e, "errno", None) in (errno.ELOOP, getattr(errno, "EMLINK", -1)):
                 raise ValueError(f"Symlink detected at open: {path}") from e
             raise
+        finally:
+            if fd is not None:
+                os.close(fd)
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._ensure_clients()

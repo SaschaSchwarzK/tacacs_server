@@ -693,17 +693,20 @@ class RADIUSServer:
             try:
                 self.auth_socket.close()
             except (OSError, AttributeError):
+                # Socket close failed, continue with shutdown
                 pass
         if self.acct_socket:
             try:
                 self.acct_socket.close()
             except (OSError, AttributeError):
+                # Socket close failed, continue with shutdown
                 pass
 
         if self._executor:
             try:
                 self._executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
+                # Executor shutdown failed, continue with cleanup
                 pass
             finally:
                 self._executor = None
@@ -762,6 +765,7 @@ class RADIUSServer:
                 try:
                     self.auth_socket.close()
                 except (OSError, AttributeError):
+                    # Socket close failed during cleanup
                     pass
                 finally:
                     self.auth_socket = None
@@ -815,6 +819,7 @@ class RADIUSServer:
                 try:
                     self.acct_socket.close()
                 except (OSError, AttributeError):
+                    # Socket close failed during cleanup
                     pass
                 finally:
                     self.acct_socket = None

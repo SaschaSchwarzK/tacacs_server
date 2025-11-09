@@ -43,6 +43,7 @@ async def admin_guard(request: Request) -> None:
             content_type=request.headers.get("content-type", ""),
         )
     except Exception:
+        # Admin guard logging failed, continue with authentication
         pass
     token = request.cookies.get("admin_session")
     if not token:
@@ -396,6 +397,7 @@ async def get_section(
                 cfg.get_device_store_config().get("default_group", "default"),
             )
         except Exception:
+            # Device store config retrieval failed, continue without defaults
             pass
     overridden = cfg.overridden_keys.get(section, set())
     return ConfigSectionResponse(

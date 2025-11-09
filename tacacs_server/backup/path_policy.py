@@ -277,11 +277,10 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
 
     # Determine the effective root directory to validate against
     eff_allowed: Path
-    if not _TEST_MODE:
-        if allowed_root is None:
-            eff_allowed = get_backup_root()
-        else:
-            eff_allowed = validate_allowed_root(allowed_root)
+    if allowed_root is not None:
+        eff_allowed = validate_allowed_root(allowed_root)
+    elif not _TEST_MODE:
+        eff_allowed = get_backup_root()
     else:
         import tempfile
 

@@ -5,6 +5,9 @@ import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+
+from werkzeug.utils import secure_filename
 
 from .base import BackupDestination, BackupMetadata
 
@@ -23,6 +26,10 @@ def _sanitize_for_filesystem(user_input: str) -> str:
 
 class LocalBackupDestination(BackupDestination):
     """Store backups in a local filesystem directory."""
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config)
+        self.validate_config()
 
     def validate_config(self) -> None:
         # For compatibility with tests and existing configs, require an absolute base_path
@@ -51,18 +58,21 @@ class LocalBackupDestination(BackupDestination):
 
     def _root(self) -> Path:
         # Normalize and resolve base path, then ensure containment within allowed root
-        base_path = os.path.normpath(str(self.config["base_path"]))
+        base_path = os.path.normpath(self.config["base_path"])
         # Optionally constrain base_path to be under an allowed_root (useful in tests)
         allowed_root_cfg = self.config.get("allowed_root")
         allowed_root = (
-            os.path.normpath(str(allowed_root_cfg))
+            os.path.normpath(allowed_root_cfg)
             if isinstance(allowed_root_cfg, str) and allowed_root_cfg
             else None
         )
         abs_base_path = os.path.abspath(base_path)
         if allowed_root:
             abs_allowed_root = os.path.abspath(allowed_root)
-            if not abs_base_path.startswith(abs_allowed_root + os.sep) and abs_base_path != abs_allowed_root:
+            if (
+                not abs_base_path.startswith(abs_allowed_root + os.sep)
+                and abs_base_path != abs_allowed_root
+            ):
                 raise ValueError("Base path is not contained within allowed root")
         return Path(abs_base_path)
 
@@ -71,7 +81,6 @@ class LocalBackupDestination(BackupDestination):
 
         Uses safe_temp_path from path_policy to avoid taint issues.
         """
-        from werkzeug.utils import secure_filename
 
         from tacacs_server.backup.path_policy import safe_temp_path
 
@@ -97,7 +106,10 @@ class LocalBackupDestination(BackupDestination):
             # Ensure test_file is contained within root
             abs_root = os.path.abspath(str(root))
             abs_test_file = os.path.abspath(str(test_file))
-            if not abs_test_file.startswith(abs_root + os.sep) and abs_test_file != abs_root:
+            if (
+                not abs_test_file.startswith(abs_root + os.sep)
+                and abs_test_file != abs_root
+            ):
                 raise ValueError("Test file path traversal detected")
             try:
                 test_file.write_text("ok", encoding="utf-8")

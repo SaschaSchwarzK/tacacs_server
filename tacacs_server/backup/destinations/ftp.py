@@ -47,8 +47,9 @@ class FTPBackupDestination(BackupDestination):
         if not (1 <= self.port <= 65535):
             raise ValueError(f"Invalid FTP port: {self.port}; must be 1-65535")
 
-        # Now call parent's __init__ which will call validate_config()
+        # Now call parent's __init__
         super().__init__(config)
+        self.validate_config()
 
     def validate_config(self) -> None:
         # Check for missing required fields
@@ -227,23 +228,15 @@ class FTPBackupDestination(BackupDestination):
             dir_part = "/".join(rp.strip("/").split("/")[:-1])
             if dir_part:
                 self._ensure_remote_dirs(ftp, "/" + dir_part)
-            sent = 0
             block = 8192
             try:
-
-                def _cb(chunk):
-                    nonlocal sent
-                    sent += len(chunk)
-                    if sent % (block * 128) == 0:
-                        _logger.info("ftp_upload_progress", bytes_sent=sent)
-                    return chunk
-
                 ftp.storbinary(f"STOR {rp}", f, blocksize=block)
             except ftplib.error_perm as exc:
                 # best-effort cleanup of partial file
                 try:
                     ftp.delete(rp)
                 except Exception:
+                    # Partial file cleanup failed, continue with error
                     pass
                 raise RuntimeError(f"Upload failed: {exc}")
         # Verify size
@@ -328,6 +321,7 @@ class FTPBackupDestination(BackupDestination):
                                 .isoformat()
                             )
                         except Exception:
+                            # Timestamp parsing failed, use default
                             pass
                     items.append(
                         BackupMetadata(
@@ -383,6 +377,7 @@ class FTPBackupDestination(BackupDestination):
                                         .isoformat()
                                     )
                                 except Exception:
+                                    # Timestamp parsing failed, use default
                                     pass
                             return BackupMetadata(
                                 filename=name,

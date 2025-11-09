@@ -195,6 +195,7 @@ class SFTPBackupDestination(BackupDestination):
         self.timeout: int = int(self.config.get("timeout", 30))
         self.host_key_verify: bool = bool(self.config.get("host_key_verify", True))
         self.known_hosts_file: str | None = self.config.get("known_hosts_file")
+        self.validate_config()
 
     def validate_config(self) -> None:
         cfg = self.config or {}

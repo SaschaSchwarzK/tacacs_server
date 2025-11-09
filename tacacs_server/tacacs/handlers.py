@@ -969,6 +969,7 @@ class AAAHandlers:
                         )
                     )
             except Exception:
+                # Structured logging failed, continue without detailed log
                 pass
             try:
                 from ..web.monitoring import PrometheusIntegration as _PM
@@ -1001,6 +1002,7 @@ class AAAHandlers:
                         )
                     )
             except Exception:
+                # Structured logging failed, continue without detailed log
                 pass
             try:
                 from ..web.monitoring import PrometheusIntegration as _PM
@@ -1371,6 +1373,7 @@ class AAAHandlers:
                             )
                         )
                 except Exception:
+                    # Structured logging failed, continue without detailed log
                     pass
                 return self._create_author_response(
                     packet,
