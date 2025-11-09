@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import platform
@@ -11,7 +12,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
@@ -29,11 +30,6 @@ from .database_utils import (
 )
 from .destinations import create_destination
 from .encryption import BackupEncryption, decrypt_file
-from .execution_store import BackupExecutionStore
-
-if TYPE_CHECKING:
-    from tacacs_server.backup.scheduler import BackupScheduler
-    from tacacs_server.config.config import TacacsConfig
 
 _logger = get_logger("tacacs_server.backup.service", component="backup")
 
@@ -78,7 +74,7 @@ class BackupService:
             else "tacacs-server"
         )
         # Initialize scheduler (not started by default)
-        self.scheduler: BackupScheduler | None = None
+        self.scheduler: Any | None = None
         try:
             from .scheduler import BackupScheduler as _BackupScheduler
 
@@ -792,7 +788,9 @@ class BackupService:
         restore_root = None
         emergency_exec_id = None
 
-        from tacacs_server.utils.maintenance import get_db_manager, restart_services
+        maintenance_module = importlib.import_module("tacacs_server.utils.maintenance")
+        get_db_manager = maintenance_module.get_db_manager
+        restart_services = maintenance_module.restart_services
 
         maintenance_entered = False
         try:
@@ -995,6 +993,7 @@ class BackupService:
         finally:
             # Step 8: Cleanup temporary files (only within temp_dir)
             def _safe_cleanup(path: str, is_dir: bool = False):
+                safe_path: str | None = None
                 try:
                     # Convert any absolute path to a relative under temp_dir
                     rel = os.path.relpath(path, str(self.temp_dir))
@@ -1003,16 +1002,18 @@ class BackupService:
                     _logger.warning(
                         "Cleanup path validation failed for %s: %s", path, safe_exc
                     )
-                    return
-                try:
-                    if is_dir:
-                        if os.path.isdir(safe_path):
-                            shutil.rmtree(safe_path, ignore_errors=True)
-                    else:
-                        if os.path.exists(safe_path):
-                            os.remove(safe_path)
-                except Exception as cleanup_exc:
-                    _logger.warning("Failed to clean %s: %s", safe_path, cleanup_exc)
+                if safe_path is not None:
+                    try:
+                        if is_dir:
+                            if os.path.isdir(safe_path):
+                                shutil.rmtree(safe_path, ignore_errors=True)
+                        else:
+                            if os.path.exists(safe_path):
+                                os.remove(safe_path)
+                    except Exception as cleanup_exc:
+                        _logger.warning(
+                            "Failed to clean %s: %s", safe_path, cleanup_exc
+                        )
 
             if restore_root:
                 _safe_cleanup(restore_root, is_dir=True)
@@ -1108,17 +1109,15 @@ class BackupService:
         os.makedirs(dest_dir, exist_ok=True)
         with tarfile.open(archive_path, "r:gz") as tar:
             abs_dest = os.path.abspath(dest_dir)
-            for member in tar.getmembers():
+            members = tar.getmembers()
+            safe_members = []
+            for member in members:
                 member_path = os.path.abspath(os.path.join(dest_dir, member.name))
                 if os.path.commonpath([abs_dest, member_path]) != abs_dest:
                     raise RuntimeError(f"Unsafe path inside tarball: {member.name}")
-            # Python 3.14 changes tarfile defaults to filter extracted archives.
-            # Use the safe 'data' filter when available; fall back for older Pythons.
-            try:
-                tar.extractall(path=dest_dir, filter="data")
-            except TypeError:
-                # Older Python versions do not support the filter argument
-                tar.extractall(path=dest_dir)
+                safe_members.append(member)
+            for member in safe_members:
+                tar.extract(member, path=dest_dir)
         return dest_dir
 
     @staticmethod
@@ -1187,10 +1186,12 @@ class BackupService:
 _backup_service_instance: BackupService | None = None
 
 
-def initialize_backup_service(config: TacacsConfig) -> BackupService:
+def initialize_backup_service(config: Any) -> BackupService:
     """Initialize global backup service instance"""
     global _backup_service_instance
-    execution_store = BackupExecutionStore("data/backup_executions.db")
+    exec_module = importlib.import_module("tacacs_server.backup.execution_store")
+
+    execution_store = exec_module.BackupExecutionStore("data/backup_executions.db")
     _backup_service_instance = BackupService(config, execution_store)
     # Verify fixed roots are available and writable
     try:
@@ -1243,11 +1244,11 @@ def initialize_backup_service(config: TacacsConfig) -> BackupService:
                         destination_id=dest_id,
                         created_by="system",
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to schedule default backup job: %s", exc)
     except Exception:
         # Do not block initialization if defaults cannot be created
-        pass
+        _logger.warning("Default backup destination setup failed")
     return _backup_service_instance
 
 
@@ -1258,9 +1259,8 @@ def get_backup_service() -> BackupService:
     if _backup_service_instance is None:
         # Lazy initialization fallback for testing/standalone web app
         try:
-            from tacacs_server.utils.config_utils import get_config
-
-            config = get_config()
+            config_utils = importlib.import_module("tacacs_server.utils.config_utils")
+            config = config_utils.get_config()
             if config:
                 _backup_service_instance = initialize_backup_service(config)
                 _logger.info("Backup service lazy-initialized")

@@ -11,37 +11,28 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-if TYPE_CHECKING:
-    from tacacs_server.backup.scheduler import BackupScheduler
-
 
 class _DBConnectionManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        # Store (object, close_fn, reload_fn)
         self._registrations: list[
             tuple[Any, Callable[[], None], Callable[[], None] | None]
         ] = []
         self._in_maintenance: bool = False
 
     def register(self, obj: Any, close_fn: Callable[[], None] | None = None) -> None:
-        """Register an object with a close() method to be closed on maintenance.
-
-        If close_fn is None, the manager attempts to call obj.close.
-        """
         with self._lock:
             if close_fn is None:
                 close_fn = getattr(obj, "close", None)
             reload_fn = getattr(obj, "reload", None)
             if not callable(close_fn):
                 return
-            # Avoid duplicates
             for existing_obj, _, _ in self._registrations:
                 if existing_obj is obj:
                     return
@@ -56,36 +47,26 @@ class _DBConnectionManager:
             ]
 
     def enter_maintenance(self) -> None:
-        """Enter maintenance mode and close all registered connections."""
         with self._lock:
             self._in_maintenance = True
         regs = list(self._registrations)
-        # Close outside the lock to avoid deadlocks on client internal locks
         for _, close_fn, _ in regs:
             try:
                 close_fn()
-            except Exception as exc:  # pragma: no cover - best-effort
-                try:
-                    logger.debug("Close during maintenance failed: %s", exc)
-                except Exception:
-                    pass
+            except Exception as exc:
+                logger.debug("Close during maintenance failed: %s", exc)
 
     def exit_maintenance(self) -> None:
-        # Flip flag first
         with self._lock:
             self._in_maintenance = False
             regs = list(self._registrations)
-        # Attempt to reload any registered connections that expose reload()
         for _, _, reload_fn in regs:
             if reload_fn is None:
                 continue
             try:
                 reload_fn()
-            except Exception as exc:  # pragma: no cover - best-effort
-                try:
-                    logger.debug("Reload after maintenance failed: %s", exc)
-                except Exception:
-                    pass
+            except Exception as exc:
+                logger.debug("Reload after maintenance failed: %s", exc)
 
     def is_in_maintenance(self) -> bool:
         with self._lock:
@@ -99,13 +80,7 @@ def get_db_manager() -> _DBConnectionManager:
     return _DB_MANAGER
 
 
-def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit test
-    """Best-effort restart of in-process services after restore.
-
-    - TACACS server (stop/start)
-    - RADIUS server (stop/start) if present
-    - Backup scheduler (start) if present
-    """
+def restart_services() -> None:
     try:
         try:
             from tacacs_server.web.web import get_tacacs_server
@@ -146,7 +121,7 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
             sch = getattr(svc, "scheduler", None)
             if sch is not None:
                 try:
-                    cast("BackupScheduler", sch).start()
+                    sch.start()
                 except Exception as exc:
                     logger.warning("Backup scheduler restart failed: %s", exc)
         except Exception as exc:
@@ -186,5 +161,4 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
                 "Failed to refresh service stores after maintenance: %s", exc
             )
     except Exception as exc:
-        # Entire restart is best-effort
         logger.warning("Maintenance restart hook failed: %s", exc)

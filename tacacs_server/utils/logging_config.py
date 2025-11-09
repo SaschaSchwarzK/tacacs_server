@@ -12,6 +12,7 @@ from collections.abc import Iterable, MutableMapping
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 
 __all__ = [
@@ -55,33 +56,29 @@ _context: ContextVar[dict[str, Any]] = ContextVar(
     "structured_logging_context", default={}
 )
 _logging_configured = False
-_CACHED_HOSTNAME = None
 
 
+@lru_cache(maxsize=1)
 def _get_host() -> str:
-    global _CACHED_HOSTNAME
-    if _CACHED_HOSTNAME:
-        return _CACHED_HOSTNAME
-    # Prefer container-provided hostname; no DNS lookup
     host = os.getenv("HOSTNAME")
     if host:
-        _CACHED_HOSTNAME = host
         return host
-    # Try /etc/hostname (fast, local)
     try:
         with open("/etc/hostname", encoding="utf-8") as fh:
             host = fh.read().strip() or None
             if host:
-                _CACHED_HOSTNAME = host
                 return host
-    except Exception:
-        pass
-    # Fallback to socket.gethostname (does not require DNS)
+    except Exception as exc:
+        import logging as _log
+
+        _log.getLogger(__name__).debug("Failed to read /etc/hostname: %s", exc)
     try:
         host = socket.gethostname()
-    except Exception:
+    except Exception as exc:
+        import logging as _log
+
+        _log.getLogger(__name__).debug("Failed to get hostname: %s", exc)
         host = "unknown"
-    _CACHED_HOSTNAME = host
     return host
 
 
@@ -97,12 +94,9 @@ class StructuredJSONFormatter(logging.Formatter):
         self.utc = utc
 
     def format(self, record: logging.LogRecord) -> str:
-        # RFC3339Nano-like timestamp
         ts = datetime.now(UTC if self.utc else None).isoformat()
-        # Monotonic milliseconds
         t_monotonic_ms = int(time.monotonic() * 1000)
 
-        # Base schema fields per docs/logging.json
         payload: dict[str, Any] = {
             "schema": "log.v1",
             "ts": ts,
@@ -118,29 +112,23 @@ class StructuredJSONFormatter(logging.Formatter):
             "correlation_id": getattr(record, "correlation_id", None) or "",
         }
 
-        # Include event if provided
         evt = getattr(record, "event", None)
         if evt:
             payload["event"] = evt
 
-        # Merge structured context
         context = getattr(record, "context", None) or _context.get()
         if context:
-            # Bring context.top-level keys into payload without nesting under 'context'
             for k, v in dict(context).items():
                 if k not in payload:
                     payload[k] = v
 
-        # Copy safe extras (flatten into payload)
         for key, value in record.__dict__.items():
             if key in _STANDARD_ATTRS or key.startswith("_"):
                 continue
-            # Avoid overwriting base fields unless explicitly set
             if key in payload and payload[key] not in (None, ""):
                 continue
             payload[key] = value
 
-        # Exceptions
         if record.exc_info:
             payload["error"] = {
                 "type": str(getattr(record.exc_info[0], "__name__", "")),
