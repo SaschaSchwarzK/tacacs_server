@@ -1,7 +1,7 @@
 """Client connection handler"""
-
 import logging
 import socket
+import threading
 
 try:
     import json as _json
@@ -76,7 +76,7 @@ class ClientHandler:
             return
 
         # Validate proxy source
-        if not self._validate_proxy(proxy_ip, address, conn_logger, client_socket):
+        if not self._validate_proxy(proxy_ip, address, conn_logger):
             return
 
         # Record connection type
@@ -163,12 +163,10 @@ class ClientHandler:
                     )
                 first_header_data = NetworkHandler.recv_exact(client_socket, 12) or b""
             elif consumed == 0 and first12.startswith(
-                b"\x0d\x0a\x0d\x0a\x00\x0d\x0a\x51\x55\x49\x54\x0a"
+                b"\\x0d\\x0a\\x0d\\x0a\\x00\\x0d\\x0a\\x51\\x55\\x49\\x54\\x0a"
             ):
                 self.stats.increment("proxy_header_errors")
-                conn_logger.debug(
-                    "Invalid PROXY v2 header, reading fresh TACACS header"
-                )
+                conn_logger.debug("Invalid PROXY v2 header, reading fresh TACACS header")
                 first_header_data = NetworkHandler.recv_exact(client_socket, 12) or b""
             else:
                 first_header_data = first12
