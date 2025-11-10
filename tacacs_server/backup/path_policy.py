@@ -304,13 +304,20 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
             f"Base directory '{p}' is not valid or escapes allowed root '{eff_allowed}'"
         )
 
-    rel = _sanitize_relpath_secure(str(relative_part))
-    resolved_final = Path(os.path.normpath(os.path.join(str(eff_allowed), rel)))
-    # Ensure path stays under allowed root after normalization
-    if os.path.commonpath([str(eff_allowed), str(resolved_final)]) != str(eff_allowed):
-        raise ValueError(
-            f"Base directory '{p}' is not valid or escapes allowed root '{eff_allowed}'"
-        )
+    if relative_part == Path("."):
+        # Path is identical to the allowed root, which is valid.
+        resolved_final = eff_allowed
+    else:
+        rel = _sanitize_relpath_secure(str(relative_part))
+        resolved_final = Path(os.path.normpath(os.path.join(str(eff_allowed), rel)))
+        # Ensure path stays under allowed root after normalization
+        if (
+            os.path.commonpath([str(eff_allowed), str(resolved_final)])
+            != str(eff_allowed)
+        ):
+            raise ValueError(
+                f"Base directory '{p}' is not valid or escapes allowed root '{eff_allowed}'"
+            )
 
     # Create the directory if it doesn't exist, with checks
     try:

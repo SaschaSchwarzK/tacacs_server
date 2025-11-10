@@ -956,8 +956,8 @@ def create_test_client_script():
                 if sock is not None:
                     try:
                         sock.close()
-                except Exception as exc:
-                    logger.warning("Failed to close PAP socket: %s", exc)
+                    except Exception as exc:
+                        logger.warning("Failed to close PAP socket: %s", exc)
 
 
         def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
