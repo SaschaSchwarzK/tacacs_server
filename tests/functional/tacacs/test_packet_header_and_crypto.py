@@ -49,7 +49,8 @@ from tacacs_server.tacacs.constants import (
     TAC_PLUS_PACKET_TYPE,
 )
 from tacacs_server.tacacs.packet import TacacsPacket
-from tacacs_server.tacacs.server import TacacsServer
+from tacacs_server.tacacs.session import SessionManager
+from tacacs_server.tacacs.validator import PacketValidator
 
 
 def _mk_header(
@@ -139,11 +140,11 @@ def test_header_validation_bad_version():
     - Header validation should fail due to unsupported version
     - _validate_packet_header() should return False
     """
-    server = TacacsServer()
+    validator = PacketValidator()
     # Use an invalid major within 4-bit space (e.g., 0x0E when expected 0x0C)
     hdr = _mk_header(0x0E, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, 0x12345678, 0)
     pkt = TacacsPacket.unpack_header(hdr)
-    assert server._validate_packet_header(pkt) is False
+    assert validator.validate_header(pkt) is False
 
 
 def test_header_validation_bad_type():
@@ -160,10 +161,10 @@ def test_header_validation_bad_type():
     - Header validation should fail due to unknown packet type
     - _validate_packet_header() should return False
     """
-    server = TacacsServer()
+    validator = PacketValidator()
     hdr = _mk_header(TAC_PLUS_MAJOR_VER, 0xFF, 1, 0, 0x11111111, 0)
     pkt = TacacsPacket.unpack_header(hdr)
-    assert server._validate_packet_header(pkt) is False
+    assert validator.validate_header(pkt) is False
 
 
 def test_header_validation_seq_parity_and_monotonic():
@@ -186,99 +187,111 @@ def test_header_validation_seq_parity_and_monotonic():
     - Next even sequence in server-to-client context → Accepted
     - Out-of-order sequence → Rejected
     """
-    server = TacacsServer()
+    validator = PacketValidator()
+    manager = SessionManager()
     sess = 0xAABBCCDD
     # Even seq should be rejected for client-to-server
     hdr_even = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 2, 0, sess, 0
     )
     pkt_even = TacacsPacket.unpack_header(hdr_even)
-    assert server._validate_packet_header(pkt_even) is False
+    assert validator.validate_header(pkt_even) is False
 
     # Odd seq should be accepted (client to server)
     hdr_odd1 = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0
     )
     pkt_odd1 = TacacsPacket.unpack_header(hdr_odd1)
-    assert server._validate_packet_header(pkt_odd1) is True
+    assert validator.validate_header(pkt_odd1) is True
+    assert manager.validate_sequence(pkt_odd1.session_id, pkt_odd1.seq_no) is True
 
     # Next valid client request should be the next odd (monotonic by +2)
     hdr_odd3 = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 3, 0, sess, 0
     )
     pkt_odd3 = TacacsPacket.unpack_header(hdr_odd3)
-    assert server._validate_packet_header(pkt_odd3) is True
+    assert validator.validate_header(pkt_odd3) is True
+    assert manager.validate_sequence(pkt_odd3.session_id, pkt_odd3.seq_no) is True
 
     # Duplicate sequence (sending 3 again) should be rejected
     hdr_dup3 = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 3, 0, sess, 0
     )
     pkt_dup3 = TacacsPacket.unpack_header(hdr_dup3)
-    assert server._validate_packet_header(pkt_dup3) is False
+    assert validator.validate_header(pkt_dup3) is True
+    assert manager.validate_sequence(pkt_dup3.session_id, pkt_dup3.seq_no) is False
 
 
 def test_sequence_zero_invalid():
     """Sequence number 0 should be rejected (must be odd and >=1)."""
-    server = TacacsServer()
+    validator = PacketValidator()
     sess = 0x01020304
     hdr = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 0, 0, sess, 0
     )
     pkt = TacacsPacket.unpack_header(hdr)
-    assert server._validate_packet_header(pkt) is False
+    assert validator.validate_header(pkt) is False
 
 
 def test_non_sequential_numbers_odd_progression_valid():
     """Client requests in odd sequence (1,3,5,...) should be valid and monotonic."""
-    server = TacacsServer()
+    validator = PacketValidator()
+    manager = SessionManager()
     sess = 0x0A0B0C0D
     for seq in (1, 3, 5):
         hdr = _mk_header(
             TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, seq, 0, sess, 0
         )
         pkt = TacacsPacket.unpack_header(hdr)
-        assert server._validate_packet_header(pkt) is True
+        assert validator.validate_header(pkt) is True
+        assert manager.validate_sequence(pkt.session_id, pkt.seq_no) is True
 
 
 def test_invalid_even_in_between():
     """A sequence like 1,2,3 should fail on the even 2, but 3 is accepted afterward."""
-    server = TacacsServer()
+    validator = PacketValidator()
+    manager = SessionManager()
     sess = 0x0F0E0D0C
     # 1 accepted
     hdr1 = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0
     )
     pkt1 = TacacsPacket.unpack_header(hdr1)
-    assert server._validate_packet_header(pkt1) is True
+    assert validator.validate_header(pkt1) is True
+    assert manager.validate_sequence(pkt1.session_id, pkt1.seq_no) is True
     # 2 rejected (even)
     hdr2 = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 2, 0, sess, 0
     )
     pkt2 = TacacsPacket.unpack_header(hdr2)
-    assert server._validate_packet_header(pkt2) is False
+    assert validator.validate_header(pkt2) is False
     # 3 accepted (next odd step)
     hdr3 = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 3, 0, sess, 0
     )
     pkt3 = TacacsPacket.unpack_header(hdr3)
-    assert server._validate_packet_header(pkt3) is True
+    assert validator.validate_header(pkt3) is True
+    assert manager.validate_sequence(pkt3.session_id, pkt3.seq_no) is True
 
 
 def test_duplicate_sequence_numbers_rejected():
     """Sending the same odd sequence twice within a session is rejected the second time."""
-    server = TacacsServer()
+    validator = PacketValidator()
+    manager = SessionManager()
     sess = 0xDEADBEEF
     hdr1 = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0
     )
     pkt1 = TacacsPacket.unpack_header(hdr1)
-    assert server._validate_packet_header(pkt1) is True
+    assert validator.validate_header(pkt1) is True
+    assert manager.validate_sequence(pkt1.session_id, pkt1.seq_no) is True
     # Duplicate 1 should be rejected
     hdr1_dup = _mk_header(
         TAC_PLUS_MAJOR_VER, TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN, 1, 0, sess, 0
     )
     pkt1_dup = TacacsPacket.unpack_header(hdr1_dup)
-    assert server._validate_packet_header(pkt1_dup) is False
+    assert validator.validate_header(pkt1_dup) is True
+    assert manager.validate_sequence(pkt1_dup.session_id, pkt1_dup.seq_no) is False
 
 
 def test_encrypt_decrypt_paths_identity_for_unencrypted_and_roundtrip_encrypted():

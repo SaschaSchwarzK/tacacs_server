@@ -507,9 +507,7 @@ def test_proxy_v2_invalid_header_logged_and_ignored(server_factory):
 
         assert ok, f"Auth should succeed after ignoring invalid PROXY header: {msg}"
         # Expect a debug log about invalid/unsupported PROXY header or parse error
-        assert ("Invalid/unsupported PROXY v2 header" in logs) or (
-            "PROXY v2 parse error" in logs
-        )
+        assert ("Invalid PROXY v2 header" in logs) or ("PROXY v2 parse error" in logs)
 
 
 def test_proxy_v2_ignored_when_disabled(server_factory):
