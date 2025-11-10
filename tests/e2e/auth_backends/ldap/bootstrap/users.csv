@@ -1,0 +1,5 @@
+adminA,password,Admin A,Admin,admin-A
+operatorA,password,Operator A,Operator,operator-A
+adminB,password,Admin B,Admin,admin-B
+operatorB,password,Operator B,Operator,operator-B
+opsShared,password,Ops Shared,Shared,operator-A|operator-B

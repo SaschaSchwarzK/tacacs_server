@@ -40,7 +40,7 @@ def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
 
 def format_bytes(bytes_val):
     """Format bytes to human readable size"""
-    if not bytes_val and bytes_val != 0:
+    if bytes_val in (None, ""):
         return "0 B"
     try:
         bytes_val = int(bytes_val)
@@ -59,7 +59,7 @@ def format_bytes(bytes_val):
 
 def format_duration(seconds):
     """Format seconds to human readable duration"""
-    if not seconds and seconds != 0:
+    if seconds in (None, ""):
         return "0s"
     try:
         seconds = int(seconds)
@@ -120,8 +120,8 @@ def _redact(data):
             }
         if isinstance(data, list):
             return [_redact(v) for v in data]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Redact helper failed: %s", exc)
     return data
 
 
@@ -141,8 +141,8 @@ def _log_ui(action: str, request: Request, *, details: dict | None = None) -> No
             action,
             _redact(details),
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("UI log hook failed: %s", exc)
 
 
 # ============================================================================
@@ -178,6 +178,7 @@ async def login(
                 tmp_user = (payload.get("username") or "").strip()
                 tmp_pass = payload.get("password")
             except Exception:
+                # JSON parsing failed, continue with form data
                 pass
         if tmp_user and tmp_pass:
             try:
@@ -241,6 +242,7 @@ async def login(
             if not cfg_hash:
                 needs_retry = True
         except Exception:
+            # Config hash retrieval failed, continue without retry
             pass
         if needs_retry:
             try:
@@ -449,6 +451,7 @@ async def dashboard(request: Request):
                 memory_percent = mem.percent
                 memory_human = f"{format_bytes(mem.used)} / {format_bytes(mem.total)}"
             except Exception:
+                # Memory stats retrieval failed, use defaults
                 pass
 
             system_summary = {
@@ -812,6 +815,7 @@ async def groups_page(request: Request):
                         pxy = getter() or {}
                         proxy_enabled = bool(pxy.get("enabled", proxy_enabled))
                 except Exception:
+                    # Proxy config retrieval failed, continue with default
                     pass
                 if proxy_enabled is False:
                     try:
@@ -820,6 +824,7 @@ async def groups_page(request: Request):
                             net_cfg = getter() or {}
                             proxy_enabled = bool(net_cfg.get("proxy_enabled", False))
                     except Exception:
+                        # Network config retrieval failed, continue with default
                         pass
         if proxy_enabled is False:
             ts = getattr(request.app.state, "tacacs_server", None)

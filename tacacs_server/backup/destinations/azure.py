@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,6 +23,7 @@ class AzureBlobBackupDestination(BackupDestination):
         # Use loose Any typing to avoid mypy issues when azure stubs are absent
         self.blob_service_client: Any | None = None
         self.container_client: Any | None = None
+        self.validate_config()
 
     # --- configuration / validation ---
     def validate_config(self) -> None:
@@ -196,12 +198,13 @@ class AzureBlobBackupDestination(BackupDestination):
 
                         if not isinstance(exc, ResourceExistsError):
                             raise
-            except Exception:
+            except Exception as exc:
                 # Fallback to best-effort create ignoring conflicts
+                _logger.warning("Container existence check failed: %s", exc)
                 try:
                     self.container_client.create_container()
-                except Exception:
-                    pass
+                except Exception as exc2:
+                    _logger.warning("Container create retry failed: %s", exc2)
 
             # Test upload, download, delete
             test_blob = ".connect_test"
@@ -293,6 +296,7 @@ class AzureBlobBackupDestination(BackupDestination):
             raise ValueError("Target file may not be a symlink")
         return tgt
 
+    @contextmanager
     def _safe_open_for_write(self, path):
         """
         Open a file for writing securely, preventing symlink attacks.
@@ -306,14 +310,22 @@ class AzureBlobBackupDestination(BackupDestination):
         # O_NOFOLLOW is not available on Windows
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
+        fd = None
         try:
             fd = os.open(str(path), flags, 0o600)
+            file = os.fdopen(fd, "wb")
+            fd = None  # fdopen takes ownership, no need to close fd separately
+            try:
+                yield file
+            finally:
+                file.close()
         except OSError as e:
-            # If the error is "File is a symlink", raise descriptive error
             if getattr(e, "errno", None) in (errno.ELOOP, getattr(errno, "EMLINK", -1)):
                 raise ValueError(f"Symlink detected at open: {path}") from e
             raise
-        return open(fd, "wb")
+        finally:
+            if fd is not None:
+                os.close(fd)
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
         self._ensure_clients()
@@ -326,7 +338,10 @@ class AzureBlobBackupDestination(BackupDestination):
         delay = 1.0
         for attempt in range(1, max_attempts + 1):
             try:
-                with open(local_file_path, "rb") as data:
+                from tacacs_server.backup.path_policy import safe_input_file
+
+                src_path = safe_input_file(local_file_path)
+                with open(str(src_path), "rb") as data:
                     blob_client.upload_blob(
                         data,
                         overwrite=True,
@@ -350,12 +365,14 @@ class AzureBlobBackupDestination(BackupDestination):
                     {str(k): str(v) for k, v in meta_cfg.items()}
                 )
         except Exception as exc:
+            # Non-critical: metadata is best-effort
             _logger.debug("azure_set_metadata_failed", error=str(exc))
         try:
             tags_cfg = self.config.get("default_tags") or {}
             if isinstance(tags_cfg, dict) and tags_cfg:
                 blob_client.set_blob_tags({str(k): str(v) for k, v in tags_cfg.items()})
         except Exception as exc:
+            # Non-critical: tags are best-effort
             _logger.debug("azure_set_tags_failed", error=str(exc))
 
         url = getattr(blob_client, "url", None)
@@ -374,11 +391,20 @@ class AzureBlobBackupDestination(BackupDestination):
             # If caller provided an absolute path, honor it (tests use tmp paths)
             from pathlib import Path as _P
 
-            from tacacs_server.backup.path_policy import safe_temp_path
+            from tacacs_server.backup.path_policy import get_temp_root, safe_temp_path
 
             dst_path = _P(local_file_path)
             if not dst_path.is_absolute():
                 dst_path = safe_temp_path(str(dst_path.name))
+            else:
+                # Validate absolute path stays under our controlled temp root; otherwise fallback
+                try:
+                    base = get_temp_root().resolve()
+                    dst_resolved = dst_path.resolve()
+                    dst_resolved.relative_to(base)
+                    dst_path = dst_resolved
+                except Exception:
+                    dst_path = safe_temp_path(str(dst_path.name))
             dst_path.parent.mkdir(parents=True, exist_ok=True)
             with self._safe_open_for_write(dst_path) as file:
                 download_stream = blob_client.download_blob(
@@ -454,8 +480,8 @@ class AzureBlobBackupDestination(BackupDestination):
             try:
                 man = f"{blob_name}.manifest.json"
                 self.container_client.get_blob_client(man).delete_blob()
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to delete manifest %s: %s", man, exc)
             return True
         except Exception as exc:
             _logger.warning(
@@ -518,8 +544,10 @@ class AzureBlobBackupDestination(BackupDestination):
                             bc = self.container_client.get_blob_client(meta.path)
                             bc.set_standard_blob_tier("Cool")
                             moved += 1
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            _logger.warning(
+                                "Failed to tier blob %s: %s", meta.path, exc
+                            )
                 except Exception:
                     continue
         except Exception as exc:

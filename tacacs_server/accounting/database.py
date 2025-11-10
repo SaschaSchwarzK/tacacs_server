@@ -132,16 +132,20 @@ class DatabaseLogger:
             # Register with DB manager so connections can be closed on restore
             try:
                 get_db_manager().register(self, self.close)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Failed to register accounting DB with maintenance manager: %s", exc
+                )
 
         except Exception as e:
             logger.exception("Failed to initialize database: %s", e)
             if self.conn:
                 try:
                     self.conn.close()
-                except Exception:
-                    pass
+                except Exception as close_exc:
+                    logger.warning(
+                        "Accounting DB close during init cleanup failed: %s", close_exc
+                    )
             self.conn = None
             self.pool = None
             self._stats_cache = {}
@@ -165,7 +169,8 @@ class DatabaseLogger:
                 handler.setFormatter(formatter)
                 self._syslog.addHandler(handler)
                 self._syslog.setLevel(logging.INFO)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to configure accounting syslog: %s", exc)
             self._syslog = None
 
     def _now_utc_iso(self) -> str:
@@ -587,8 +592,8 @@ class DatabaseLogger:
                             f"bytes_in={int(data.get('bytes_in', 0))} bytes_out={int(data.get('bytes_out', 0))}"
                         )
                         syslog.info(msg)
-                except Exception:
-                    pass
+                except Exception as syslog_exc:
+                    logger.warning("Accounting syslog emit failed: %s", syslog_exc)
 
             # Update active sessions once the write transaction has closed
             if status == "START":
@@ -686,8 +691,8 @@ class DatabaseLogger:
         # Close any existing resources first
         try:
             self.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to update accounting stats: %s", exc)
         try:
             db_file = Path(self.db_path).resolve()
             if not db_file.parent.exists():
@@ -821,8 +826,8 @@ class DatabaseLogger:
                         f"bytes_in={int(data.get('bytes_in', 0))} bytes_out={int(data.get('bytes_out', 0))}"
                     )
                     syslog.info(msg)
-            except Exception:
-                pass
+            except Exception as syslog_exc:
+                logger.warning("Accounting syslog emit failed: %s", syslog_exc)
             self._invalidate_stats_cache_for_timestamp(timestamp_value)
             return True
         except Exception:
@@ -1021,7 +1026,11 @@ class DatabaseLogger:
                             import json
 
                             attributes = json.loads(row[4])
-                        except (json.JSONDecodeError, TypeError):
+                        except (json.JSONDecodeError, TypeError) as attr_exc:
+                            logger.debug(
+                                "Failed to decode active session attributes JSON: %s",
+                                attr_exc,
+                            )
                             attributes = {}
 
                     sessions.append(
@@ -1184,8 +1193,10 @@ class DatabaseLogger:
                             import json
 
                             attributes = json.loads(row[7])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+                        except (json.JSONDecodeError, TypeError) as attr_exc:
+                            logger.debug(
+                                "Failed to decode session attributes JSON: %s", attr_exc
+                            )
 
                     duration = None
                     if row[3] and row[4]:
@@ -1260,8 +1271,11 @@ class DatabaseLogger:
                             import json
 
                             attributes = json.loads(row[7])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+                        except (json.JSONDecodeError, TypeError) as attr_exc:
+                            logger.debug(
+                                "Failed to decode user session attributes JSON: %s",
+                                attr_exc,
+                            )
 
                     duration = None
                     if row[3] and row[4]:

@@ -10,7 +10,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
+
+logger = get_logger(__name__)
 
 # Simple in-process aggregator that periodically writes snapshots
 _metrics: dict[str, float] = {
@@ -26,14 +29,14 @@ _metrics: dict[str, float] = {
     "connections_active": 0,
     "connections_total": 0,
 }
-_last_flush_ts: float = 0.0
+_flush_state = {"last_flush_ts": 0.0}
 _flush_interval_sec: float = 5.0
 
 
 def _maybe_flush_snapshot() -> None:  # pragma: no cover
-    global _last_flush_ts
+    state = _flush_state
     now = time.time()
-    if (now - _last_flush_ts) < _flush_interval_sec:
+    if (now - state["last_flush_ts"]) < _flush_interval_sec:
         return
     try:
         # Build snapshot with optional system metrics (CPU/mem)
@@ -48,13 +51,12 @@ def _maybe_flush_snapshot() -> None:  # pragma: no cover
             # Non-blocking CPU percent (use last value if no interval)
             cpu = psutil.cpu_percent(interval=0.0)
             snapshot["cpu_percent"] = float(cpu or 0)
-        except Exception:
-            # Leave defaults (0) if psutil not available
-            pass
+        except Exception as exc:
+            logger.debug("Optional psutil metrics unavailable: %s", exc)
         get_metrics_history().record_snapshot(snapshot)
-    except Exception:
-        pass
-    _last_flush_ts = now
+    except Exception as exc:
+        logger.warning("Failed to record metrics snapshot: %s", exc)
+    state["last_flush_ts"] = now
 
 
 def get_tacacs_server() -> Any | None:
@@ -84,8 +86,8 @@ class PrometheusIntegration:
             else:
                 _metrics["auth_failures"] += 1
             _maybe_flush_snapshot()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to update auth metrics: %s", exc)
 
     @staticmethod
     def record_accounting_record(status: str) -> None:  # pragma: no cover
@@ -96,8 +98,8 @@ class PrometheusIntegration:
             else:
                 _metrics["acct_failures"] += 1
             _maybe_flush_snapshot()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to record accounting metrics: %s", exc)
 
     @staticmethod
     def record_radius_auth(status: str) -> None:  # pragma: no cover
@@ -109,8 +111,8 @@ class PrometheusIntegration:
             else:
                 _metrics["auth_failures"] += 1
             _maybe_flush_snapshot()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to record radius auth metrics: %s", exc)
 
     @staticmethod
     def update_active_connections(count: int) -> None:  # pragma: no cover
@@ -122,8 +124,8 @@ class PrometheusIntegration:
                 _metrics.get("connections_active", 0),
             )
             _maybe_flush_snapshot()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to update active connections: %s", exc)
 
 
 def get_command_engine():  # pragma: no cover
@@ -131,8 +133,8 @@ def get_command_engine():  # pragma: no cover
         srv = get_tacacs_server()
         if srv and getattr(srv, "command_engine", None) is not None:
             return srv.command_engine
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to get command engine from monitoring shim: %s", exc)
     return None
 
 
@@ -141,6 +143,6 @@ def get_command_authorizer():  # pragma: no cover
         srv = get_tacacs_server()
         if srv and getattr(srv, "command_authorizer", None) is not None:
             return srv.command_authorizer
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to get command authorizer from monitoring shim: %s", exc)
     return None

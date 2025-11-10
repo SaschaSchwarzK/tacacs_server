@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  ldap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ldap-e2e
+    ports:
+      - "389:389"
+      - "636:636"
+    environment:
+      # Adjust as needed for your tests
+      LDAP_DOMAIN: ${LDAP_DOMAIN:-example.org}
+      LDAP_ORGANIZATION: ${LDAP_ORGANIZATION:-Example Inc.}
+      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:-secret}
+      # Enable LDAPS listener (self-signed certs are generated in the image unless you mount ./tls)
+      LDAP_TLS_ENABLE: ${LDAP_TLS_ENABLE:-true}
+    volumes:
+      # Persist database and config across restarts
+      - ldap-data:/var/lib/openldap/openldap-data
+      - ldap-config:/etc/openldap/slapd.d
+      # Seed simple users/groups from CSV on first boot
+      - ./bootstrap:/bootstrap:ro
+      # Optional: mount your own certs (cert.pem, key.pem, ca.pem)
+      # - ./tls:/tls:ro
+    restart: unless-stopped
+
+volumes:
+  ldap-data:
+  ldap-config:
+

@@ -30,28 +30,34 @@ def test_encrypt_creates_file_and_header(tmp_path: Path):
     src = tmp_path / "data.bin"
     data = b"hello encryption" * 5
     src.write_bytes(data)
-    dst = tmp_path / "data.bin.enc"
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    dst = safe_temp_path("data.bin.enc")
     info = BackupEncryption.encrypt_file(str(src), str(dst), "StrongPassphrase!123")
     assert dst.exists()
     # Header: TCBK + version(1) + 16-byte salt
-    blob = dst.read_bytes()
+    blob = Path(dst).read_bytes()
     assert blob[:4] == b"TCBK"
     assert blob[4] == 1
     assert len(blob) > 4 + 1 + 16
     assert isinstance(info["salt_hex"], str) and len(info["salt_hex"]) == 32
     assert info["original_size"] == src.stat().st_size
-    assert info["encrypted_size"] == dst.stat().st_size
+    assert info["encrypted_size"] == Path(dst).stat().st_size
     assert info["algorithm"]
 
 
 def test_decrypt_success_and_wrong_passphrase(tmp_path: Path):
     src = tmp_path / "plain.txt"
     src.write_text("top secret!", encoding="utf-8")
-    enc = tmp_path / "plain.txt.enc"
-    dec = tmp_path / "out.txt"
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    enc = safe_temp_path("plain.txt.enc")
+    dec = safe_temp_path("out.txt")
     BackupEncryption.encrypt_file(str(src), str(enc), "Pass-12345-!@#")
     ok = BackupEncryption.decrypt_file(str(enc), str(dec), "Pass-12345-!@#")
-    assert ok and dec.read_text(encoding="utf-8") == src.read_text(encoding="utf-8")
+    assert ok and Path(dec).read_text(encoding="utf-8") == src.read_text(
+        encoding="utf-8"
+    )
     # Wrong passphrase fails gracefully
     dec2 = tmp_path / "out2.txt"
     ok2 = BackupEncryption.decrypt_file(str(enc), str(dec2), "bad-pass")
@@ -59,10 +65,12 @@ def test_decrypt_success_and_wrong_passphrase(tmp_path: Path):
 
 
 def test_corrupted_encrypted_file_detection(tmp_path: Path):
-    enc = tmp_path / "bad.enc"
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    enc = safe_temp_path("bad.enc")
     # Write bad header
     enc.write_bytes(b"TCBK" + bytes([1]) + b"\x00" * 15 + b"corrupted")
-    dec = tmp_path / "dec"
+    dec = safe_temp_path("dec")
     ok = BackupEncryption.decrypt_file(str(enc), str(dec), "any")
     assert ok is False
 
@@ -71,19 +79,23 @@ def test_corrupted_encrypted_file_detection(tmp_path: Path):
 def test_round_trip_various_sizes(tmp_path: Path, size: int):
     src = tmp_path / f"data_{size}.bin"
     src.write_bytes(os.urandom(size))
-    enc = tmp_path / f"data_{size}.bin.enc"
-    dec = tmp_path / f"data_{size}.bin.out"
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    enc = safe_temp_path(f"data_{size}.bin.enc")
+    dec = safe_temp_path(f"data_{size}.bin.out")
     info = BackupEncryption.encrypt_file(str(src), str(enc), "SuperSecret!123456")
-    assert enc.exists()
+    assert Path(enc).exists()
     assert info["encrypted_size"] > 0
     ok = BackupEncryption.decrypt_file(str(enc), str(dec), "SuperSecret!123456")
-    assert ok and dec.read_bytes() == src.read_bytes()
+    assert ok and Path(dec).read_bytes() == src.read_bytes()
 
 
 def test_verify_passphrase(tmp_path: Path):
     src = tmp_path / "x.bin"
     src.write_bytes(b"abc" * 100)
-    enc = tmp_path / "x.bin.enc"
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    enc = safe_temp_path("x.bin.enc")
     BackupEncryption.encrypt_file(str(src), str(enc), "P@ssphrase-XYZ")
     assert BackupEncryption.verify_passphrase(str(enc), "P@ssphrase-XYZ") is True
     assert BackupEncryption.verify_passphrase(str(enc), "wrong") is False

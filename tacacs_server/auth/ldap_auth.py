@@ -2,7 +2,9 @@
 LDAP Authentication Backend
 """
 
+import os
 import threading
+import time as _t
 from queue import Empty, Queue
 from typing import Any
 
@@ -46,7 +48,16 @@ class LDAPAuthBackend(AuthenticationBackend):
             self.user_attribute = cfg.get("user_attribute", user_attribute)
             self.bind_dn = cfg.get("bind_dn") or None
             self.bind_password = cfg.get("bind_password") or None
-            self.use_tls = bool(cfg.get("use_tls", use_tls))
+
+            # Robust boolean parsing: accept true/false strings
+            def _to_bool(v, default=False):
+                if isinstance(v, bool):
+                    return v
+                if isinstance(v, str):
+                    return v.strip().lower() in ("1", "true", "yes", "on")
+                return bool(v) if v is not None else default
+
+            self.use_tls = _to_bool(cfg.get("use_tls", use_tls), default=False)
             # timeouts
             self.timeout = int(cfg.get("timeout", timeout))
             # optional pool size
@@ -73,6 +84,7 @@ class LDAPAuthBackend(AuthenticationBackend):
         self._pool_lock = threading.Lock()
 
         # No static group->privilege mapping in backend; privilege derived by policy engine
+        self._debug = bool(os.getenv("TACACS_LDAP_DEBUG"))
 
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
         """Authenticate against LDAP server"""
@@ -86,7 +98,7 @@ class LDAPAuthBackend(AuthenticationBackend):
             if len(password) > 128:
                 raise ValidationError("Password too long")
 
-            # Ensure pool initialized
+            # Ensure pool initialized (used for admin/service-account operations only)
             conn = self._acquire_connection()
 
             # Build user DN
@@ -103,21 +115,47 @@ class LDAPAuthBackend(AuthenticationBackend):
                 user_dn = f"{self.user_attribute}={escaped_username},{self.base_dn}"
 
             # Attempt to bind with user credentials
-            try:
-                if self.bind_dn and self.bind_password:
-                    # Use pooled connection when service account is configured
-                    conn.user = user_dn
-                    conn.password = password
-                    ok = conn.bind()
-                    self._release_connection(conn)
-                else:
-                    # For direct user bind use a fresh connection per attempt
-                    server = ldap3.Server(self.ldap_server, use_ssl=self.use_tls)
-                    with ldap3.Connection(server, user_dn, password) as tmp:
-                        ok = tmp.bind()
-                    self._release_connection(conn)
-            except Exception:
+            if self.bind_dn and self.bind_password:
+                # We used service account to locate the DN. Perform the user bind on a fresh
+                # short-lived connection (mirrors our probe behavior) rather than reusing the pooled one.
+                self._release_connection(conn)
                 ok = False
+                server = ldap3.Server(
+                    self.ldap_server,
+                    use_ssl=self.use_tls,
+                    connect_timeout=self._connect_timeout,
+                )
+                if self._debug:
+                    logger.debug(
+                        f"ldap_auth: user bind (fresh connection) dn='{user_dn}' server='{self.ldap_server}' tls={self.use_tls}"
+                    )
+                try:
+                    with ldap3.Connection(
+                        server, user=user_dn, password=password
+                    ) as tmp:
+                        ok = tmp.bind()
+                except Exception:
+                    ok = False
+            else:
+                # Direct user bind (no service account): also use a fresh connection
+                self._release_connection(conn)
+                ok = False
+                server = ldap3.Server(
+                    self.ldap_server,
+                    use_ssl=self.use_tls,
+                    connect_timeout=self._connect_timeout,
+                )
+                if self._debug:
+                    logger.debug(
+                        f"ldap_auth: direct user bind dn='{user_dn}' server='{self.ldap_server}' tls={self.use_tls}"
+                    )
+                try:
+                    with ldap3.Connection(
+                        server, user=user_dn, password=password
+                    ) as tmp:
+                        ok = tmp.bind()
+                except Exception:
+                    ok = False
             if ok:
                 logger.info(f"LDAP authentication successful for {username}")
                 return True
@@ -165,26 +203,60 @@ class LDAPAuthBackend(AuthenticationBackend):
             return None
 
         try:
-            server = ldap3.Server(self.ldap_server, use_ssl=self.use_tls)
-
-            with ldap3.Connection(server, self.bind_dn, self.bind_password) as conn:
-                if not conn.bind():
-                    logger.error("Failed to bind with service account")
-                    return None
-
-                # Escape username for LDAP filter to prevent injection
-                escaped_username = ldap3.utils.conv.escape_filter_chars(username)
-                search_filter = f"({self.user_attribute}={escaped_username})"
-                conn.search(
-                    search_base=self.base_dn,
-                    search_filter=search_filter,
-                    search_scope=ldap3.SUBTREE,
-                    attributes=["dn"],
+            attempts = 0
+            while attempts < 3:
+                attempts += 1
+                if self._debug:
+                    logger.debug(
+                        f"ldap_auth: find_user_dn preparing connection (attempt={attempts}) "
+                        f"server='{self.ldap_server}' tls={self.use_tls} timeout={self._connect_timeout}"
+                    )
+                server = ldap3.Server(
+                    self.ldap_server,
+                    use_ssl=self.use_tls,
+                    connect_timeout=self._connect_timeout,
                 )
+                try:
+                    with ldap3.Connection(
+                        server, self.bind_dn, self.bind_password
+                    ) as conn:
+                        if not conn.bind():
+                            logger.error("Failed to bind with service account")
+                            return None
 
-                if conn.entries:
-                    return str(conn.entries[0].entry_dn)
+                        # Escape username for LDAP filter to prevent injection
+                        escaped_username = ldap3.utils.conv.escape_filter_chars(
+                            username
+                        )
+                        search_filter = f"({self.user_attribute}={escaped_username})"
+                        if self._debug:
+                            logger.debug(
+                                f"ldap_auth: find_user_dn attempt={attempts} server='{self.ldap_server}' base='{self.base_dn}' filter='{search_filter}'"
+                            )
+                        # Requesting the special DN attribute as "dn" raises LDAPAttributeError
+                        # in some servers. We don't need to request it explicitly because
+                        # ldap3 exposes it as entry.entry_dn. So omit attributes here.
+                        conn.search(
+                            search_base=self.base_dn,
+                            search_filter=search_filter,
+                            search_scope=ldap3.SUBTREE,
+                        )
 
+                        if conn.entries:
+                            return str(conn.entries[0].entry_dn)
+                        break
+                except Exception as e:
+                    # Retry on transient socket errors
+                    if attempts < 3:
+                        if self._debug:
+                            logger.debug(
+                                f"ldap_auth: find_user_dn exception on attempt {attempts} to server '{self.ldap_server}': {e!r} (retrying)"
+                            )
+                        # brief delay before retrying
+                        _t.sleep(0.2)
+                        continue
+                    logger.error(f"Error finding user DN for {username}: {e}")
+                    break
         except Exception as e:
             logger.error(f"Error finding user DN for {username}: {e}")
 
@@ -196,7 +268,11 @@ class LDAPAuthBackend(AuthenticationBackend):
             return None
 
         try:
-            server = ldap3.Server(self.ldap_server, use_ssl=self.use_tls)
+            server = ldap3.Server(
+                self.ldap_server,
+                use_ssl=self.use_tls,
+                connect_timeout=self._connect_timeout,
+            )
 
             # Use service account if available, otherwise anonymous bind
             if self.bind_dn and self.bind_password:
@@ -297,22 +373,23 @@ class LDAPAuthBackend(AuthenticationBackend):
             try:
                 if not conn.bound:
                     conn.open()
-            except Exception:
+            except Exception as exc:
+                logger.warning("LDAP pooled connection reopen failed: %s", exc)
                 conn = self._build_connection()
                 try:
                     ldap_pool_reconnects.inc()
-                except Exception:
-                    pass
+                except Exception as exc2:
+                    logger.debug("ldap_pool_reconnects.inc() failed: %s", exc2)
         except Empty:
             conn = self._build_connection()
             try:
                 ldap_pool_reconnects.inc()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("LDAP pool reconnect counter failed: %s", exc)
         try:
             ldap_pool_borrows.inc()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("LDAP pool borrow counter failed: %s", exc)
         return conn
 
     def _release_connection(self, conn: ldap3.Connection) -> None:
@@ -323,13 +400,13 @@ class LDAPAuthBackend(AuthenticationBackend):
             try:
                 if conn.bound:
                     conn.unbind()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("LDAP connection unbind failed: %s", exc)
             with self._pool_lock:
                 if self._pool is not None and not self._pool.full():
                     self._pool.put_nowait(conn)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("LDAP connection release failed: %s", exc)
 
     def test_connection(self) -> dict[str, Any]:
         """Test LDAP connection and return status"""

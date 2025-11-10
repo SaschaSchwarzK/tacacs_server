@@ -6,17 +6,19 @@ Implements fine-grained command authorization with regex patterns and privilege 
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from re import Pattern
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from tacacs_server.utils.logger import get_logger
 from tacacs_server.web.web import (
     get_command_engine,
 )
 from tacacs_server.web.web import (
     get_config as monitoring_get_config,
 )
+
+logger = get_logger(__name__)
 
 
 class ActionType(Enum):
@@ -50,7 +52,7 @@ class CommandRule:
     attrs: dict[str, str] | None = None
 
     # Compiled pattern cache (for regex/wildcard), None otherwise
-    _compiled_pattern: Pattern[str] | None = field(init=False, default=None)
+    _compiled_pattern: re.Pattern[str] | None = field(init=False, default=None)
 
     def __post_init__(self):
         """Compile regex patterns for efficiency"""
@@ -226,8 +228,8 @@ class CommandAuthorizationEngine:
                     return CommandMatchType.REGEX
                 if s == "wildcard":
                     return CommandMatchType.WILDCARD
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Command rule match_type parsing failed: %s", exc)
             return CommandMatchType.EXACT
 
         for rule_config in config:
@@ -244,8 +246,8 @@ class CommandAuthorizationEngine:
                     response_mode=rule_config.get("response_mode"),
                     attrs=rule_config.get("attrs"),
                 )
-            except Exception:
-                # Skip invalid rule entries gracefully
+            except Exception as exc:
+                logger.warning("Skipping invalid command authorization rule: %s", exc)
                 continue
 
     def export_config(self) -> list[dict]:
@@ -492,8 +494,8 @@ async def _admin_guard_dep(request: Request):
             getattr(request, "method", ""),
             bool(request.cookies.get("admin_session")),
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Admin guard logging failed: %s", exc)
 
     token = request.cookies.get("admin_session")
     if not token:
@@ -569,7 +571,8 @@ async def update_settings(settings: CommandAuthSettings):
         engine = CommandAuthorizationEngine()
     try:
         action = ActionType(settings.default_action)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Invalid default_action provided: %s", exc)
         raise HTTPException(status_code=400, detail="Invalid default_action")
     engine.default_action = action
     # Persist
@@ -579,8 +582,8 @@ async def update_settings(settings: CommandAuthSettings):
             cfg.update_command_authorization_config(
                 default_action=settings.default_action
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to persist command auth settings: %s", exc)
     return CommandAuthSettings(default_action=settings.default_action)
 
 
@@ -607,9 +610,9 @@ async def create_command_rule(rule: CommandRuleCreate):
         cfg = monitoring_get_config()
         if cfg is not None:
             cfg.update_command_authorization_config(rules=engine.export_config())
-    except Exception:
+    except Exception as exc:
         # Non-fatal: keep runtime updated even if persistence fails
-        pass
+        logger.warning("Failed to persist new command auth rule: %s", exc)
 
     return {"rule_id": new_rule.id, "message": "Rule created"}
 
@@ -628,8 +631,8 @@ async def delete_command_rule(rule_id: int):
             cfg = monitoring_get_config()
             if cfg is not None:
                 cfg.update_command_authorization_config(rules=engine.export_config())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to persist command auth rule deletion: %s", exc)
         return {"message": "Rule deleted"}
     else:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -675,7 +678,7 @@ async def apply_rule_template(template_name: str):
         cfg = monitoring_get_config()
         if cfg is not None:
             cfg.update_command_authorization_config(rules=engine.export_config())
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to persist applied template %s: %s", template_name, exc)
 
     return {"message": f"Applied template: {template_name}", "rules_count": len(rules)}

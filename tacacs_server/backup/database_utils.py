@@ -7,6 +7,10 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def export_database(source_path: str, dest_path: str) -> None:
     """
@@ -20,8 +24,8 @@ def export_database(source_path: str, dest_path: str) -> None:
     try:
         with sqlite3.connect(source_path, timeout=30.0) as conn:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except Exception:
-        pass  # Best effort - proceed with backup anyway
+    except Exception as exc:
+        logger.warning("WAL checkpoint failed before backup: %s", exc)
 
     # Attempt backup API with simple retry loop to tolerate transient locks
     last_err: Exception | None = None
@@ -39,8 +43,8 @@ def export_database(source_path: str, dest_path: str) -> None:
                 try:
                     src.execute("PRAGMA busy_timeout = 30000")
                     dst.execute("PRAGMA busy_timeout = 30000")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to set busy timeout during backup: %s", exc)
                 src.backup(dst)
             last_err = None
             break
@@ -98,9 +102,8 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
         backup_path = f"{dest_path}.bak.{ts}"
         try:
             shutil.copy2(dest_path, backup_path)
-        except Exception:
-            # Non-fatal; continue with import
-            pass
+        except Exception as exc:
+            logger.warning("Failed to backup existing DB before import: %s", exc)
 
     # Remove any leftover SQLite WAL/SHM sidecar files to avoid recovery from
     # stale journals after import (which could resurrect pre-restore state).
@@ -108,9 +111,8 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
         try:
             if os.path.exists(sidecar):
                 os.remove(sidecar)
-        except Exception:
-            # Best-effort; continue with import
-            pass
+        except Exception as exc:
+            logger.debug("Sidecar cleanup failed during import: %s", exc)
 
     # Try atomic replace with retries for locked databases
     tmp = dest_path + ".import.tmp"
@@ -142,8 +144,10 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
             if os.path.exists(tmp):
                 try:
                     os.remove(tmp)
-                except Exception:
-                    pass
+                except Exception as cleanup_exc:
+                    logger.warning(
+                        "Temporary import file cleanup failed: %s", cleanup_exc
+                    )
 
             if attempt >= max_attempts - 1:
                 raise RuntimeError(
@@ -161,8 +165,8 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
             if os.path.exists(sidecar) and os.path.getsize(dest_path) > 0:
                 # Removing sidecars after a full replace is safe; SQLite creates fresh ones as needed
                 os.remove(sidecar)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Sidecar cleanup after import failed: %s", exc)
 
     if verify:
         ok, msg = verify_database_integrity(dest_path)
@@ -194,9 +198,8 @@ def verify_database_integrity(db_path: str) -> tuple[bool, str]:
                 fk_errors = cur.fetchall()
                 if fk_errors:
                     return False, f"Foreign key violations: {len(fk_errors)}"
-            except Exception:
-                # Ignore if pragma not supported
-                pass
+            except Exception as exc:
+                logger.debug("Foreign key check not supported: %s", exc)
 
             # Read all tables (ensure basic readability)
             cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -210,6 +213,7 @@ def verify_database_integrity(db_path: str) -> tuple[bool, str]:
 
         return True, "Database verified successfully"
     except Exception as e:  # pragma: no cover - error path
+        logger.warning("Database verification failed: %s", e)
         return False, f"Verification failed: {str(e)}"
 
 

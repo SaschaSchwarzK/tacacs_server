@@ -29,11 +29,28 @@ Note: These tests require write access to the filesystem for backup storage
 and may take longer to run due to the nature of integration testing.
 """
 
+import os
 import time
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
+
+def _setup_test_backup_root():
+    """Setup test backup root and ensure it's in ALLOWED_ROOTS."""
+    import tacacs_server.backup.path_policy as _pp
+
+    # Get the backup root from environment (set by conftest fixture)
+    backup_root_str = os.environ.get("BACKUP_ROOT")
+    if backup_root_str:
+        backup_root = Path(backup_root_str).resolve()
+        # Ensure it's in ALLOWED_ROOTS
+        if backup_root not in _pp.ALLOWED_ROOTS:
+            _pp.ALLOWED_ROOTS.append(backup_root)
+        _pp.DEFAULT_BACKUP_ROOT = backup_root
+        return backup_root
+    return _pp.DEFAULT_BACKUP_ROOT
 
 
 def _wait(
@@ -63,7 +80,7 @@ def _wait(
 
 
 @pytest.mark.integration
-def test_backup_while_server_running(server_factory) -> None:
+def test_backup_while_server_running(server_factory, tmp_path: Path) -> None:
     """Verify backup operations work while the TACACS+ server is processing requests.
 
     This test verifies that backup operations can be performed while the server
@@ -96,6 +113,9 @@ def test_backup_while_server_running(server_factory) -> None:
         the backup system and the running TACACS+ server. It's designed
         to catch issues that might only appear under load.
     """
+    # Setup allowed backup root
+    backup_root = _setup_test_backup_root()
+
     server = server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -107,15 +127,18 @@ def test_backup_while_server_running(server_factory) -> None:
         base = server.get_base_url()
         session = server.login_admin()
 
-        # Create a local destination for backups
-        dest_dir = (Path(server.work_dir) / "live-backups").resolve()
+        # Create a local destination for backups under allowed root
+        dest_dir = (backup_root / "live-backups").resolve()
         dest_dir.mkdir(parents=True, exist_ok=True)
         cr = session.post(
             f"{base}/api/admin/backup/destinations",
             json={
                 "name": "live",
                 "type": "local",
-                "config": {"base_path": str(dest_dir)},
+                "config": {
+                    "base_path": str(dest_dir),
+                    "allowed_root": str(backup_root),
+                },
                 "retention_days": 7,
             },
             timeout=5,

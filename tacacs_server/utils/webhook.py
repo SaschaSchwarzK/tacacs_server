@@ -35,8 +35,8 @@ class WebhookConfig:
         if hdrs:
             try:
                 self.headers.update(json.loads(hdrs))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to render webhook template: %s", exc)
         tmpl = os.getenv("WEBHOOK_TEMPLATE")
         if tmpl:
             try:
@@ -97,8 +97,8 @@ def _render_payload(event: str, payload: dict[str, Any]) -> dict[str, Any]:
             # Ensure canonical 'event' key is present for downstream consumers/tests
             result.setdefault("event", event)
             return result
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to notify threshold webhook: %s", exc)
     out = dict(payload)
     out.setdefault("event", event)
     return out

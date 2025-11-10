@@ -70,7 +70,9 @@ def test_container_name_validation():
 
 
 @patch("azure.storage.blob.BlobServiceClient")
-def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Path):
+def test_connection_string_upload_sets_metadata_and_tags(
+    mock_bsc, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Verify upload with connection string sets metadata and tags correctly.
 
     Test Steps:
@@ -95,6 +97,10 @@ def test_connection_string_upload_sets_metadata_and_tags(mock_bsc, tmp_path: Pat
     )
     mock_container.get_blob_client.return_value = mock_blob_client
     mock_container.exists.return_value = True
+
+    # Ensure path policy allows tmp-based inputs
+    monkeypatch.setenv("BACKUP_TEMP", str(tmp_path))
+    monkeypatch.setenv("BACKUP_ROOT", str(tmp_path))
 
     # Test with connection string auth
     dest = AzureBlobBackupDestination(
@@ -202,9 +208,12 @@ def test_list_blobs_filtering_and_download(mock_bsc, tmp_path: Path):
     mock_container.get_blob_client.return_value = mock_blob
     mock_blob.download_blob.return_value.readall.return_value = b"data"
     mock_blob.get_blob_properties.return_value.size = 4
-    p = tmp_path / "dl.tar.gz"
-    ok = dest.download_backup("a/test1.tar.gz", str(p))
-    assert ok and p.read_bytes() == b"data"
+    from tacacs_server.backup.path_policy import safe_temp_path
+
+    rel_name = "dl.tar.gz"
+    ok = dest.download_backup("a/test1.tar.gz", rel_name)
+    expected = safe_temp_path(rel_name)
+    assert ok and expected.read_bytes() == b"data"
 
     assert dest.delete_backup("a/test1.tar.gz") is True
     assert mock_blob.delete_blob.called

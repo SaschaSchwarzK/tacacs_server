@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  azurite:
+    build: .
+    image: tacacs-azurite:latest
+    container_name: tacacs-azurite
+    restart: unless-stopped
+    ports:
+      - "10000:10000"  # Blob
+      - "10001:10001"  # Queue
+      - "10002:10002"  # Table
+    volumes:
+      - ./export:/workspace
+    environment:
+      - AZURITE_WORKSPACE=/workspace
+

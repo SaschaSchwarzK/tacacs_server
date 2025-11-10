@@ -72,7 +72,7 @@ class DeviceService:
             try:
                 self._change_listeners.remove(callback)
             except ValueError:
-                pass
+                pass  # Callback already removed, ignore
 
         return _remove
 

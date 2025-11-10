@@ -4,17 +4,17 @@ Provides both HTML dashboard and Prometheus metrics endpoint
 """
 
 import asyncio
+import importlib
 import os
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path as FilePath
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional, cast
 
 import uvicorn
 from fastapi import (
-    APIRouter,
     Depends,
     FastAPI,
     HTTPException,
@@ -34,14 +34,8 @@ from prometheus_client import Gauge as _PM_Gauge
 from prometheus_client import Histogram as _PM_Histogram
 from pydantic import BaseModel
 
-from tacacs_server.utils import config_utils
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics_history import get_metrics_history
-from tacacs_server.web.api.config import router as config_router
-from tacacs_server.web.api.device_groups import router as device_groups_router
-from tacacs_server.web.api.devices import router as devices_router
-from tacacs_server.web.api.usergroups import router as user_groups_router
-from tacacs_server.web.api.users import router as users_router
 from tacacs_server.web.api_models import (
     AccountingResponse,
     AuthBackendInfo,
@@ -56,41 +50,60 @@ from tacacs_server.web.openapi_config import (
     custom_openapi_schema,
 )
 
-# Optional admin users router; provide a typed placeholder for mypy
-admin_users_router: APIRouter | None = None
-try:
-    from tacacs_server.web.api.users import admin_router as _admin_users_router
-
-    admin_users_router = _admin_users_router
-except Exception:
-    pass
-
+DeviceService = Any
+LocalUserService = Any
+LocalUserGroupService = Any
+AdminSessionManager = Any
+CommandAuthorizationEngine = Any
 
 logger = get_logger(__name__)
 
 _device_service: Optional["DeviceService"] = None
 _local_user_service: Optional["LocalUserService"] = None
 _local_user_group_service: Optional["LocalUserGroupService"] = None
-_config: Optional["TacacsConfig"] = None
 _tacacs_server_ref = None
 _radius_server_ref = None
-_admin_auth_dependency: Callable[[Request], Awaitable[None]] | None = None
 _admin_session_manager: Optional["AdminSessionManager"] = None
 _command_authorizer: (
     Callable[[str, int, list[str] | None, str | None], tuple[bool, str]] | None
 ) = None
 _command_engine: Optional["CommandAuthorizationEngine"] = None
 
-# --- Change context (for configuration updates) ---
-# Re-export config utility functions for backward compatibility
-set_config = config_utils.set_config
-get_config = config_utils.get_config
-get_config_change_user = config_utils.get_config_change_user
-get_config_change_source_ip = config_utils.get_config_change_source_ip
-set_config_change_user = config_utils.set_config_change_user
-set_config_change_source_ip = config_utils.set_config_change_source_ip
-set_admin_auth_dependency = config_utils.set_admin_auth_dependency
-get_admin_auth_dependency_func = config_utils.get_admin_auth_dependency_func
+
+def _load_config_utils():
+    return importlib.import_module("tacacs_server.utils.config_utils")
+
+
+def set_config(*args: Any, **kwargs: Any):
+    return _load_config_utils().set_config(*args, **kwargs)
+
+
+def get_config(*args: Any, **kwargs: Any):
+    return _load_config_utils().get_config(*args, **kwargs)
+
+
+def get_config_change_user(*args: Any, **kwargs: Any):
+    return _load_config_utils().get_config_change_user(*args, **kwargs)
+
+
+def get_config_change_source_ip(*args: Any, **kwargs: Any):
+    return _load_config_utils().get_config_change_source_ip(*args, **kwargs)
+
+
+def set_config_change_user(*args: Any, **kwargs: Any):
+    return _load_config_utils().set_config_change_user(*args, **kwargs)
+
+
+def set_config_change_source_ip(*args: Any, **kwargs: Any):
+    return _load_config_utils().set_config_change_source_ip(*args, **kwargs)
+
+
+def set_admin_auth_dependency(*args: Any, **kwargs: Any):
+    return _load_config_utils().set_admin_auth_dependency(*args, **kwargs)
+
+
+def get_admin_auth_dependency_func(*args: Any, **kwargs: Any):
+    return _load_config_utils().get_admin_auth_dependency_func(*args, **kwargs)
 
 
 def get_device_service() -> Optional["DeviceService"]:
@@ -181,18 +194,6 @@ def get_command_engine():
     return _command_engine
 
 
-if TYPE_CHECKING:
-    from tacacs_server.auth.local_user_group_service import LocalUserGroupService
-    from tacacs_server.auth.local_user_service import LocalUserService
-    from tacacs_server.authorization.command_authorization import (
-        CommandAuthorizationEngine,
-    )
-    from tacacs_server.config.config import TacacsConfig
-    from tacacs_server.devices.service import DeviceService
-
-    from .admin.auth import AdminSessionManager
-
-
 def _safe_counter(name: str, doc: str, labels: list[str] | None = None):
     try:
         return _PM_Counter(name, doc, labels or [], registry=_PROM_REGISTRY)
@@ -279,10 +280,20 @@ device_identity_cache_evictions_total = _safe_counter(
     "Cumulative device identity cache evictions",
 )
 
-# Track last observed values to convert gauges into counter increments
-_last_cache_hits = 0
-_last_cache_misses = 0
-_last_cache_evictions = 0
+
+class _DeviceIdentityCacheTracker:
+    def __init__(self) -> None:
+        self.hits = 0
+        self.misses = 0
+        self.evictions = 0
+
+
+_device_identity_cache_tracker = _DeviceIdentityCacheTracker()
+
+
+def _load_router(module_name: str, attr: str = "router"):
+    mod = importlib.import_module(module_name)
+    return getattr(mod, attr)
 
 
 class WebServer:
@@ -350,8 +361,8 @@ class WebServer:
         # execute on both '/path' and '/path/' as explicitly defined.
         try:
             self.app.router.redirect_slashes = False
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to disable slash redirects: %s", exc)
         # Install shared security headers middleware
         from .middleware import install_security_headers
 
@@ -360,14 +371,14 @@ class WebServer:
         # Global maintenance mode guard: return 503 for most requests while
         # a restore is in progress to avoid using closed DB connections.
         try:
-            from tacacs_server.utils.maintenance import get_db_manager as _get_dbm
+            maintenance_mod = importlib.import_module("tacacs_server.utils.maintenance")
+            _get_dbm = getattr(maintenance_mod, "get_db_manager")
 
             @self.app.middleware("http")
             async def maintenance_guard(request: Request, call_next):
                 try:
                     path = request.url.path or ""
                     if _get_dbm().is_in_maintenance():
-                        # Allow simple health probes, block others
                         if not (
                             path.startswith("/health")
                             or path.startswith("/tacacs-health")
@@ -377,12 +388,11 @@ class WebServer:
                                 {"error": "Service in maintenance mode"},
                                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             )
-                except Exception:
-                    # Fail-open if guard raises
-                    pass
+                except Exception as exc:
+                    logger.warning("Maintenance guard failed: %s", exc)
                 return await call_next(request)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Maintenance middleware registration failed: %s", exc)
 
         # Middleware to capture config change context (user + source IP)
         @self.app.middleware("http")
@@ -390,9 +400,7 @@ class WebServer:
             try:
                 path = request.url.path or ""
                 if path.startswith("/api/admin/config"):
-                    # Best-effort extraction of current user and source IP
                     user = request.headers.get("X-Admin-User") or "system"
-                    # Fall back to Authorization header (opaque)
                     if user == "system":
                         auth = request.headers.get("Authorization") or ""
                         if auth:
@@ -401,8 +409,8 @@ class WebServer:
                     client = getattr(request, "client", None)
                     ip = getattr(client, "host", None) if client else None
                     set_config_change_source_ip(ip)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Config change context extraction failed: %s", exc)
             try:
                 resp = await call_next(request)
             finally:
@@ -410,8 +418,8 @@ class WebServer:
                 try:
                     set_config_change_user("system")
                     set_config_change_source_ip(None)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Reset config change context failed: %s", exc)
             return resp
 
         # Optional API token protection for all /api routes
@@ -429,8 +437,8 @@ class WebServer:
                 "enabled" if enforced else "disabled",
                 "set" if api_token else "not set",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("API token enforcement logging failed: %s", exc)
 
         @self.app.middleware("http")
         async def api_token_guard(request: Request, call_next):
@@ -462,18 +470,29 @@ class WebServer:
                     )
             return await call_next(request)
 
-        # Include API routers
+        # Include API routers, imported lazily to break circular dependencies
+        devices_router = _load_router("tacacs_server.web.api.devices")
+        device_groups_router = _load_router("tacacs_server.web.api.device_groups")
+        users_router = _load_router("tacacs_server.web.api.users")
+        user_groups_router = _load_router("tacacs_server.web.api.usergroups")
+        config_router = _load_router("tacacs_server.web.api.config")
+
         self.app.include_router(devices_router)
         self.app.include_router(device_groups_router)
         self.app.include_router(users_router)
-        if admin_users_router is not None:
-            self.app.include_router(admin_users_router)
+        try:
+            admin_mod = importlib.import_module("tacacs_server.web.api.users")
+            admin_router = getattr(admin_mod, "admin_router", None)
+            if admin_router is not None:
+                self.app.include_router(admin_router)
+        except Exception as exc:
+            logger.warning("Admin router import failed: %s", exc)
         self.app.include_router(user_groups_router)
         # Proxies API routes are registered in the main web_app.py
         self.app.include_router(config_router)
         # Include backup router (admin-protected)
         try:
-            from tacacs_server.web.api.backup import router as backup_router
+            backup_router = _load_router("tacacs_server.web.api.backup")
 
             self.app.include_router(backup_router)
             logger.info("Backup router successfully included")
@@ -485,8 +504,8 @@ class WebServer:
             )
         # Include command authorization API (protected by admin guard inside router)
         try:
-            from tacacs_server.authorization.command_authorization import (
-                router as cmd_router,
+            cmd_router = _load_router(
+                "tacacs_server.authorization.command_authorization"
             )
 
             self.app.include_router(cmd_router)
@@ -631,8 +650,8 @@ class WebServer:
                     request.headers.get("accept", ""),
                     bool(request.cookies.get("admin_session")),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("admin_guard logging failed: %s", exc)
             session_token = request.cookies.get("admin_session")
             if not session_token:
                 logger.warning("web.admin_guard: missing admin_session cookie")
@@ -932,8 +951,8 @@ class WebServer:
                 if username:
                     try:
                         records = [r for r in records if r.get("username") == username]
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("Failed to filter accounting records: %s", exc)
                 # Backward-compatible envelope: include both 'items' and 'records'
                 return {
                     "items": records,
@@ -1082,8 +1101,8 @@ class WebServer:
                     # Stop existing
                     try:
                         self.radius_server.stop()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("Error stopping RADIUS server: %s", exc)
                     # Start again
                     self.radius_server.start()
                     return {"success": True, "message": "RADIUS restarted"}
@@ -1103,8 +1122,8 @@ class WebServer:
                 server_uptime.set(float(health.get("uptime_seconds", 0)))
                 proxied_connections.set(stats.get("connections_proxied", 0))
                 direct_connections.set(stats.get("connections_direct", 0))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to update server gauges: %s", exc)
 
             data = {
                 "status": "running" if self.tacacs_server.running else "stopped",
@@ -1153,22 +1172,21 @@ class WebServer:
                     device_identity_cache_misses.set(cstats.get("misses", 0))
                     device_identity_cache_evictions.set(cstats.get("evictions", 0))
                     data.setdefault("devices", {})["identity_cache"] = cstats
-                    # Increment counters by deltas
-                    global _last_cache_hits, _last_cache_misses, _last_cache_evictions
-                    dh = int(cstats.get("hits", 0)) - _last_cache_hits
-                    dm = int(cstats.get("misses", 0)) - _last_cache_misses
-                    de = int(cstats.get("evictions", 0)) - _last_cache_evictions
+                    tracker = _device_identity_cache_tracker
+                    dh = int(cstats.get("hits", 0)) - tracker.hits
+                    dm = int(cstats.get("misses", 0)) - tracker.misses
+                    de = int(cstats.get("evictions", 0)) - tracker.evictions
                     if dh > 0:
                         device_identity_cache_hits_total.inc(dh)
                     if dm > 0:
                         device_identity_cache_misses_total.inc(dm)
                     if de > 0:
                         device_identity_cache_evictions_total.inc(de)
-                    _last_cache_hits = int(cstats.get("hits", 0))
-                    _last_cache_misses = int(cstats.get("misses", 0))
-                    _last_cache_evictions = int(cstats.get("evictions", 0))
-            except Exception:
-                pass
+                    tracker.hits = int(cstats.get("hits", 0))
+                    tracker.misses = int(cstats.get("misses", 0))
+                    tracker.evictions = int(cstats.get("evictions", 0))
+            except Exception as exc:
+                logger.warning("Failed to gather identity cache stats: %s", exc)
 
             return data
         except Exception as e:
@@ -1343,8 +1361,8 @@ class WebServer:
         try:
             if self.server_thread:
                 self.server_thread.join(timeout=1.0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Monitoring thread join failed: %s", exc)
         logger.info("Monitoring interface stopped")
 
     def get_radius_stats(self) -> dict[str, Any]:

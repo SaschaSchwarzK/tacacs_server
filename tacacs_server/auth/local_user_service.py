@@ -74,8 +74,8 @@ class LocalUserService:
             with self._listeners_lock:
                 try:
                     self._listeners.remove(callback)
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    logger.debug("Listener removal failed: %s", exc)
 
         return _remove
 
@@ -113,9 +113,8 @@ class LocalUserService:
                 logger.info(
                     "LocalUserService: user lookup miss", extra={"username": username}
                 )
-            except Exception:
-                # Fallback without structured extras
-                logger.info("LocalUserService: user '%s' not found", username)
+            except Exception as exc:
+                logger.info("LocalUserService: user '%s' not found (%s)", username, exc)
             return None
 
     def create_user(
@@ -159,8 +158,11 @@ class LocalUserService:
                     if updated:
                         self._notify_change("updated", username)
                         return self._clone(updated)
-                except Exception:
-                    pass
+                except Exception as recovery_exc:
+                    logger.warning(
+                        "LocalUserService recovery password update failed: %s",
+                        recovery_exc,
+                    )
             raise LocalUserExists(f"User '{username}' already exists") from exc
         self._notify_change("created", username)
         return self._clone(stored)
@@ -417,8 +419,10 @@ class LocalUserService:
         try:
             if user.password is not None:
                 return user.password == password
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Plaintext password fallback failed for %s: %s", username, exc
+            )
         return False
 
     @staticmethod

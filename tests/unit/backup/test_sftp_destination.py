@@ -218,9 +218,13 @@ def test_password_auth_connect_flow(monkeypatch: pytest.MonkeyPatch):
         def close(self):
             return None
 
+    class _AutoPolicy:
+        def __call__(self, *_, **__):
+            return self
+
     fake_paramiko = SimpleNamespace(
-        SSHClient=lambda: _FakeSSH(),
-        AutoAddPolicy=lambda: object(),
+        SSHClient=_FakeSSH,
+        AutoAddPolicy=_AutoPolicy,
         RSAKey=SimpleNamespace(
             from_private_key=lambda *a, **k: object(),
             from_private_key_file=lambda *a, **k: object(),

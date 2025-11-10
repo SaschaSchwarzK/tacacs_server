@@ -540,6 +540,7 @@ class RADIUSServer:
         try:
             name = getattr(backend, "name", None) or str(backend)
         except Exception:
+            # Backend name retrieval failed, use string representation
             name = str(backend)
         logger.info(
             "Authentication backend added",
@@ -692,17 +693,20 @@ class RADIUSServer:
             try:
                 self.auth_socket.close()
             except (OSError, AttributeError):
+                # Socket close failed, continue with shutdown
                 pass
         if self.acct_socket:
             try:
                 self.acct_socket.close()
             except (OSError, AttributeError):
+                # Socket close failed, continue with shutdown
                 pass
 
         if self._executor:
             try:
                 self._executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
+                # Executor shutdown failed, continue with cleanup
                 pass
             finally:
                 self._executor = None
@@ -726,6 +730,7 @@ class RADIUSServer:
                     socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf
                 )
             except Exception:
+                # Socket buffer size tuning failed, continue with default
                 pass
 
             logger.debug(
@@ -760,6 +765,7 @@ class RADIUSServer:
                 try:
                     self.auth_socket.close()
                 except (OSError, AttributeError):
+                    # Socket close failed during cleanup
                     pass
                 finally:
                     self.auth_socket = None
@@ -776,6 +782,7 @@ class RADIUSServer:
                     socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf
                 )
             except Exception:
+                # Socket buffer size tuning failed, continue with default
                 pass
 
             logger.debug(
@@ -812,6 +819,7 @@ class RADIUSServer:
                 try:
                     self.acct_socket.close()
                 except (OSError, AttributeError):
+                    # Socket close failed during cleanup
                     pass
                 finally:
                     self.acct_socket = None
@@ -825,6 +833,7 @@ class RADIUSServer:
                 correlation_id=str(uuid.uuid4()), client={"ip": client_ip}
             )
         except Exception:
+            # Context binding failed, continue without correlation context
             _ctx = None
 
         # Per-IP rate limiting to mitigate floods
@@ -858,6 +867,7 @@ class RADIUSServer:
                             configs = ds.iter_radius_clients()
                             self.refresh_clients(configs)
                         except Exception:
+                            # Client refresh failed, continue with existing clients
                             pass
                         client_config = self.lookup_client(client_ip)
                     except Exception as exc:
@@ -906,6 +916,7 @@ class RADIUSServer:
                     client_group=getattr(client_config, "group", None),
                 )
             except Exception:
+                # Debug logging failed, continue processing request
                 pass
 
             # Extract authentication info
@@ -945,8 +956,10 @@ class RADIUSServer:
                             if okg:
                                 allowed_okta_groups.append(str(okg))
                         except Exception:
+                            # Group lookup failed, skip this group
                             continue
             except Exception:
+                # Okta group resolution failed, continue without Okta groups
                 allowed_okta_groups = []
 
             # Authenticate against backends with allowed Okta groups context
@@ -978,6 +991,7 @@ class RADIUSServer:
 
                         PrometheusIntegration.record_radius_auth("accept")
                     except Exception:
+                        # Prometheus metrics recording failed, continue without metrics
                         pass
                 else:
                     response = self._create_access_reject(request, denial_message)
@@ -993,6 +1007,7 @@ class RADIUSServer:
 
                         PrometheusIntegration.record_radius_auth("reject")
                     except Exception:
+                        # Prometheus metrics recording failed, continue without metrics
                         pass
             else:
                 response = self._create_access_reject(request, "Authentication failed")
@@ -1008,6 +1023,7 @@ class RADIUSServer:
 
                     PrometheusIntegration.record_radius_auth("reject")
                 except Exception:
+                    # Prometheus metrics recording failed, continue without metrics
                     pass
 
             # Mirror Message-Authenticator if client used it
@@ -1033,6 +1049,7 @@ class RADIUSServer:
                     client={"ip": client_ip, "port": client_port},
                 )
             except Exception:
+                # Debug logging failed, continue without response logging
                 pass
 
         except Exception as e:
@@ -1043,6 +1060,7 @@ class RADIUSServer:
                 if _ctx is not None:
                     clear_context(_ctx)
             except Exception:
+                # Context cleanup failed, continue without cleanup
                 pass
 
     def _handle_acct_request(self, data: bytes, addr: tuple[str, int]):
@@ -1059,6 +1077,7 @@ class RADIUSServer:
                 correlation_id=str(uuid.uuid4()), client={"ip": client_ip}
             )
         except Exception:
+            # Context binding failed, continue without correlation context
             _ctx = None
 
         # Per-IP rate limiting for accounting path
@@ -1089,6 +1108,7 @@ class RADIUSServer:
                             configs = ds.iter_radius_clients()
                             self.refresh_clients(configs)
                         except Exception:
+                            # Client refresh failed, continue with existing clients
                             pass
                         client_config = self.lookup_client(client_ip)
                     except Exception as exc:
@@ -1164,6 +1184,7 @@ class RADIUSServer:
                     client_group=getattr(client_config, "group", None),
                 )
             except Exception:
+                # Debug logging failed, continue processing accounting request
                 pass
 
             # Log to accounting database if available
@@ -1191,6 +1212,7 @@ class RADIUSServer:
                     status=status_name,
                 )
             except Exception:
+                # Debug logging failed, continue without response logging
                 pass
 
         except Exception as e:
@@ -1200,6 +1222,7 @@ class RADIUSServer:
                 if _ctx is not None:
                     clear_context(_ctx)
             except Exception:
+                # Context cleanup failed, continue without cleanup
                 pass
 
     def _authenticate_user(
@@ -1352,6 +1375,7 @@ class RADIUSServer:
                     else hash(session_id_str) & 0xFFFFFFFF
                 )
             except Exception:
+                # Session ID parsing failed, use hash as fallback
                 session_id = hash(session_id_str) & 0xFFFFFFFF
 
             record = AccountingRecord(

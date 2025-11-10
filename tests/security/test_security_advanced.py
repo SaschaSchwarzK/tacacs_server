@@ -21,10 +21,9 @@ Security Controls Tested:
 - Session Management
 - Rate Limiting
 
-Note: These tests require explicit opt-in via RUN_SECURITY_ADVANCED=1
+Note: These tests are only run when selecting the --security category.
 """
 
-import os
 import time
 
 import pytest
@@ -51,10 +50,7 @@ def _adv_debug_env():
     yield
 
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("RUN_SECURITY_ADVANCED"),
-    reason="Set RUN_SECURITY_ADVANCED=1 to run advanced security tests",
-)
+pytestmark = pytest.mark.security
 
 
 # Start a real server for this module when advanced tests are enabled

@@ -45,8 +45,8 @@ class TacacsServerManager:
         # Mirror into utils accessor so API modules using config_utils see it
         try:
             utils_set_config(self.config)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to mirror config to utils_config: %s", exc)
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
         from tacacs_server.devices.service import DeviceService as _DSe
@@ -173,8 +173,8 @@ class TacacsServerManager:
             self.server.accept_proxy_protocol = bool(pxy.get("enabled", False))
             self.server.proxy_validate_sources = bool(pxy.get("validate_sources", True))
             self.server.proxy_reject_invalid = bool(pxy.get("reject_invalid", True))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to apply proxy and proxy protocol config: %s", exc)
         # Initialize webhook runtime config from file
         try:
             from tacacs_server.utils.webhook import set_webhook_config as _set_wh
@@ -188,8 +188,8 @@ class TacacsServerManager:
                 threshold_count=wh.get("threshold_count"),
                 threshold_window=wh.get("threshold_window"),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to initialize webhook config: %s", exc)
         # Apply security-related runtime limits
         try:
             sec_cfg = self.config.get_security_config()
@@ -204,8 +204,8 @@ class TacacsServerManager:
                     )
                 except Exception:
                     self.server.encryption_required = True
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to apply security runtime limits: %s", exc)
 
         # Initialize backup system
         try:
@@ -437,18 +437,20 @@ class TacacsServerManager:
                         self.server.handlers.command_response_mode_default = str(
                             default_mode
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to set default command response mode: %s", exc
+                        )
                     # Pass privilege check ordering preference to handlers
                     try:
                         self.server.handlers.privilege_check_order = str(priv_order)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        except Exception:
+                    except Exception as exc:
+                        logger.warning("Failed to set privilege check order: %s", exc)
+            except Exception as exc:
+                logger.warning("Failed to inject command engine into handlers: %s", exc)
+        except Exception as exc:
             # Do not fail startup if command authorization engine fails
-            pass
+            logger.warning("Command authorization engine init failed: %s", exc)
 
         # Enable monitoring if configured (tolerate missing section)
         # read monitoring section safely: prefer helper API, fallback to RawConfigParser
@@ -577,8 +579,8 @@ class TacacsServerManager:
                 self.radius_server.rcvbuf = max(
                     262144, int(radius_config.get("rcvbuf", 1048576))
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to apply RADIUS tuning config: %s", exc)
             if self.device_store:
                 self.radius_server.device_store = self.device_store
             if self.local_user_group_service and self.radius_server:
@@ -747,8 +749,8 @@ class TacacsServerManager:
                             flags.get("trust_env"),
                             flags.get("require_group_for_auth"),
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to log Okta backend flags: %s", exc)
         # Add RADIUS info
         if self.radius_server:
             logger.info("")
@@ -954,8 +956,8 @@ def create_test_client_script():
                 if sock is not None:
                     try:
                         sock.close()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        print(f"Warning: Failed to close PAP socket: {exc}", file=sys.stderr)
 
 
         def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:

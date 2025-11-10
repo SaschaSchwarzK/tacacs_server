@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
@@ -21,24 +21,18 @@ logger = get_logger(__name__)
 class _DBConnectionManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        # Store (object, close_fn, reload_fn)
         self._registrations: list[
             tuple[Any, Callable[[], None], Callable[[], None] | None]
         ] = []
         self._in_maintenance: bool = False
 
     def register(self, obj: Any, close_fn: Callable[[], None] | None = None) -> None:
-        """Register an object with a close() method to be closed on maintenance.
-
-        If close_fn is None, the manager attempts to call obj.close.
-        """
         with self._lock:
             if close_fn is None:
                 close_fn = getattr(obj, "close", None)
             reload_fn = getattr(obj, "reload", None)
             if not callable(close_fn):
                 return
-            # Avoid duplicates
             for existing_obj, _, _ in self._registrations:
                 if existing_obj is obj:
                     return
@@ -53,36 +47,26 @@ class _DBConnectionManager:
             ]
 
     def enter_maintenance(self) -> None:
-        """Enter maintenance mode and close all registered connections."""
         with self._lock:
             self._in_maintenance = True
         regs = list(self._registrations)
-        # Close outside the lock to avoid deadlocks on client internal locks
         for _, close_fn, _ in regs:
             try:
                 close_fn()
-            except Exception as exc:  # pragma: no cover - best-effort
-                try:
-                    logger.debug("Close during maintenance failed: %s", exc)
-                except Exception:
-                    pass
+            except Exception as exc:
+                logger.debug("Close during maintenance failed: %s", exc)
 
     def exit_maintenance(self) -> None:
-        # Flip flag first
         with self._lock:
             self._in_maintenance = False
             regs = list(self._registrations)
-        # Attempt to reload any registered connections that expose reload()
         for _, _, reload_fn in regs:
             if reload_fn is None:
                 continue
             try:
                 reload_fn()
-            except Exception as exc:  # pragma: no cover - best-effort
-                try:
-                    logger.debug("Reload after maintenance failed: %s", exc)
-                except Exception:
-                    pass
+            except Exception as exc:
+                logger.debug("Reload after maintenance failed: %s", exc)
 
     def is_in_maintenance(self) -> bool:
         with self._lock:
@@ -96,19 +80,8 @@ def get_db_manager() -> _DBConnectionManager:
     return _DB_MANAGER
 
 
-if TYPE_CHECKING:  # pragma: no cover
-    from tacacs_server.backup.scheduler import BackupScheduler as _BackupScheduler
-
-
-def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit test
-    """Best-effort restart of in-process services after restore.
-
-    - TACACS server (stop/start)
-    - RADIUS server (stop/start) if present
-    - Backup scheduler (start) if present
-    """
+def restart_services() -> None:
     try:
-        # TACACS
         try:
             from tacacs_server.web.web import get_tacacs_server
 
@@ -116,16 +89,15 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
             if srv is not None:
                 try:
                     srv.stop()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("TACACS stop failed during maintenance: %s", exc)
                 try:
                     srv.start()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as exc:
+                    logger.warning("TACACS restart failed during maintenance: %s", exc)
+        except Exception as exc:
+            logger.warning("Failed to rotate TACACS server during maintenance: %s", exc)
 
-        # RADIUS
         try:
             from tacacs_server.web.web import get_radius_server
 
@@ -133,16 +105,15 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
             if r is not None:
                 try:
                     r.stop()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("RADIUS stop failed during maintenance: %s", exc)
                 try:
                     r.start()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as exc:
+                    logger.warning("RADIUS restart failed during maintenance: %s", exc)
+        except Exception as exc:
+            logger.warning("Failed to rotate RADIUS server during maintenance: %s", exc)
 
-        # Backup scheduler
         try:
             from tacacs_server.backup.service import get_backup_service
 
@@ -150,13 +121,12 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
             sch = getattr(svc, "scheduler", None)
             if sch is not None:
                 try:
-                    cast("_BackupScheduler", sch).start()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                    sch.start()
+                except Exception as exc:
+                    logger.warning("Backup scheduler restart failed: %s", exc)
+        except Exception as exc:
+            logger.warning("Failed to restart backup scheduler: %s", exc)
 
-        # Refresh web app service stores (reopen DB connections) if available
         try:
             from tacacs_server.web.web import (
                 get_device_service as _get_dev_svc,
@@ -172,22 +142,23 @@ def restart_services() -> None:  # pragma: no cover - orchestration/hard to unit
             if ds and hasattr(ds, "store") and hasattr(ds.store, "reload"):
                 try:
                     ds.store.reload()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Device store reload failed: %s", exc)
             us = _get_user_svc()
             if us and hasattr(us, "store") and hasattr(us.store, "reload"):
                 try:
                     us.store.reload()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("User store reload failed: %s", exc)
             gs = _get_group_svc()
             if gs and hasattr(gs, "store") and hasattr(gs.store, "reload"):
                 try:
                     gs.store.reload()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    except Exception:
-        # Entire restart is best-effort
-        pass
+                except Exception as exc:
+                    logger.warning("Group store reload failed: %s", exc)
+        except Exception as exc:
+            logger.warning(
+                "Failed to refresh service stores after maintenance: %s", exc
+            )
+    except Exception as exc:
+        logger.warning("Maintenance restart hook failed: %s", exc)

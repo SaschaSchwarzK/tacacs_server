@@ -65,30 +65,81 @@ class SFTPConnection:
             "timeout": int(self.config.get("timeout", 30)),
             "banner_timeout": int(self.config.get("timeout", 30)),
             "auth_timeout": int(self.config.get("timeout", 30)),
+            "allow_agent": False,
+            "look_for_keys": False,
         }
         if str(self.config.get("authentication", "password")).lower() == "password":
             connect_kwargs["password"] = self.config.get("password")
         else:
-            # Key-based auth
+            # Key-based auth: support RSA, Ed25519, and ECDSA keys
             pkey = None
+            key_str = str(self.config.get("private_key", ""))
+            key_pass = self.config.get("private_key_passphrase")
+
+            # Resolve Paramiko key classes safely (they exist in Paramiko, but avoid attribute errors)
+            RSAKey = getattr(paramiko_mod, "RSAKey", None)
+            Ed25519Key = getattr(paramiko_mod, "Ed25519Key", None)
+            ECDSAKey = getattr(paramiko_mod, "ECDSAKey", None)
+
+            def _try_load_callable(loader, src):
+                try:
+                    return loader(src, password=key_pass)
+                except Exception:
+                    return None
+
             try:
-                if (
-                    str(self.config.get("private_key", ""))
-                    .strip()
-                    .startswith("-----BEGIN")
-                ):
-                    key_file = io.StringIO(str(self.config.get("private_key")))
-                    pkey = paramiko_mod.RSAKey.from_private_key(
-                        key_file, password=self.config.get("private_key_passphrase")
-                    )
+                if key_str.strip().startswith("-----BEGIN"):
+                    # Load from PEM string
+                    # Try RSA, then Ed25519, then ECDSA
+                    if RSAKey is not None:
+                        pkey = _try_load_callable(
+                            RSAKey.from_private_key, io.StringIO(key_str)
+                        )
+                    if pkey is None and Ed25519Key is not None:
+                        pkey = _try_load_callable(
+                            Ed25519Key.from_private_key, io.StringIO(key_str)
+                        )
+                    if pkey is None and ECDSAKey is not None:
+                        pkey = _try_load_callable(
+                            ECDSAKey.from_private_key, io.StringIO(key_str)
+                        )
                 else:
-                    pkey = paramiko_mod.RSAKey.from_private_key_file(
-                        str(self.config.get("private_key")),
-                        password=self.config.get("private_key_passphrase"),
-                    )
+                    # Load from file path
+                    path = str(self.config.get("private_key"))
+                    if RSAKey is not None:
+                        pkey = _try_load_callable(RSAKey.from_private_key_file, path)
+                    if pkey is None and Ed25519Key is not None:
+                        pkey = _try_load_callable(
+                            Ed25519Key.from_private_key_file, path
+                        )
+                    if pkey is None and ECDSAKey is not None:
+                        pkey = _try_load_callable(ECDSAKey.from_private_key_file, path)
             except Exception as exc:
                 raise ValueError(f"Invalid private key: {exc}")
+            if pkey is None:
+                raise ValueError("Unsupported or invalid private key provided")
+
+            try:
+                import base64
+                import hashlib
+
+                key_data = base64.b64decode(pkey.get_base64())
+                fingerprint_sha256 = (
+                    base64.b64encode(hashlib.sha256(key_data).digest())
+                    .rstrip(b"=")
+                    .decode("utf-8")
+                )
+                _logger.info(
+                    "SFTP private key loaded; SHA256 fingerprint: %s",
+                    f"SHA256:{fingerprint_sha256}",
+                )
+            except Exception:
+                _logger.warning("Failed to calculate private key fingerprint")
+
             connect_kwargs["pkey"] = pkey
+            # If a password is also provided, allow password fallback after key
+            if self.config.get("password"):
+                connect_kwargs["password"] = self.config.get("password")
 
         try:
             ssh.connect(**connect_kwargs)
@@ -105,8 +156,8 @@ class SFTPConnection:
             transport = ssh.get_transport()
             if transport:
                 transport.set_keepalive(30)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to configure SFTP keepalive: %s", exc)
         # Open SFTP
         self.sftp_client = ssh.open_sftp()
         return self.sftp_client
@@ -115,13 +166,13 @@ class SFTPConnection:
         try:
             if self.sftp_client:
                 self.sftp_client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to close SFTP client: %s", exc)
         try:
             if self.ssh_client:
                 self.ssh_client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("Failed to close SSH client: %s", exc)
 
 
 class SFTPBackupDestination(BackupDestination):
@@ -144,30 +195,31 @@ class SFTPBackupDestination(BackupDestination):
         self.timeout: int = int(self.config.get("timeout", 30))
         self.host_key_verify: bool = bool(self.config.get("host_key_verify", True))
         self.known_hosts_file: str | None = self.config.get("known_hosts_file")
+        self.validate_config()
 
     def validate_config(self) -> None:
+        cfg = self.config or {}
         # Required common
-        missing = [
-            k for k in ("host", "username", "base_path") if not self.config.get(k)
-        ]
+        missing = [k for k in ("host", "username", "base_path") if not cfg.get(k)]
         if missing:
             raise ValueError(f"Missing required config: {', '.join(missing)}")
         # Auth-specific
-        auth = self.authentication
+        auth = str(cfg.get("authentication", "password")).lower()
         if auth not in ("password", "key"):
             raise ValueError("authentication must be 'password' or 'key'")
-        if auth == "password" and not self.password:
+        if auth == "password" and not cfg.get("password"):
             raise ValueError("password required for password authentication")
-        if auth == "key" and not self.private_key:
+        if auth == "key" and not cfg.get("private_key"):
             raise ValueError("private_key required for key authentication")
         # Port
-        if self.port < 1 or self.port > 65535:
+        port = int(cfg.get("port", 22) or 22)
+        if port < 1 or port > 65535:
             raise ValueError("Invalid SFTP port; must be 1-65535")
         # base path
-        bp = self.base_path.replace("\\", "/")
+        bp = str(cfg.get("base_path", "/")).replace("\\", "/")
         if ".." in bp or "\x00" in bp:
             raise ValueError("Invalid base_path")
-        if not self.host_key_verify:
+        if not bool(cfg.get("host_key_verify", True)):
             _logger.warning("SFTP host_key_verify disabled — security risk")
 
     @contextmanager
@@ -192,8 +244,8 @@ class SFTPBackupDestination(BackupDestination):
             try:
                 self._sftp_makedirs(sftp, self.base_path)
                 sftp.chdir(self.base_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to prepare base path on SFTP: %s", exc)
             yield sftp
 
     @staticmethod
@@ -289,9 +341,10 @@ class SFTPBackupDestination(BackupDestination):
             cur = f"{cur}/{part}" if cur else f"/{part}"
             try:
                 sftp.mkdir(cur)
-            except OSError:
-                # already exists
-                pass
+            except OSError as exc:
+                _logger.debug(
+                    "Directory %s already exists or failed to create: %s", cur, exc
+                )
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
@@ -341,8 +394,10 @@ class SFTPBackupDestination(BackupDestination):
                 # cleanup partial
                 try:
                     sftp.remove(rp)
-                except Exception:
-                    pass
+                except Exception as cleanup_exc:
+                    _logger.warning(
+                        "Failed to cleanup partial upload %s: %s", rp, cleanup_exc
+                    )
                 raise RuntimeError(f"Upload failed: {exc}")
             # verify size
             try:
@@ -426,8 +481,8 @@ class SFTPBackupDestination(BackupDestination):
                 sftp.remove(rp)
                 try:
                     sftp.remove(rp + ".manifest.json")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("Failed to delete manifest for %s: %s", rp, exc)
             return True
         except Exception as exc:
             _logger.warning(

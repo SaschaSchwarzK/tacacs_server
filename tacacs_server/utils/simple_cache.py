@@ -7,8 +7,12 @@ from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar, cast
 
+from tacacs_server.utils.logger import get_logger
+
 K = TypeVar("K")
 V = TypeVar("V")
+
+_logger = get_logger(__name__)
 
 
 class TTLCache(Generic[K, V]):
@@ -40,8 +44,8 @@ class TTLCache(Generic[K, V]):
                 self.misses += 1
                 try:
                     del self._data[key]
-                except KeyError:
-                    pass
+                except KeyError as exc:
+                    _logger.debug("Cache key delete race: %s", exc)
                 return None
             self.hits += 1
             return val
@@ -61,7 +65,10 @@ class TTLCache(Generic[K, V]):
                             del self._data[k]
                             self.evictions += 1
                             break
-                        except KeyError:
+                        except KeyError as exc:
+                            _logger.debug(
+                                "Cache eviction race on expired entry: %s", exc
+                            )
                             continue
                     if e < oldest_exp:
                         oldest_exp = e
@@ -71,8 +78,10 @@ class TTLCache(Generic[K, V]):
                         try:
                             del self._data[oldest_key]
                             self.evictions += 1
-                        except KeyError:
-                            pass
+                        except KeyError as exc:
+                            _logger.debug(
+                                "Cache eviction race on oldest entry: %s", exc
+                            )
             self._data[key] = (exp, value)
 
     def clear(self) -> None:
@@ -137,8 +146,8 @@ class LRUDict(OrderedDict, Generic[K, V]):
         super().__setitem__(key, value)
         try:
             self.move_to_end(key, last=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("LRU move_to_end failed for %s: %s", key, exc)
         if self.maxsize is not None and len(self) > self.maxsize:
             try:
                 self.popitem(last=False)
@@ -149,8 +158,8 @@ class LRUDict(OrderedDict, Generic[K, V]):
         value = cast(V, super().__getitem__(key))
         try:
             self.move_to_end(key, last=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("LRU move_to_end during get failed for %s: %s", key, exc)
         return value
 
     def get(self, key: K, default: Any = None) -> Any:
@@ -162,5 +171,5 @@ class LRUDict(OrderedDict, Generic[K, V]):
     def touch(self, key: K) -> None:
         try:
             self.move_to_end(key, last=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.warning("LRU touch failed for %s: %s", key, exc)

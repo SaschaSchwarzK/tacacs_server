@@ -111,8 +111,8 @@ class AAAHandlers:
                 return int(value)
             if isinstance(value, str):
                 return int(value)
-        except Exception:
-            pass
+        except (ValueError, TypeError):
+            pass  # Invalid conversion, return default
         return default
 
     @staticmethod
@@ -140,9 +140,8 @@ class AAAHandlers:
                         auth_keys_to_remove.append(key)
                     elif not isinstance(key, str) and str(key).startswith(prefix):
                         auth_keys_to_remove.append(key)
-                except Exception:
-                    # Be conservative; skip malformed keys
-                    continue
+                except (TypeError, AttributeError):
+                    continue  # Skip malformed keys
 
             # Now perform removals
             self.session_device.pop(session_id, None)
@@ -171,8 +170,8 @@ class AAAHandlers:
         try:
             if detail and "backend=" in detail:
                 backend_name = detail.split("backend=", 1)[1].split()[0]
-        except Exception:
-            backend_name = None
+        except (IndexError, AttributeError):
+            backend_name = None  # Failed to parse backend name from detail
         try:
             fields = {
                 "event": "auth.success" if success else "auth.failure",
@@ -235,8 +234,8 @@ class AAAHandlers:
                                 }
                             )
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log auth parse error: %s", e)
                 else:
                     logger.warning("Invalid authentication packet body: %s", pe)
                 response = self._create_auth_response(
@@ -313,8 +312,8 @@ class AAAHandlers:
                                 }
                             )
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log author parse error: %s", e)
                 else:
                     logger.warning("Invalid authorization packet body: %s", pe)
                 return self._create_author_response(
@@ -368,8 +367,8 @@ class AAAHandlers:
                                 }
                             )
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log acct parse error: %s", e)
                 else:
                     logger.warning("Invalid accounting packet body: %s", pe)
                 return self._create_acct_response(
@@ -440,10 +439,10 @@ class AAAHandlers:
                     if isinstance(_b, _LAB):
                         try:
                             _b.invalidate_user_cache(user)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as e:
+                            logger.debug("Failed to invalidate user cache: %s", e)
+            except Exception as e:
+                logger.debug("Failed to invalidate local backend cache: %s", e)
             # Build allowed Okta groups from device group -> allowed_user_groups -> local user groups' okta_group
             allowed_okta_groups: list[str] = []
             try:
@@ -486,22 +485,24 @@ class AAAHandlers:
                             # Invalidate user cache so a fresh fetch occurs after reload
                             try:
                                 _b.invalidate_user_cache(user)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(
+                                    "Failed to invalidate user cache on retry: %s", e
+                                )
                             svc = getattr(_b, "user_service", None)
                             st = getattr(svc, "store", None) if svc else None
                             if st and hasattr(st, "reload"):
                                 try:
                                     st.reload()
                                     reloaded = True
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logger.debug("Failed to reload local store: %s", e)
                     if reloaded:
                         authenticated, detail = self._authenticate_user(
                             user, password, client_ip=client_ip
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to retry authentication after reload: %s", e)
             if authenticated:
                 self._remember_username(packet.session_id, user)
                 self._log_auth_result(packet.session_id, user, device, True, detail)
@@ -673,24 +674,23 @@ class AAAHandlers:
             # Otherwise, treat as failure when a command is requested but user unknown
             self.cleanup_session(packet.session_id)
             try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "authorization_denied",
-                            "session": f"0x{packet.session_id:08x}",
-                            "user": user,
-                            "reason": "no_attrs",
-                            "command": args.get("cmd"),
-                            "device_group": getattr(
-                                getattr(device, "group", None), "name", None
-                            ),
-                        }
+                if _HAS_JSON:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "authorization_denied",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "reason": "no_attrs",
+                                "command": args.get("cmd"),
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
                     )
-                )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log authorization denial: %s", e)
             try:
                 from ..utils.webhook import notify
 
@@ -702,8 +702,8 @@ class AAAHandlers:
                         "reason": "no_attrs",
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send webhook notification: %s", e)
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -712,24 +712,23 @@ class AAAHandlers:
         if not user_attrs.get("enabled", True):
             self.cleanup_session(packet.session_id)
             try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "authorization_denied",
-                            "session": f"0x{packet.session_id:08x}",
-                            "user": user,
-                            "reason": "disabled",
-                            "command": args.get("cmd"),
-                            "device_group": getattr(
-                                getattr(device, "group", None), "name", None
-                            ),
-                        }
+                if _HAS_JSON:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "authorization_denied",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "reason": "disabled",
+                                "command": args.get("cmd"),
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
                     )
-                )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log authorization denial: %s", e)
             try:
                 from ..utils.webhook import notify
 
@@ -741,8 +740,8 @@ class AAAHandlers:
                         "reason": "disabled",
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send webhook notification: %s", e)
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -777,26 +776,25 @@ class AAAHandlers:
         if not result.allowed:
             self.cleanup_session(packet.session_id)
             try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "authorization_denied",
-                            "session": f"0x{packet.session_id:08x}",
-                            "user": user,
-                            "reason": result.denial_message or "policy_denied",
-                            "command": args.get("cmd"),
-                            "required_priv": priv_lvl,
-                            "user_priv": user_priv,
-                            "device_group": getattr(
-                                getattr(device, "group", None), "name", None
-                            ),
-                        }
+                if _HAS_JSON:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "authorization_denied",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "reason": result.denial_message or "policy_denied",
+                                "command": args.get("cmd"),
+                                "required_priv": priv_lvl,
+                                "user_priv": user_priv,
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
                     )
-                )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log authorization denial: %s", e)
             try:
                 from ..utils.webhook import notify
 
@@ -808,8 +806,8 @@ class AAAHandlers:
                         "reason": result.denial_message or "policy_denied",
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send webhook notification: %s", e)
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -825,26 +823,25 @@ class AAAHandlers:
         if _priv_order == "before" and (priv_lvl > user_priv):
             self.cleanup_session(packet.session_id)
             try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "authorization_denied",
-                            "session": f"0x{packet.session_id:08x}",
-                            "user": user,
-                            "reason": "insufficient_privilege",
-                            "command": args.get("cmd"),
-                            "required_priv": priv_lvl,
-                            "user_priv": user_priv,
-                            "device_group": getattr(
-                                getattr(device, "group", None), "name", None
-                            ),
-                        }
+                if _HAS_JSON:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "authorization_denied",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user,
+                                "reason": "insufficient_privilege",
+                                "command": args.get("cmd"),
+                                "required_priv": priv_lvl,
+                                "user_priv": user_priv,
+                                "device_group": getattr(
+                                    getattr(device, "group", None), "name", None
+                                ),
+                            }
+                        )
                     )
-                )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log authorization denial: %s", e)
             try:
                 from ..utils.webhook import notify
 
@@ -856,8 +853,8 @@ class AAAHandlers:
                         "reason": "insufficient_privilege",
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send webhook notification: %s", e)
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -897,8 +894,8 @@ class AAAHandlers:
                         }
                     )
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to log authorization grant: %s", e)
         return self._create_author_response(
             packet,
             TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
@@ -954,32 +951,32 @@ class AAAHandlers:
                 "Accounting record logged successfully",
             )
             try:
-                import json as _json
-
-                logger.info(
-                    _json.dumps(
-                        {
-                            "event": "acct_record",
-                            "session": f"0x{packet.session_id:08x}",
-                            "user": user or self._safe_user(None),
-                            "status": status,
-                            "service": record.service,
-                            "command": record.command,
-                            "client_ip": rem_addr,
-                            "port": port,
-                            "priv": priv_lvl,
-                            "attrs": self._redact_args(args),
-                        }
+                if _HAS_JSON:
+                    logger.info(
+                        _json.dumps(
+                            {
+                                "event": "acct_record",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user or self._safe_user(None),
+                                "status": status,
+                                "service": record.service,
+                                "command": record.command,
+                                "client_ip": rem_addr,
+                                "port": port,
+                                "priv": priv_lvl,
+                                "attrs": self._redact_args(args),
+                            }
+                        )
                     )
-                )
             except Exception:
+                # Structured logging failed, continue without detailed log
                 pass
             try:
                 from ..web.monitoring import PrometheusIntegration as _PM
 
                 _PM.record_accounting_record("success")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to record accounting metric: %s", e)
         else:
             response = self._create_acct_response(
                 packet,
@@ -987,32 +984,32 @@ class AAAHandlers:
                 "Failed to log accounting record",
             )
             try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "acct_record_error",
-                            "session": f"0x{packet.session_id:08x}",
-                            "user": user or self._safe_user(None),
-                            "status": status,
-                            "service": record.service,
-                            "command": record.command,
-                            "client_ip": rem_addr,
-                            "port": port,
-                            "priv": priv_lvl,
-                            "attrs": self._redact_args(args),
-                        }
+                if _HAS_JSON:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "acct_record_error",
+                                "session": f"0x{packet.session_id:08x}",
+                                "user": user or self._safe_user(None),
+                                "status": status,
+                                "service": record.service,
+                                "command": record.command,
+                                "client_ip": rem_addr,
+                                "port": port,
+                                "priv": priv_lvl,
+                                "attrs": self._redact_args(args),
+                            }
+                        )
                     )
-                )
             except Exception:
+                # Structured logging failed, continue without detailed log
                 pass
             try:
                 from ..web.monitoring import PrometheusIntegration as _PM
 
                 _PM.record_accounting_record("error")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to record accounting metric: %s", e)
         self.cleanup_session(packet.session_id)
         return response
 
@@ -1037,19 +1034,18 @@ class AAAHandlers:
 
         if client_ip and not self.rate_limiter.is_allowed(client_ip):
             try:
-                import json as _json
-
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "auth_rate_limited",
-                            "user": username or self._safe_user(None),
-                            "client_ip": client_ip,
-                        }
+                if _HAS_JSON:
+                    logger.warning(
+                        _json.dumps(
+                            {
+                                "event": "auth_rate_limited",
+                                "user": username or self._safe_user(None),
+                                "client_ip": client_ip,
+                            }
+                        )
                     )
-                )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log rate limit: %s", e)
             return False, f"rate limit exceeded for {client_ip}"
 
         if client_ip:
@@ -1110,8 +1106,8 @@ class AAAHandlers:
                     },
                 )
                 record_event("auth_failure", username or (client_ip or "unknown"))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send webhook notification: %s", e)
             return False, last_error
 
         if not self.auth_backends:
@@ -1130,8 +1126,8 @@ class AAAHandlers:
                     },
                 )
                 record_event("auth_failure", username or (client_ip or "unknown"))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send webhook notification: %s", e)
             return False, "no authentication backends configured"
 
         _PM.record_auth_request(
@@ -1152,8 +1148,8 @@ class AAAHandlers:
                 },
             )
             record_event("auth_failure", username or (client_ip or "unknown"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to send webhook notification: %s", e)
         return False, "no backend accepted credentials"
 
     def _authenticate_backend_with_timeout(
@@ -1329,8 +1325,8 @@ class AAAHandlers:
                                     }
                                 )
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log authorization denial: %s", e)
                     return self._create_author_response(
                         packet,
                         TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -1377,6 +1373,7 @@ class AAAHandlers:
                             )
                         )
                 except Exception:
+                    # Structured logging failed, continue without detailed log
                     pass
                 return self._create_author_response(
                     packet,
@@ -1384,9 +1381,10 @@ class AAAHandlers:
                     "Authorization granted",
                     auth_attrs,
                 )
-            except Exception:
-                # Fall through to external authorizer or simple defaults
-                pass
+            except Exception as e:
+                logger.debug(
+                    "Command engine evaluation failed: %s", e
+                )  # Fall through to external authorizer
         # External authorizer (compat)
         try:
             from ..web.monitoring import get_command_authorizer
@@ -1457,8 +1455,8 @@ class AAAHandlers:
                             }
                         )
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log authorization grant: %s", e)
             return self._create_author_response(
                 packet,
                 status_allowed,
@@ -1488,8 +1486,8 @@ class AAAHandlers:
                             }
                         )
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log authorization grant: %s", e)
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
@@ -1524,8 +1522,8 @@ class AAAHandlers:
                         }
                     )
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to log authorization grant: %s", e)
         return self._create_author_response(
             packet,
             TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
