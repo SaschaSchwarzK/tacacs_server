@@ -39,12 +39,14 @@ class TacacsServer:
         host: str = "0.0.0.0",
         port: int = TAC_PLUS_DEFAULT_PORT,
         secret_key: str | None = None,
+        config: dict | None = None,
     ):
         self.host = host
         self.port = port
         self.secret_key = secret_key or os.getenv(
             "TACACS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK"
         )
+        self.config = config or {}
 
         if self.secret_key == "CHANGE_ME_FALLBACK":
             logger.warning(
@@ -60,14 +62,13 @@ class TacacsServer:
         # Managers
         self.stats = StatsManager()
         self.session_manager = SessionManager(
-            int(os.getenv("TACACS_MAX_SESSION_SECRETS", "10000"))
+            int(self.config.get("security", {}).get("max_session_secrets") or 
+                os.getenv("TACACS_MAX_SESSION_SECRETS", "10000"))
         )
-        self.conn_limiter = ConnectionLimiter(
-            max_per_ip=int(os.getenv("TACACS_MAX_CONN_PER_IP", "20"))
-        )
-        self.validator = PacketValidator(
-            int(os.getenv("TACACS_MAX_PACKET_LENGTH", "4096"))
-        )
+        
+        # Initialize with default values first
+        self.conn_limiter = None
+        self.validator = None
 
         # Server state
         self.running = False
@@ -79,44 +80,106 @@ class TacacsServer:
         self.monitoring_api: WebServer | None = None
         self.enable_monitoring = False
 
-        # Network settings
+        # Load configurations
         self._load_network_config()
-
-        # Proxy settings
         self._load_proxy_config()
-
-        # Threading
         self._load_threading_config()
+        
+        # Initialize components that depend on config
+        self._init_components()
 
     def _load_network_config(self):
-        """Load network configuration from environment"""
-        self.listen_backlog = int(os.getenv("TACACS_LISTEN_BACKLOG", "128"))
-        self.client_timeout = float(os.getenv("TACACS_CLIENT_TIMEOUT", "15"))
-        self.enable_ipv6 = os.getenv("TACACS_IPV6_ENABLED", "false").lower() == "true"
-        self.tcp_keepalive = (
-            os.getenv("TACACS_TCP_KEEPALIVE", "true").lower() != "false"
+        """Load network configuration from config or environment"""
+        network_config = self.config.get("server", {})
+        
+        self.listen_backlog = int(network_config.get(
+            "listen_backlog", 
+            os.getenv("TACACS_LISTEN_BACKLOG", "128")
+        ))
+        
+        self.client_timeout = float(network_config.get(
+            "client_timeout",
+            os.getenv("TACACS_CLIENT_TIMEOUT", "15")
+        ))
+        
+        self.enable_ipv6 = network_config.get(
+            "enable_ipv6",
+            os.getenv("TACACS_IPV6_ENABLED", "false").lower() == "true"
         )
-        self.tcp_keepalive_idle = int(os.getenv("TACACS_TCP_KEEPIDLE", "60"))
-        self.tcp_keepalive_intvl = int(os.getenv("TACACS_TCP_KEEPINTVL", "10"))
-        self.tcp_keepalive_cnt = int(os.getenv("TACACS_TCP_KEEPCNT", "5"))
+        
+        tcp_keepalive = network_config.get(
+            "tcp_keepalive",
+            os.getenv("TACACS_TCP_KEEPALIVE", "true")
+        )
+        self.tcp_keepalive = (
+            str(tcp_keepalive).lower() != "false"
+        )
+        
+        self.tcp_keepalive_idle = int(network_config.get(
+            "tcp_keepalive_idle",
+            os.getenv("TACACS_TCP_KEEPIDLE", "60")
+        ))
+        
+        self.tcp_keepalive_intvl = int(network_config.get(
+            "tcp_keepalive_interval",
+            os.getenv("TACACS_TCP_KEEPINTVL", "10")
+        ))
+        
+        self.tcp_keepalive_cnt = int(network_config.get(
+            "tcp_keepalive_count",
+            os.getenv("TACACS_TCP_KEEPCNT", "5")
+        ))
 
     def _load_proxy_config(self):
-        """Load proxy configuration"""
-        self.proxy_enabled = True
-        self.accept_proxy_protocol = True
-        self.proxy_validate_sources = False
-        self.proxy_reject_invalid = True
-        self.encryption_required = True
+        """Load proxy configuration from config or use defaults"""
+        proxy_config = self.config.get("proxy", {})
+        
+        self.proxy_enabled = proxy_config.get("enabled", True)
+        self.accept_proxy_protocol = proxy_config.get("accept_proxy_protocol", True)
+        self.proxy_validate_sources = proxy_config.get("validate_sources", False)
+        self.proxy_reject_invalid = proxy_config.get("reject_invalid", True)
+        self.encryption_required = proxy_config.get("encryption_required", True)
 
     def _load_threading_config(self):
-        """Load threading configuration"""
-        self.use_thread_pool = (
-            os.getenv("TACACS_USE_THREAD_POOL", "true").lower() != "false"
+        """Load threading configuration from config or environment"""
+        threading_config = self.config.get("threading", {})
+        
+        use_thread_pool = threading_config.get(
+            "use_thread_pool",
+            os.getenv("TACACS_USE_THREAD_POOL", "true")
         )
-        self.thread_pool_max_workers = int(os.getenv("TACACS_THREAD_POOL_MAX", "100"))
+        self.use_thread_pool = str(use_thread_pool).lower() != "false"
+        
+        self.thread_pool_max_workers = int(threading_config.get(
+            "max_workers",
+            os.getenv("TACACS_THREAD_POOL_MAX", "100")
+        ))
+        
         self._executor: ThreadPoolExecutor | None = None
         self._client_threads: set[threading.Thread] = set()
         self._client_threads_lock = threading.RLock()
+        
+    def _init_components(self):
+        """Initialize components that depend on configuration"""
+        security_config = self.config.get("security", {})
+        
+        # Initialize connection limiter with config value or fallback to environment/default
+        max_conn_per_ip = security_config.get("max_connections_per_ip")
+        if max_conn_per_ip is None:
+            max_conn_per_ip = int(os.getenv("TACACS_MAX_CONN_PER_IP", "20"))
+        self.conn_limiter = ConnectionLimiter(max_per_ip=max_conn_per_ip)
+        
+        # Initialize packet validator with config value or fallback to environment/default
+        max_packet_length = security_config.get("max_packet_length")
+        if max_packet_length is None:
+            max_packet_length = int(os.getenv("TACACS_MAX_PACKET_LENGTH", "4096"))
+        self.validator = PacketValidator(max_packet_length)
+        
+        logger.debug(
+            "Initialized components with max_connections_per_ip=%s, max_packet_length=%s",
+            max_conn_per_ip,
+            max_packet_length
+        )
 
     def enable_web_monitoring(
         self, web_host="127.0.0.1", web_port=8080, radius_server=None
