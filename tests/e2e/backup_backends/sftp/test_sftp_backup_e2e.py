@@ -433,10 +433,29 @@ def test_backup_to_sftp_password_e2e(tmp_path: Path) -> None:
         ok = _poll(_done, timeout=120.0, interval=1.0)
         assert ok, "backup execution did not finish in time"
 
-        # Verify backups listed for destination
-        lb = s.get(f"{base}/api/admin/backup/list", params={"destination_id": dest_id})
-        assert lb.status_code == 200, lb.text
-        backups = (lb.json() or {}).get("backups") or []
+        # Verify backups listed for destination (allow eventual consistency on busy runners)
+        backups: list[dict[str, object]] = []
+        last_list_info = ""
+
+        def _backups_available() -> bool:
+            nonlocal backups, last_list_info
+            resp = s.get(
+                f"{base}/api/admin/backup/list",
+                params={"destination_id": dest_id},
+                timeout=5,
+            )
+            last_list_info = f"{resp.status_code}: {(resp.text or '').strip()[:200]}"
+            if resp.status_code != 200:
+                return False
+            current = (resp.json() or {}).get("backups") or []
+            if not current:
+                return False
+            backups[:] = current
+            return True
+
+        assert _poll(_backups_available, timeout=60.0, interval=1.0), (
+            f"No backups listed in SFTP destination (last response: {last_list_info})"
+        )
         assert backups, "No backups listed in SFTP destination"
 
         # Verify the backup file exists on the SFTP server filesystem and is non-empty

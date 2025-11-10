@@ -370,12 +370,31 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
         ok = _poll(_done, timeout=90.0, interval=1.0)
         assert ok, "backup execution did not finish in time"
 
-        # Verify list_backups for destination returns at least one item
-        lb = s.get(f"{base}/api/admin/backup/list", params={"destination_id": dest_id})
-        assert lb.status_code == 200, lb.text
-        listed = lb.json() or []
-        backups = listed.get("backups") if isinstance(listed, dict) else listed
-        assert backups and len(backups) >= 1, "No backups listed in Azure destination"
+        # Verify list_backups for destination returns at least one item (allow eventual consistency)
+        backups: list[dict[str, object]] = []
+        last_list_info = ""
+
+        def _backups_available() -> bool:
+            nonlocal backups, last_list_info
+            resp = s.get(
+                f"{base}/api/admin/backup/list",
+                params={"destination_id": dest_id},
+                timeout=5,
+            )
+            last_list_info = f"{resp.status_code}: {(resp.text or '').strip()[:200]}"
+            if resp.status_code != 200:
+                return False
+            listed = resp.json() or []
+            current = listed.get("backups") if isinstance(listed, dict) else listed
+            if not current:
+                return False
+            backups[:] = current
+            return True
+
+        assert _poll(_backups_available, timeout=60.0, interval=1.0), (
+            f"No backups listed in Azure destination (last response: {last_list_info})"
+        )
+        assert backups, "No backups listed in Azure destination"
 
         # Validate the last execution shows non-zero size if available
         ex = s.get(f"{base}/api/admin/backup/executions", timeout=5)

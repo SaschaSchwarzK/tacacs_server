@@ -609,9 +609,28 @@ def test_backup_to_sftp_key_e2e(tmp_path: Path, key_type: str) -> None:
         )
 
         # Validate list and presence on filesystem
-        lb = s.get(f"{base}/api/admin/backup/list", params={"destination_id": dest_id})
-        assert lb.status_code == 200, lb.text
-        backups = (lb.json() or {}).get("backups") or []
+        backups: list[dict[str, object]] = []
+        last_list_info = ""
+
+        def _backups_available() -> bool:
+            nonlocal backups, last_list_info
+            resp = s.get(
+                f"{base}/api/admin/backup/list",
+                params={"destination_id": dest_id},
+                timeout=5,
+            )
+            last_list_info = f"{resp.status_code}: {(resp.text or '').strip()[:200]}"
+            if resp.status_code != 200:
+                return False
+            current = (resp.json() or {}).get("backups") or []
+            if not current:
+                return False
+            backups[:] = current
+            return True
+
+        assert _poll(_backups_available, timeout=60.0, interval=1.0), (
+            f"No backups listed for SFTP key destination (last response: {last_list_info})"
+        )
         assert backups, "No backups listed for SFTP key destination"
         sftp_path = backups[0].get("path") or ""
         statp = subprocess.run(
