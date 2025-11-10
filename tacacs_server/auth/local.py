@@ -101,7 +101,8 @@ class LocalAuthBackend(AuthenticationBackend):
             prev_path = getattr(self, "user_service", None)
             if prev_path is not None:
                 prev_path = getattr(prev_path, "db_path", None)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to capture previous user service path: %s", exc)
             prev_path = None
 
         if self._listener_remove:
@@ -126,8 +127,8 @@ class LocalAuthBackend(AuthenticationBackend):
                 logger.info(
                     "LocalAuthBackend attached user service db_path=%s", new_path
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to log new user service attachment: %s", exc)
 
     def set_user_service(self, service: LocalUserService) -> None:
         if service is None:
@@ -165,10 +166,12 @@ class LocalAuthBackend(AuthenticationBackend):
                                 "LocalAuthBackend realigned db_path to %s from TACACS_CONFIG",
                                 cand_path,
                             )
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to realign LocalAuthBackend db_path: %s", exc
+                            )
+        except Exception as exc:
+            logger.warning("LocalAuthBackend alignment check failed: %s", exc)
         try:
             user = self._get_user(username)
         except LocalUserNotFound:
@@ -193,8 +196,8 @@ class LocalAuthBackend(AuthenticationBackend):
                 bool(user.password_hash),
                 user.password is not None,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Logging auth attempt for %s failed: %s", username, exc)
 
         if user.password_hash:
             try:

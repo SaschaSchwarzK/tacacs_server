@@ -68,7 +68,7 @@ class TacacsConfig:
             )
             logger.info("Configuration store initialized successfully")
         except Exception as e:
-            # Log the actual error but allow server to continue
+            # Store initialization failed, continue without override tracking
             logger.error(
                 "Failed to initialize configuration store: %s", e, exc_info=True
             )
@@ -81,7 +81,7 @@ class TacacsConfig:
         try:
             os.makedirs(os.path.dirname(self._baseline_cache_path), exist_ok=True)
         except Exception:
-            pass
+            pass  # Cache directory creation failed, will retry on first use
         # Load base configuration (file or URL), then overlay DB overrides
         self._load_config()
         self._snapshot_baseline()
@@ -774,7 +774,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -789,7 +789,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -799,7 +799,7 @@ class TacacsConfig:
                         description=f"Updated proxy_protocol config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -831,7 +831,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -846,7 +846,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -856,7 +856,7 @@ class TacacsConfig:
                         description=f"Updated monitoring config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -888,7 +888,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -903,7 +903,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -913,7 +913,7 @@ class TacacsConfig:
                         description=f"Updated radius config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -945,7 +945,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -960,7 +960,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -970,7 +970,7 @@ class TacacsConfig:
                         description=f"Updated okta config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -1002,7 +1002,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -1017,7 +1017,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -1027,7 +1027,7 @@ class TacacsConfig:
                         description=f"Updated backup config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -1062,7 +1062,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -1077,7 +1077,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -1087,7 +1087,7 @@ class TacacsConfig:
                         description=f"Updated server config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         # Apply in-memory overrides for live process
         self._apply_overrides()
         # Persist file-backed configuration
@@ -1121,7 +1121,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -1136,7 +1136,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -1146,7 +1146,7 @@ class TacacsConfig:
                         description=f"Updated auth config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -1178,7 +1178,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -1193,7 +1193,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -1203,7 +1203,7 @@ class TacacsConfig:
                         description=f"Updated ldap config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -1248,7 +1248,7 @@ class TacacsConfig:
                             reason=reason,
                         )
                 except Exception:
-                    pass
+                    pass  # Override storage failed, continue with config update
                 try:
                     rec = getattr(store, "record_change", None)
                     if callable(rec):
@@ -1263,7 +1263,7 @@ class TacacsConfig:
                             source_ip=source_ip,
                         )
                 except Exception:
-                    pass
+                    pass  # Change history recording failed, continue
             try:
                 creator = getattr(store, "create_version", None)
                 if callable(creator):
@@ -1273,7 +1273,7 @@ class TacacsConfig:
                         description=f"Updated devices config: {', '.join(kwargs.keys())}",
                     )
             except Exception:
-                pass
+                pass  # Version snapshot failed, continue
         self._apply_overrides()
         if not self.is_url_config():
             self.save_config()
@@ -1530,7 +1530,7 @@ class TacacsConfig:
                     with open(self._baseline_cache_path, "w", encoding="utf-8") as fh:
                         fh.write(payload)
                 except Exception:
-                    pass
+                    pass  # Cache write failed, will retry on next fetch
                 # Update metadata
                 try:
                     if self.config_store:
@@ -1548,9 +1548,9 @@ class TacacsConfig:
                                 is_baseline=True,
                             )
                         except Exception:
-                            pass
+                            pass  # Version snapshot failed, continue
                 except Exception:
-                    pass
+                    pass  # Metadata update failed, continue
             else:
                 # Fall back to cached baseline if available
                 self._load_from_cache()
@@ -1617,7 +1617,7 @@ class TacacsConfig:
                     self.config.set(section, key, sval)
                     self.overridden_keys.setdefault(section, set()).add(key)
                 except Exception:
-                    continue
+                    continue  # Failed to apply override, skip this key
 
     def is_url_config(self) -> bool:
         return self._is_url(self.config_source)
@@ -1848,7 +1848,7 @@ class TacacsConfig:
                 with open(self._baseline_cache_path, "w", encoding="utf-8") as fh:
                     fh.write(payload)
             except Exception:
-                pass
+                pass  # Cache write failed, will retry on next fetch
             # Persist new version snapshot
             try:
                 if self.config_store:

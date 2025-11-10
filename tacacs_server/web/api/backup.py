@@ -146,6 +146,7 @@ async def upload_local_backup(
         try:
             os.unlink(tmp_path)
         except Exception:
+            # Temp file cleanup failed, continue without cleanup
             pass
         return {
             "success": True,
@@ -551,6 +552,7 @@ async def list_backups(
     try:
         all_backups.sort(key=lambda x: x.timestamp, reverse=True)
     except Exception:
+        # Backup sorting failed, return unsorted list
         pass
     return BackupListResponse(backups=all_backups)
 
@@ -624,6 +626,7 @@ async def restore_backup_api(
 
                 restart_services()
             except Exception:
+                # Service restart failed, continue without restart
                 pass
 
         background_tasks.add_task(_restart)

@@ -158,8 +158,8 @@ class TacacsServer:
         try:
             if push is not None:
                 push(new_val)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to update Prometheus active connections: %s", e)
 
     def _get_active_connections(self) -> int:
         with self._stats_lock:
@@ -191,8 +191,8 @@ class TacacsServer:
                     admin_config = self.config.get_admin_auth_config()
                     admin_username = admin_config.get("username", "admin")
                     admin_password_hash = admin_config.get("password_hash", "")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to get admin config: %s", e)
 
             # Create FastAPI app with credentials
             app = create_app(
@@ -245,7 +245,8 @@ class TacacsServer:
         # Use structured log with consistent fields across services
         try:
             name = getattr(backend, "name", None) or str(backend)
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to get backend name: %s", e)
             name = str(backend)
         logger.info(
             "Authentication backend added",
@@ -287,15 +288,17 @@ class TacacsServer:
                 self.server_socket.setsockopt(
                     socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0
                 )
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("IPv6 dual-stack not supported: %s", e)
         else:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             bind_host = self.host
             if self.enable_ipv6 and bind_host in ("0.0.0.0", "::"):
-                bind_host = "::"
+                bind_host = (
+                    "::"  # Intentionally bind to all interfaces for server operation
+                )
             self.server_socket.bind((bind_host, self.port))
             self.server_socket.listen(self.listen_backlog)
             logger.info(
@@ -338,8 +341,8 @@ class TacacsServer:
                         )
                         try:
                             client_socket.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed to close socket: %s", e)
                         with self._ip_conn_lock:
                             # revert increment
                             current = max(0, self._ip_connections.get(ip, 1) - 1)
@@ -366,18 +369,16 @@ class TacacsServer:
 
                                     sock_any = cast(Any, client_socket)
                                     sock_any.selected_device = selected
-                                except Exception:
-                                    # If socket object doesn't accept attributes, ignore
-                                    pass
+                                except (AttributeError, TypeError):
+                                    pass  # Socket object doesn't accept attributes
                             except Exception as exc:
                                 logger.debug(
                                     "Device lookup during accept failed for %s: %s",
                                     ip,
                                     exc,
                                 )
-                    except Exception:
-                        # Defensive: do not let device lookup prevent accepting/handling the connection
-                        pass
+                    except Exception as e:
+                        logger.debug("Device lookup error during accept: %s", e)
 
                     if self._executor is not None:
                         self._executor.submit(
@@ -446,12 +447,12 @@ class TacacsServer:
         if self.server_socket:
             try:
                 self.server_socket.shutdown(socket.SHUT_RDWR)
-            except (OSError, AttributeError):
-                pass  # Socket shutdown failed
+            except (OSError, AttributeError) as e:
+                logger.debug("Server socket shutdown failed: %s", e)
             try:
                 self.server_socket.close()
-            except (OSError, AttributeError):
-                pass  # Socket close failed
+            except (OSError, AttributeError) as e:
+                logger.debug("Server socket close failed: %s", e)
 
     def _handle_client(self, client_socket: socket.socket, address: tuple[str, int]):
         """Handle client connection with improved error handling and performance."""
@@ -464,7 +465,8 @@ class TacacsServer:
                 "client_port": address[1],
             }
             conn_logger = _logging.LoggerAdapter(logger, extra)
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to create logger adapter: %s", e)
             conn_logger = logger
         session_ids: set[int] = set()
         connection_device = None
@@ -509,8 +511,8 @@ class TacacsServer:
                         int(consumed),
                         int(addr_len),
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to log PROXY header diagnostic: %s", e)
                 if info is None or consumed == 0:
                     # Signature matched, but parsing failed — log at debug for diagnostics
                     with self._stats_lock:
@@ -523,8 +525,8 @@ class TacacsServer:
                             address[0],
                             len(raw_header),
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log invalid PROXY header: %s", e)
                     # Only reject if strict validation is enabled
                     # When validate_sources is false, we're lenient and continue as direct
                     if (
@@ -536,8 +538,8 @@ class TacacsServer:
                                 "Rejecting connection: invalid PROXY v2 header from %s",
                                 address[0],
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed to log PROXY rejection: %s", e)
                         self._safe_close_socket(client_socket)
                         return
                     # Otherwise, ignore invalid header and proceed as direct connection
@@ -546,8 +548,8 @@ class TacacsServer:
                             "Lenient mode: ignoring invalid PROXY v2 header from %s; proceeding as direct",
                             address[0],
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log lenient mode message: %s", e)
                     # Invalid PROXY header was consumed (buffered_bytes), read fresh TACACS header
                     # The TACACS packet comes AFTER the invalid PROXY header in the stream
                     first_header_data = self._recv_exact(client_socket, 12) or b""
@@ -566,12 +568,12 @@ class TacacsServer:
                                     total_read,
                                     consumed,
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("Failed to log PROXY size mismatch: %s", e)
                             self._safe_close_socket(client_socket)
                             return
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to validate PROXY header size: %s", e)
                     # Log acceptance of a valid PROXY v2 header for observability
                     try:
                         if _HAS_JSON:
@@ -593,8 +595,8 @@ class TacacsServer:
                                 getattr(info, "src_addr", None),
                                 getattr(info, "dst_addr", None),
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log PROXY v2 acceptance: %s", e)
             else:
                 # Not a PROXY header; treat first12 as the full TACACS header (12 bytes)
                 first_header_data = first12 or b""
@@ -685,14 +687,14 @@ class TacacsServer:
                                 address[0],
                                 proxy_ip,
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed to log proxy rejection: %s", e)
                         self._safe_close_socket(client_socket)
                         return
                 else:
                     conn_logger.debug("Proxy IP %s validated successfully", proxy_ip)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Proxy validation check failed: %s", e)
 
         # Increment proxied vs direct counters once per connection
         self._record_connection_counter(proxy_ip)
@@ -764,8 +766,10 @@ class TacacsServer:
                                         connection_device.name,
                                         group_name,
                                     )
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logger.debug(
+                                        "Failed to log auto-registration: %s", e
+                                    )
                         except Exception as exc:
                             try:
                                 conn_logger.warning(
@@ -773,16 +777,18 @@ class TacacsServer:
                                     client_ip,
                                     exc,
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(
+                                    "Failed to log auto-registration failure: %s", e
+                                )
                     else:
                         try:
                             conn_logger.warning(
                                 "Unknown device %s and auto_register disabled; closing connection",
                                 client_ip,
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed to log unknown device warning: %s", e)
                         self._safe_close_socket(client_socket)
                         return
             except Exception as exc:
@@ -819,8 +825,10 @@ class TacacsServer:
                                     "max_length": self.max_packet_length,
                                 }
                                 conn_logger.warning(_json.dumps(log_payload))
-                            except Exception:
-                                pass
+                            except Exception as log_err:
+                                logger.debug(
+                                    "Failed to log packet header error: %s", log_err
+                                )
                         else:
                             conn_logger.warning(
                                 "Invalid packet from %s: %s", address, e
@@ -837,8 +845,8 @@ class TacacsServer:
                             new_extra = dict(base_extra)
                             new_extra["session_id"] = f"0x{packet.session_id:08x}"
                             conn_logger = _logging.LoggerAdapter(logger, new_extra)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to enrich logger with session_id: %s", e)
                     if not self._validate_packet_header(packet):
                         if _HAS_JSON:
                             try:
@@ -853,7 +861,10 @@ class TacacsServer:
                                         }
                                     )
                                 )
-                            except Exception:
+                            except Exception as log_err:
+                                logger.debug(
+                                    "Failed to log invalid packet header: %s", log_err
+                                )
                                 conn_logger.warning(
                                     "Invalid packet header from %s: %s", address, packet
                                 )
@@ -877,8 +888,10 @@ class TacacsServer:
                                             }
                                         )
                                     )
-                                except Exception:
-                                    pass
+                                except Exception as log_err:
+                                    logger.debug(
+                                        "Failed to log packet too large: %s", log_err
+                                    )
                             else:
                                 conn_logger.warning(
                                     "Packet too large from %s: %s bytes",
@@ -901,7 +914,11 @@ class TacacsServer:
                                             }
                                         )
                                     )
-                                except Exception:
+                                except Exception as log_err:
+                                    logger.debug(
+                                        "Failed to log incomplete packet body: %s",
+                                        log_err,
+                                    )
                                     conn_logger.warning(
                                         "Incomplete packet body from %s", address
                                     )
@@ -979,8 +996,8 @@ class TacacsServer:
                 if threading.current_thread().daemon:
                     with self._client_threads_lock:
                         self._client_threads.discard(threading.current_thread())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to discard client thread: %s", e)
 
     def _safe_close_socket(self, sock: socket.socket) -> None:
         """Safely close socket with proper error handling."""
@@ -1003,7 +1020,7 @@ class TacacsServer:
                 try:
                     self.session_secrets.pop(session_id)
                 except KeyError:
-                    pass
+                    pass  # Session secret already removed
                 try:
                     self.handlers.cleanup_session(session_id)
                 except Exception as e:
@@ -1078,8 +1095,8 @@ class TacacsServer:
                             }
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to log invalid major version: %s", e)
             else:
                 logger.warning(f"Invalid major version: {major_version}")
             return False
@@ -1099,8 +1116,8 @@ class TacacsServer:
                             }
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to log invalid packet type: %s", e)
             else:
                 logger.warning(f"Invalid packet type: {packet.packet_type}")
             return False
@@ -1118,7 +1135,8 @@ class TacacsServer:
                             }
                         )
                     )
-                except Exception:
+                except Exception as e:
+                    logger.debug("Failed to log invalid sequence number: %s", e)
                     logger.warning(
                         f"Invalid sequence number for request: {packet.seq_no}"
                     )
@@ -1146,8 +1164,10 @@ class TacacsServer:
                                             }
                                         )
                                     )
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logger.debug(
+                                        "Failed to log out-of-order sequence: %s", e
+                                    )
                             else:
                                 logger.warning(
                                     "Out-of-order sequence: sess=%s last=%s got=%s",
@@ -1173,8 +1193,10 @@ class TacacsServer:
                                         }
                                     )
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug(
+                                    "Failed to log invalid sequence step: %s", e
+                                )
                         else:
                             logger.warning(
                                 "Invalid sequence step: sess=%s last=%s got=%s",
@@ -1185,8 +1207,8 @@ class TacacsServer:
                         return False
                 # Update last seen request sequence (first or valid forward)
                 self._last_request_seq[packet.session_id] = packet.seq_no
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Sequence validation error: %s", e)
         return True
 
     def _process_packet(
@@ -1213,7 +1235,8 @@ class TacacsServer:
                     from .constants import TAC_PLUS_FLAGS as _FLAGS_CLASS
 
                     _unencrypted_flag = _FLAGS_CLASS.TAC_PLUS_UNENCRYPTED_FLAG
-                except Exception:
+                except Exception as e:
+                    logger.debug("Failed to import unencrypted flag: %s", e)
                     _unencrypted_flag = None
                 if (
                     getattr(self, "encryption_required", False)
@@ -1232,33 +1255,39 @@ class TacacsServer:
                                     }
                                 )
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to log unencrypted rejection (JSON): %s", e
+                            )
                             try:
                                 logger.warning(
                                     "Rejecting unencrypted TACACS+ auth: encryption_required policy active"
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e2:
+                                logger.debug(
+                                    "Failed to log unencrypted rejection: %s", e2
+                                )
                     else:
                         try:
                             logger.warning(
                                 "Rejecting unencrypted TACACS+ auth: encryption_required policy active"
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed to log unencrypted rejection: %s", e)
                     try:
                         response = self.handlers._create_auth_response(
                             packet,
                             TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_FAIL,
                             server_msg="Unencrypted TACACS+ not permitted",
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Failed to create auth response: %s", e)
                         response = None
                     # Emit a plain, lowercase compatibility line for tests/consumers
                     try:
                         logger.warning("rejecting unencrypted tacacs+ auth")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to log rejection message: %s", e)
                     with self._stats_lock:
                         self.stats["auth_requests"] += 1
                         self.stats["auth_failures"] += 1
@@ -1292,8 +1321,10 @@ class TacacsServer:
                             from ..web.web import PrometheusIntegration as _PM
 
                             _PM.record_command_authorization("granted")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to record command authorization metric: %s", e
+                            )
                     elif status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL:
                         with self._stats_lock:
                             self.stats["author_failures"] += 1
@@ -1302,8 +1333,10 @@ class TacacsServer:
                             from ..web.web import PrometheusIntegration as _PM
 
                             _PM.record_command_authorization("denied")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to record command authorization metric: %s", e
+                            )
                 return response
             elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT:
                 with self._stats_lock:
@@ -1315,7 +1348,10 @@ class TacacsServer:
                         import struct as _st
 
                         _, _, status = _st.unpack("!HHH", response.body[:6])
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(
+                            "Failed to unpack accounting response status: %s", e
+                        )
                         status = None
                     if status == TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_SUCCESS:
                         with self._stats_lock:
@@ -1367,8 +1403,8 @@ class TacacsServer:
                     self.stats["connections_direct"] = (
                         self.stats.get("connections_direct", 0) + 1
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to record connection counter: %s", e)
 
     def get_active_sessions(self) -> list:
         """Get active accounting sessions"""
@@ -1446,7 +1482,8 @@ class TacacsServer:
             try:
                 stats = self.db_logger.get_statistics(days=1)
                 recs = stats.get("total_records", 0) if isinstance(stats, dict) else 0
-            except Exception:
+            except Exception as e:
+                logger.debug("Failed to get database statistics: %s", e)
                 recs = 0
             payload = {
                 "status": "healthy",
@@ -1533,8 +1570,10 @@ class TacacsServer:
         if self.server_socket:
             try:
                 self.server_socket.shutdown(socket.SHUT_RDWR)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    "Server socket shutdown failed during graceful shutdown: %s", e
+                )
             self.server_socket.close()
 
         # Wait for active connections to finish
@@ -1557,22 +1596,21 @@ class TacacsServer:
         for t in threads:
             try:
                 t.join(timeout=1.0)
-            except Exception:
-                # Ignore join errors; treat as still alive
-                pass
+            except Exception as e:
+                logger.debug("Thread join failed: %s", e)
             if t.is_alive():
                 remaining.append(t)
         if remaining:
             try:
                 logger.warning(f"{len(remaining)} threads did not terminate gracefully")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to log remaining threads warning: %s", e)
         # Shutdown thread pool
         if self._executor:
             try:
                 self._executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Thread pool shutdown failed: %s", e)
             finally:
                 self._executor = None
         logger.info("Server shutdown complete")
@@ -1600,7 +1638,7 @@ class TacacsServer:
                         socket.TCP_KEEPALIVE,
                         self.tcp_keepalive_idle,
                     )
-                except OSError:
-                    pass
-        except OSError:
-            pass
+                except OSError as e:
+                    logger.debug("Failed to set TCP_KEEPALIVE: %s", e)
+        except OSError as e:
+            logger.debug("Failed to enable TCP keepalive: %s", e)

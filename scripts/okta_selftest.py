@@ -217,7 +217,6 @@ def main() -> int:
                         body = d
                         status = "SUCCESS"
                         break
-                    poll_href = verify_href
                     try:
                         poll_href = (
                             d.get("_links", {}).get("next", {}).get("href", verify_href)

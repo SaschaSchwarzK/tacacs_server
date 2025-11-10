@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import tempfile
 import threading
@@ -11,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .local_models import LocalUserGroupRecord, LocalUserRecord
+
+logger = logging.getLogger(__name__)
 
 UNSET = object()
 
@@ -46,8 +49,10 @@ class LocalAuthStore:
             from tacacs_server.utils.maintenance import get_db_manager
 
             get_db_manager().register(self)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to register local auth store for maintenance: %s", exc
+            )
 
     # ------------------------------------------------------------------
     # Connection helpers
@@ -62,8 +67,8 @@ class LocalAuthStore:
         with self._lock:
             try:
                 self._conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to close local auth DB connection: %s", exc)
 
     def reload(self) -> None:
         """Re-open the underlying SQLite connection."""
@@ -71,7 +76,7 @@ class LocalAuthStore:
             try:
                 self._conn.close()
             except Exception:
-                pass
+                logger.warning("Failed to close local auth DB connection before reload")
             self._conn = self._open_connection()
             self._ensure_schema()
 
@@ -128,8 +133,8 @@ class LocalAuthStore:
             data = json.loads(payload)
             if isinstance(data, list):
                 return [str(item) for item in data if isinstance(item, str)]
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as exc:
+            logger.debug("Failed to decode list payload for local store: %s", exc)
         return []
 
     @staticmethod
@@ -146,8 +151,8 @@ class LocalAuthStore:
             data = json.loads(payload)
             if isinstance(data, dict):
                 return data
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as exc:
+            logger.debug("Failed to decode dict payload for local store: %s", exc)
         return {}
 
     @staticmethod

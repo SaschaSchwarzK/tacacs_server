@@ -32,10 +32,27 @@ Security Notes:
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
 import pytest
+
+
+def _setup_test_backup_root():
+    """Setup test backup root and ensure it's in ALLOWED_ROOTS."""
+    import tacacs_server.backup.path_policy as _pp
+
+    # Get the backup root from environment (set by conftest fixture)
+    backup_root_str = os.environ.get("BACKUP_ROOT")
+    if backup_root_str:
+        backup_root = Path(backup_root_str).resolve()
+        # Ensure it's in ALLOWED_ROOTS
+        if backup_root not in _pp.ALLOWED_ROOTS:
+            _pp.ALLOWED_ROOTS.append(backup_root)
+        _pp.DEFAULT_BACKUP_ROOT = backup_root
+        return backup_root
+    return _pp.DEFAULT_BACKUP_ROOT
 
 
 def _wait_for(cond, timeout=30.0, interval=0.5) -> bool:
@@ -51,6 +68,9 @@ def _wait_for(cond, timeout=30.0, interval=0.5) -> bool:
 def test_encrypted_backup_restore(server_factory, tmp_path: Path):
     """Test backup/restore using only API calls - no direct DB access."""
     passphrase = "TestEncryptionKey123!@#"
+
+    # Setup allowed backup root
+    backup_root = _setup_test_backup_root()
 
     test_db_dir = tmp_path / "test_dbs"
     test_db_dir.mkdir(parents=True, exist_ok=True)
@@ -109,7 +129,7 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
 
         # Create backup destination
         print("\n=== Creating Backup Destination ===")
-        base_dir = (tmp_path / "enc-backups").resolve()
+        base_dir = (backup_root / "enc-backups").resolve()
         base_dir.mkdir(parents=True, exist_ok=True)
 
         dest_resp = session.post(
@@ -117,12 +137,15 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
             json={
                 "name": "test-dest",
                 "type": "local",
-                "config": {"base_path": str(base_dir)},
+                "config": {
+                    "base_path": str(base_dir),
+                    "allowed_root": str(backup_root),
+                },
                 "retention_days": 7,
             },
             timeout=5,
         )
-        assert dest_resp.status_code == 200
+        assert dest_resp.status_code == 200, dest_resp.text
         dest_id = dest_resp.json()["id"]
         print(f"Destination ID: {dest_id}")
 
@@ -133,7 +156,7 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
             json={"destination_id": dest_id},
             timeout=5,
         )
-        assert backup_resp.status_code == 200
+        assert backup_resp.status_code == 200, backup_resp.text
         execution_id = backup_resp.json()["execution_id"]
         print(f"Execution ID: {execution_id}")
 

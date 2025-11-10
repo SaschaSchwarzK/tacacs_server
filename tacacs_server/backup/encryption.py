@@ -51,18 +51,53 @@ class BackupEncryption:
 
     @staticmethod
     def _safe_local_path(path: str) -> str:
-        """Resolve a local filesystem path for encryption I/O.
+        """Return a validated local filesystem path for encryption I/O.
 
-        Tests and runtime pass absolute temp paths; accept absolute paths and
-        ensure parent dirs exist at call sites. For relative paths, resolve
-        against CWD.
+        - For relative paths: place under controlled temp root using safe name
+        - For absolute paths: only allow if under the controlled temp root
         """
+        import os as _os
         from pathlib import Path as _P
+
+        from tacacs_server.backup.destinations.base import (
+            BackupDestination as _BD,
+        )
+        from tacacs_server.backup.path_policy import (
+            get_temp_root as _get_tmp,
+        )
+        from tacacs_server.backup.path_policy import (
+            safe_temp_path as _safe_tmp,
+        )
 
         if not isinstance(path, str) or "\x00" in path:
             raise ValueError("Invalid path")
         p = _P(path)
-        return str(p.resolve())
+        base = _get_tmp().resolve()
+        if not p.is_absolute():
+            name = _BD.validate_path_segment(p.name, allow_dot=True, max_len=255)
+            return str(_safe_tmp(name))
+        # Absolute: allow only within temp root
+        resolved = p.resolve()
+        if _os.path.commonpath([str(base), str(resolved)]) != str(base):
+            raise ValueError("Absolute path outside allowed temp directory")
+        return str(resolved)
+
+    @staticmethod
+    def _safe_input_path(path: str) -> str:
+        """Return a resolved input path for safe reading only.
+
+        - Rejects NULs and empty
+        - Resolves the path
+        - Requires the target to exist, be a regular file, and not be a symlink
+        """
+        from pathlib import Path as _P
+
+        if not isinstance(path, str) or not path or "\x00" in path:
+            raise ValueError("Invalid path")
+        p = _P(path).resolve()
+        if not p.exists() or not p.is_file() or p.is_symlink():
+            raise ValueError("Input path must be an existing regular file")
+        return str(p)
 
     @staticmethod
     def encrypt_file(input_path: str, output_path: str, passphrase: str) -> dict:
@@ -83,7 +118,7 @@ class BackupEncryption:
 
         # Calculate original checksum
         # Constrain I/O paths to allowed root
-        input_path = BackupEncryption._safe_local_path(input_path)
+        input_path = BackupEncryption._safe_input_path(input_path)
         output_path = BackupEncryption._safe_local_path(output_path)
         original_checksum = BackupEncryption.calculate_checksum(input_path)
         original_size = os.path.getsize(input_path)
@@ -100,6 +135,7 @@ class BackupEncryption:
 
             _P(output_path).parent.mkdir(parents=True, exist_ok=True)
         except Exception:
+            # Intentional no-op: best-effort parent creation for output path
             pass
         with open(output_path, "wb") as f_out:
             # Header format: MAGIC(4) + VERSION(1) + SALT(16)
@@ -132,7 +168,7 @@ class BackupEncryption:
             True if successful, False if passphrase incorrect or file corrupted
         """
         try:
-            input_path = BackupEncryption._safe_local_path(input_path)
+            input_path = BackupEncryption._safe_input_path(input_path)
             output_path = BackupEncryption._safe_local_path(output_path)
             with open(input_path, "rb") as f:
                 # Read and validate header
@@ -170,6 +206,7 @@ class BackupEncryption:
 
                 _P(output_path).parent.mkdir(parents=True, exist_ok=True)
             except Exception:
+                # Intentional no-op: best-effort parent creation for output path
                 pass
             with open(output_path, "wb") as f:
                 f.write(plaintext)
@@ -189,6 +226,7 @@ class BackupEncryption:
         writing output).
         """
         try:
+            encrypted_file = BackupEncryption._safe_input_path(encrypted_file)
             with open(encrypted_file, "rb") as f:
                 if f.read(4) != b"TCBK":
                     return False
@@ -215,6 +253,7 @@ class BackupEncryption:
         """Calculate SHA256 checksum of file"""
         h = hashlib.sha256()
         try:
+            file_path = BackupEncryption._safe_input_path(file_path)
             with open(file_path, "rb") as f:
                 for chunk in iter(lambda: f.read(8192), b""):
                     h.update(chunk)

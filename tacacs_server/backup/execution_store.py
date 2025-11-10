@@ -8,7 +8,9 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from tacacs_server.utils.maintenance import get_db_manager
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _now_iso() -> str:
@@ -28,16 +30,19 @@ class BackupExecutionStore:
             self._conn.execute("PRAGMA foreign_keys = ON")
         self._ensure_schema()
         try:
+            from tacacs_server.utils.maintenance import get_db_manager
+
             get_db_manager().register(self, self.close)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to register execution store for maintenance: %s", exc
+            )
 
     def close(self) -> None:
         try:
             self._conn.close()
         except Exception as exc:
-            # Non-fatal during maintenance; record for diagnosis
-            print(f"BackupExecutionStore close failed: {exc}")
+            logger.warning("BackupExecutionStore close failed: %s", exc)
 
     def _ensure_schema(self) -> None:
         with self._conn:
@@ -93,14 +98,18 @@ class BackupExecutionStore:
                 self._conn.execute(
                     "ALTER TABLE backup_destinations ADD COLUMN retention_strategy TEXT DEFAULT 'simple'"
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Retention strategy column already exists or failed to add: %s", exc
+                )
             try:
                 self._conn.execute(
                     "ALTER TABLE backup_destinations ADD COLUMN retention_config_json TEXT"
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Retention config column already exists or failed to add: %s", exc
+                )
 
     # --- executions ---
     def create_execution(
@@ -165,6 +174,27 @@ class BackupExecutionStore:
         sql += " ORDER BY started_at DESC LIMIT ? OFFSET ?"
         params.extend([int(limit), int(offset)])
         cur = self._conn.execute(sql, tuple(params))
+        return [dict(r) for r in cur.fetchall()]
+
+    def list_backups_for_destination(
+        self, destination_id: str, limit: int = 5
+    ) -> list[dict]:
+        cur = self._conn.execute(
+            """
+            SELECT
+                backup_filename,
+                backup_path,
+                size_bytes,
+                compressed_size_bytes,
+                completed_at,
+                started_at
+            FROM backup_executions
+            WHERE destination_id=? AND status='completed' AND backup_path IS NOT NULL
+            ORDER BY completed_at DESC, started_at DESC
+            LIMIT ?
+            """,
+            (destination_id, int(limit)),
+        )
         return [dict(r) for r in cur.fetchall()]
 
     def get_recent_executions(self, hours: int = 24) -> list[dict]:

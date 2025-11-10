@@ -96,6 +96,24 @@ def test_tacacs_device_most_specific_wins(server_factory):
 
         session = server.login_admin()
         base = server.get_base_url()
+        # Ensure auto_register disabled and remove any pre-existing auto devices/groups
+        cfg = session.get(f"{base}/api/admin/config/devices", timeout=5)
+        assert cfg.status_code == 200, cfg.text
+        vals = cfg.json().get("values", {})
+        if str(vals.get("auto_register", "true")).lower() != "false":
+            upd = session.put(
+                f"{base}/api/admin/config/devices",
+                json={"section": "devices", "updates": {"auto_register": "false"}},
+                timeout=5,
+            )
+            assert upd.status_code == 200, upd.text
+        # Clean up any auto-registered 127.0.0.1 devices if present
+        devs = session.get(f"{base}/api/devices?limit=1000", timeout=5)
+        if devs.status_code == 200:
+            for item in devs.json():
+                nm = str(item.get("name", ""))
+                if nm.startswith("auto-127.0.0.1"):
+                    session.delete(f"{base}/api/devices/{item['id']}", timeout=5)
 
         g_specs = {"g16": "Secret16AA!", "g24": "Secret24BB!", "g32": "Secret32CC!"}
         group_ids: dict[str, int] = {}

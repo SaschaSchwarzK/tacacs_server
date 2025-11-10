@@ -29,12 +29,14 @@ router = APIRouter(prefix="/api/devices", tags=["Devices"])
 
 def get_device_service() -> DeviceService:
     """Get device service instance (validated non-None)."""
+    from typing import cast
+
     from tacacs_server.web.web import get_device_service as _get
 
     service = _get()
     if service is None:
         raise ServiceUnavailableError("Device service unavailable")
-    return service
+    return cast(DeviceService, service)
 
 
 # ============================================================================

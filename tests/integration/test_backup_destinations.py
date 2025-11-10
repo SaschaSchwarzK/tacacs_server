@@ -69,6 +69,9 @@ def ftp_server(tmp_path: Path) -> dict[str, Any]:
         from pyftpdlib.handlers import FTPHandler
         from pyftpdlib.servers import FTPServer
     except ImportError:
+        DummyAuthorizer = FTPHandler = FTPServer = None
+
+    if DummyAuthorizer is None:
         pytest.skip("pyftpdlib not installed")
 
     # Create temp directory for FTP root

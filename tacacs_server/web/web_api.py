@@ -151,6 +151,7 @@ async def maintenance_cleanup():
                 except Exception:
                     continue
     except Exception:
+        # User deletion failed, continue with other cleanup
         pass
 
     try:
@@ -162,6 +163,7 @@ async def maintenance_cleanup():
                 except Exception:
                     continue
     except Exception:
+        # User group deletion failed, continue with other cleanup
         pass
 
     try:
@@ -191,6 +193,7 @@ async def maintenance_cleanup():
                     except Exception:
                         continue
     except Exception:
+        # Device/group deletion failed, continue with cleanup
         pass
 
     return {
@@ -922,6 +925,7 @@ async def delete_command_rule(rule_id: int):
                 id=rule_id,
             )
         except Exception:
+            # Audit logging failed, continue without audit trail
             pass
     else:
         logger.info(

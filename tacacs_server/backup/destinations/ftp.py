@@ -47,8 +47,9 @@ class FTPBackupDestination(BackupDestination):
         if not (1 <= self.port <= 65535):
             raise ValueError(f"Invalid FTP port: {self.port}; must be 1-65535")
 
-        # Now call parent's __init__ which will call validate_config()
+        # Now call parent's __init__
         super().__init__(config)
+        self.validate_config()
 
     def validate_config(self) -> None:
         # Check for missing required fields
@@ -147,6 +148,7 @@ class FTPBackupDestination(BackupDestination):
                     )
                 client.context = ctx
             except Exception:
+                # Intentional no-op: cleanup best-effort
                 pass
             return client
         # Plain FTP (insecure). Permitted for tests/back-compat; warn earlier in validate_config.
@@ -170,12 +172,13 @@ class FTPBackupDestination(BackupDestination):
             try:
                 if ftp:
                     ftp.quit()
-            except Exception:
-                try:
-                    if ftp and hasattr(ftp, "close"):
+            except Exception as exc:
+                if ftp and hasattr(ftp, "close"):
+                    try:
                         ftp.close()
-                except Exception:
-                    pass
+                    except Exception as close_exc:
+                        _logger.warning("FTP close failed: %s", close_exc)
+                _logger.warning("FTP quit failed: %s", exc)
 
     def _ensure_remote_dirs(self, ftp, remote_dir: str) -> None:
         parts = self._normalize_remote_path(remote_dir).strip("/").split("/")
@@ -184,8 +187,8 @@ class FTPBackupDestination(BackupDestination):
             cur = f"{cur}/{part}" if cur else f"/{part}"
             try:
                 ftp.mkd(cur)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("FTP ensure dir failed (%s): %s", cur, exc)
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
@@ -225,23 +228,15 @@ class FTPBackupDestination(BackupDestination):
             dir_part = "/".join(rp.strip("/").split("/")[:-1])
             if dir_part:
                 self._ensure_remote_dirs(ftp, "/" + dir_part)
-            sent = 0
             block = 8192
             try:
-
-                def _cb(chunk):
-                    nonlocal sent
-                    sent += len(chunk)
-                    if sent % (block * 128) == 0:
-                        _logger.info("ftp_upload_progress", bytes_sent=sent)
-                    return chunk
-
                 ftp.storbinary(f"STOR {rp}", f, blocksize=block)
             except ftplib.error_perm as exc:
                 # best-effort cleanup of partial file
                 try:
                     ftp.delete(rp)
                 except Exception:
+                    # Partial file cleanup failed, continue with error
                     pass
                 raise RuntimeError(f"Upload failed: {exc}")
         # Verify size
@@ -254,6 +249,7 @@ class FTPBackupDestination(BackupDestination):
                     f"Upload verification failed: size mismatch ({size} != {local_size})"
                 )
         except Exception as exc:
+            # Non-critical verification
             _logger.warning("ftp_upload_verify_failed", error=str(exc))
         return rp
 
@@ -325,6 +321,7 @@ class FTPBackupDestination(BackupDestination):
                                 .isoformat()
                             )
                         except Exception:
+                            # Timestamp parsing failed, use default
                             pass
                     items.append(
                         BackupMetadata(
@@ -351,8 +348,8 @@ class FTPBackupDestination(BackupDestination):
                 ftp.delete(rp)
                 try:
                     ftp.delete(rp + ".manifest.json")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning("FTP manifest cleanup failed for %s: %s", rp, exc)
             return True
         except Exception as exc:
             _logger.warning(
@@ -380,6 +377,7 @@ class FTPBackupDestination(BackupDestination):
                                         .isoformat()
                                     )
                                 except Exception:
+                                    # Timestamp parsing failed, use default
                                     pass
                             return BackupMetadata(
                                 filename=name,
