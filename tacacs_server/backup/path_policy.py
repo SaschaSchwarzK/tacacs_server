@@ -311,9 +311,8 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
         rel = _sanitize_relpath_secure(str(relative_part))
         resolved_final = Path(os.path.normpath(os.path.join(str(eff_allowed), rel)))
         # Ensure path stays under allowed root after normalization
-        if (
-            os.path.commonpath([str(eff_allowed), str(resolved_final)])
-            != str(eff_allowed)
+        if os.path.commonpath([str(eff_allowed), str(resolved_final)]) != str(
+            eff_allowed
         ):
             raise ValueError(
                 f"Base directory '{p}' is not valid or escapes allowed root '{eff_allowed}'"
