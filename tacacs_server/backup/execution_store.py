@@ -176,6 +176,27 @@ class BackupExecutionStore:
         cur = self._conn.execute(sql, tuple(params))
         return [dict(r) for r in cur.fetchall()]
 
+    def list_backups_for_destination(
+        self, destination_id: str, limit: int = 5
+    ) -> list[dict]:
+        cur = self._conn.execute(
+            """
+            SELECT
+                backup_filename,
+                backup_path,
+                size_bytes,
+                compressed_size_bytes,
+                completed_at,
+                started_at
+            FROM backup_executions
+            WHERE destination_id=? AND status='completed' AND backup_path IS NOT NULL
+            ORDER BY completed_at DESC, started_at DESC
+            LIMIT ?
+            """,
+            (destination_id, int(limit)),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
     def get_recent_executions(self, hours: int = 24) -> list[dict]:
         cutoff = (datetime.now(UTC) - timedelta(hours=int(hours))).isoformat()
         cur = self._conn.execute(
