@@ -82,10 +82,12 @@ class ClientHandler:
         # Record connection type
         self.stats.record_connection_type(proxy_ip is not None)
 
-        # Rate limiting
+        # Secondary rate limiting - request rate limiting (not connection limiting)
+        # This is DIFFERENT from the per-IP connection limit in the accept loop
+        # This limits the rate of requests/packets, not concurrent connections
         rate_limiter = get_rate_limiter()
         if not rate_limiter.allow_request(client_ip):
-            conn_logger.warning("Rate limit exceeded for %s", client_ip)
+            conn_logger.warning("TACACS rate limit exceeded for %s", client_ip)
             NetworkHandler.safe_close_socket(client_socket)
             return
 
@@ -115,8 +117,9 @@ class ClientHandler:
         finally:
             NetworkHandler.safe_close_socket(client_socket)
             self.session_manager.cleanup_sessions(session_ids, self.handlers)
-            self.conn_limiter.release(address[0])
-            self.stats.update_active_connections(-1)
+            # Note: conn_limiter.release() and stats.update_active_connections(-1)
+            # are handled in server.py's _handle_client_wrapper to ensure they
+            # always execute even if handle() raises an exception early
             conn_logger.debug("Connection closed: %s", address)
 
     def _create_logger(self, address: tuple[str, int]):
@@ -195,7 +198,6 @@ class ClientHandler:
                 address[0],
                 proxy_ip,
             )
-            NetworkHandler.safe_close_socket(address[0])
             return False
 
         conn_logger.debug("Proxy IP %s validated successfully", proxy_ip)

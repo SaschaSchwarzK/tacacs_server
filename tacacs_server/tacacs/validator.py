@@ -10,6 +10,7 @@ except Exception:
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_MAJOR_VER,
     TAC_PLUS_PACKET_TYPE,
+    TAC_PLUS_VERSION,
 )
 from tacacs_server.tacacs.packet import TacacsPacket
 from tacacs_server.utils.logger import get_logger
@@ -25,9 +26,13 @@ class PacketValidator:
 
     def validate_header(self, packet: TacacsPacket) -> bool:
         """Validate packet header"""
-        major_version = packet.version >> 4 & 15
-        if major_version != TAC_PLUS_MAJOR_VER:
-            self._log_invalid_version(packet.session_id, major_version)
+        # major_version = packet.version >> 4 & 15
+        # if major_version != TAC_PLUS_MAJOR_VER:
+        #     self._log_invalid_version(packet.session_id, major_version)
+        #     return False
+        # Check the complete version byte, not just the major version
+        if packet.version != TAC_PLUS_VERSION:
+            self._log_invalid_version(packet.session_id, packet.version)
             return False
 
         if packet.packet_type not in [

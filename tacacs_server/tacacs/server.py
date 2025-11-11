@@ -15,9 +15,9 @@ from tacacs_server.tacacs.constants import TAC_PLUS_DEFAULT_PORT
 from tacacs_server.tacacs.handlers import AAAHandlers
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.metrics import MetricsCollector
+from tacacs_server.utils.rate_limiter import ConnectionLimiter
 
 from .client_handler import ClientHandler
-from .limiter import ConnectionLimiter
 from .network import NetworkHandler
 from .proxy import ProxyHandler
 from .session import SessionManager
@@ -46,7 +46,7 @@ class TacacsServer:
         self.secret_key = secret_key or os.getenv(
             "TACACS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK"
         )
-        self.config = config or {}
+        self.config = config
 
         if self.secret_key == "CHANGE_ME_FALLBACK":
             logger.warning(
@@ -62,13 +62,16 @@ class TacacsServer:
         # Managers
         self.stats = StatsManager()
         self.session_manager = SessionManager(
-            int(self.config.get("security", {}).get("max_session_secrets") or 
-                os.getenv("TACACS_MAX_SESSION_SECRETS", "10000"))
+            int(os.getenv("TACACS_MAX_SESSION_SECRETS", "10000"))
         )
-        
-        # Initialize with default values first
-        self.conn_limiter = None
-        self.validator = None
+
+        # Initialize connection limiter with config or env/default
+        max_conn_per_ip = self._get_max_connections_per_ip()
+        self.conn_limiter = ConnectionLimiter(max_per_ip=max_conn_per_ip)
+
+        self.validator = PacketValidator(
+            int(os.getenv("TACACS_MAX_PACKET_LENGTH", "4096"))
+        )
 
         # Server state
         self.running = False
@@ -80,106 +83,129 @@ class TacacsServer:
         self.monitoring_api: WebServer | None = None
         self.enable_monitoring = False
 
-        # Load configurations
+        # Network settings
+        self._load_network_config()
+
+        # Proxy settings
+        self._load_proxy_config()
+
+        # Threading
+        self._load_threading_config()
+
+    def _get_max_connections_per_ip(self) -> int:
+        """Get max connections per IP from config, env, or default
+
+        Priority: config object methods > config dict > config object internals > env variable > default
+        """
+        if self.config:
+            # 1. Try config object methods first (from ConfigLoader / TacacsConfig)
+            #    This is the PRIMARY method for production use
+            if hasattr(self.config, "get_security_config"):
+                try:
+                    security_config = self.config.get_security_config() or {}
+                    max_conn = security_config.get("max_connections_per_ip")
+                    if max_conn is not None:
+                        value = int(max_conn)
+                        logger.info(
+                            "Using max_connections_per_ip=%s from config.get_security_config()",
+                            value,
+                        )
+                        return value
+                except Exception as e:
+                    logger.debug("Failed to get security config: %s", e)
+
+            # 2. Try nested config.config dict (configparser internals)
+            if hasattr(self.config, "config"):
+                try:
+                    cfg = self.config.config
+                    if hasattr(cfg, "get") or (
+                        hasattr(cfg, "__getitem__") and "security" in cfg
+                    ):
+                        security_section = (
+                            cfg.get("security", {})
+                            if hasattr(cfg, "get")
+                            else cfg["security"]
+                        )
+                        max_conn = security_section.get("max_connections_per_ip")
+                        if max_conn is not None:
+                            value = int(max_conn)
+                            logger.info(
+                                "Using max_connections_per_ip=%s from config.config internals",
+                                value,
+                            )
+                            return value
+                except Exception as e:
+                    logger.debug("Failed to read from config.config: %s", e)
+
+            # 3. Try dict format (from tests/programmatic init with plain dict)
+            if isinstance(self.config, dict):
+                security = self.config.get("security", {})
+                max_conn = security.get("max_connections_per_ip")
+                if max_conn is not None:
+                    value = int(max_conn)
+                    logger.info(
+                        "Using max_connections_per_ip=%s from config dict", value
+                    )
+                    return value
+
+        # 4. Fall back to environment variable
+        env_value = os.getenv("TACACS_MAX_CONN_PER_IP")
+        if env_value:
+            value = int(env_value)
+            logger.info("Using max_connections_per_ip=%s from environment", value)
+            return value
+
+        # 5. Final default
+        default = 20
+        logger.info("Using max_connections_per_ip=%s (default)", default)
+        return default
+
+    def set_config(self, config):
+        """Set configuration and reload settings"""
+        self.config = config
         self._load_network_config()
         self._load_proxy_config()
         self._load_threading_config()
-        
-        # Initialize components that depend on config
-        self._init_components()
+
+        # Reload connection limiter with new config
+        max_conn = self._get_max_connections_per_ip()
+        old_max = self.conn_limiter.max_per_ip
+        self.conn_limiter = ConnectionLimiter(max_per_ip=max_conn)
+        logger.info(
+            "Connection limiter reloaded: max_per_ip changed from %s to %s",
+            old_max,
+            max_conn,
+        )
 
     def _load_network_config(self):
-        """Load network configuration from config or environment"""
-        network_config = self.config.get("server", {})
-        
-        self.listen_backlog = int(network_config.get(
-            "listen_backlog", 
-            os.getenv("TACACS_LISTEN_BACKLOG", "128")
-        ))
-        
-        self.client_timeout = float(network_config.get(
-            "client_timeout",
-            os.getenv("TACACS_CLIENT_TIMEOUT", "15")
-        ))
-        
-        self.enable_ipv6 = network_config.get(
-            "enable_ipv6",
-            os.getenv("TACACS_IPV6_ENABLED", "false").lower() == "true"
-        )
-        
-        tcp_keepalive = network_config.get(
-            "tcp_keepalive",
-            os.getenv("TACACS_TCP_KEEPALIVE", "true")
-        )
+        """Load network configuration from environment"""
+        self.listen_backlog = int(os.getenv("TACACS_LISTEN_BACKLOG", "128"))
+        self.client_timeout = float(os.getenv("TACACS_CLIENT_TIMEOUT", "15"))
+        self.enable_ipv6 = os.getenv("TACACS_IPV6_ENABLED", "false").lower() == "true"
         self.tcp_keepalive = (
-            str(tcp_keepalive).lower() != "false"
+            os.getenv("TACACS_TCP_KEEPALIVE", "true").lower() != "false"
         )
-        
-        self.tcp_keepalive_idle = int(network_config.get(
-            "tcp_keepalive_idle",
-            os.getenv("TACACS_TCP_KEEPIDLE", "60")
-        ))
-        
-        self.tcp_keepalive_intvl = int(network_config.get(
-            "tcp_keepalive_interval",
-            os.getenv("TACACS_TCP_KEEPINTVL", "10")
-        ))
-        
-        self.tcp_keepalive_cnt = int(network_config.get(
-            "tcp_keepalive_count",
-            os.getenv("TACACS_TCP_KEEPCNT", "5")
-        ))
+        self.tcp_keepalive_idle = int(os.getenv("TACACS_TCP_KEEPIDLE", "60"))
+        self.tcp_keepalive_intvl = int(os.getenv("TACACS_TCP_KEEPINTVL", "10"))
+        self.tcp_keepalive_cnt = int(os.getenv("TACACS_TCP_KEEPCNT", "5"))
 
     def _load_proxy_config(self):
-        """Load proxy configuration from config or use defaults"""
-        proxy_config = self.config.get("proxy", {})
-        
-        self.proxy_enabled = proxy_config.get("enabled", True)
-        self.accept_proxy_protocol = proxy_config.get("accept_proxy_protocol", True)
-        self.proxy_validate_sources = proxy_config.get("validate_sources", False)
-        self.proxy_reject_invalid = proxy_config.get("reject_invalid", True)
-        self.encryption_required = proxy_config.get("encryption_required", True)
+        """Load proxy configuration"""
+        self.proxy_enabled = True
+        self.accept_proxy_protocol = True
+        self.proxy_validate_sources = False
+        self.proxy_reject_invalid = True
+        self.encryption_required = True
 
     def _load_threading_config(self):
-        """Load threading configuration from config or environment"""
-        threading_config = self.config.get("threading", {})
-        
-        use_thread_pool = threading_config.get(
-            "use_thread_pool",
-            os.getenv("TACACS_USE_THREAD_POOL", "true")
+        """Load threading configuration"""
+        self.use_thread_pool = (
+            os.getenv("TACACS_USE_THREAD_POOL", "true").lower() != "false"
         )
-        self.use_thread_pool = str(use_thread_pool).lower() != "false"
-        
-        self.thread_pool_max_workers = int(threading_config.get(
-            "max_workers",
-            os.getenv("TACACS_THREAD_POOL_MAX", "100")
-        ))
-        
+        self.thread_pool_max_workers = int(os.getenv("TACACS_THREAD_POOL_MAX", "100"))
         self._executor: ThreadPoolExecutor | None = None
         self._client_threads: set[threading.Thread] = set()
         self._client_threads_lock = threading.RLock()
-        
-    def _init_components(self):
-        """Initialize components that depend on configuration"""
-        security_config = self.config.get("security", {})
-        
-        # Initialize connection limiter with config value or fallback to environment/default
-        max_conn_per_ip = security_config.get("max_connections_per_ip")
-        if max_conn_per_ip is None:
-            max_conn_per_ip = int(os.getenv("TACACS_MAX_CONN_PER_IP", "20"))
-        self.conn_limiter = ConnectionLimiter(max_per_ip=max_conn_per_ip)
-        
-        # Initialize packet validator with config value or fallback to environment/default
-        max_packet_length = security_config.get("max_packet_length")
-        if max_packet_length is None:
-            max_packet_length = int(os.getenv("TACACS_MAX_PACKET_LENGTH", "4096"))
-        self.validator = PacketValidator(max_packet_length)
-        
-        logger.debug(
-            "Initialized components with max_connections_per_ip=%s, max_packet_length=%s",
-            max_conn_per_ip,
-            max_packet_length
-        )
 
     def enable_web_monitoring(
         self, web_host="127.0.0.1", web_port=8080, radius_server=None
@@ -327,7 +353,7 @@ class TacacsServer:
         self.server_socket.listen(self.listen_backlog)
 
     def _accept_loop(self):
-        """Main accept loop"""
+        """Main accept loop with per-IP connection limiting"""
         try:
             while self.running:
                 try:
@@ -343,11 +369,14 @@ class TacacsServer:
 
                     self.stats.increment("connections_total")
 
-                    # Check connection limit
+                    # CRITICAL: Check per-IP connection limit BEFORE processing
+                    # This prevents resource exhaustion from a single IP
                     if not self.conn_limiter.acquire(address[0]):
+                        # Connection limit exceeded - close immediately
                         NetworkHandler.safe_close_socket(client_socket)
                         continue
 
+                    # Connection accepted - increment active count
                     self.stats.update_active_connections(+1)
                     logger.debug("New connection from %s", address)
 
@@ -403,7 +432,7 @@ class TacacsServer:
     def _handle_client_wrapper(
         self, client_socket: socket.socket, address: tuple[str, int]
     ):
-        """Wrapper for client handler"""
+        """Wrapper for client handler - ensures connection limit is released"""
         try:
             proxy_handler = None
             if self.proxy_enabled and self.accept_proxy_protocol:
@@ -429,6 +458,10 @@ class TacacsServer:
             handler.handle(client_socket, address)
 
         finally:
+            # CRITICAL: Always release connection slot and decrement active count
+            self.conn_limiter.release(address[0])
+            self.stats.update_active_connections(-1)
+
             try:
                 if threading.current_thread().daemon:
                     with self._client_threads_lock:

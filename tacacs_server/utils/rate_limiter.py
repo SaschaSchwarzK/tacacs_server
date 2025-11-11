@@ -1,21 +1,76 @@
 """
 Rate Limiting for TACACS+ Server
 
-Simple token bucket implementation for protecting against brute force attacks.
+Provides two types of rate limiting:
+1. ConnectionLimiter - Limits concurrent TCP connections per IP
+2. RateLimiter - Token bucket rate limiter for request rate limiting
 """
 
+import threading
 import time
+
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class ConnectionLimiter:
+    """Manages per-IP concurrent connection limits"""
+
+    def __init__(self, max_per_ip: int = 20):
+        self._ip_conn_lock = threading.RLock()
+        self._ip_connections: dict[str, int] = {}
+        self.max_per_ip = max_per_ip
+        logger.info("ConnectionLimiter initialized with max_per_ip=%s", max_per_ip)
+
+    def acquire(self, ip: str) -> bool:
+        """Try to acquire connection slot for IP"""
+        with self._ip_conn_lock:
+            current = self._ip_connections.get(ip, 0)
+            if current >= self.max_per_ip:
+                logger.warning(
+                    "Per-IP connection cap exceeded for %s (count=%s/%s, limit=%s)",
+                    ip,
+                    current,
+                    self.max_per_ip,
+                    self.max_per_ip,
+                )
+                return False
+            self._ip_connections[ip] = current + 1
+            logger.debug(
+                "Connection acquired for %s (count=%s/%s)",
+                ip,
+                current + 1,
+                self.max_per_ip,
+            )
+            return True
+
+    def release(self, ip: str):
+        """Release connection slot for IP"""
+        with self._ip_conn_lock:
+            current = max(0, self._ip_connections.get(ip, 1) - 1)
+            if current == 0:
+                self._ip_connections.pop(ip, None)
+                logger.debug("Connection released for %s (count=0)", ip)
+            else:
+                self._ip_connections[ip] = current
+                logger.debug("Connection released for %s (count=%s)", ip, current)
+
+    def get_count(self, ip: str) -> int:
+        """Get current connection count for IP"""
+        with self._ip_conn_lock:
+            return self._ip_connections.get(ip, 0)
 
 
 class RateLimiter:
-    """Token bucket rate limiter"""
+    """Token bucket rate limiter for request rate limiting"""
 
     def __init__(self, max_requests: int = 60, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.buckets: dict[
             str, tuple[int, float]
-        ] = {}  # client_ip -> (tokens, last_refill)  # noqa: E501
+        ] = {}  # client_ip -> (tokens, last_refill)
 
     def allow_request(self, client_ip: str) -> bool:
         """Check if request is allowed for client IP"""

@@ -35,10 +35,11 @@ Dependencies:
 """
 
 import json
-import pytest
 import socket
 import struct
 import time
+
+import pytest
 
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_MAJOR_VER,
@@ -294,7 +295,7 @@ def test_maximum_body_length(server_factory):
         )
         s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s2.settimeout(1.0)
-        s2.connect(('127.0.0.1', server.tacacs_port))
+        s2.connect(("127.0.0.1", server.tacacs_port))
         try:
             s2.sendall(hdr2)
             try:
@@ -308,12 +309,14 @@ def test_maximum_body_length(server_factory):
         logs = server.get_logs()
         # Search through each log entry's message for the error
         error_found = any(
-            "Incomplete packet body" in entry.get("message", "") 
-            for line in logs.split('\n') 
-            if line.strip() 
+            "Incomplete packet body" in entry.get("message", "")
+            for line in logs.split("\n")
+            if line.strip()
             for entry in [json.loads(line)]
         )
-        assert error_found, f"Expected 'Incomplete packet body' in logs, got:\n{logs[-1200:]}"
+        assert error_found, (
+            f"Expected 'Incomplete packet body' in logs, got:\n{logs[-1200:]}"
+        )
 
 
 @pytest.mark.integration

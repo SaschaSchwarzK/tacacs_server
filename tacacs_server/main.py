@@ -144,11 +144,9 @@ class TacacsServerManager:
         self.server = TacacsServer(
             host=server_config["host"],
             port=server_config["port"],
+            config=self.config,  # Pass config to constructor for proper initialization
         )
-        # Attach config for downstream components; relax typing for attribute
-        from typing import Any, cast
-
-        cast(Any, self.server).config = self.config
+        # Config is now passed in constructor and accessible via self.server.config
         # Configure accounting database logger path from config
         try:
             from tacacs_server.accounting.database import DatabaseLogger as _DBL
