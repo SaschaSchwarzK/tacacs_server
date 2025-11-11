@@ -225,11 +225,17 @@ class TacacsServer:
             admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
             api_token = os.getenv("API_TOKEN")
 
-            if not admin_password_hash and hasattr(self, "config"):
+            if (
+                not admin_password_hash
+                and hasattr(self, "config")
+                and self.config is not None
+            ):
                 try:
-                    admin_config = self.config.get_admin_auth_config()
-                    admin_username = admin_config.get("username", "admin")
-                    admin_password_hash = admin_config.get("password_hash", "")
+                    # Check if config has the method (not just a dict)
+                    if hasattr(self.config, "get_admin_auth_config"):
+                        admin_config = self.config.get_admin_auth_config()
+                        admin_username = admin_config.get("username", "admin")
+                        admin_password_hash = admin_config.get("password_hash", "")
                 except Exception as e:
                     logger.debug("Failed to get admin config: %s", e)
 
@@ -357,6 +363,8 @@ class TacacsServer:
         try:
             while self.running:
                 try:
+                    if self.server_socket is None:
+                        break
                     client_socket, address = self.server_socket.accept()
 
                     if self.tcp_keepalive:
@@ -448,7 +456,7 @@ class TacacsServer:
                 conn_limiter=self.conn_limiter,
                 device_store=self.device_store,
                 proxy_handler=proxy_handler,
-                default_secret=self.secret_key,
+                default_secret=self.secret_key or "CHANGE_ME_FALLBACK",
                 encryption_required=self.encryption_required,
                 client_timeout=self.client_timeout,
                 device_auto_register=getattr(self, "device_auto_register", True),

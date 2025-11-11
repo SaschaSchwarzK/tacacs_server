@@ -138,8 +138,8 @@ class ClientHandler:
     ) -> tuple[bytes | None, str, str | None]:
         """Handle PROXY protocol v2 header parsing"""
         client_ip = address[0]
-        proxy_ip = None
-        first_header_data = b""
+        proxy_ip: str | None = None
+        first_header_data: bytes | None = b""
 
         if self.proxy_handler is None:
             first_header_data = NetworkHandler.recv_exact(client_socket, 12)
@@ -156,15 +156,17 @@ class ClientHandler:
 
             if info and consumed > 0:
                 self.stats.increment("proxy_headers_parsed")
-                if info.is_proxied:
-                    client_ip = info.src_addr
-                    proxy_ip = address[0]
-                    conn_logger.debug(
-                        "Using proxied identity: client_ip=%s, proxy_ip=%s",
-                        client_ip,
-                        proxy_ip,
-                    )
-                first_header_data = NetworkHandler.recv_exact(client_socket, 12) or b""
+                if hasattr(info, "is_proxied") and info.is_proxied:
+                    if hasattr(info, "src_addr"):
+                        client_ip = info.src_addr
+                        proxy_ip = address[0]
+                        conn_logger.debug(
+                            "Using proxied identity: client_ip=%s, proxy_ip=%s",
+                            client_ip,
+                            proxy_ip,
+                        )
+                recv_data = NetworkHandler.recv_exact(client_socket, 12)
+                first_header_data = recv_data if recv_data is not None else b""
             elif consumed == 0 and first12.startswith(
                 b"\x0d\x0a\x0d\x0a\x00\x0d\x0a\x51\x55\x49\x54\x0a"
             ):
@@ -172,14 +174,16 @@ class ClientHandler:
                 conn_logger.debug(
                     "Invalid PROXY v2 header, reading fresh TACACS header"
                 )
-                first_header_data = NetworkHandler.recv_exact(client_socket, 12) or b""
+                recv_data = NetworkHandler.recv_exact(client_socket, 12)
+                first_header_data = recv_data if recv_data is not None else b""
             else:
                 first_header_data = first12
 
         except Exception as e:
             self.stats.increment("proxy_header_errors")
             conn_logger.debug("PROXY parse error: %s; proceeding as direct", e)
-            first_header_data = NetworkHandler.recv_exact(client_socket, 12) or b""
+            recv_data = NetworkHandler.recv_exact(client_socket, 12)
+            first_header_data = recv_data if recv_data is not None else b""
 
         return first_header_data, client_ip, proxy_ip
 

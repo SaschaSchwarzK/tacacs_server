@@ -166,7 +166,7 @@ class TacacsServerManager:
             net_cfg = self.config.get_server_network_config()
             self.server.listen_backlog = int(net_cfg.get("listen_backlog", 128))
             self.server.client_timeout = float(net_cfg.get("client_timeout", 15))
-            self.server.max_packet_length = int(net_cfg.get("max_packet_length", 4096))
+            # max_packet_length is set in validator during __init__, not as server attribute
             self.server.enable_ipv6 = bool(net_cfg.get("ipv6_enabled", False))
             self.server.tcp_keepalive = bool(net_cfg.get("tcp_keepalive", True))
             self.server.tcp_keepalive_idle = int(net_cfg.get("tcp_keepidle", 60))
@@ -225,9 +225,9 @@ class TacacsServerManager:
         # Apply security-related runtime limits
         try:
             sec_cfg = self.config.get_security_config()
-            per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
-            if per_ip_cap >= 1 and self.server:
-                self.server.max_connections_per_ip = per_ip_cap
+            # max_connections_per_ip is handled internally by ConnectionLimiter
+            # which reads from config during server __init__, no need to set here
+
             # Propagate encryption policy to TACACS server for runtime enforcement
             if self.server is not None:
                 try:
