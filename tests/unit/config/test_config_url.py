@@ -22,10 +22,10 @@ def test_url_fetch_and_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     )
     monkeypatch.setenv("CONFIG_REFRESH_SECONDS", "1")
     cfg = TacacsConfig("https://example.com/config")
-    monkeypatch.setattr(cfg, "_is_url_safe", lambda s: True)
-    monkeypatch.setattr(cfg, "_fetch_url_content", lambda s: payload)
+    monkeypatch.setattr(cfg.url_handler, "is_url_safe", lambda s, url: True)
+    monkeypatch.setattr(cfg.url_handler, "fetch_url", lambda s, url: payload)
     cfg._load_config()
-    assert os.path.exists(cfg._baseline_cache_path)
+    assert os.path.exists(cfg.url_handler.cache_path)
     if cfg.config_store:
         versions = cfg.config_store.list_versions()
         assert versions, "Expected at least one baseline version snapshot"
@@ -33,12 +33,12 @@ def test_url_fetch_and_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 def test_fallback_to_cache_on_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     cfg = TacacsConfig("https://example.com/config")
-    monkeypatch.setattr(cfg, "_is_url_safe", lambda s: True)
+    monkeypatch.setattr(cfg.url_handler, "is_url_safe", lambda s, url: True)
     cache = tmp_path / "config_baseline_cache.conf"
     cache.write_text("[server]\nhost=127.0.0.1\nport=49\n\n", encoding="utf-8")
-    cfg._baseline_cache_path = str(cache)
-    monkeypatch.setattr(cfg, "_fetch_url_content", lambda s: None)
-    cfg._load_from_url("https://example.com/config")
+    cfg.url_handler.cache_path = str(cache)
+    monkeypatch.setattr(cfg.url_handler, "fetch_url", lambda s, url:None)
+    cfg.url_handler.load_from_url("https://example.com/config")
     assert cfg.config.getint("server", "port") == 49
 
 
@@ -59,10 +59,10 @@ def test_refresh_logic_time_based(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     updated = base.replace("port=49", "port=50")
     monkeypatch.setenv("CONFIG_REFRESH_SECONDS", "0")
     cfg = TacacsConfig("https://example.com/config")
-    monkeypatch.setattr(cfg, "_is_url_safe", lambda s: True)
-    monkeypatch.setattr(cfg, "_fetch_url_content", lambda s: base)
+    monkeypatch.setattr(cfg.url_handler, "is_url_safe", lambda s, url: True)
+    monkeypatch.setattr(cfg.url_handler, "fetch_url", lambda s, url:base)
     cfg._load_config()
-    monkeypatch.setattr(cfg, "_fetch_url_content", lambda s: updated)
+    monkeypatch.setattr(cfg.url_handler, "fetch_url", lambda s, url:updated)
     changed = cfg.refresh_url_config(force=True)
     assert changed is True
     assert cfg.config.getint("server", "port") == 50
