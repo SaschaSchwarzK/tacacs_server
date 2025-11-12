@@ -10,13 +10,13 @@ from typing import Any
 
 def parse_size(size_str: str) -> int:
     """Parse human readable size strings like '10MB' -> bytes.
-    
+
     Args:
         size_str: Size string (e.g., '10MB', '1GB', '512KB')
-        
+
     Returns:
         Size in bytes
-        
+
     Examples:
         >>> parse_size('10MB')
         10485760
@@ -38,13 +38,13 @@ def parse_size(size_str: str) -> int:
 
 def to_bool(val: object) -> bool:
     """Convert various types to boolean.
-    
+
     Args:
         val: Value to convert
-        
+
     Returns:
         Boolean value
-        
+
     Examples:
         >>> to_bool('true')
         True
@@ -63,16 +63,16 @@ def to_bool(val: object) -> bool:
 
 def normalize_backend_name(item: Any) -> str:
     """Convert a backend entry to a backend name string.
-    
+
     Handles:
       - "local" -> "local"
       - {"name": "local", ...} -> "local"
       - {"local": {...}} -> "local"
       - other -> str(item)
-      
+
     Args:
         item: Backend entry (string or dict)
-        
+
     Returns:
         Normalized backend name
     """
@@ -93,10 +93,10 @@ def normalize_backend_name(item: Any) -> str:
 
 def ensure_directory(path: str) -> bool:
     """Ensure a directory exists, creating it if necessary.
-    
+
     Args:
         path: Directory path to ensure
-        
+
     Returns:
         True if directory exists or was created, False on error
     """
@@ -109,13 +109,13 @@ def ensure_directory(path: str) -> bool:
 
 def expand_path(path: str) -> str:
     """Expand environment variables and user home in path.
-    
+
     Args:
         path: Path with potential variables
-        
+
     Returns:
         Expanded path
-        
+
     Examples:
         >>> expand_path('$HOME/data')
         '/home/user/data'
@@ -126,47 +126,43 @@ def expand_path(path: str) -> str:
 
 
 def merge_configs(
-    base: configparser.ConfigParser,
-    override: configparser.ConfigParser
+    base: configparser.ConfigParser, override: configparser.ConfigParser
 ) -> configparser.ConfigParser:
     """Merge two configurations, with override taking precedence.
-    
+
     Args:
         base: Base configuration
         override: Override configuration
-        
+
     Returns:
         New merged ConfigParser
     """
     result = configparser.ConfigParser(interpolation=None)
-    
+
     # Copy base
     for section in base.sections():
         if not result.has_section(section):
             result.add_section(section)
         for key, value in base.items(section):
             result.set(section, key, value)
-    
+
     # Apply overrides
     for section in override.sections():
         if not result.has_section(section):
             result.add_section(section)
         for key, value in override.items(section):
             result.set(section, key, value)
-    
+
     return result
 
 
-def section_to_dict(
-    config: configparser.ConfigParser,
-    section: str
-) -> dict[str, str]:
+def section_to_dict(config: configparser.ConfigParser, section: str) -> dict[str, str]:
     """Convert a config section to a dictionary.
-    
+
     Args:
         config: ConfigParser instance
         section: Section name
-        
+
     Returns:
         Dictionary of key-value pairs
     """
@@ -176,28 +172,25 @@ def section_to_dict(
 
 
 def compare_configs(
-    config1: configparser.ConfigParser,
-    config2: configparser.ConfigParser
+    config1: configparser.ConfigParser, config2: configparser.ConfigParser
 ) -> dict[str, dict[str, tuple[str, str]]]:
     """Compare two configurations and return differences.
-    
+
     Args:
         config1: First configuration
         config2: Second configuration
-        
+
     Returns:
         Dictionary of differences: {section: {key: (value1, value2)}}
     """
     differences: dict[str, dict[str, tuple[str, str]]] = {}
-    
+
     # Check all sections in config1
     for section in config1.sections():
         if not config2.has_section(section):
-            differences[section] = {
-                k: (v, "") for k, v in config1.items(section)
-            }
+            differences[section] = {k: (v, "") for k, v in config1.items(section)}
             continue
-        
+
         # Compare keys in this section
         for key, value1 in config1.items(section):
             if config2.has_option(section, key):
@@ -206,19 +199,17 @@ def compare_configs(
                     differences.setdefault(section, {})[key] = (value1, value2)
             else:
                 differences.setdefault(section, {})[key] = (value1, "")
-    
+
     # Check for sections/keys only in config2
     for section in config2.sections():
         if not config1.has_section(section):
-            differences[section] = {
-                k: ("", v) for k, v in config2.items(section)
-            }
+            differences[section] = {k: ("", v) for k, v in config2.items(section)}
             continue
-        
+
         for key, value2 in config2.items(section):
             if not config1.has_option(section, key):
                 differences.setdefault(section, {})[key] = ("", value2)
-    
+
     return differences
 
 
@@ -227,26 +218,26 @@ def safe_get(
     section: str,
     key: str,
     default: str = "",
-    value_type: type = str
+    value_type: type = str,
 ) -> Any:
     """Safely get a configuration value with type conversion.
-    
+
     Args:
         config: ConfigParser instance
         section: Section name
         key: Key name
         default: Default value if key not found
         value_type: Type to convert to (str, int, float, bool)
-        
+
     Returns:
         Value converted to requested type, or default on error
     """
     try:
         if not config.has_option(section, key):
             return default
-        
+
         value = config.get(section, key)
-        
+
         if value_type == bool:
             return to_bool(value)
         elif value_type == int:
@@ -255,6 +246,6 @@ def safe_get(
             return float(value)
         else:
             return value
-            
+
     except Exception:
         return default

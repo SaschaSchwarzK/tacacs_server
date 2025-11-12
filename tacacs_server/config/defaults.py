@@ -10,9 +10,9 @@ from .constants import DEFAULTS
 
 def populate_defaults(config: configparser.ConfigParser) -> None:
     """Populate configuration with default values.
-    
+
     This is the single source of truth for all default configuration values.
-    
+
     Args:
         config: ConfigParser instance to populate
     """

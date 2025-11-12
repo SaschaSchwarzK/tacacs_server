@@ -55,19 +55,19 @@ def get_local_auth_db(config: configparser.ConfigParser) -> str:
 def get_auth_runtime_config(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get runtime tuning for auth backends (non-secret)."""
     a = config["auth"]
-    
+
     def _int(name: str, default: int) -> int:
         try:
             return int(a.get(name, default))
         except Exception:
             return default
-    
+
     def _float(name: str, default: float) -> float:
         try:
             return float(a.get(name, default))
         except Exception:
             return default
-    
+
     return {
         "local_auth_cache_ttl_seconds": _int("local_auth_cache_ttl_seconds", 60),
         "backend_timeout": _float("backend_timeout", 2.0),
@@ -119,34 +119,38 @@ def get_admin_auth_config(config: configparser.ConfigParser) -> dict[str, Any]:
 
 def get_backup_config(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get backup configuration.
-    
+
     Secret (encryption_passphrase) only from environment.
     """
     try:
         enabled = config.getboolean("backup", "enabled", fallback=True)
     except Exception:
         enabled = True
-    
+
     try:
-        create_on_startup = config.getboolean("backup", "create_on_startup", fallback=False)
+        create_on_startup = config.getboolean(
+            "backup", "create_on_startup", fallback=False
+        )
     except Exception:
         create_on_startup = False
-    
+
     temp_directory = config.get("backup", "temp_directory", fallback="data/backup_temp")
-    
+
     try:
-        encryption_enabled = config.getboolean("backup", "encryption_enabled", fallback=False)
+        encryption_enabled = config.getboolean(
+            "backup", "encryption_enabled", fallback=False
+        )
     except Exception:
         encryption_enabled = False
-    
+
     # Secret: only from environment (already applied in loader)
     enc_passphrase = os.environ.get("BACKUP_ENCRYPTION_PASSPHRASE", "")
-    
+
     try:
         retention_days = config.getint("backup", "default_retention_days", fallback=30)
     except Exception:
         retention_days = 30
-    
+
     return {
         "enabled": enabled,
         "create_on_startup": create_on_startup,
@@ -157,31 +161,37 @@ def get_backup_config(config: configparser.ConfigParser) -> dict[str, Any]:
     }
 
 
-def get_command_authorization_config(config: configparser.ConfigParser) -> dict[str, Any]:
+def get_command_authorization_config(
+    config: configparser.ConfigParser,
+) -> dict[str, Any]:
     """Get command authorization configuration."""
-    section = config["command_authorization"] if "command_authorization" in config else {}
-    
-    default_action = str(section.get("default_action", "deny")).strip().lower() or "deny"
+    section = (
+        config["command_authorization"] if "command_authorization" in config else {}
+    )
+
+    default_action = (
+        str(section.get("default_action", "deny")).strip().lower() or "deny"
+    )
     rules_json = section.get("rules_json", "[]")
-    
+
     try:
         rules = json.loads(rules_json) if rules_json else []
         if not isinstance(rules, list):
             rules = []
     except Exception:
         rules = []
-    
+
     # Response mode controls whether successful authorization returns
     # PASS_ADD (append attributes) or PASS_REPL (replace all attributes).
     response_mode = str(section.get("response_mode", "pass_add")).strip().lower()
     if response_mode not in ("pass_add", "pass_repl"):
         response_mode = "pass_add"
-    
+
     # Privilege enforcement order
     order = str(section.get("privilege_check_order", "before")).strip().lower()
     if order not in ("before", "after", "none"):
         order = "before"
-    
+
     return {
         "default_action": default_action,
         "rules": rules,
@@ -194,10 +204,10 @@ def get_security_config(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get security configuration."""
     allowed_clients_str = config.get("security", "allowed_clients")
     denied_clients_str = config.get("security", "denied_clients")
-    
+
     allowed_clients = _parse_client_list(allowed_clients_str)
     denied_clients = _parse_client_list(denied_clients_str)
-    
+
     return {
         "max_auth_attempts": config.getint("security", "max_auth_attempts"),
         "auth_timeout": config.getint("security", "auth_timeout"),
@@ -235,22 +245,22 @@ def get_logging_config(config: configparser.ConfigParser) -> dict[str, Any]:
 def get_syslog_config(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get syslog configuration (optional)."""
     sec = config["syslog"] if "syslog" in config else {}
-    
+
     enabled = str(sec.get("enabled", "false")).lower() == "true"
     host = sec.get("host", "127.0.0.1")
-    
+
     try:
         port = int(sec.get("port", 514))
     except Exception:
         port = 514
-    
+
     proto = str(sec.get("protocol", "udp")).strip().lower()
     facility = str(sec.get("facility", "local0")).strip().lower()
     severity = str(sec.get("severity", "info")).strip().lower()
     fmt = str(sec.get("format", "rfc5424"))
     app_name = str(sec.get("app_name", "tacacs_server"))
     include_hostname = str(sec.get("include_hostname", "true")).lower() == "true"
-    
+
     return {
         "enabled": enabled,
         "host": host,
@@ -267,27 +277,27 @@ def get_syslog_config(config: configparser.ConfigParser) -> dict[str, Any]:
 def get_webhook_config(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get webhook configuration (parsed)."""
     section = config["webhooks"] if "webhooks" in config else {}
-    
+
     urls_raw = section.get("urls", "")
     urls = [u.strip() for u in str(urls_raw).replace("\n", ",").split(",") if u.strip()]
-    
+
     headers_json = section.get("headers_json", "{}")
     template_json = section.get("template_json", "{}")
-    
+
     try:
         headers = json.loads(headers_json) if headers_json else {}
     except Exception:
         headers = {}
-    
+
     try:
         template = json.loads(template_json) if template_json else {}
     except Exception:
         template = {}
-    
+
     timeout = float(section.get("timeout", "3") or 3)
     threshold_count = int(section.get("threshold_count", "0") or 0)
     threshold_window = int(section.get("threshold_window", "60") or 60)
-    
+
     return {
         "urls": urls,
         "headers": headers,
@@ -305,11 +315,11 @@ def get_proxy_protocol_config(config: configparser.ConfigParser) -> dict[str, An
         "validate_sources": True,
         "reject_invalid": True,
     }
-    
+
     try:
         if not config.has_section("proxy_protocol"):
             return defaults
-        
+
         sec = dict(config.items("proxy_protocol"))
         return {
             "enabled": _to_bool(sec.get("enabled", False)),
@@ -334,13 +344,13 @@ def get_monitoring_config(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get monitoring configuration if present."""
     if "monitoring" not in config:
         return {}
-    
+
     m = config["monitoring"]
     try:
         enabled = str(m.get("enabled", "false")).lower() == "true"
     except Exception:
         enabled = False
-    
+
     return {
         "enabled": enabled,
         "web_host": m.get("web_host", "127.0.0.1"),
@@ -373,14 +383,19 @@ def get_config_summary(config: configparser.ConfigParser) -> dict[str, Any]:
         "security": dict(config["security"]),
         "logging": dict(config["logging"]),
     }
-    
+
     optional_sections = [
-        "admin", "devices", "radius", "proxy_protocol",
-        "monitoring", "okta", "backup"
+        "admin",
+        "devices",
+        "radius",
+        "proxy_protocol",
+        "monitoring",
+        "okta",
+        "backup",
     ]
-    
+
     for section in optional_sections:
         if section in config:
             summary[section] = dict(config[section])
-    
+
     return summary

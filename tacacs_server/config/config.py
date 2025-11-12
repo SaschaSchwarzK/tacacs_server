@@ -12,14 +12,13 @@ import os
 import time
 from logging.handlers import RotatingFileHandler
 from typing import Any
-from urllib.parse import urlparse
 
 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.utils.logger import configure as configure_logging
 from tacacs_server.utils.logger import get_logger
 
-from .config_store import ConfigStore, compute_config_hash
+from .config_store import ConfigStore
 from .config_utils import normalize_backend_name, parse_size
 from .defaults import populate_defaults
 from .getters import (
@@ -42,9 +41,15 @@ from .getters import (
     get_syslog_config,
     get_webhook_config,
 )
-from .loader import is_url, load_config, reload_config
-from .schema import validate_config_file
-from .updaters import update_command_authorization_config, update_section, update_webhook_config
+from .loader import is_url, load_config
+from .updaters import (
+    _export_full_config as export_full_config_impl,
+)
+from .updaters import (
+    update_command_authorization_config,
+    update_section,
+    update_webhook_config,
+)
 from .url_handler import URLConfigHandler, refresh_url_config
 from .validators import validate_change, validate_config
 
@@ -53,27 +58,25 @@ logger = get_logger(__name__)
 
 class TacacsConfig:
     """TACACS+ server configuration manager.
-    
+
     This class is a thin orchestration layer that delegates to specialized
     modules for loading, validation, updates, and URL handling.
     """
 
     def __init__(self, config_file: str = "config/tacacs.conf"):
         """Initialize configuration manager.
-        
+
         Args:
             config_file: Path to configuration file or URL
         """
         # Determine config source (file or URL or environment)
         env_source = os.environ.get("TACACS_CONFIG")
         self.config_source = env_source or config_file
-        self.config_file = (
-            None if is_url(self.config_source) else self.config_source
-        )
-        
+        self.config_file = None if is_url(self.config_source) else self.config_source
+
         # Initialize configuration
         self.config = configparser.ConfigParser(interpolation=None)
-        
+
         # Initialize configuration override store
         try:
             os.makedirs("data", exist_ok=True)
@@ -86,18 +89,18 @@ class TacacsConfig:
                 "Failed to initialize configuration store: %s", e, exc_info=True
             )
             self.config_store = None
-        
+
         # Track baseline (pre-override) snapshot and which keys were overridden
         self._baseline_snapshot: dict[str, dict[str, str]] = {}
         self.overridden_keys: dict[str, set[str]] = {}
-        
+
         # URL configuration handler
         refresh_interval = int(os.getenv("CONFIG_REFRESH_SECONDS", "300"))
         self.url_handler = URLConfigHandler(
             cache_path=os.path.join("data", "config_baseline_cache.conf"),
-            refresh_interval=refresh_interval
+            refresh_interval=refresh_interval,
         )
-        
+
         # Load configuration
         self._load_config()
         self._snapshot_baseline()
@@ -108,10 +111,11 @@ class TacacsConfig:
         # Create defaults
         defaults = configparser.ConfigParser(interpolation=None)
         populate_defaults(defaults)
-        
-        # Load with unified precedence
-        self.config = load_config(self.config_source, defaults)
-        
+
+        # Load with unified precedence, passing url_handler for URL sources
+        url_handler = self.url_handler if is_url(self.config_source) else None
+        self.config = load_config(self.config_source, defaults, url_handler)
+
         # Save to file if file-based and doesn't exist
         if not is_url(self.config_source):
             path = self.config_file or self.config_source
@@ -307,7 +311,7 @@ class TacacsConfig:
             self.config,
             config_file=self.config_file,
             is_url_config=self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
 
     def get_radius_config(self) -> dict[str, Any]:
@@ -317,7 +321,7 @@ class TacacsConfig:
     def get_config_summary(self) -> dict[str, Any]:
         """Get configuration summary for display with validation status."""
         summary = get_config_summary(self.config)
-        
+
         # Add validation status
         validation_issues = self.validate_config()
         summary["_validation"] = {
@@ -325,7 +329,7 @@ class TacacsConfig:
             "issues": str(validation_issues),
             "last_checked": str(time.time()),
         }
-        
+
         return summary
 
     # Update methods using unified updater
@@ -338,7 +342,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -351,7 +355,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -364,7 +368,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -378,7 +382,7 @@ class TacacsConfig:
             "identity_cache_size",
         }
         filtered = {k: v for k, v in kwargs.items() if k in allowed}
-        
+
         update_section(
             self.config,
             "devices",
@@ -386,7 +390,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -399,7 +403,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -412,7 +416,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -425,7 +429,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -438,7 +442,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -451,7 +455,7 @@ class TacacsConfig:
             self.config_store,
             self.config_file,
             self.is_url_config(),
-            **kwargs
+            **kwargs,
         )
         self._apply_overrides()
 
@@ -469,6 +473,7 @@ class TacacsConfig:
                 if self.config_file and os.path.exists(self.config_file):
                     backup_file = f"{self.config_file}.backup"
                     import shutil
+
                     shutil.copy2(self.config_file, backup_file)
                     logger.info(f"Configuration backup created: {backup_file}")
             except Exception as e:
@@ -497,19 +502,19 @@ class TacacsConfig:
         store = self.config_store
         if not store:
             return
-        
+
         try:
             ov = store.get_all_overrides()
         except Exception:
             return
-        
+
         for section, kv in ov.items():
             if not self.config.has_section(section):
                 try:
                     self.config.add_section(section)
                 except Exception:
                     continue
-            
+
             for key, (val, vtype) in kv.items():
                 # Convert decoded value to a string for configparser
                 if isinstance(val, (dict, list)):
@@ -518,7 +523,7 @@ class TacacsConfig:
                     sval = "true" if val else "false"
                 else:
                     sval = str(val)
-                
+
                 try:
                     self.config.set(section, key, sval)
                     self.overridden_keys.setdefault(section, set()).add(key)
@@ -539,18 +544,18 @@ class TacacsConfig:
         store = self.config_store
         if not store:
             return drift
-        
+
         try:
             overrides = store.get_all_overrides()
         except Exception:
             return drift
-        
+
         for section, keys in overrides.items():
             for key, (override_value, value_type) in keys.items():
                 base_value = self._get_base_value(section, key, value_type)
                 if base_value != override_value:
                     drift.setdefault(section, {})[key] = (base_value, override_value)
-        
+
         return drift
 
     def _get_base_value(
@@ -563,7 +568,7 @@ class TacacsConfig:
                 return None
             if not value_type:
                 return sval
-            
+
             vtype = value_type.lower()
             if vtype in ("boolean", "bool"):
                 return str(sval).lower() in ("1", "true", "yes")
@@ -589,20 +594,32 @@ class TacacsConfig:
             self.config_source,
             self.config_store,
             force,
-            self.url_handler.refresh_interval
+            self.url_handler.refresh_interval,
         )
+
+    def _export_full_config(self) -> dict[str, dict[str, str]]:
+        """Export full configuration as nested dict.
+
+        This method delegates to the module-level function in updaters.py.
+        It's kept as an instance method for backward compatibility with code
+        that calls config._export_full_config().
+
+        Returns:
+            Nested dictionary with structure {section: {key: value}}
+        """
+        return export_full_config_impl(self.config)
 
 
 def setup_logging(config: TacacsConfig):
     """Setup logging based on configuration."""
     log_config = config.get_logging_config()
     log_file = log_config["log_file"]
-    
+
     if log_file:
         log_dir = os.path.dirname(log_file)
         if log_dir and not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
-    
+
     log_level = getattr(logging, log_config["log_level"].upper(), logging.INFO)
     handlers: list[logging.Handler] = []
 
@@ -610,6 +627,7 @@ def setup_logging(config: TacacsConfig):
     add_console = True
     try:
         import sys as _sys
+
         add_console = bool(getattr(_sys.stdout, "isatty", lambda: False)())
     except Exception:
         add_console = True
@@ -654,7 +672,7 @@ def setup_logging(config: TacacsConfig):
                 if syslog_cfg.get("protocol") == "udp"
                 else _socket.SOCK_STREAM
             )
-            
+
             # Facility mapping
             try:
                 facility_map = {
