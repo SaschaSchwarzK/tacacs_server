@@ -76,7 +76,7 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path, monkeypatch):
     test_db_dir.mkdir(parents=True, exist_ok=True)
     auth_db = test_db_dir / "auth.db"
     devices_db = test_db_dir / "devices.db"
-    
+
     monkeypatch.setenv("BACKUP_ENCRYPTION_PASSPHRASE", passphrase)
     server = server_factory(
         enable_tacacs=True,

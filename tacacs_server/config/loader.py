@@ -287,9 +287,7 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
 
 
 def load_config(
-    source: str,
-    defaults: configparser.ConfigParser | None = None,
-    url_handler=None
+    source: str, defaults: configparser.ConfigParser | None = None, url_handler=None
 ) -> configparser.ConfigParser:
     """Load configuration with unified precedence.
 

@@ -75,7 +75,7 @@ def test_clients_can_connect_to_tacacs(tmp_path: Path) -> None:
                 "-e",
                 f"API_TOKEN={api_token}",
                 "-e",
-                "RADIUS_ENABLED=1",
+                "TACACS_RADIUS_ENABLED=true",
                 server_image,
                 "sh",
                 "-lc",
