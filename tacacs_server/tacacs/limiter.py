@@ -21,7 +21,6 @@ class ConnectionLimiter:
         self._ip_conn_lock = threading.RLock()
         self._ip_connections: dict[str, int] = {}
         self.max_per_ip = max_per_ip
-        logger.info("ConnectionLimiter initialized with max_per_ip=%s", max_per_ip)
 
     def acquire(self, ip: str) -> bool:
         """Try to acquire connection slot for IP"""
@@ -29,11 +28,7 @@ class ConnectionLimiter:
             current = self._ip_connections.get(ip, 0)
             if current >= self.max_per_ip:
                 logger.warning(
-                    "Per-IP connection cap exceeded for %s (count=%s/%s, limit=%s)",
-                    ip,
-                    current,
-                    self.max_per_ip,
-                    self.max_per_ip,
+                    "Per-IP connection cap exceeded for %s (count=%s)", ip, current + 1
                 )
                 return False
             self._ip_connections[ip] = current + 1

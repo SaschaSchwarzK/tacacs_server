@@ -156,7 +156,11 @@ class TacacsServerManager:
             net_cfg = self.config.get_server_network_config()
             self.server.listen_backlog = int(net_cfg.get("listen_backlog", 128))
             self.server.client_timeout = float(net_cfg.get("client_timeout", 15))
-            self.server.max_packet_length = int(net_cfg.get("max_packet_length", 4096))
+            # Adjust validator limit instead of setting a non-existent attribute
+            if hasattr(self.server, "validator") and self.server.validator:
+                self.server.validator.max_packet_length = int(
+                    net_cfg.get("max_packet_length", 4096)
+                )
             self.server.enable_ipv6 = bool(net_cfg.get("ipv6_enabled", False))
             self.server.tcp_keepalive = bool(net_cfg.get("tcp_keepalive", True))
             self.server.tcp_keepalive_idle = int(net_cfg.get("tcp_keepidle", 60))
@@ -195,7 +199,15 @@ class TacacsServerManager:
             sec_cfg = self.config.get_security_config()
             per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
             if per_ip_cap >= 1 and self.server:
-                self.server.max_connections_per_ip = per_ip_cap
+                # Replace connection limiter with new per-IP cap
+                try:
+                    from tacacs_server.utils.rate_limiter import (
+                        ConnectionLimiter as _ConnLimiter,
+                    )
+
+                    self.server.conn_limiter = _ConnLimiter(max_per_ip=per_ip_cap)
+                except Exception:
+                    pass
             # Propagate encryption policy to TACACS server for runtime enforcement
             if self.server is not None:
                 try:

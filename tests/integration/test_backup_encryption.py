@@ -65,7 +65,7 @@ def _wait_for(cond, timeout=30.0, interval=0.5) -> bool:
 
 
 @pytest.mark.integration
-def test_encrypted_backup_restore(server_factory, tmp_path: Path):
+def test_encrypted_backup_restore(server_factory, tmp_path: Path, monkeypatch):
     """Test backup/restore using only API calls - no direct DB access."""
     passphrase = "TestEncryptionKey123!@#"
 
@@ -77,6 +77,7 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
     auth_db = test_db_dir / "auth.db"
     devices_db = test_db_dir / "devices.db"
 
+    monkeypatch.setenv("BACKUP_ENCRYPTION_PASSPHRASE", passphrase)
     server = server_factory(
         enable_tacacs=True,
         enable_admin_api=True,
@@ -88,7 +89,6 @@ def test_encrypted_backup_restore(server_factory, tmp_path: Path):
             "backup": {
                 "enabled": "true",
                 "encryption_enabled": "true",
-                "encryption_passphrase": passphrase,
                 "temp_directory": str(tmp_path / "backup_temp"),
             },
         },
