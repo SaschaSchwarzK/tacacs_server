@@ -1,9 +1,16 @@
 # Server Startup Process
 
-## Initialization Sequence
+## Container Startup Orchestration (0-5000ms)
+
+### Phase 0: Pre-startup Recovery
+- Checks for Azure Storage configuration
+- Restores from latest backup if available
+- Downloads configuration from cloud storage
+- Validates minimum required settings
+- Determines which config file to use
 
 ### 1. Configuration Loading (0-100ms)
-- Loads and validates `tacacs.conf`
+- Loads and validates configuration (from selected source)
 - Initializes configuration store
 - Sets up logging
 - Validates all configuration values

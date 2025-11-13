@@ -1,0 +1,256 @@
+"""Container startup orchestration with Azure storage recovery"""
+
+import os
+import sys
+from pathlib import Path
+from typing import Optional
+
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class StartupOrchestrator:
+    """Handles container startup logic with backup/config restoration"""
+    
+    def __init__(self):
+        self.azure_enabled = False
+        self.backup_restored = False
+        self.config_downloaded = False
+        
+    def check_azure_env_vars(self) -> bool:
+        """Check if all required Azure storage env variables are present"""
+        required_vars = {
+            'AZURE_STORAGE_ACCOUNT': os.getenv('AZURE_STORAGE_ACCOUNT'),
+            'AZURE_STORAGE_CONTAINER': os.getenv('AZURE_STORAGE_CONTAINER'),
+        }
+        
+        # Check auth method
+        has_conn_str = bool(os.getenv('AZURE_CONNECTION_STRING'))
+        has_key = bool(os.getenv('AZURE_ACCOUNT_KEY'))
+        has_sas = bool(os.getenv('AZURE_SAS_TOKEN'))
+        has_mi = bool(os.getenv('AZURE_USE_MANAGED_IDENTITY'))
+        
+        auth_methods = sum([has_conn_str, has_key, has_sas, has_mi])
+        
+        # Log what we found
+        missing = [k for k, v in required_vars.items() if not v]
+        if missing:
+            logger.info(f"Missing Azure env vars: {', '.join(missing)}")
+            return False
+            
+        if auth_methods == 0:
+            logger.info("No Azure authentication method configured")
+            return False
+        elif auth_methods > 1:
+            logger.warning("Multiple Azure auth methods configured, using first available")
+            
+        logger.info("Azure storage environment variables detected")
+        return True
+    
+    def restore_from_azure_backup(self) -> bool:
+        """Download and restore latest backup from Azure storage"""
+        try:
+            # Check if Azure libraries are available
+            try:
+                import azure.storage.blob  # noqa: F401
+            except ImportError:
+                logger.warning("azure-storage-blob not installed, skipping Azure backup restore")
+                return False
+                
+            from tacacs_server.backup.destinations.azure import AzureBlobBackupDestination
+            
+            # Build Azure config from env vars
+            config = {
+                'container_name': os.getenv('AZURE_STORAGE_CONTAINER'),
+                'base_path': os.getenv('AZURE_BACKUP_PATH', 'backups'),
+            }
+            
+            # Add auth config
+            if os.getenv('AZURE_CONNECTION_STRING'):
+                config['connection_string'] = os.getenv('AZURE_CONNECTION_STRING')
+            else:
+                config['account_name'] = os.getenv('AZURE_STORAGE_ACCOUNT')
+                if os.getenv('AZURE_ACCOUNT_KEY'):
+                    config['account_key'] = os.getenv('AZURE_ACCOUNT_KEY')
+                elif os.getenv('AZURE_SAS_TOKEN'):
+                    config['sas_token'] = os.getenv('AZURE_SAS_TOKEN')
+                elif os.getenv('AZURE_USE_MANAGED_IDENTITY'):
+                    config['use_managed_identity'] = True
+                    
+            logger.info("Connecting to Azure storage to check for backups...")
+            destination = AzureBlobBackupDestination(config)
+            
+            # List available backups
+            backups = destination.list_backups()
+            if not backups:
+                logger.info("No backups found in Azure storage")
+                return False
+                
+            # Get latest backup
+            latest = max(backups, key=lambda b: b.timestamp)
+            logger.info(f"Found latest backup: {latest.name} from {latest.timestamp}")
+            
+            # Download to temp location
+            temp_path = Path('/tmp/restore_backup.tar.gz')
+            logger.info("Downloading backup from Azure...")
+            destination.download(latest.name, str(temp_path))
+            
+            # Restore backup
+            logger.info("Restoring backup...")
+            from tacacs_server.backup.archive_utils import extract_backup
+            
+            # Extract to data directory
+            data_dir = Path('/app/data')
+            data_dir.mkdir(parents=True, exist_ok=True)
+            extract_backup(str(temp_path), str(data_dir))
+            
+            # Cleanup
+            temp_path.unlink(missing_ok=True)
+            
+            logger.info("✓ Backup restored successfully from Azure storage")
+            self.backup_restored = True
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Failed to restore from Azure backup: {e}", exc_info=True)
+            return False
+    
+    def download_config_from_azure(self) -> Optional[str]:
+        """Download config file from Azure storage"""
+        try:
+            # Check if Azure libraries are available
+            try:
+                import azure.storage.blob  # noqa: F401
+            except ImportError:
+                logger.info("azure-storage-blob not installed, skipping Azure config download")
+                return None
+                
+            from tacacs_server.backup.destinations.azure import AzureBlobBackupDestination
+            
+            config_filename = os.getenv('AZURE_CONFIG_FILE', 'tacacs.conf')
+            
+            # Build Azure config from env vars
+            config = {
+                'container_name': os.getenv('AZURE_STORAGE_CONTAINER'),
+                'base_path': os.getenv('AZURE_CONFIG_PATH', 'config'),
+            }
+            
+            # Add auth config (same as backup)
+            if os.getenv('AZURE_CONNECTION_STRING'):
+                config['connection_string'] = os.getenv('AZURE_CONNECTION_STRING')
+            else:
+                config['account_name'] = os.getenv('AZURE_STORAGE_ACCOUNT')
+                if os.getenv('AZURE_ACCOUNT_KEY'):
+                    config['account_key'] = os.getenv('AZURE_ACCOUNT_KEY')
+                elif os.getenv('AZURE_SAS_TOKEN'):
+                    config['sas_token'] = os.getenv('AZURE_SAS_TOKEN')
+                elif os.getenv('AZURE_USE_MANAGED_IDENTITY'):
+                    config['use_managed_identity'] = True
+                    
+            logger.info(f"Checking for config file '{config_filename}' in Azure storage...")
+            destination = AzureBlobBackupDestination(config)
+            
+            # Try to download config
+            config_path = Path('/app/config/tacacs.azure.ini')
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            destination.download(config_filename, str(config_path))
+            
+            logger.info(f"✓ Config file downloaded from Azure storage to {config_path}")
+            self.config_downloaded = True
+            return str(config_path)
+            
+        except Exception as e:
+            logger.info(f"No config file in Azure storage or download failed: {e}")
+            return None
+    
+    def validate_minimum_config(self) -> bool:
+        """Validate that minimum required configuration is present"""
+        # Check critical env vars
+        required_env = []
+        
+        # Add your minimum required env vars here
+        # For example:
+        # required_env = ['ADMIN_PASSWORD', 'SERVER_PORT']
+        
+        missing = [var for var in required_env if not os.getenv(var)]
+        if missing:
+            logger.error(f"Missing required environment variables: {', '.join(missing)}")
+            return False
+            
+        logger.info("Minimum configuration requirements met")
+        return True
+    
+    def determine_config_path(self) -> str:
+        """Determine which config file to use based on startup flow"""
+        # Priority order:
+        # 1. Downloaded from Azure (if available)
+        # 2. Environment variable override
+        # 3. Container default config
+        # 4. Standard config location
+        
+        if self.config_downloaded:
+            config_path = '/app/config/tacacs.azure.ini'
+            if Path(config_path).exists():
+                logger.info(f"Using Azure-downloaded config: {config_path}")
+                return config_path
+        
+        env_config = os.getenv('TACACS_CONFIG')
+        if env_config and Path(env_config).exists():
+            logger.info(f"Using environment-specified config: {env_config}")
+            return env_config
+            
+        container_config = '/app/config/tacacs.container.ini'
+        if Path(container_config).exists():
+            logger.info(f"Using container default config: {container_config}")
+            return container_config
+            
+        default_config = 'config/tacacs.conf'
+        logger.info(f"Using default config location: {default_config}")
+        return default_config
+    
+    def run(self) -> str:
+        """Execute startup orchestration and return config path to use"""
+        logger.info("=" * 60)
+        logger.info("TACACS+ Server Container Startup")
+        logger.info("=" * 60)
+        
+        # Step 1: Check for Azure storage configuration
+        self.azure_enabled = self.check_azure_env_vars()
+        
+        if self.azure_enabled:
+            # Step 2: Try to restore from backup
+            logger.info("\nAttempting backup restoration from Azure...")
+            backup_success = self.restore_from_azure_backup()
+            
+            if not backup_success:
+                # Step 3: If no backup, try to download config
+                logger.info("\nAttempting config download from Azure...")
+                self.download_config_from_azure()
+        else:
+            logger.info("\nAzure storage not configured, skipping cloud recovery")
+        
+        # Step 4: Validate minimum requirements
+        logger.info("\nValidating minimum configuration...")
+        if not self.validate_minimum_config():
+            logger.error("Minimum configuration validation failed!")
+            sys.exit(1)
+        
+        # Step 5: Determine config path to use
+        config_path = self.determine_config_path()
+        
+        logger.info("\n" + "=" * 60)
+        logger.info("Startup orchestration complete")
+        logger.info(f"Backup restored: {self.backup_restored}")
+        logger.info(f"Config downloaded: {self.config_downloaded}")
+        logger.info(f"Using config: {config_path}")
+        logger.info("=" * 60 + "\n")
+        
+        return config_path
+
+
+def run_startup_orchestration() -> str:
+    """Run startup orchestration and return config path"""
+    orchestrator = StartupOrchestrator()
+    return orchestrator.run()

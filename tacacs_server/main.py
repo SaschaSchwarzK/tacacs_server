@@ -1122,6 +1122,11 @@ def main():
     parser.add_argument(
         "--validate-config", action="store_true", help="Validate configuration and exit"
     )
+    parser.add_argument(
+        "--skip-startup-orchestration",
+        action="store_true",
+        help="Skip Azure backup/config restoration (for testing)",
+    )
     parser.add_argument("--version", action="version", version="TACACS+ Server 1.0")
     args = parser.parse_args()
     for directory in ["config", "data", "logs", "tests", "scripts"]:
@@ -1154,7 +1159,17 @@ def main():
             print(f"Error validating configuration: {e}")
             return 1
     try:
-        server_manager = TacacsServerManager(args.config)
+        # Run startup orchestration unless explicitly skipped
+        config_path = args.config
+        if not args.skip_startup_orchestration:
+            try:
+                from tacacs_server.startup import run_startup_orchestration
+                config_path = run_startup_orchestration()
+            except Exception as e:
+                logger.error(f"Startup orchestration failed: {e}", exc_info=True)
+                print(f"Warning: Startup orchestration failed, using default config: {e}")
+        
+        server_manager = TacacsServerManager(config_path)
         success = server_manager.start()
         return 0 if success else 1
     except Exception as e:
