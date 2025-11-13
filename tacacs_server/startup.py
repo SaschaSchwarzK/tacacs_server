@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +96,9 @@ class StartupOrchestrator:
 
             # Get latest backup
             latest = max(backups, key=lambda b: b.timestamp)
-            logger.info(f"Found latest backup: {latest.name} from {latest.timestamp}")
+            logger.info(
+                f"Found latest backup: {getattr(latest, 'filename', '')} from {latest.timestamp}"
+            )
 
             # Download to temp location
             temp_path = Path("/tmp/restore_backup.tar.gz")
@@ -106,6 +109,17 @@ class StartupOrchestrator:
             if not ok:
                 logger.warning("Azure backup download failed")
                 return False
+            # If the destination fell back to its temp root, adjust the path
+            src_path = temp_path
+            if not src_path.exists():
+                try:
+                    from tacacs_server.backup.path_policy import get_temp_root
+
+                    fallback = Path(get_temp_root()) / temp_path.name
+                    if fallback.exists():
+                        src_path = fallback
+                except Exception:
+                    pass
 
             # Restore backup
             logger.info("Restoring backup...")
@@ -114,10 +128,13 @@ class StartupOrchestrator:
             # Extract to data directory
             data_dir = Path("/app/data")
             data_dir.mkdir(parents=True, exist_ok=True)
-            extract_tarball(str(temp_path), str(data_dir))
+            extract_tarball(str(src_path), str(data_dir))
 
             # Cleanup
-            temp_path.unlink(missing_ok=True)
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
             logger.info("✓ Backup restored successfully from Azure storage")
             self.backup_restored = True
@@ -166,20 +183,81 @@ class StartupOrchestrator:
             logger.info(
                 f"Checking for config file '{config_filename}' in Azure storage..."
             )
-            destination = AzureBlobBackupDestination(config)
-
-            # Try to download config
+            # Resolve target path
             config_path = Path("/app/config/tacacs.azure.ini")
             config_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Include base_path prefix when downloading config artifacts
             base_prefix = str(config.get("base_path", "")).strip("/")
             remote_path = (
                 f"{base_prefix}/{config_filename}" if base_prefix else config_filename
             )
-            ok = destination.download_backup(remote_path, str(config_path))
-            if not ok:
-                raise RuntimeError("Azure config download failed")
+
+            # Prefer direct SDK download when a connection string is available to
+            # avoid path-policy side effects in destinations and improve reliability
+            downloaded = False
+            last_err: Exception | None = None
+            if config.get("connection_string"):
+                try:
+                    from azure.storage.blob import BlobServiceClient
+
+                    attempts = 30
+                    delay = 1.0
+                    for _ in range(attempts):
+                        try:
+                            bsc = BlobServiceClient.from_connection_string(
+                                str(config["connection_string"]),
+                                connection_timeout=int(config.get("timeout", 300)),
+                            )
+                            cc = bsc.get_container_client(str(config["container_name"]))
+                            bc = cc.get_blob_client(remote_path)
+                            data = bc.download_blob().readall()
+                            # Write atomically to target path
+                            tmp = config_path.with_suffix(".part")
+                            with open(tmp, "wb") as fh:
+                                fh.write(data)
+                            tmp.replace(config_path)
+                            downloaded = True
+                            last_err = None
+                            break
+                        except Exception as e:  # noqa: BLE001
+                            last_err = e
+                            time.sleep(delay)
+                except Exception as e:  # noqa: BLE001
+                    last_err = e
+
+            # Fallback to destination helper if direct method not used or failed
+            if not downloaded:
+                destination = AzureBlobBackupDestination(config)
+                attempts = 30
+                delay = 1.0
+                for _ in range(attempts):
+                    try:
+                        ok = destination.download_backup(remote_path, str(config_path))
+                        if ok:
+                            downloaded = True
+                            last_err = None
+                            break
+                    except Exception as e:  # noqa: BLE001
+                        last_err = e
+                    time.sleep(delay)
+
+                # If the destination fell back to its temp root, relocate file into /app/config
+                if not downloaded or not config_path.exists():
+                    try:
+                        from tacacs_server.backup.path_policy import get_temp_root
+
+                        fallback = Path(get_temp_root()) / config_path.name
+                        if fallback.exists():
+                            config_path.parent.mkdir(parents=True, exist_ok=True)
+                            fallback.replace(config_path)
+                            downloaded = True
+                    except Exception:
+                        pass
+
+            if not downloaded or not config_path.exists():
+                raise RuntimeError(
+                    f"Azure config download failed: {last_err or 'unknown error'}"
+                )
 
             logger.info(f"✓ Config file downloaded from Azure storage to {config_path}")
             self.config_downloaded = True
