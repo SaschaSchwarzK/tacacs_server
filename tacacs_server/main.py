@@ -1159,16 +1159,23 @@ def main():
             print(f"Error validating configuration: {e}")
             return 1
     try:
-        # Run startup orchestration unless explicitly skipped
+        # Determine whether the user explicitly provided a config path.
+        # If so, honor it and skip orchestration to avoid overriding tests.
+        argv_flags = set(sys.argv[1:])
+        user_explicit_config = ("-c" in argv_flags) or ("--config" in argv_flags)
+
         config_path = args.config
-        if not args.skip_startup_orchestration:
+        if not args.skip_startup_orchestration and not user_explicit_config:
             try:
                 from tacacs_server.startup import run_startup_orchestration
+
                 config_path = run_startup_orchestration()
             except Exception as e:
                 logger.error(f"Startup orchestration failed: {e}", exc_info=True)
-                print(f"Warning: Startup orchestration failed, using default config: {e}")
-        
+                print(
+                    f"Warning: Startup orchestration failed, using provided config: {e}"
+                )
+
         server_manager = TacacsServerManager(config_path)
         success = server_manager.start()
         return 0 if success else 1

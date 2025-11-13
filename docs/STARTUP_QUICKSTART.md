@@ -92,57 +92,27 @@ AZURE_USE_MANAGED_IDENTITY=true
 
 ## Startup Behavior
 
-```
-┌─────────────────────────────┐
-│  Container Starts           │
-└──────────┬──────────────────┘
-           │
-           ▼
-   ┌───────────────┐
-   │ Azure Config? │
-   └───┬───────┬───┘
-       │ Yes   │ No
-       ▼       └────────────────┐
-  ┌──────────────┐              │
-  │ Get Backups  │              │
-  └───┬──────────┘              │
-      │                         │
-      ▼                         │
-  ┌────────────┐                │
-  │ Any Found? │                │
-  └─┬────────┬─┘                │
-    │ Yes    │ No               │
-    ▼        ▼                  │
-┌─────────┐ ┌──────────────┐   │
-│ Restore │ │ Get Config   │   │
-│ Backup  │ │ File         │   │
-└────┬────┘ └───┬──────────┘   │
-     │          │               │
-     │          ▼               │
-     │      ┌────────────┐      │
-     │      │ Download?  │      │
-     │      └─┬────────┬─┘      │
-     │        │ Yes    │ No     │
-     │        ▼        │        │
-     │    ┌────────┐  │        │
-     │    │ Use It │  │        │
-     │    └───┬────┘  │        │
-     │        │        │        │
-     └────────┴────────┴────────┘
-              │
-              ▼
-      ┌────────────────┐
-      │ Use Config:    │
-      │ 1. Downloaded  │
-      │ 2. Env Var     │
-      │ 3. Container   │
-      │ 4. Default     │
-      └───────┬────────┘
-              │
-              ▼
-      ┌────────────────┐
-      │ Start Server   │
-      └────────────────┘
+```mermaid
+flowchart TD
+    A[Container Starts] --> B{Azure Config?}
+    B -->|Yes| C[Get Backups]
+    B -->|No| D[Get Config File]
+    C --> E{Any Found?}
+    E -->|Yes| F[Restore Backup]
+    E -->|No| D
+    D --> G{Download?}
+    G -->|Yes| H[Use It]
+    G -->|No| I[Use Env Vars]
+    F --> J[Use Config]
+    H --> J
+    I --> J
+    J --> K[Start Server]
+    
+    subgraph Config Priority
+    J -->|1| L[Downloaded Config]
+    J -->|2| M[Env Vars]
+    J -->|3| N[Container Defaults]
+    end
 ```
 
 ## Testing
