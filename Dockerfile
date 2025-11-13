@@ -63,5 +63,6 @@ EXPOSE 5049/tcp 8080/tcp 49/tcp 1812/udp 1813/udp
 # Healthcheck against liveness endpoint
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://127.0.0.1:8080/health || exit 1
 
+# Default CMD runs startup orchestration (can be overridden with --skip-startup-orchestration)
 ENTRYPOINT ["tini","--"]
-CMD ["tacacs-server","--config","/app/config/tacacs.container.ini"]
+CMD ["tacacs-server"]
