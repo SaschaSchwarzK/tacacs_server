@@ -21,29 +21,40 @@ class StartupOrchestrator:
 
     def check_azure_env_vars(self) -> bool:
         """Check if all required Azure storage env variables are present"""
-        required_vars = {
-            "AZURE_STORAGE_ACCOUNT": os.getenv("AZURE_STORAGE_ACCOUNT"),
-            "AZURE_STORAGE_CONTAINER": os.getenv("AZURE_STORAGE_CONTAINER"),
-        }
+        container = os.getenv("AZURE_STORAGE_CONTAINER")
+        conn_str = os.getenv("AZURE_CONNECTION_STRING")
 
-        # Check auth method
-        has_conn_str = bool(os.getenv("AZURE_CONNECTION_STRING"))
+        # Fast-path: connection string auth only requires container + connection string
+        if conn_str:
+            if not container:
+                logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
+                return False
+            logger.info("Azure storage env detected (connection string)")
+            return True
+
+        # Other auth methods: account-based key, SAS, or managed identity
         has_key = bool(os.getenv("AZURE_ACCOUNT_KEY"))
         has_sas = bool(os.getenv("AZURE_SAS_TOKEN"))
         has_mi = bool(os.getenv("AZURE_USE_MANAGED_IDENTITY"))
+        methods = sum([has_key, has_sas, has_mi])
 
-        auth_methods = sum([has_conn_str, has_key, has_sas, has_mi])
-
-        # Log what we found
-        missing = [k for k, v in required_vars.items() if not v]
-        if missing:
-            logger.info(f"Missing Azure env vars: {', '.join(missing)}")
+        # Container is always required
+        if not container:
+            logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
             return False
 
-        if auth_methods == 0:
+        if methods == 0:
             logger.info("No Azure authentication method configured")
             return False
-        elif auth_methods > 1:
+
+        # For non-connection-string auth, the storage account is required
+        if not os.getenv("AZURE_STORAGE_ACCOUNT"):
+            logger.info(
+                "Missing Azure env vars: AZURE_STORAGE_ACCOUNT (required for key/SAS/managed identity auth)"
+            )
+            return False
+
+        if methods > 1:
             logger.warning(
                 "Multiple Azure auth methods configured, using first available"
             )

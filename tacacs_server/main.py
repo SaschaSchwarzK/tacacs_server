@@ -1161,8 +1161,10 @@ def main():
     try:
         # Determine whether the user explicitly provided a config path.
         # If so, honor it and skip orchestration to avoid overriding tests.
-        argv_flags = set(sys.argv[1:])
-        user_explicit_config = ("-c" in argv_flags) or ("--config" in argv_flags)
+        user_explicit_config = any(
+            arg == "-c" or arg == "--config" or arg.startswith("--config=")
+            for arg in sys.argv[1:]
+        )
 
         config_path = args.config
         if not args.skip_startup_orchestration and not user_explicit_config:
