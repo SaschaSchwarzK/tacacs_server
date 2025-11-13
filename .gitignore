@@ -32,3 +32,4 @@ tests/e2e/backup_backends/ftp/export/
 test_backups_root/
 .codeql-db/
 .codeql-results/
+not_yet_ready/

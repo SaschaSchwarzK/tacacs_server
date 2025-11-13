@@ -8,6 +8,7 @@ from tacacs_server.tacacs.constants import (
     TAC_PLUS_MAJOR_VER,
     TAC_PLUS_PACKET_TYPE,
 )
+from tacacs_server.tacacs.limiter import ConnectionLimiter
 from tacacs_server.tacacs.server import TacacsServer
 
 
@@ -38,26 +39,20 @@ def test_per_ip_map_cleanup_unit():
     the IP address is removed from the tracking dictionary.
 
     Test Steps:
-    1. Create a server instance
-    2. Increment connection count for 127.0.0.1
-    3. Decrement connection count back to zero
+    1. Create a ConnectionLimiter instance
+    2. Acquire a connection for an IP
+    3. Release the connection
     4. Verify IP is removed from tracking
 
     Expected Results:
-    - After decrementing to zero, IP should not be in _ip_connections
+    - After releasing the connection, the IP should not be in _ip_connections
     """
-    srv = TacacsServer()
+    limiter = ConnectionLimiter()
     ip = "127.0.0.1"
-    with srv._ip_conn_lock:
-        srv._ip_connections[ip] = srv._ip_connections.get(ip, 0) + 1
-    # decrement to zero should delete key
-    with srv._ip_conn_lock:
-        current = max(0, srv._ip_connections.get(ip, 1) - 1)
-        if current == 0:
-            srv._ip_connections.pop(ip, None)
-        else:
-            srv._ip_connections[ip] = current
-    assert ip not in srv._ip_connections
+    limiter.acquire(ip)
+    assert ip in limiter._ip_connections
+    limiter.release(ip)
+    assert ip not in limiter._ip_connections
 
 
 def test_graceful_shutdown_unit():
@@ -78,8 +73,7 @@ def test_graceful_shutdown_unit():
     """
     srv = TacacsServer()
     # Simulate one active connection; no socket open
-    with srv._stats_lock:
-        srv.stats["connections_active"] = 1
+    srv.stats.update_active_connections(1)
     start = time.time()
     srv.graceful_shutdown(timeout_seconds=0.2)
     # Should complete quickly even if active_count didn't drop

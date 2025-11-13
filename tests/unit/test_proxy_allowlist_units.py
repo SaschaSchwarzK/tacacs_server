@@ -1,6 +1,6 @@
 import ipaddress
 
-from tacacs_server.tacacs.server import TacacsServer
+from tacacs_server.tacacs.proxy import ProxyHandler
 
 
 class _ProxyRec:
@@ -20,20 +20,20 @@ class _FakeStore:
 
 
 def test_proxy_allowlist_allows_known_proxy_ip():
-    s = TacacsServer(host="127.0.0.1", port=49)
-    s.device_store = _FakeStore(["127.0.0.1/32", "10.0.0.0/8"])  # type: ignore[attr-defined]
-    assert s._proxy_ip_allowed("127.0.0.1") is True
-    assert s._proxy_ip_allowed("10.1.2.3") is True
+    store = _FakeStore(["127.0.0.1/32", "10.0.0.0/8"])
+    handler = ProxyHandler(device_store=store, validate_sources=True)
+    assert handler.validate_proxy_source("127.0.0.1") is True
+    assert handler.validate_proxy_source("10.1.2.3") is True
 
 
 def test_proxy_allowlist_rejects_unknown_proxy_ip():
-    s = TacacsServer(host="127.0.0.1", port=49)
-    s.device_store = _FakeStore(["192.168.0.0/16"])  # type: ignore[attr-defined]
-    assert s._proxy_ip_allowed("10.1.2.3") is False
+    store = _FakeStore(["192.168.0.0/16"])
+    handler = ProxyHandler(device_store=store, validate_sources=True)
+    assert handler.validate_proxy_source("10.1.2.3") is False
 
 
 def test_proxy_allowlist_fail_open_on_errors():
-    s = TacacsServer(host="127.0.0.1", port=49)
-    s.device_store = _FakeStore([], raise_on_list=True)  # type: ignore[attr-defined]
+    store = _FakeStore([], raise_on_list=True)
+    handler = ProxyHandler(device_store=store, validate_sources=True)
     # Fail-open returns True when list_proxies raises
-    assert s._proxy_ip_allowed("10.1.2.3") is True
+    assert handler.validate_proxy_source("10.1.2.3") is True
