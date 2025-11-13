@@ -6,6 +6,7 @@ All JSON/REST API routes in one place
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from tacacs_server.utils.audit_logger import get_audit_logger
@@ -730,22 +731,44 @@ async def get_accounting_records(
 # ============================================================================
 
 
-@router.get("/config", dependencies=[Depends(require_admin_or_api)])
+@router.get(
+    "/config",
+    dependencies=[Depends(require_admin_or_api)],
+    deprecated=True,
+)
 async def get_config():
-    """Get server configuration"""
-    # TODO: Get from config service
-    return {
-        "server": {},
-        "auth": {},
-    }
+    """Deprecated: use /api/admin/config"""
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={
+            "detail": "This endpoint is deprecated. Use /api/admin/config instead.",
+            "successor": "/api/admin/config",
+        },
+        headers={
+            "Deprecation": "true",
+            "Link": "</api/admin/config>; rel=successor-version",
+        },
+    )
 
 
-@router.put("/config", dependencies=[Depends(require_admin_or_api)])
+@router.put(
+    "/config",
+    dependencies=[Depends(require_admin_or_api)],
+    deprecated=True,
+)
 async def update_config(config: dict):
-    """Update server configuration"""
-    # TODO: Update via config service
-    logger.info("API: Updating configuration")
-    return {"success": True, "message": "Configuration updated"}
+    """Deprecated: use /api/admin/config"""
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={
+            "detail": "This endpoint is deprecated. Use /api/admin/config instead.",
+            "successor": "/api/admin/config",
+        },
+        headers={
+            "Deprecation": "true",
+            "Link": "</api/admin/config>; rel=successor-version",
+        },
+    )
 
 
 # ============================================================================
@@ -753,42 +776,85 @@ async def update_config(config: dict):
 # ============================================================================
 
 
-@router.get("/backups", dependencies=[Depends(require_admin_or_api)])
-async def list_backups():
-    """List available backups"""
-    # TODO: Get from backup service
-    return {"backups": []}
-
-
-@router.post(
+@router.get(
     "/backups",
-    status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_admin_or_api)],
+    deprecated=True,
 )
-async def create_backup():
-    """Create new backup"""
-    # TODO: Trigger backup
-    logger.info("API: Creating backup")
-    return {"filename": "backup.tar.gz", "size": 0}
-
-
-@router.get("/backups/{filename}", dependencies=[Depends(require_admin_or_api)])
-async def download_backup(filename: str):
-    """Download backup file"""
-    # TODO: Stream backup file
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND, detail="Backup not found"
+async def list_backups():
+    """Deprecated: use /api/admin/backup/list"""
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={
+            "detail": "This endpoint is deprecated. Use /api/admin/backup/list instead.",
+            "successor": "/api/admin/backup/list",
+        },
+        headers={
+            "Deprecation": "true",
+            "Link": "</api/admin/backup/list>; rel=successor-version",
+        },
     )
 
 
 @router.post(
-    "/backups/{filename}/restore", dependencies=[Depends(require_admin_or_api)]
+    "/backups",
+    status_code=status.HTTP_410_GONE,
+    dependencies=[Depends(require_admin_or_api)],
+    deprecated=True,
+)
+async def create_backup():
+    """Deprecated: use /api/admin/backup/trigger"""
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={
+            "detail": "This endpoint is deprecated. Use /api/admin/backup/trigger instead.",
+            "successor": "/api/admin/backup/trigger",
+        },
+        headers={
+            "Deprecation": "true",
+            "Link": "</api/admin/backup/trigger>; rel=successor-version",
+        },
+    )
+
+
+@router.get(
+    "/backups/{filename}",
+    dependencies=[Depends(require_admin_or_api)],
+    deprecated=True,
+)
+async def download_backup(filename: str):
+    """Deprecated: use /api/admin/backup/download"""
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={
+            "detail": "This endpoint is deprecated. Use /api/admin/backup/download instead.",
+            "successor": "/api/admin/backup/download",
+        },
+        headers={
+            "Deprecation": "true",
+            "Link": "</api/admin/backup/download>; rel=successor-version",
+        },
+    )
+
+
+@router.post(
+    "/backups/{filename}/restore",
+    dependencies=[Depends(require_admin_or_api)],
+    deprecated=True,
 )
 async def restore_backup(filename: str):
-    """Restore from backup"""
-    # TODO: Trigger restore
-    logger.info(f"API: Restoring backup {filename}")
-    return {"success": True, "message": "Backup restored"}
+    """Deprecated: use /api/admin/backup/restore"""
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={
+            "detail": "This endpoint is deprecated. Use /api/admin/backup/restore instead.",
+            "successor": "/api/admin/backup/restore",
+        },
+        headers={
+            "Deprecation": "true",
+            "Link": "</api/admin/backup/restore>; rel=successor-version",
+        },
+    )
 
 
 # ============================================================================

@@ -56,14 +56,30 @@ class URLConfigHandler:
         """
         parsed = urlparse(source)
 
-        # Only allow HTTPS
-        if parsed.scheme not in {"https"}:
-            logger.error("Only HTTPS URLs are allowed for configuration loading")
-            return False
+        # Optional development override to permit http/local URLs
+        allow_insecure = (
+            str(os.getenv("ALLOW_INSECURE_CONFIG_URLS", "")).lower()
+            in (
+                "1",
+                "true",
+                "yes",
+            )
+            or str(os.getenv("PYTEST_CURRENT_TEST", "")).strip() != ""
+        )
 
-        # Check for private/local networks
+        # Only allow HTTPS by default; permit HTTP when explicitly enabled for dev/test
+        if parsed.scheme not in {"https"}:
+            if allow_insecure and parsed.scheme == "http":
+                logger.warning(
+                    "Insecure HTTP config URL permitted by ALLOW_INSECURE_CONFIG_URLS"
+                )
+            else:
+                logger.error("Only HTTPS URLs are allowed for configuration loading")
+                return False
+
+        # Check for private/local networks (unless insecure override is enabled)
         hostname = parsed.hostname
-        if hostname and self._is_private_network(hostname):
+        if not allow_insecure and hostname and self._is_private_network(hostname):
             logger.error("Local/private network URLs are not allowed")
             return False
 
