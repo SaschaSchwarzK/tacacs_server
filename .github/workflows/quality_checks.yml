@@ -71,7 +71,7 @@ jobs:
           echo "Running mypy file by file to reduce output noise..."
           find tacacs_server -name "*.py" -type f | while read -r file; do
             echo "Checking $file..."
-            poetry run mypy "$file" || echo "Issues found in $file"
+            poetry run mypy "$file" --check-untyped-defs || echo "Issues found in $file"
           done
 
       - name: Bandit (security lint)

@@ -100,8 +100,16 @@ class StartupOrchestrator:
                 f"Found latest backup: {getattr(latest, 'filename', '')} from {latest.timestamp}"
             )
 
-            # Download to temp location
-            temp_path = Path("/tmp/restore_backup.tar.gz")
+            # Download to a safe, configurable temp location
+            try:
+                from tacacs_server.backup.path_policy import (
+                    join_safe_temp as _join_safe_temp,
+                )
+
+                temp_path = _join_safe_temp("restore_backup.tar.gz")
+            except Exception:
+                # Fallback conservatively to working directory if policy unavailable
+                temp_path = Path("restore_backup.tar.gz").resolve()
             logger.info("Downloading backup from Azure...")
             # Use full remote path when available (includes base_path)
             remote_path = getattr(latest, "path", None) or latest.name
