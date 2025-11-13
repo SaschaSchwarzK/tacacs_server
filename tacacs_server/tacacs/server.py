@@ -456,6 +456,7 @@ class TacacsServer:
                 conn_limiter=self.conn_limiter,
                 device_store=self.device_store,
                 proxy_handler=proxy_handler,
+                proxy_reject_invalid=getattr(self, "proxy_reject_invalid", True),
                 default_secret=self.secret_key or "CHANGE_ME_FALLBACK",
                 encryption_required=self.encryption_required,
                 client_timeout=self.client_timeout,
@@ -503,9 +504,12 @@ class TacacsServer:
         if self.server_socket:
             try:
                 self.server_socket.shutdown(socket.SHUT_RDWR)
-            except Exception as e:
+            except (OSError, AttributeError) as e:
                 logger.debug("Server socket shutdown failed: %s", e)
-            self.server_socket.close()
+            try:
+                self.server_socket.close()
+            except (OSError, AttributeError) as e:
+                logger.debug("Server socket close failed: %s", e)
 
         # Wait for active connections
         start_time = time.time()

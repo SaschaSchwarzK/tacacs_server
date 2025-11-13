@@ -205,8 +205,9 @@ class TacacsServerManager:
                     self.server.proxy_reject_invalid = True
             except Exception:
                 pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to initialize ConnectionLimiter: %s", e, exc_info=True)
+
         # Initialize webhook runtime config from file
         try:
             from tacacs_server.utils.webhook import set_webhook_config as _set_wh

@@ -20,6 +20,7 @@ from tacacs_server.utils.logger import get_logger
 
 from .config_store import ConfigStore
 from .config_utils import normalize_backend_name, parse_size
+from .constants import DEFAULTS
 from .defaults import populate_defaults
 from .getters import (
     get_admin_auth_config,
@@ -335,10 +336,11 @@ class TacacsConfig:
     # Update methods using unified updater
     def update_server_config(self, **kwargs):
         """Update server configuration."""
+        updates = self._filter_updates("server", kwargs)
         update_section(
             self.config,
             "server",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -348,10 +350,11 @@ class TacacsConfig:
 
     def update_auth_config(self, **kwargs):
         """Update authentication configuration."""
+        updates = self._filter_updates("auth", kwargs)
         update_section(
             self.config,
             "auth",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -361,10 +364,11 @@ class TacacsConfig:
 
     def update_ldap_config(self, **kwargs):
         """Update LDAP configuration."""
+        updates = self._filter_updates("ldap", kwargs)
         update_section(
             self.config,
             "ldap",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -374,19 +378,11 @@ class TacacsConfig:
 
     def update_devices_config(self, **kwargs):
         """Update devices configuration."""
-        # Filter allowed keys
-        allowed = {
-            "auto_register",
-            "default_group",
-            "identity_cache_ttl_seconds",
-            "identity_cache_size",
-        }
-        filtered = {k: v for k, v in kwargs.items() if k in allowed}
-
+        updates = self._filter_updates("devices", kwargs)
         update_section(
             self.config,
             "devices",
-            filtered,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -396,10 +392,11 @@ class TacacsConfig:
 
     def update_backup_config(self, **kwargs):
         """Update backup configuration."""
+        updates = self._filter_updates("backup", kwargs)
         update_section(
             self.config,
             "backup",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -409,10 +406,11 @@ class TacacsConfig:
 
     def update_okta_config(self, **kwargs):
         """Update Okta configuration."""
+        updates = self._filter_updates("okta", kwargs)
         update_section(
             self.config,
             "okta",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -422,10 +420,11 @@ class TacacsConfig:
 
     def update_radius_config(self, **kwargs):
         """Update RADIUS configuration."""
+        updates = self._filter_updates("radius", kwargs)
         update_section(
             self.config,
             "radius",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -435,10 +434,11 @@ class TacacsConfig:
 
     def update_monitoring_config(self, **kwargs):
         """Update monitoring configuration."""
+        updates = self._filter_updates("monitoring", kwargs)
         update_section(
             self.config,
             "monitoring",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
@@ -448,16 +448,34 @@ class TacacsConfig:
 
     def update_proxy_protocol_config(self, **kwargs):
         """Update proxy_protocol configuration."""
+        updates = self._filter_updates("proxy_protocol", kwargs)
         update_section(
             self.config,
             "proxy_protocol",
-            kwargs,
+            updates,
             self.config_store,
             self.config_file,
             self.is_url_config(),
             **kwargs,
         )
         self._apply_overrides()
+
+    # --- helpers ---
+    @staticmethod
+    def _filter_updates(section: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Filter update kwargs to allowed config keys for the section.
+
+        - Drops context/meta keys starting with underscore (e.g. _change_reason).
+        - If section exists in DEFAULTS, only allow keys present there.
+        - Otherwise, allow all non-underscore keys.
+        """
+        # Remove context keys (e.g., _user, _change_reason, _source_ip)
+        filtered = {k: v for k, v in kwargs.items() if not str(k).startswith("_")}
+        # Restrict to known keys if defaults exist
+        if section in DEFAULTS:
+            allowed = set(DEFAULTS[section].keys())
+            filtered = {k: v for k, v in filtered.items() if k in allowed}
+        return filtered
 
     # Validation methods
     def validate_config(self) -> list[str]:

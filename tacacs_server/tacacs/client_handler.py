@@ -40,6 +40,7 @@ class ClientHandler:
         conn_limiter,
         device_store=None,
         proxy_handler: ProxyHandler | None = None,
+        proxy_reject_invalid: bool = True,
         default_secret: str = "CHANGE_ME_FALLBACK",
         encryption_required: bool = True,
         client_timeout: float = 15.0,
@@ -53,6 +54,7 @@ class ClientHandler:
         self.conn_limiter = conn_limiter
         self.device_store = device_store
         self.proxy_handler = proxy_handler
+        self.proxy_reject_invalid = proxy_reject_invalid
         self.default_secret = default_secret
         self.encryption_required = encryption_required
         self.client_timeout = client_timeout
@@ -174,16 +176,33 @@ class ClientHandler:
                 b"\x0d\x0a\x0d\x0a\x00\x0d\x0a\x51\x55\x49\x54\x0a"
             ):
                 self.stats.increment("proxy_header_errors")
-                conn_logger.debug(
-                    "Invalid PROXY v2 header, reading fresh TACACS header"
-                )
-                recv_data = NetworkHandler.recv_exact(client_socket, 12)
-                first_header_data = recv_data if recv_data is not None else b""
+                # Only hard-reject invalid headers when strict validation is enabled
+                if self.proxy_reject_invalid and getattr(
+                    self.proxy_handler, "validate_sources", False
+                ):
+                    conn_logger.debug(
+                        "Invalid PROXY v2 header and reject_invalid set; closing"
+                    )
+                    return None, client_ip, proxy_ip
+                else:
+                    conn_logger.debug(
+                        "Invalid PROXY v2 header, reading fresh TACACS header"
+                    )
+                    recv_data = NetworkHandler.recv_exact(client_socket, 12)
+                    first_header_data = recv_data if recv_data is not None else b""
             else:
                 first_header_data = first12
 
         except Exception as e:
             self.stats.increment("proxy_header_errors")
+            # Only hard-reject on parse error when strict validation is enabled
+            if self.proxy_reject_invalid and getattr(
+                self.proxy_handler, "validate_sources", False
+            ):
+                conn_logger.debug(
+                    "PROXY parse error and reject_invalid set; closing: %s", e
+                )
+                return None, client_ip, proxy_ip
             conn_logger.debug("PROXY parse error: %s; proceeding as direct", e)
             recv_data = NetworkHandler.recv_exact(client_socket, 12)
             first_header_data = recv_data if recv_data is not None else b""
