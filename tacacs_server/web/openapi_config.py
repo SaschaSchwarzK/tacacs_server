@@ -12,6 +12,7 @@ Location: tacacs_server/web/openapi_config.py
 """
 
 import os
+import logging
 from typing import Any
 
 from fastapi import FastAPI
@@ -160,9 +161,10 @@ Real-time updates available via WebSocket:
                         if path.startswith(pref):
                             meta["tags"] = [tag]
                             break
-    except Exception:
+    except Exception as exc:
         # Non-critical: best-effort retagging
-        pass
+        logger = logging.getLogger(__name__)
+        logger.warning("Failed to retag OpenAPI endpoints: %s", exc, exc_info=True)
 
     # Optionally hide deprecated endpoints from documentation (Swagger/ReDoc)
     try:
@@ -182,14 +184,24 @@ Real-time updates available via WebSocket:
                         meta = ops.get(method) or {}
                         if bool(meta.get("deprecated")):
                             ops.pop(method, None)
-                    except Exception:
+                    except Exception as exc:
+                        logging.warning(
+                            "Failed to process method '%s' for path '%s': %s",
+                            method,
+                            path,
+                            exc,
+                            exc_info=True,
+                        )
                         continue
                 # Drop empty path item objects
                 if not ops:
                     paths.pop(path, None)
-    except Exception:
+    except Exception as exc:
         # Non-critical: best-effort filtering
-        pass
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Failed to filter deprecated OpenAPI endpoints: %s", exc, exc_info=True
+        )
 
     # Add security schemes
     openapi_schema["components"]["securitySchemes"] = {

@@ -450,19 +450,30 @@ def create_app(
         response.headers["X-XSS-Protection"] = "1; mode=block"
 
         # Content Security Policy: relax for documentation UIs that load assets from CDNs
-        try:
-            p = str(getattr(request.url, "path", ""))
-        except Exception:
-            p = ""
+        p = getattr(request.url, "path", "")
 
         is_docs = p in ("/api/docs", "/api/redoc", "/docs", "/redoc", "/rapidoc")
         if is_docs:
+            # Relax CSP for documentation UIs to allow required CDN assets. Avoid
+            # 'unsafe-eval' by default to reduce XSS risk. Some Swagger/Redoc
+            # bundles may require eval in certain browsers; if absolutely needed
+            # you can opt-in via DOCS_ALLOW_UNSAFE_EVAL=true.
+            allow_eval = str(os.getenv("DOCS_ALLOW_UNSAFE_EVAL", "")).lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+            script_src = (
+                "script-src 'self' 'unsafe-inline' "
+                + ("'unsafe-eval' " if allow_eval else "")
+                + "https://cdn.jsdelivr.net https://unpkg.com; "
+            )
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; "
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
-                "img-src 'self' data: https:; connect-src 'self' data:; "
-                "font-src 'self' data: https:;"
+                + script_src
+                + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+                + "img-src 'self' data: https:; connect-src 'self' data:; "
+                + "font-src 'self' data: https:;"
             )
         else:
             # Strict CSP for admin UI and API

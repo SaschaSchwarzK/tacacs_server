@@ -32,6 +32,21 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["API"])
 
 
+def _gone_response(new_path: str) -> JSONResponse:
+    """Standard HTTP 410 GONE response for deprecated endpoints."""
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content={
+            "detail": f"This endpoint is deprecated. Use {new_path} instead.",
+            "successor": new_path,
+        },
+        headers={
+            "Deprecation": "true",
+            "Link": f"<{new_path}>; rel=successor-version",
+        },
+    )
+
+
 # ============================================================================
 # MODELS
 # ============================================================================
@@ -738,17 +753,7 @@ async def get_accounting_records(
 )
 async def get_config():
     """Deprecated: use /api/admin/config"""
-    return JSONResponse(
-        status_code=status.HTTP_410_GONE,
-        content={
-            "detail": "This endpoint is deprecated. Use /api/admin/config instead.",
-            "successor": "/api/admin/config",
-        },
-        headers={
-            "Deprecation": "true",
-            "Link": "</api/admin/config>; rel=successor-version",
-        },
-    )
+    return _gone_response("/api/admin/config")
 
 
 @router.put(
@@ -758,17 +763,7 @@ async def get_config():
 )
 async def update_config(config: dict):
     """Deprecated: use /api/admin/config"""
-    return JSONResponse(
-        status_code=status.HTTP_410_GONE,
-        content={
-            "detail": "This endpoint is deprecated. Use /api/admin/config instead.",
-            "successor": "/api/admin/config",
-        },
-        headers={
-            "Deprecation": "true",
-            "Link": "</api/admin/config>; rel=successor-version",
-        },
-    )
+    return _gone_response("/api/admin/config")
 
 
 # ============================================================================
@@ -783,17 +778,7 @@ async def update_config(config: dict):
 )
 async def list_backups():
     """Deprecated: use /api/admin/backup/list"""
-    return JSONResponse(
-        status_code=status.HTTP_410_GONE,
-        content={
-            "detail": "This endpoint is deprecated. Use /api/admin/backup/list instead.",
-            "successor": "/api/admin/backup/list",
-        },
-        headers={
-            "Deprecation": "true",
-            "Link": "</api/admin/backup/list>; rel=successor-version",
-        },
-    )
+    return _gone_response("/api/admin/backup/list")
 
 
 @router.post(
@@ -804,17 +789,7 @@ async def list_backups():
 )
 async def create_backup():
     """Deprecated: use /api/admin/backup/trigger"""
-    return JSONResponse(
-        status_code=status.HTTP_410_GONE,
-        content={
-            "detail": "This endpoint is deprecated. Use /api/admin/backup/trigger instead.",
-            "successor": "/api/admin/backup/trigger",
-        },
-        headers={
-            "Deprecation": "true",
-            "Link": "</api/admin/backup/trigger>; rel=successor-version",
-        },
-    )
+    return _gone_response("/api/admin/backup/trigger")
 
 
 @router.get(
@@ -824,17 +799,7 @@ async def create_backup():
 )
 async def download_backup(filename: str):
     """Deprecated: use /api/admin/backup/download"""
-    return JSONResponse(
-        status_code=status.HTTP_410_GONE,
-        content={
-            "detail": "This endpoint is deprecated. Use /api/admin/backup/download instead.",
-            "successor": "/api/admin/backup/download",
-        },
-        headers={
-            "Deprecation": "true",
-            "Link": "</api/admin/backup/download>; rel=successor-version",
-        },
-    )
+    return _gone_response("/api/admin/backup/download")
 
 
 @router.post(
@@ -844,17 +809,7 @@ async def download_backup(filename: str):
 )
 async def restore_backup(filename: str):
     """Deprecated: use /api/admin/backup/restore"""
-    return JSONResponse(
-        status_code=status.HTTP_410_GONE,
-        content={
-            "detail": "This endpoint is deprecated. Use /api/admin/backup/restore instead.",
-            "successor": "/api/admin/backup/restore",
-        },
-        headers={
-            "Deprecation": "true",
-            "Link": "</api/admin/backup/restore>; rel=successor-version",
-        },
-    )
+    return _gone_response("/api/admin/backup/restore")
 
 
 # ============================================================================
