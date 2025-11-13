@@ -238,11 +238,11 @@ def safe_get(
 
         value = config.get(section, key)
 
-        if value_type == bool:
+        if value_type is bool:
             return to_bool(value)
-        elif value_type == int:
+        elif value_type is int:
             return int(value)
-        elif value_type == float:
+        elif value_type is float:
             return float(value)
         else:
             return value

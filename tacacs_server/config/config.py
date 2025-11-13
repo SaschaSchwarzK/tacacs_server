@@ -11,7 +11,7 @@ import logging
 import os
 import time
 from logging.handlers import RotatingFileHandler
-from typing import Any
+from typing import Any, cast
 
 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
 from tacacs_server.auth.local import LocalAuthBackend
@@ -536,7 +536,7 @@ class TacacsConfig:
 
     def get_baseline_config(self) -> dict[str, Any]:
         """Return base config without overrides (for UI comparison)."""
-        return json.loads(json.dumps(self._baseline_snapshot))
+        return cast(dict[str, Any], json.loads(json.dumps(self._baseline_snapshot)))
 
     def detect_config_drift(self) -> dict[str, dict[str, tuple[Any, Any]]]:
         """Compare base config with active overrides."""

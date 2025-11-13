@@ -96,9 +96,6 @@ def test_fallback_to_cache_on_failure(
                 return f.read()
         return None
 
-    # Override cache path and load behavior
-    original_init = url_handler.URLConfigHandler.__init__
-
     def mock_init(self, cache_path=None, refresh_interval=300):
         self.cache_path = str(cache)
         self.refresh_interval = refresh_interval

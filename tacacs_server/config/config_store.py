@@ -588,6 +588,47 @@ class ConfigStore:
                 for r in results
             ]
 
+    # --- Public change history helper (wrapper for internal _add_history) ---
+    def record_change(
+        self,
+        *,
+        section: str,
+        key: str,
+        old_value: Any,
+        new_value: Any,
+        value_type: str,
+        changed_by: str,
+        reason: str | None = None,
+        source_ip: str | None = None,
+        full_config: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a configuration change in history.
+
+        This provides a stable public API used by updaters while delegating to
+        the internal _add_history implementation.
+        """
+        with self._get_session() as session:
+            try:
+                self._add_history(
+                    session=session,
+                    section=section,
+                    key=key,
+                    old_value=old_value,
+                    new_value=new_value,
+                    value_type=value_type,
+                    changed_by=changed_by,
+                    change_reason=reason,
+                    source_ip=source_ip,
+                    full_config=full_config,
+                )
+                session.commit()
+            except Exception:
+                # Best-effort history recording; do not raise
+                try:
+                    session.rollback()
+                except Exception:
+                    pass
+
     # --- Version Management ---
     def create_version(
         self,

@@ -75,6 +75,9 @@ class ClientHandler:
         if first_header_data is None:
             return
 
+        # Help type checkers: first_header_data is non-None beyond this point
+        assert first_header_data is not None
+
         # Validate proxy source
         if not self._validate_proxy(proxy_ip, address, conn_logger):
             return
@@ -285,12 +288,12 @@ class ClientHandler:
                     header_data = first_header_data
                     first_packet = False
                 else:
-                    header_data = NetworkHandler.recv_exact(
+                    _maybe = NetworkHandler.recv_exact(
                         client_socket, TAC_PLUS_HEADER_SIZE
                     )
-
-                if not header_data:
-                    break
+                    if _maybe is None:
+                        break
+                    header_data = _maybe
 
                 # Unpack header
                 packet = self._unpack_header(header_data, conn_logger, address)

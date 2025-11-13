@@ -10,7 +10,6 @@ This package provides a modular configuration management system with:
 
 from .config import TacacsConfig, setup_logging
 from .config_store import ConfigStore
-from .constants import *
 from .schema import TacacsConfigSchema
 
 __all__ = [
