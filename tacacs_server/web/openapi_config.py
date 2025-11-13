@@ -11,6 +11,8 @@ This module configures comprehensive OpenAPI documentation with:
 Location: tacacs_server/web/openapi_config.py
 """
 
+import os
+import logging
 from typing import Any
 
 from fastapi import FastAPI
@@ -126,6 +128,80 @@ Real-time updates available via WebSocket:
             {"name": "RADIUS", "description": "RADIUS server status and configuration"},
         ],
     )
+
+    # Retag endpoints by common path prefixes to improve grouping
+    try:
+        prefix_tag_map = [
+            ("/api/devices", "Devices"),
+            ("/api/device-groups", "Device Groups"),
+            ("/api/users", "Users"),
+            ("/api/user-groups", "User Groups"),
+            ("/api/accounting", "Accounting"),
+            ("/api/radius", "RADIUS"),
+            ("/api/admin/backup", "Backup"),
+            ("/api/admin/config", "Configuration"),
+            ("/api/admin/maintenance", "Configuration"),
+            ("/api/admin/webhooks-config", "Webhooks"),
+            ("/api/proxies", "Proxies"),
+            ("/api/command-authorization", "Command Authorization"),
+            ("/api/metrics", "Status & Health"),
+            ("/api/stats", "Status & Health"),
+            ("/api/health", "Status & Health"),
+            ("/api/status", "Status & Health"),
+            ("/api/server", "Server"),
+        ]
+        for path, ops in (openapi_schema.get("paths") or {}).items():
+            for method, meta in (ops or {}).items():
+                if not isinstance(meta, dict):
+                    continue
+                # Only reassign generic tag buckets
+                tags = meta.get("tags") or []
+                if tags == ["API"] or not tags:
+                    for pref, tag in prefix_tag_map:
+                        if path.startswith(pref):
+                            meta["tags"] = [tag]
+                            break
+    except Exception as exc:
+        # Non-critical: best-effort retagging
+        logger = logging.getLogger(__name__)
+        logger.warning("Failed to retag OpenAPI endpoints: %s", exc, exc_info=True)
+
+    # Optionally hide deprecated endpoints from documentation (Swagger/ReDoc)
+    try:
+        hide_deprecated = str(
+            os.getenv("HIDE_DEPRECATED_DOCS", "true")
+        ).lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+        if hide_deprecated:
+            paths = openapi_schema.get("paths") or {}
+            for path, ops in list(paths.items()):
+                # Remove deprecated operations in-place
+                for method in list((ops or {}).keys()):
+                    try:
+                        meta = ops.get(method) or {}
+                        if bool(meta.get("deprecated")):
+                            ops.pop(method, None)
+                    except Exception as exc:
+                        logging.warning(
+                            "Failed to process method '%s' for path '%s': %s",
+                            method,
+                            path,
+                            exc,
+                            exc_info=True,
+                        )
+                        continue
+                # Drop empty path item objects
+                if not ops:
+                    paths.pop(path, None)
+    except Exception as exc:
+        # Non-critical: best-effort filtering
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Failed to filter deprecated OpenAPI endpoints: %s", exc, exc_info=True
+        )
 
     # Add security schemes
     openapi_schema["components"]["securitySchemes"] = {
@@ -314,6 +390,11 @@ def configure_openapi_ui(app: FastAPI):
             "img-src 'self' data:; connect-src 'self'"
         )
         return resp
+
+    # Also mount a namespaced ReDoc under /api/redoc for consistency
+    @app.get("/api/redoc", include_in_schema=False)
+    async def custom_redoc_html_api():
+        return await custom_redoc_html()
 
     # Add RapiDoc (modern alternative)
     from fastapi.responses import HTMLResponse

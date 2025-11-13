@@ -449,15 +449,42 @@ def create_app(
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-XSS-Protection"] = "1; mode=block"
 
-        # CSP for admin UI - allow only self-hosted resources
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; "
-            "connect-src 'self' ws: wss:; "
-            "font-src 'self';"
-        )
+        # Content Security Policy: relax for documentation UIs that load assets from CDNs
+        p = getattr(request.url, "path", "")
+
+        is_docs = p in ("/api/docs", "/api/redoc", "/docs", "/redoc", "/rapidoc")
+        if is_docs:
+            # Relax CSP for documentation UIs to allow required CDN assets. Avoid
+            # 'unsafe-eval' by default to reduce XSS risk. Some Swagger/Redoc
+            # bundles may require eval in certain browsers; if absolutely needed
+            # you can opt-in via DOCS_ALLOW_UNSAFE_EVAL=true.
+            allow_eval = str(os.getenv("DOCS_ALLOW_UNSAFE_EVAL", "")).lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+            script_src = (
+                "script-src 'self' 'unsafe-inline' "
+                + ("'unsafe-eval' " if allow_eval else "")
+                + "https://cdn.jsdelivr.net https://unpkg.com; "
+            )
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                + script_src
+                + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+                + "img-src 'self' data: https:; connect-src 'self' data:; "
+                + "font-src 'self' data: https:;"
+            )
+        else:
+            # Strict CSP for admin UI and API
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "connect-src 'self' ws: wss:; "
+                "font-src 'self';"
+            )
 
         # HSTS for HTTPS
         if request.url.scheme == "https":
@@ -569,6 +596,29 @@ def create_app(
     except Exception as exc:
         logger.error("Failed to include config API routes: %s", exc)
 
+    # Ensure OpenAPI schema generation is bound and UI helpers are available.
+    # This makes /openapi.json and /api/docs stable even when custom routers are used.
+    try:
+        # Bind custom OpenAPI generator
+        from typing import Any, cast
+
+        from tacacs_server.web.openapi_config import (
+            configure_openapi_ui as _cfg_ui,
+        )
+        from tacacs_server.web.openapi_config import (
+            custom_openapi_schema as _custom_schema,
+        )
+
+        def _openapi():
+            return _custom_schema(app)
+
+        cast(Any, app).openapi = _openapi
+        # Extra UIs at /docs, /redoc, /rapidoc (in addition to /api/docs)
+        _cfg_ui(app)
+        logger.debug("OpenAPI UI configured and custom schema bound")
+    except Exception as exc:
+        logger.debug("OpenAPI UI/schema binding skipped: %s", exc)
+
     # ========================================================================
     # ROOT & BASIC ENDPOINTS
     # ========================================================================
@@ -601,12 +651,12 @@ def create_app(
         </html>
         """
 
-    @app.get("/health", include_in_schema=False)
+    @app.get("/health", include_in_schema=True, tags=["Status & Health"])
     async def health():
         """Simple health check"""
         return {"status": "ok"}
 
-    @app.get("/ready", include_in_schema=False)
+    @app.get("/ready", include_in_schema=True, tags=["Status & Health"])
     async def readiness():
         """Readiness check"""
         try:
