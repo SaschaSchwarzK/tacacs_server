@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import configparser
 import os
+import secrets
 import shutil
 import socket
+import struct
 import subprocess
 import time
 import uuid
@@ -19,6 +21,14 @@ from pathlib import Path
 
 import pytest
 
+from tacacs_server.tacacs.constants import (
+    TAC_PLUS_AUTHOR_STATUS,
+    TAC_PLUS_FLAGS,
+    TAC_PLUS_HEADER_SIZE,
+    TAC_PLUS_MAJOR_VER,
+    TAC_PLUS_PACKET_TYPE,
+)
+from tacacs_server.tacacs.packet import TacacsPacket
 from tests.functional.tacacs.test_tacacs_basic import tacacs_authenticate
 
 
@@ -49,6 +59,65 @@ def _wait_for_radius_logs(container: str, timeout: float = 30.0) -> None:
         time.sleep(0.5)
     if not ready:
         raise TimeoutError(f"FreeRADIUS not ready. Logs:\n{last}")
+
+
+def _mk_author_body(username: str, cmd: str | None, *, req_priv: int = 1) -> bytes:
+    user_b = username.encode()
+    port_b = b""
+    rem_b = b""
+    attrs = [b"service=shell"]
+    if cmd is not None:
+        cmd_attr = f"cmd={cmd}".encode()
+        if len(cmd_attr) > 255:
+            cmd_attr = cmd_attr[:255]
+        attrs.append(cmd_attr)
+    arg_cnt = len(attrs)
+    arg_lens = bytes([min(255, len(a)) for a in attrs])
+    head = struct.pack(
+        "!BBBBBBBB",
+        0,
+        max(0, min(15, int(req_priv))),
+        1,
+        1,
+        len(user_b),
+        len(port_b),
+        len(rem_b),
+        arg_cnt,
+    )
+    body = head + user_b + port_b + rem_b + arg_lens + b"".join(attrs)
+    return body
+
+
+def _send_author(host: str, port: int, username: str, cmd: str, *, req_priv: int = 1):
+    session_id = secrets.randbits(32)
+    pkt = TacacsPacket(
+        version=(TAC_PLUS_MAJOR_VER << 4) | 0,
+        packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR,
+        seq_no=1,
+        flags=TAC_PLUS_FLAGS.TAC_PLUS_UNENCRYPTED_FLAG,
+        session_id=session_id,
+        length=0,
+        body=_mk_author_body(username, cmd, req_priv=req_priv),
+    )
+    full = pkt.pack("")
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(3)
+    try:
+        s.connect((host, port))
+        s.sendall(full)
+        hdr = s.recv(TAC_PLUS_HEADER_SIZE)
+        if len(hdr) != TAC_PLUS_HEADER_SIZE:
+            return -1
+        header = TacacsPacket.unpack_header(hdr)
+        body = s.recv(header.length)
+        if len(body) != header.length:
+            return -1
+        return body[0]
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
 
 
 @pytest.mark.e2e
@@ -226,8 +295,12 @@ def test_tacacs_server_with_radius_auth_backend(tmp_path: Path) -> None:
                 # Docker logs
                 dl_t = _docker(["logs", tacacs_container], check=False)
                 dl_r = _docker(["logs", radius_container], check=False)
-                logs_t = (dl_t.stdout or "") + ("\n" + dl_t.stderr if dl_t.stderr else "")
-                logs_r = (dl_r.stdout or "") + ("\n" + dl_r.stderr if dl_r.stderr else "")
+                logs_t = (dl_t.stdout or "") + (
+                    "\n" + dl_t.stderr if dl_t.stderr else ""
+                )
+                logs_r = (dl_r.stdout or "") + (
+                    "\n" + dl_r.stderr if dl_r.stderr else ""
+                )
 
                 # Inspect state
                 insp_t_state = _docker(
@@ -267,14 +340,26 @@ def test_tacacs_server_with_radius_auth_backend(tmp_path: Path) -> None:
                     "env | sort | egrep '^(API_TOKEN|RADIUS|SERVER_|PORT|HOST)=' || true"
                 )
                 curl_out = _exec(
-                    "python - <<'PY'\nimport urllib.request,sys\n" \
-                    + f"url='http://127.0.0.1:8080/health'\n" \
+                    "python - <<'PY'\nimport urllib.request,sys\n"
+                    + "url='http://127.0.0.1:8080/health'\n"
                     + "try:\n    with urllib.request.urlopen(url,timeout=3) as r: print(r.status)\nexcept Exception as e: print('curl_err:',e)\nPY\n"
                 )
 
                 # Host-mounted logs
-                stdouterr = (logs_dir / "stdouterr.log").read_text(encoding="utf-8", errors="ignore") if (logs_dir / "stdouterr.log").exists() else "(no stdouterr.log)"
-                exit_code = (logs_dir / "exitcode.txt").read_text(encoding="utf-8", errors="ignore") if (logs_dir / "exitcode.txt").exists() else "(no exitcode.txt)"
+                stdouterr = (
+                    (logs_dir / "stdouterr.log").read_text(
+                        encoding="utf-8", errors="ignore"
+                    )
+                    if (logs_dir / "stdouterr.log").exists()
+                    else "(no stdouterr.log)"
+                )
+                exit_code = (
+                    (logs_dir / "exitcode.txt").read_text(
+                        encoding="utf-8", errors="ignore"
+                    )
+                    if (logs_dir / "exitcode.txt").exists()
+                    else "(no exitcode.txt)"
+                )
 
                 diag = (
                     f"--- health wait error ---\n{e}\n\n"
@@ -289,8 +374,8 @@ def test_tacacs_server_with_radius_auth_backend(tmp_path: Path) -> None:
                     f"--- container curl /health ---\n{curl_out}\n"
                     f"--- stdouterr.log (host) ---\n{stdouterr}\n"
                     f"--- exitcode.txt (host) ---\n{exit_code}\n"
-                    f"--- tacacs image build logs ---\n{build_logs.get('tacacs_build','(no build logs)')}\n"
-                    f"--- radius image build logs ---\n{build_logs.get('radius_build','(no build logs)')}\n"
+                    f"--- tacacs image build logs ---\n{build_logs.get('tacacs_build', '(no build logs)')}\n"
+                    f"--- radius image build logs ---\n{build_logs.get('radius_build', '(no build logs)')}\n"
                 )
             except Exception as ex:
                 diag = f"(failed to gather diagnostics: {ex})"
@@ -369,6 +454,78 @@ def test_tacacs_server_with_radius_auth_backend(tmp_path: Path) -> None:
             password=invalid_user[1],
         )
         assert not ok2, "Expected TACACS auth failure for unknown RADIUS user"
+
+        # Create local user groups that map to privilege and are referenced by ID
+        for group_name, level in (("netops", 7), ("other", 3)):
+            ug_payload = {
+                "name": group_name,
+                "description": group_name,
+                "privilege_level": level,
+            }
+            req = urllib.request.Request(
+                f"{base}/api/user-groups",
+                data=json.dumps(ug_payload).encode(),
+                headers={"Content-Type": "application/json", "X-API-Token": api_token},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    assert r.status in (200, 201, 409)
+            except urllib.error.HTTPError as he:  # pragma: no cover - tolerate 409
+                if he.code != 409:
+                    raise
+
+        # Resolve IDs for the created groups
+        req = urllib.request.Request(
+            f"{base}/api/user-groups",
+            headers={"X-API-Token": api_token},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            ug_list = json.loads(r.read().decode() or "[]")
+        ug_id_map = {
+            str(item.get("name")): int(item.get("id", 0))
+            for item in ug_list
+            if isinstance(item, dict)
+        }
+        netops_id = ug_id_map.get("netops")
+        other_id = ug_id_map.get("other")
+        assert netops_id, f"netops group id not found in {ug_list}"
+        assert other_id, f"other group id not found in {ug_list}"
+
+        # Update device group to allow only 'netops' (by ID)
+        dg_update = {"allowed_user_groups": [netops_id]}
+        req = urllib.request.Request(
+            f"{base}/api/device-groups/{gid}",
+            data=json.dumps(dg_update).encode(),
+            headers={"Content-Type": "application/json", "X-API-Token": api_token},
+            method="PUT",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            assert r.status in (200, 201)
+
+        # Authorization should pass for matching group
+        st = _send_author("127.0.0.1", tacacs_port, valid_user[0], "show version")
+        assert st in (
+            TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_ADD,
+            TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_PASS_REPL,
+        ), f"Authorization should pass, got status={st}"
+
+        # Change allowed groups to non-matching (by ID), expect deny
+        dg_update2 = {"allowed_user_groups": [other_id]}
+        req = urllib.request.Request(
+            f"{base}/api/device-groups/{gid}",
+            data=json.dumps(dg_update2).encode(),
+            headers={"Content-Type": "application/json", "X-API-Token": api_token},
+            method="PUT",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            assert r.status in (200, 201)
+
+        st2 = _send_author("127.0.0.1", tacacs_port, valid_user[0], "show version")
+        assert st2 == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL, (
+            f"Authorization should fail, got status={st2}"
+        )
 
     finally:
         # Cleanup

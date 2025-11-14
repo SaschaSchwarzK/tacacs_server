@@ -73,25 +73,19 @@ class OktaConfigSchema(BaseModel):
 
 
 class RadiusAuthConfigSchema(BaseModel):
-    """RADIUS client (auth backend) configuration schema."""
+    """RADIUS client (auth backend) configuration schema.
+
+    Note: Secret requirements are enforced only when the 'radius' backend is enabled.
+    """
 
     model_config = ConfigDict(extra="ignore")
-    radius_server: str
+    radius_server: str | None = None
     radius_port: int = Field(default=1812, ge=1, le=65535)
-    radius_secret: str
+    radius_secret: str | None = None
     radius_timeout: int = Field(default=5, ge=1, le=60)
     radius_retries: int = Field(default=3, ge=0, le=10)
     radius_nas_ip: str = Field(default="0.0.0.0")
     radius_nas_identifier: str | None = None
-
-    @field_validator("radius_secret")
-    @classmethod
-    def _check_secret(cls, v: str) -> str:
-        if not v or len(v.strip()) < 8:
-            raise ValueError("radius_secret must be at least 8 characters")
-        if len(v) > 128:
-            raise ValueError("radius_secret must be 128 characters or less")
-        return v
 
 
 class TacacsConfigSchema(BaseModel):
@@ -126,10 +120,19 @@ class TacacsConfigSchema(BaseModel):
             ]
             if "ldap" in backends and self.ldap is None:
                 raise ValueError("LDAP backend selected but [ldap] section is missing")
-            if "radius" in backends and self.radius_auth is None:
-                raise ValueError(
-                    "Radius backend selected but [radius_auth] section is missing"
-                )
+            if "radius" in backends:
+                if self.radius_auth is None:
+                    raise ValueError(
+                        "Radius backend selected but [radius_auth] section is missing"
+                    )
+                # Enforce required fields only when radius is enabled
+                secret = (self.radius_auth.radius_secret or "").strip()
+                if len(secret) < 8:
+                    raise ValueError(
+                        "[radius_auth].radius_secret must be at least 8 characters"
+                    )
+                if not (self.radius_auth.radius_server or "").strip():
+                    raise ValueError("[radius_auth].radius_server is required")
         except Exception:
             pass  # Backend parsing failed, skip cross-field validation
         # Validate source_url constraints
