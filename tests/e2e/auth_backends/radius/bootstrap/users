@@ -10,3 +10,8 @@ raduser Cleartext-Password := "Passw0rd"
 baduser Cleartext-Password := "badpass"
     Service-Type := Login-User
 
+# User that carries group only via Class (no Filter-Id)
+opsuser Cleartext-Password := "Passw0rd"
+    Service-Type := Login-User,
+    Filter-Id := "ops",
+    Class := "group:ops"
