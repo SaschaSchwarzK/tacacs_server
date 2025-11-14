@@ -9,7 +9,7 @@
         <label for="auth_backends">Backends</label>
         <div class="input-wrapper">
           <input type="text" id="auth_backends" name="backends" value="{{ (configuration.get('auth') or {}).get('backends','') }}" />
-          <span class="field-hint">Comma-separated (local,ldap,okta)</span>
+          <span class="field-hint">Comma-separated (local,ldap,okta,radius)</span>
         </div>
       </div>
       <div class="form-field">
@@ -163,6 +163,66 @@
     <div class="btn-group">
       <button class="btn" onclick="saveOktaSettings()">Save Okta Settings</button>
       <span id="okta-status" class="status-message"></span>
+    </div>
+  </div>
+
+  <!-- RADIUS Auth Backend (client) -->
+  <div class="subsection">
+    <div class="subsection-header">RADIUS Auth Backend</div>
+    <form id="radius-auth-form" onsubmit="return false;" class="form-grid">
+      <div class="form-field">
+        <label for="radius_auth_server">Server</label>
+        <div class="input-wrapper">
+          <input type="text" id="radius_auth_server" name="radius_server" value="{{ (configuration.get('radius_auth') or {}).get('radius_server','') }}" />
+          <span class="field-hint">RADIUS server host or IP</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_auth_port">Port</label>
+        <div class="input-wrapper">
+          <input type="number" id="radius_auth_port" name="radius_port" min="1" max="65535" value="{{ (configuration.get('radius_auth') or {}).get('radius_port','1812') }}" />
+          <span class="field-hint">Auth port (default 1812)</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_auth_secret">Shared Secret</label>
+        <div class="input-wrapper">
+          <input type="password" id="radius_auth_secret" name="radius_secret" value="{{ (configuration.get('radius_auth') or {}).get('radius_secret','') }}" />
+          <span class="field-hint">Minimum 8 characters</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_auth_timeout">Timeout</label>
+        <div class="input-wrapper">
+          <input type="number" id="radius_auth_timeout" name="radius_timeout" min="1" max="60" value="{{ (configuration.get('radius_auth') or {}).get('radius_timeout','5') }}" />
+          <span class="field-hint">Seconds (default 5)</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_auth_retries">Retries</label>
+        <div class="input-wrapper">
+          <input type="number" id="radius_auth_retries" name="radius_retries" min="0" max="10" value="{{ (configuration.get('radius_auth') or {}).get('radius_retries','3') }}" />
+          <span class="field-hint">Retry attempts (default 3)</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_auth_nas_ip">NAS IP</label>
+        <div class="input-wrapper">
+          <input type="text" id="radius_auth_nas_ip" name="radius_nas_ip" value="{{ (configuration.get('radius_auth') or {}).get('radius_nas_ip','0.0.0.0') }}" />
+          <span class="field-hint">NAS-IP-Address attribute</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="radius_auth_nas_identifier">NAS Identifier</label>
+        <div class="input-wrapper">
+          <input type="text" id="radius_auth_nas_identifier" name="radius_nas_identifier" value="{{ (configuration.get('radius_auth') or {}).get('radius_nas_identifier','') }}" />
+          <span class="field-hint">NAS-Identifier attribute (optional)</span>
+        </div>
+      </div>
+    </form>
+    <div class="btn-group">
+      <button class="btn" onclick="saveRadiusAuthBackendSettings()">Save RADIUS Auth Backend</button>
+      <span id="radius-auth-status" class="status-message"></span>
     </div>
   </div>
 </div>

@@ -114,7 +114,7 @@ async def get_device_group(
     summary="Create device group",
     description="Create a new device group with TACACS+ and RADIUS secrets",
 )
-async def create_device_group(group: DeviceGroupCreate):
+async def create_device_group(group: DeviceGroupCreate | dict = Body(...)):
     """
     Create a new device group.
 
@@ -132,18 +132,59 @@ async def create_device_group(group: DeviceGroupCreate):
     try:
         service = get_device_service()
 
-        aug_allowed = (
-            [str(x) for x in group.allowed_user_groups]
-            if group.allowed_user_groups is not None
-            else None
-        )
+        # Support legacy payloads where secrets are under metadata
+        if isinstance(group, dict):
+            payload = group
+            name = str(payload.get("name") or "").strip()
+            description = payload.get("description")
+            meta = payload.get("metadata") or {}
+            tac_sec = meta.get("tacacs_secret") or payload.get("tacacs_secret")
+            rad_sec = meta.get("radius_secret") or payload.get("radius_secret")
+            allowed_vals = payload.get("allowed_user_groups")
+        else:
+            name = group.name
+            description = group.description
+            tac_sec = group.tacacs_secret
+            rad_sec = group.radius_secret
+            allowed_vals = group.allowed_user_groups
+
+        # Normalize allowed_user_groups to local user group NAMES
+        aug_allowed = None
+        if allowed_vals is not None:
+            raw_vals = [str(x) for x in allowed_vals]
+            # Attempt to resolve numeric IDs to names using the user group service
+            try:
+                from tacacs_server.web.api.usergroups import (
+                    get_group_service as _get_gsvc,
+                )
+
+                gsvc = _get_gsvc()
+                id_to_name = {
+                    int(cast(int, rec.id)): rec.name
+                    for rec in gsvc.list_groups()
+                    if getattr(rec, "id", None)
+                }
+                names: list[str] = []
+                for v in raw_vals:
+                    if v.isdigit() and int(v) in id_to_name:
+                        names.append(id_to_name[int(v)])
+                    else:
+                        names.append(v)
+                aug_allowed = names
+            except Exception:
+                # Fallback: accept provided values as names
+                aug_allowed = raw_vals
         new_group = service.create_device_group(
-            name=group.name,
-            description=group.description,
-            tacacs_secret=group.tacacs_secret,
-            radius_secret=group.radius_secret,
+            name=name,
+            description=description,
+            tacacs_secret=tac_sec,
+            radius_secret=rad_sec,
             allowed_user_groups=aug_allowed,
-            proxy_id=getattr(group, "proxy_id", None),
+            proxy_id=(
+                group.get("proxy_id")
+                if isinstance(group, dict)
+                else getattr(group, "proxy_id", None)
+            ),
         )
 
         return new_group
@@ -194,11 +235,29 @@ async def update_device_group(
             )
 
         # Update group
-        aug_allowed = (
-            [str(x) for x in group.allowed_user_groups]
-            if (group and group.allowed_user_groups is not None)
-            else None
-        )
+        aug_allowed = None
+        if group and group.allowed_user_groups is not None:
+            raw_vals = [str(x) for x in group.allowed_user_groups]
+            try:
+                from tacacs_server.web.api.usergroups import (
+                    get_group_service as _get_gsvc,
+                )
+
+                gsvc = _get_gsvc()
+                id_to_name = {
+                    int(cast(int, rec.id)): rec.name
+                    for rec in gsvc.list_groups()
+                    if getattr(rec, "id", None)
+                }
+                names: list[str] = []
+                for v in raw_vals:
+                    if v.isdigit() and int(v) in id_to_name:
+                        names.append(id_to_name[int(v)])
+                    else:
+                        names.append(v)
+                aug_allowed = names
+            except Exception:
+                aug_allowed = raw_vals
         updated_group = service.update_device_group(
             group_id=group_id,
             name=(group.name if group else None),

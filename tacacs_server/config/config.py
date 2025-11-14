@@ -204,6 +204,8 @@ class TacacsConfig:
                 return self._create_ldap_backend()
             elif backend_type == "okta":
                 return self._create_okta_backend()
+            elif backend_type == "radius":
+                return self._create_radius_auth_backend()
             else:
                 logger.warning("Unknown auth backend '%s' configured", backend_name)
                 return None
@@ -239,6 +241,28 @@ class TacacsConfig:
             return OktaAuthBackend(dict(self.config["okta"]))
         except Exception as exc:
             logger.error("Failed to initialize Okta backend: %s", exc)
+            return None
+
+    def _create_radius_auth_backend(self):
+        """Create RADIUS authentication backend (client to external RADIUS)."""
+        try:
+            from tacacs_server.auth.radius_auth import RADIUSAuthBackend
+        except Exception:
+            logger.error("Radius backend requested but module not available")
+            return None
+
+        section_name = "radius_auth"
+        if section_name not in self.config:
+            logger.error(
+                "Radius auth backend configured but no [%s] section found",
+                section_name,
+            )
+            return None
+        try:
+            cfg = dict(self.config[section_name])
+            return RADIUSAuthBackend(cfg)
+        except Exception as exc:
+            logger.error("Failed to initialize Radius backend: %s", exc)
             return None
 
     def _create_fallback_backend(self):
@@ -424,6 +448,20 @@ class TacacsConfig:
         update_section(
             self.config,
             "radius",
+            updates,
+            self.config_store,
+            self.config_file,
+            self.is_url_config(),
+            **kwargs,
+        )
+        self._apply_overrides()
+
+    def update_radius_auth_config(self, **kwargs):
+        """Update RADIUS auth backend (client) configuration."""
+        updates = self._filter_updates("radius_auth", kwargs)
+        update_section(
+            self.config,
+            "radius_auth",
             updates,
             self.config_store,
             self.config_file,

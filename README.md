@@ -538,6 +538,46 @@ use_tls = true
 timeout = 10
 ```
 
+#### **RADIUS Auth Backend (client)**
+Authenticate TACACS+ users against an external RADIUS server. On success, groups
+are extracted from Access‑Accept and used by the authorization engine just like
+LDAP/Okta groups.
+
+```ini
+[auth]
+backends = local, radius
+
+[radius_auth]
+radius_server = 192.0.2.10
+radius_port = 1812
+radius_secret = s3cr3t
+radius_timeout = 5
+radius_retries = 3
+radius_nas_ip = 10.0.0.5
+radius_nas_identifier = tacacs-prod-01
+```
+
+Notes on NAS attributes:
+- `radius_nas_ip` sets `NAS-IP-Address` (type 4). Some RADIUS servers use this to
+  identify clients and apply policy. The default `0.0.0.0` is valid but may be
+  treated as unspecified; set this to the real IP of your TACACS+ server if your
+  RADIUS policies enforce client IP checks.
+- `radius_nas_identifier` sets `NAS-Identifier` (type 32), a free‑form string for
+  identifying the NAS. Use when your RADIUS policies/accounting rely on a stable
+  textual ID rather than the client IP. If not set, the attribute is omitted.
+
+Groups extraction on Access‑Accept:
+- `Filter-Id` (11): each instance is treated as a group name.
+- `Class` (25): entries with the prefix `group:` (e.g., `group:netops`) are
+  interpreted as group names.
+
+These groups are cached upon successful authentication and used by authorization
+the same way LDAP/Okta groups are.
+
+Environment overrides
+- Non-secrets: use `TACACS_RADIUS_AUTH_<KEY>` (e.g., `TACACS_RADIUS_AUTH_RADIUS_SERVER`, `TACACS_RADIUS_AUTH_RADIUS_PORT`, etc.).
+- Secret: set `RADIUS_AUTH_SECRET` to populate `[radius_auth].radius_secret` (not read from file for security).
+
 #### **RADIUS Server**
 ```ini
 [radius]
