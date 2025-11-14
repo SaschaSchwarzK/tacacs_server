@@ -266,14 +266,14 @@ def validate_change(
                 issues.append("radius_retries must be an integer")
         elif k == "radius_nas_ip":
             sval = str(value).strip()
-            # Allow empty -> default, or validate IPv4/IPv6 literal
+            # Allow empty -> default, or validate IPv4 literal
             if sval:
                 try:
                     import ipaddress
 
-                    ipaddress.ip_address(sval)
+                    ipaddress.IPv4Address(sval)
                 except ValueError:
-                    issues.append("radius_nas_ip must be a valid IP address")
+                    issues.append("radius_nas_ip must be a valid IPv4 address")
 
     # Devices custom validation
     if section == "devices":

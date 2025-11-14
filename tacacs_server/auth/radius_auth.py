@@ -42,6 +42,7 @@ import struct
 from typing import Any
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.simple_cache import TTLCache
 
 from .base import AuthenticationBackend
 
@@ -103,6 +104,19 @@ class RADIUSAuthBackend(AuthenticationBackend):
 
         logger.info(
             f"Initialized RADIUS backend: server={self.radius_server}:{self.radius_port}"
+        )
+
+        # In-memory cache for groups per user. This avoids fragile setattr/getattr
+        # with f-strings (usernames may contain characters invalid for attributes).
+        # Use a TTL cache to prevent unbounded growth.
+        try:
+            self._group_cache_ttl = int(cfg.get("group_cache_ttl", 600))  # seconds
+        except Exception:
+            self._group_cache_ttl = 600
+        # Key: username, Value: list of group names
+        self._cached_groups: TTLCache[str, list[str]] = TTLCache(
+            ttl_seconds=self._group_cache_ttl,
+            maxsize=10_000,
         )
 
     def _create_authenticator(self) -> bytes:
@@ -256,13 +270,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
 
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
         """Authenticate user against RADIUS server and cache groups for authorization."""
-        ok, groups = self._authenticate_and_cache_groups(username, password)
-        if ok:
-            # Cache already stored in helper, but ensure attribute present
-            try:
-                setattr(self, f"_cached_groups_{username}", groups or [])
-            except Exception:
-                pass
+        ok, _ = self._authenticate_and_cache_groups(username, password)
         return ok
 
     def get_user_attributes(self, username: str) -> dict[str, Any]:
@@ -272,9 +280,9 @@ class RADIUSAuthBackend(AuthenticationBackend):
         Note: RADIUS doesn't support querying without authentication.
         Groups are cached during authentication.
         """
-        # RADIUS requires authentication to get attributes
-        # Return cached data if available, otherwise empty
-        cached_groups = getattr(self, f"_cached_groups_{username}", [])
+        # RADIUS requires authentication to get attributes. Return cached
+        # data if available, otherwise empty.
+        cached_groups = self._cached_groups.get(username) or []
 
         return {
             "service": "exec",
@@ -325,11 +333,8 @@ class RADIUSAuthBackend(AuthenticationBackend):
                     attributes = self._parse_attributes(response[20:])
                     groups = self._extract_groups(attributes)
 
-                    # Cache groups for this user
-                    try:
-                        setattr(self, f"_cached_groups_{username}", groups)
-                    except Exception:
-                        pass
+                    # Cache groups for this user (TTL-bound)
+                    self._cached_groups.set(username, groups)
 
                     logger.info(
                         f"RADIUS authentication successful for {username}, groups: {groups}"
