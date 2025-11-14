@@ -236,8 +236,8 @@ class RADIUSAuthBackend(AuthenticationBackend):
                     group_name = value.decode("utf-8", errors="ignore").strip()
                     if group_name:
                         groups.append(group_name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to decode RADIUS Filter-Id attribute: %s", e)
 
         # Extract from Class attributes
         if self.CLASS in attributes:
@@ -249,8 +249,8 @@ class RADIUSAuthBackend(AuthenticationBackend):
                         group_name = class_str[6:].strip()
                         if group_name:
                             groups.append(group_name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to decode RADIUS Class attribute: %s", e)
 
         return groups
 
@@ -360,7 +360,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
             sock.connect((self.radius_server, self.radius_port))
             sock.close()
             return True
-        except Exception:
+        except (OSError, TimeoutError):
             return False
 
     def get_stats(self) -> dict[str, Any]:

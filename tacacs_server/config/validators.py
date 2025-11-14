@@ -272,7 +272,7 @@ def validate_change(
                     import ipaddress
 
                     ipaddress.ip_address(sval)
-                except Exception:
+                except ValueError:
                     issues.append("radius_nas_ip must be a valid IP address")
 
     # Devices custom validation

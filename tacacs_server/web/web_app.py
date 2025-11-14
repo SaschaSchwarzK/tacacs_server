@@ -687,8 +687,8 @@ def create_app(
                 token = request.cookies.get("admin_session")
                 if sm and token and sm.validate_session(token):
                     return await call_next(request)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Admin session validation failed: %s", e)
             # Require API token header
             header_token = request.headers.get("X-API-Token")
             if not header_token:
@@ -698,7 +698,8 @@ def create_app(
                         scheme, _, token_part = auth.partition(" ")
                         if scheme.lower() == "bearer" and token_part:
                             header_token = token_part.strip()
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Failed to parse Authorization header: %s", e)
                         header_token = None
             # Determine expected token dynamically (supports env changes in tests)
             try:
@@ -706,7 +707,8 @@ def create_app(
 
                 ac = _get_ac()
                 configured = getattr(ac, "api_token", None) if ac else None
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to get configured API token: %s", e)
                 configured = None
             expected = configured or os.getenv("API_TOKEN") or ""
             # If no expected token configured, deny by default (tests expect 401)
@@ -750,9 +752,10 @@ def create_app(
                 threshold_window=payload.get("threshold_window"),
             )
             return _wh_get()
-        except Exception as exc:
+        except Exception:
+            logger.error("Failed to update webhooks", exc_info=True)
             return JSONResponse(
-                {"detail": f"Failed to update webhooks: {exc}"}, status_code=400
+                {"detail": "Failed to update webhooks"}, status_code=400
             )
 
     # --------------------------------------------------------------------
