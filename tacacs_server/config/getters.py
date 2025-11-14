@@ -388,6 +388,7 @@ def get_config_summary(config: configparser.ConfigParser) -> dict[str, Any]:
         "admin",
         "devices",
         "radius",
+        "radius_auth",
         "proxy_protocol",
         "monitoring",
         "okta",

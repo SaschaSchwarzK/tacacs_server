@@ -53,6 +53,7 @@ class AuthBackendType(str, Enum):
     local = "local"
     ldap = "ldap"
     okta = "okta"
+    radius = "radius"
 
 
 # ============================================================================

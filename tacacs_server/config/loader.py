@@ -19,6 +19,7 @@ from .constants import (
     ENV_OKTA_CLIENT_ID,
     ENV_OKTA_DOMAIN,
     ENV_OKTA_PRIVATE_KEY,
+    ENV_RADIUS_AUTH_SECRET,
 )
 
 
@@ -233,6 +234,15 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             "threshold_count",
             "threshold_window",
         ],
+        "radius_auth": [
+            "radius_server",
+            "radius_port",
+            # note: radius_secret handled via ENV_RADIUS_AUTH_SECRET only
+            "radius_timeout",
+            "radius_retries",
+            "radius_nas_ip",
+            "radius_nas_identifier",
+        ],
     }
 
     for section, keys in sections_keys.items():
@@ -284,6 +294,13 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             config.set("okta", "private_key", okta_private_key)
         if okta_api_token:
             config.set("okta", "api_token", okta_api_token)
+
+    # RADIUS auth backend secret: environment ONLY
+    radius_auth_secret = os.environ.get(ENV_RADIUS_AUTH_SECRET)
+    if radius_auth_secret:
+        if not config.has_section("radius_auth"):
+            config.add_section("radius_auth")
+        config.set("radius_auth", "radius_secret", radius_auth_secret)
 
 
 def load_config(

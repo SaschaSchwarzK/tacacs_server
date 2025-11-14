@@ -15,7 +15,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from tacacs_server.utils.config_utils import set_config as utils_set_config
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 
-from . import web_admin, web_api, web_auth
+from . import web_admin, web_auth
 from .web import (
     set_config as _set_config,
 )
@@ -256,6 +256,13 @@ def create_app(
             api_token=api_token,
             session_timeout=60,
         )
+        # Bridge session manager into global accessor for modules using config_utils
+        try:
+            from tacacs_server.web.web import set_admin_session_manager as _set_admin_sm
+
+            _set_admin_sm(web_auth.get_session_manager())
+        except Exception:
+            pass
         logger.info("Authentication initialized (username=%s)", admin_username)
     else:
         logger.warning("Admin authentication not configured - web UI will be disabled")
@@ -566,8 +573,29 @@ def create_app(
     # Admin web UI routes
     app.include_router(web_admin.router)
 
-    # API routes
-    app.include_router(web_api.router)
+    # Dedicated User Groups API (CRUD backed by LocalUserGroupService)
+    try:
+        from tacacs_server.web.api.usergroups import router as user_groups_router
+
+        app.include_router(user_groups_router)
+        logger.debug("Included user group API routes under /api/user-groups")
+    except Exception as exc:
+        logger.error("Failed to include user group API routes: %s", exc)
+
+    # Devices, Device Groups, Users API
+    try:
+        from tacacs_server.web.api.device_groups import router as device_groups_router
+        from tacacs_server.web.api.devices import router as devices_router
+        from tacacs_server.web.api.users import router as users_router
+
+        app.include_router(devices_router)
+        app.include_router(device_groups_router)
+        app.include_router(users_router)
+        logger.debug("Included devices and device-groups API routes")
+    except Exception as exc:
+        logger.error(
+            "Failed to include devices/device-groups/users API routes: %s", exc
+        )
 
     # Feature-specific API routes
     try:
@@ -595,6 +623,153 @@ def create_app(
         logger.debug("Included config API routes under /api/admin/config")
     except Exception as exc:
         logger.error("Failed to include config API routes: %s", exc)
+
+    # Minimal consolidated status/health APIs to replace legacy endpoints
+    @app.get("/api/health", tags=["Status & Health"], include_in_schema=True)
+    async def api_health():
+        try:
+            return {"status": "ok"}
+        except Exception:
+            return JSONResponse({"status": "error"}, status_code=503)
+
+    @app.get("/api/status", tags=["Status & Health"], include_in_schema=True)
+    async def api_status():
+        try:
+            uptime = 0.0
+            ver = os.getenv("APP_VERSION", "1.0.0")
+            srv = getattr(app.state, "tacacs_server", None)
+            if srv and getattr(srv, "start_time", None):
+                import time as _t
+
+                uptime = max(0.0, _t.time() - float(getattr(srv, "start_time", 0)))
+            return {
+                "status": "running",
+                "uptime_seconds": uptime,
+                "version": ver,
+            }
+        except Exception:
+            return JSONResponse({"status": "error"}, status_code=503)
+
+    @app.get("/api/stats", tags=["Status & Health"], include_in_schema=True)
+    async def api_stats():
+        try:
+            srv = getattr(app.state, "tacacs_server", None)
+            backends: list[dict] = []
+            if srv and getattr(srv, "auth_backends", None):
+                try:
+                    for b in srv.auth_backends:
+                        backends.append(
+                            {
+                                "name": getattr(b, "name", b.__class__.__name__),
+                                "type": b.__class__.__name__,
+                                "available": bool(
+                                    getattr(b, "is_available", lambda: False)()
+                                ),
+                                "stats": getattr(b, "get_stats", lambda: {})(),
+                            }
+                        )
+                except Exception:
+                    backends = []
+            return {"server": {"running": True}, "backends": backends}
+        except Exception:
+            return JSONResponse({"detail": "Stats unavailable"}, status_code=500)
+
+    # --------------------------------------------------------------------
+    # ADMIN PROTECTION MIDDLEWARE: Require admin session or API token
+    # --------------------------------------------------------------------
+    @app.middleware("http")
+    async def _admin_guard(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and path not in ("/api/health", "/api/status"):
+            # Allow admin session
+            try:
+                sm = web_auth.get_session_manager()
+                token = request.cookies.get("admin_session")
+                if sm and token and sm.validate_session(token):
+                    return await call_next(request)
+            except Exception as e:
+                logger.warning("Admin session validation failed: %s", e)
+            # Require API token header
+            header_token = request.headers.get("X-API-Token")
+            if not header_token:
+                auth = request.headers.get("Authorization", "")
+                if auth:
+                    try:
+                        scheme, _, token_part = auth.partition(" ")
+                        if scheme.lower() == "bearer" and token_part:
+                            header_token = token_part.strip()
+                    except Exception as e:
+                        logger.warning("Failed to parse Authorization header: %s", e)
+                        header_token = None
+            # Determine expected token dynamically (supports env changes in tests)
+            try:
+                from tacacs_server.web.web_auth import get_auth_config as _get_ac
+
+                ac = _get_ac()
+                configured = getattr(ac, "api_token", None) if ac else None
+            except Exception as e:
+                logger.warning("Failed to get configured API token: %s", e)
+                configured = None
+            expected = configured or os.getenv("API_TOKEN") or ""
+            # If no expected token configured, deny by default (tests expect 401)
+            if not expected or header_token != expected:
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return await call_next(request)
+
+    # --------------------------------------------------------------------
+    # WEBHOOKS ADMIN API (get/set)
+    # --------------------------------------------------------------------
+    from tacacs_server.utils.webhook import (
+        get_webhook_config_dict as _wh_get,
+    )
+    from tacacs_server.utils.webhook import (
+        set_webhook_config as _wh_set,
+    )
+
+    @app.get(
+        "/api/admin/webhooks-config",
+        tags=["Webhooks"],
+        include_in_schema=True,
+    )
+    async def api_get_webhooks_config(_: None = Depends(web_auth.require_admin_or_api)):
+        return _wh_get()
+
+    @app.put(
+        "/api/admin/webhooks-config",
+        tags=["Webhooks"],
+        include_in_schema=True,
+    )
+    async def api_update_webhooks_config(
+        payload: dict, _: None = Depends(web_auth.require_admin_or_api)
+    ):
+        try:
+            _wh_set(
+                urls=payload.get("urls"),
+                headers=payload.get("headers"),
+                template=payload.get("template"),
+                timeout=payload.get("timeout"),
+                threshold_count=payload.get("threshold_count"),
+                threshold_window=payload.get("threshold_window"),
+            )
+            return _wh_get()
+        except Exception:
+            logger.error("Failed to update webhooks", exc_info=True)
+            return JSONResponse(
+                {"detail": "Failed to update webhooks"}, status_code=400
+            )
+
+    # --------------------------------------------------------------------
+    # COMMAND AUTHORIZATION API (rules)
+    # --------------------------------------------------------------------
+    try:
+        from tacacs_server.authorization.command_authorization import (
+            router as command_router,
+        )
+
+        app.include_router(command_router)
+        logger.debug("Included command authorization API routes")
+    except Exception as exc:
+        logger.error("Failed to include command authorization API routes: %s", exc)
 
     # Ensure OpenAPI schema generation is bound and UI helpers are available.
     # This makes /openapi.json and /api/docs stable even when custom routers are used.
@@ -685,34 +860,7 @@ def create_app(
         except Exception:
             return JSONResponse({"detail": "Metrics unavailable"}, status_code=500)
 
-    @app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
-    async def metrics():
-        """Prometheus metrics endpoint"""
-        try:
-            data = generate_latest()
-            return PlainTextResponse(content=data, media_type=CONTENT_TYPE_LATEST)
-        except Exception as e:
-            logger.error(f"Metrics generation error: {e}")
-            return PlainTextResponse("# Metrics unavailable\n", status_code=500)
-
-    # --------------------------------------------------------------------
-    # Compatibility admin API shims for legacy paths
-    # --------------------------------------------------------------------
-
-    @app.post("/api/admin/reset-stats", include_in_schema=False)
-    async def compat_admin_reset_stats(
-        _: None = Depends(web_auth.require_admin_or_api),
-    ):
-        try:
-            srv = getattr(app.state, "tacacs_server", None)
-            if srv and hasattr(srv, "reset_stats"):
-                try:
-                    srv.reset_stats()
-                except Exception:
-                    pass  # Stats reset failed, will continue
-            return {"success": True, "message": "Statistics reset"}
-        except Exception:
-            return JSONResponse({"detail": "Reset failed"}, status_code=500)
+    # No deprecated/compat routes are exposed; consolidated API only.
 
     # ========================================================================
     # ERROR HANDLERS

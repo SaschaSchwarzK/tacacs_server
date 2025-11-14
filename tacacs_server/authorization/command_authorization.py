@@ -682,3 +682,12 @@ async def apply_rule_template(template_name: str):
         logger.warning("Failed to persist applied template %s: %s", template_name, exc)
 
     return {"message": f"Applied template: {template_name}", "rules_count": len(rules)}
+
+
+@router.get("/", dependencies=[Depends(_admin_guard_dep)])
+async def command_auth_root():
+    """Base endpoint: return current rules list (or empty)."""
+    engine = get_command_engine()
+    if engine is None:
+        engine = CommandAuthorizationEngine()
+    return {"rules": engine.export_config()}

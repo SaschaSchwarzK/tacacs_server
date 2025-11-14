@@ -1402,6 +1402,7 @@ async def config_page(request: Request):
                 "auth": config_data.get("auth", {}),
                 "ldap": config_data.get("ldap", {}),
                 "okta": config_data.get("okta", {}),
+                "radius_auth": config_data.get("radius_auth", {}),
             }
 
             config_source = getattr(

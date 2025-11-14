@@ -20,6 +20,7 @@ SECTION_DEVICES = "devices"
 SECTION_RADIUS = "radius"
 SECTION_MONITORING = "monitoring"
 SECTION_PROXY_PROTOCOL = "proxy_protocol"
+SECTION_RADIUS_AUTH = "radius_auth"
 
 # Environment variable prefixes
 ENV_PREFIX = "TACACS_"
@@ -32,6 +33,7 @@ ENV_OKTA_CLIENT_ID = "OKTA_CLIENT_ID"
 ENV_OKTA_PRIVATE_KEY = "OKTA_PRIVATE_KEY"
 ENV_OKTA_API_TOKEN = "OKTA_API_TOKEN"
 ENV_BACKUP_ENCRYPTION_PASSPHRASE = "BACKUP_ENCRYPTION_PASSPHRASE"
+ENV_RADIUS_AUTH_SECRET = "RADIUS_AUTH_SECRET"
 
 # Meta-configuration
 ENV_TACACS_CONFIG = "TACACS_CONFIG"
@@ -172,5 +174,14 @@ DEFAULTS = {
         "enabled": "false",
         "validate_sources": "true",
         "reject_invalid": "true",
+    },
+    SECTION_RADIUS_AUTH: {
+        "radius_server": "127.0.0.1",
+        "radius_port": "1812",
+        "radius_secret": "",
+        "radius_timeout": "5",
+        "radius_retries": "3",
+        "radius_nas_ip": "0.0.0.0",
+        "radius_nas_identifier": "",
     },
 }
