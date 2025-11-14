@@ -160,6 +160,32 @@ async function saveRadiusSettings() {
   } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
 }
 
+async function saveRadiusAuthBackendSettings() {
+  const status = document.getElementById('radius-auth-status');
+  status.textContent = '';
+  const ra = {};
+  const fields = [
+    'server','port','secret','timeout','retries','nas_ip','nas_identifier'
+  ];
+  fields.forEach(suffix => {
+    const el = document.getElementById('radius_auth_' + suffix);
+    if (el && el.value !== undefined) {
+      const val = el.value.trim();
+      if (val !== '') ra['radius_' + suffix] = val;
+    }
+  });
+  try {
+    const resp = await fetch('/admin/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ radius_auth: ra })
+    });
+    if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
+    flashStatus(status, 'Saved', 'success');
+    showToast('RADIUS auth backend saved');
+  } catch(e) { flashStatus(status, 'Error: ' + e, 'error'); }
+}
+
 async function saveWebSettings() {
   const status = document.getElementById('web-status');
   status.textContent = '';

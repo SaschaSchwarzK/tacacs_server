@@ -1,0 +1,12 @@
+# FreeRADIUS 'users' file for E2E
+
+# Valid user with group attributes via Filter-Id and Class (group:...)
+raduser Cleartext-Password := "Passw0rd"
+    Service-Type := Login-User,
+    Filter-Id := "netops",
+    Class := "group:netops"
+
+# Invalid user (used to test rejection)
+baduser Cleartext-Password := "badpass"
+    Service-Type := Login-User
+

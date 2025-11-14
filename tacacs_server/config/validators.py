@@ -39,6 +39,8 @@ def validate_config(config: configparser.ConfigParser) -> list[str]:
             config_dict["ldap"] = dict(config["ldap"])
         if "okta" in config:
             config_dict["okta"] = dict(config["okta"])
+        if "radius_auth" in config:
+            config_dict["radius_auth"] = dict(config["radius_auth"])
 
         validated: TacacsConfigSchema = validate_config_file(config_dict)
         logger.info("✓ Configuration validation passed")
@@ -97,8 +99,40 @@ def _validate_auth_config(config: configparser.ConfigParser) -> list[str]:
         issues.append("No authentication backends configured")
 
     for backend in backends:
-        if backend not in ["local", "ldap", "okta"]:
+        if backend not in ["local", "ldap", "okta", "radius"]:
             issues.append(f"Unknown authentication backend: {backend}")
+
+    # When radius auth backend selected, ensure section exists and minimally valid
+    if "radius" in backends:
+        if "radius_auth" not in config:
+            issues.append("Radius backend selected but [radius_auth] section missing")
+        else:
+            sec = config["radius_auth"]
+            if not sec.get("radius_server", "").strip():
+                issues.append("[radius_auth].radius_server is required")
+            try:
+                port = int(sec.get("radius_port", "1812"))
+                if port < 1 or port > 65535:
+                    issues.append("[radius_auth].radius_port must be 1-65535")
+            except Exception:
+                issues.append("[radius_auth].radius_port must be an integer")
+            secret = sec.get("radius_secret", "").strip()
+            if len(secret) < 8:
+                issues.append(
+                    "[radius_auth].radius_secret must be at least 8 characters"
+                )
+            try:
+                timeout = int(sec.get("radius_timeout", "5"))
+                if timeout < 1 or timeout > 60:
+                    issues.append("[radius_auth].radius_timeout must be 1-60 seconds")
+            except Exception:
+                issues.append("[radius_auth].radius_timeout must be an integer")
+            try:
+                retries = int(sec.get("radius_retries", "3"))
+                if retries < 0 or retries > 10:
+                    issues.append("[radius_auth].radius_retries must be 0-10")
+            except Exception:
+                issues.append("[radius_auth].radius_retries must be an integer")
 
     # Database file validation
     auth_db = config.get("auth", "local_auth_db", fallback="")
@@ -169,6 +203,11 @@ def validate_change(
                 **(
                     {"backup": payload.get("backup", {})} if "backup" in payload else {}
                 ),
+                **(
+                    {"radius_auth": payload.get("radius_auth", {})}
+                    if "radius_auth" in payload
+                    else {}
+                ),
             }
         )
     except Exception as e:
@@ -189,12 +228,52 @@ def validate_change(
     if section == "auth" and key == "backends":
         try:
             backends = [b.strip().lower() for b in str(value).split(",") if b.strip()]
-            valid = {"local", "ldap", "okta"}
+            valid = {"local", "ldap", "okta", "radius"}
             for b in backends:
                 if b not in valid:
                     issues.append(f"Unknown backend: {b}")
         except Exception:
             issues.append("Invalid backends format")
+
+    # radius_auth section validation
+    if section == "radius_auth":
+        k = key.lower()
+        if k == "radius_port":
+            try:
+                port_int = int(value)
+                if port_int < 1 or port_int > 65535:
+                    issues.append("radius_port must be 1-65535")
+            except Exception:
+                issues.append("radius_port must be an integer")
+        elif k == "radius_secret":
+            if not str(value).strip() or len(str(value).strip()) < 8:
+                issues.append("radius_secret must be at least 8 characters")
+            if len(str(value)) > 128:
+                issues.append("radius_secret must be 128 characters or less")
+        elif k == "radius_timeout":
+            try:
+                t = int(value)
+                if t < 1 or t > 60:
+                    issues.append("radius_timeout must be 1-60")
+            except Exception:
+                issues.append("radius_timeout must be an integer")
+        elif k == "radius_retries":
+            try:
+                r = int(value)
+                if r < 0 or r > 10:
+                    issues.append("radius_retries must be 0-10")
+            except Exception:
+                issues.append("radius_retries must be an integer")
+        elif k == "radius_nas_ip":
+            sval = str(value).strip()
+            # Allow empty -> default, or validate IPv4/IPv6 literal
+            if sval:
+                try:
+                    import ipaddress
+
+                    ipaddress.ip_address(sval)
+                except Exception:
+                    issues.append("radius_nas_ip must be a valid IP address")
 
     # Devices custom validation
     if section == "devices":

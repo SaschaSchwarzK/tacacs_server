@@ -46,7 +46,7 @@ A modern, enterprise-grade TACACS+/RADIUS appliance REST API.
 
 - **Device Management**: Manage network devices and device groups
 - **User Management**: Local user accounts with group assignments
-- **Authentication**: Multiple backends (Local, LDAP, Okta)
+- **Authentication**: Multiple backends (Local, LDAP, Okta, RADIUS client)
 - **Monitoring**: Real-time metrics and health checks
 - **Accounting**: Comprehensive audit trail and accounting records
 - **Configuration**: Dynamic configuration management
@@ -103,7 +103,7 @@ Real-time updates available via WebSocket:
 - [Full Documentation](https://github.com/SaschaSchwarzK/tacacs_server/blob/develop/docs/API_REFERENCE.md)
 - [GitHub Repository](https://github.com/SaschaSchwarzK/tacacs_server)
 - [Issue Tracker](https://github.com/SaschaSchwarzK/tacacs_server/issues)
-        """,
+\n## Configuration: RADIUS Auth Backend (client)\n\nUse an external RADIUS server to authenticate TACACS+ users.\n\nSection: `[radius_auth]`\n- `radius_server` (required): Host or IP\n- `radius_port` (default `1812`): Auth port\n- `radius_secret` (required): Shared secret (environment only)\n- `radius_timeout` (default `5`): Seconds (1–60)\n- `radius_retries` (default `3`): Attempts (0–10)\n- `radius_nas_ip` (default `0.0.0.0`): NAS-IP-Address\n- `radius_nas_identifier` (optional): NAS-Identifier string\n\nEnvironment overrides:\n- Non-secrets via `TACACS_RADIUS_AUTH_<KEY>` (e.g., `TACACS_RADIUS_AUTH_RADIUS_SERVER`)\n- Secret via `RADIUS_AUTH_SECRET` (sets `[radius_auth].radius_secret`)\n\nAdd `radius` to `[auth].backends` to enable.\n        """,
         routes=app.routes,
         tags=[
             {
