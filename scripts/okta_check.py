@@ -15,15 +15,15 @@ Inputs:
 """
 
 import argparse
+import configparser
 import getpass
 import json
 import os
 import sys
+import time
 from urllib.parse import urljoin
 
 import requests
-import configparser
-import time
 
 try:
     import jwt  # PyJWT
@@ -91,13 +91,18 @@ def _get_oauth_token(cfg: dict, verify=True) -> str | None:
         # Basic auth header
         from base64 import b64encode
 
-        basic = b64encode(f"{cid}:{csec}".encode("utf-8")).decode("ascii")
+        basic = b64encode(f"{cid}:{csec}".encode()).decode("ascii")
         headers = {
             "Authorization": f"Basic {basic}",
             "Content-Type": "application/x-www-form-urlencoded",
         }
-        data = {"grant_type": "client_credentials", "scope": "okta.users.read okta.groups.read"}
-        r = requests.post(token_endpoint, headers=headers, data=data, verify=verify, timeout=15)
+        data = {
+            "grant_type": "client_credentials",
+            "scope": "okta.users.read okta.groups.read",
+        }
+        r = requests.post(
+            token_endpoint, headers=headers, data=data, verify=verify, timeout=15
+        )
         if r.status_code == 200:
             return (r.json() or {}).get("access_token")
         return None
@@ -111,7 +116,7 @@ def _get_oauth_token(cfg: dict, verify=True) -> str | None:
         if not (cid and pk_path and kid):
             return None
         try:
-            with open(pk_path, "r", encoding="utf-8") as f:
+            with open(pk_path, encoding="utf-8") as f:
                 private_key = f.read()
         except Exception:
             return None
@@ -124,7 +129,9 @@ def _get_oauth_token(cfg: dict, verify=True) -> str | None:
             "exp": now + 300,
             "jti": os.urandom(16).hex(),
         }
-        assertion = jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": kid})
+        assertion = jwt.encode(
+            claims, private_key, algorithm="RS256", headers={"kid": kid}
+        )
         data = {
             "grant_type": "client_credentials",
             "scope": "okta.users.read okta.groups.read",
@@ -141,8 +148,13 @@ def _get_oauth_token(cfg: dict, verify=True) -> str | None:
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--org", help="Okta org URL (or set OKTA_ORG env)")
-    p.add_argument("--backend-config", help="Path to backend config INI (e.g., config/okta.generated.conf)")
-    p.add_argument("--manifest", help="Path to okta_test_data.json (optional, to pick username)")
+    p.add_argument(
+        "--backend-config",
+        help="Path to backend config INI (e.g., config/okta.generated.conf)",
+    )
+    p.add_argument(
+        "--manifest", help="Path to okta_test_data.json (optional, to pick username)"
+    )
     p.add_argument(
         "--api-token",
         help="Okta Management API token (SSWS) or set OKTA_API_TOKEN env",
@@ -170,16 +182,18 @@ def main():
     # Try manifest for default username if not provided
     if not username and args.manifest and os.path.exists(args.manifest):
         try:
-            with open(args.manifest, "r", encoding="utf-8") as f:
+            with open(args.manifest, encoding="utf-8") as f:
                 m = json.load(f)
-            users = (m.get("users") or {})
+            users = m.get("users") or {}
             op = users.get("operator") or {}
             username = op.get("login") or username
         except Exception:
             pass
     username = username or input("Username: ").strip()
-    password = args.password or os.getenv("OKTA_PASSWORD") or getpass.getpass(
-        "Password (will not be echoed): "
+    password = (
+        args.password
+        or os.getenv("OKTA_PASSWORD")
+        or getpass.getpass("Password (will not be echoed): ")
     )
 
     # Always AuthN flow
@@ -227,9 +241,13 @@ def main():
             except Exception:
                 print(gr.text)
         else:
-            print("\nNote: No OAuth/SSWS credentials available — skipping Management API groups lookup.")
+            print(
+                "\nNote: No OAuth/SSWS credentials available — skipping Management API groups lookup."
+            )
     else:
-        print("\nNote: AuthN response did not include user id — cannot call groups endpoint.")
+        print(
+            "\nNote: AuthN response did not include user id — cannot call groups endpoint."
+        )
     # ROPC path removed entirely
 
     print("\nDone.")

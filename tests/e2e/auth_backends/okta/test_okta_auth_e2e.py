@@ -16,7 +16,6 @@ from __future__ import annotations
 import configparser
 import json
 import os
-import shutil
 import subprocess
 import time
 import uuid
@@ -32,8 +31,8 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
 
 
 def _wait_http(url: str, timeout: float = 60.0) -> None:
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     start = time.time()
     last_err: Exception | None = None
@@ -58,11 +57,17 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
     okta_cfg_path = project_root / "config" / "okta.generated.conf"
     manifest_path = project_root / "okta_test_data.json"
 
-    if not base_cfg_path.exists() or not okta_cfg_path.exists() or not manifest_path.exists():
-        pytest.skip("Missing required files: tacacs.container.ini / okta.generated.conf / okta_test_data.json")
+    if (
+        not base_cfg_path.exists()
+        or not okta_cfg_path.exists()
+        or not manifest_path.exists()
+    ):
+        pytest.skip(
+            "Missing required files: tacacs.container.ini / okta.generated.conf / okta_test_data.json"
+        )
 
     # Load manifest for test user and expected group
-    with open(manifest_path, "r", encoding="utf-8") as f:
+    with open(manifest_path, encoding="utf-8") as f:
         manifest = json.load(f)
     op = (manifest.get("users") or {}).get("operator") or {}
     operator_login = op.get("login") or os.getenv("OKTA_OPERATOR_LOGIN")
@@ -72,21 +77,25 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
     if not operator_login:
         pytest.skip("No operator login in manifest and no OKTA_OPERATOR_LOGIN set")
     # expected group from preparer
-    expected_group = (manifest.get("groups") or {}).get("ops", {}).get("name", "tacacs-ops")
+    expected_group = (
+        (manifest.get("groups") or {}).get("ops", {}).get("name", "tacacs-ops")
+    )
 
     # Optional pre-check: verify AuthN and OAuth from host to avoid false negatives
     try:
-        pre = _run([
-            "python",
-            str(project_root / "scripts" / "okta_check.py"),
-            "--backend-config",
-            str(okta_cfg_path),
-            "--username",
-            operator_login,
-            "--password",
-            operator_password,
-            "--insecure",
-        ])
+        pre = _run(
+            [
+                "python",
+                str(project_root / "scripts" / "okta_check.py"),
+                "--backend-config",
+                str(okta_cfg_path),
+                "--username",
+                operator_login,
+                "--password",
+                operator_password,
+                "--insecure",
+            ]
+        )
         if pre.returncode != 0:
             pytest.skip(f"Okta pre-check failed: {pre.stdout} {pre.stderr}")
     except Exception:
@@ -117,7 +126,9 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
     # Keep TLS verification enabled by default (env/proxy may supply CA)
     okta_sec.setdefault("verify_tls", "true")
     # Require a client_id for private_key_jwt; if missing, skip with guidance
-    if okta_sec.get("auth_method", "").lower() == "private_key_jwt" and not okta_sec.get("client_id"):
+    if okta_sec.get(
+        "auth_method", ""
+    ).lower() == "private_key_jwt" and not okta_sec.get("client_id"):
         pytest.skip(
             "[okta] client_id missing in config/okta.generated.conf. Re-run tools/okta_prepare_org.py with --create-service-app to regenerate."
         )
@@ -144,7 +155,7 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
             host_priv_key = (project_root / ocp["okta"]["private_key"]).resolve()
             if not host_priv_key.exists():
                 # Maybe the file is relative to CWD
-                host_priv_key = (Path(ocp["okta"]["private_key"]).resolve())
+                host_priv_key = Path(ocp["okta"]["private_key"]).resolve()
     except Exception:
         host_priv_key = None
 
@@ -169,9 +180,11 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
         f"{tacacs_host_port}:5049",
         "-p",
         f"{api_host_port}:8080",
-        "-e", f"API_TOKEN={api_token}",
+        "-e",
+        f"API_TOKEN={api_token}",
         # Increase log verbosity and enable backend timing headroom
-        "-e", "LOG_LEVEL=DEBUG",
+        "-e",
+        "LOG_LEVEL=DEBUG",
         "-e",
         "PYTHONUNBUFFERED=1",
         "-v",
@@ -182,16 +195,31 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
         f"{logs_dir}:/app/logs",
     ]
     # Forward proxy-related environment into the container if present
-    for env_key in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
+    for env_key in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+    ):
         val = os.environ.get(env_key)
         if val:
             run_cmd += ["-e", f"{env_key}={val}"]
     # If a CA bundle is provided on host, mount and point container to it
     ca_path = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE")
     if ca_path and os.path.exists(ca_path):
-        run_cmd += ["-v", f"{ca_path}:/app/config/okta_ca.pem:ro", "-e", "REQUESTS_CA_BUNDLE=/app/config/okta_ca.pem"]
+        run_cmd += [
+            "-v",
+            f"{ca_path}:/app/config/okta_ca.pem:ro",
+            "-e",
+            "REQUESTS_CA_BUNDLE=/app/config/okta_ca.pem",
+        ]
     if host_priv_key and host_priv_key.exists():
-        run_cmd += ["-v", f"{host_priv_key}:/app/config/okta_service_private_key.pem:ro"]
+        run_cmd += [
+            "-v",
+            f"{host_priv_key}:/app/config/okta_service_private_key.pem:ro",
+        ]
     run_cmd += [
         tacacs_image,
         "sh",
@@ -215,16 +243,25 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
         # Optional in-container network probe to Okta issuer for diagnostics
         issuer = ocp["okta"].get("org_url", "").rstrip("/")
         if issuer:
-            probe = _run([
-                "docker","exec", tacacs_container, "sh","-lc",
-                f"curl -sS -o /dev/null -w '%{{http_code}}' {issuer}/.well-known/openid-configuration || true"
-            ])
+            probe = _run(
+                [
+                    "docker",
+                    "exec",
+                    tacacs_container,
+                    "sh",
+                    "-lc",
+                    f"curl -sS -o /dev/null -w '%{{http_code}}' {issuer}/.well-known/openid-configuration || true",
+                ]
+            )
             # Not hard failing here; just printing for visibility if needed
             if probe.stdout.strip() and probe.stdout.strip() != "200":
-                print(f"[okta e2e] in-container issuer probe returned {probe.stdout.strip()}\n{probe.stderr}")
+                print(
+                    f"[okta e2e] in-container issuer probe returned {probe.stdout.strip()}\n{probe.stderr}"
+                )
 
         # Prepare device group + device via API so TACACS knows a shared secret
         import requests
+
         session = requests.Session()
         session.headers.update({"X-API-Token": api_token})
         base_url = f"http://127.0.0.1:{api_host_port}"
@@ -235,13 +272,19 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
             "description": "Okta E2E devices",
             "tacacs_secret": tacacs_secret,
         }
-        r_dg = session.post(f"{base_url}/api/device-groups", json=dg_payload, timeout=15)
+        r_dg = session.post(
+            f"{base_url}/api/device-groups", json=dg_payload, timeout=15
+        )
         if r_dg.status_code not in (200, 201, 409):
             r_dg.raise_for_status()
         # Resolve group id
         r_list = session.get(f"{base_url}/api/device-groups", timeout=15)
         r_list.raise_for_status()
-        items = r_list.json() if r_list.headers.get("content-type", "").startswith("application/json") else []
+        items = (
+            r_list.json()
+            if r_list.headers.get("content-type", "").startswith("application/json")
+            else []
+        )
         gid = None
         for it in items:
             if isinstance(it, dict) and str(it.get("name", "")).lower() == "e2e-okta":
@@ -276,23 +319,38 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
         if not ok:
             # Dump container logs and in-container log files to aid diagnosis
             logs = _run(["docker", "logs", tacacs_container])
-            stdouterr = _run([
-                "docker","exec", tacacs_container, "sh","-lc",
-                "[ -f /app/logs/stdouterr.log ] && tail -n 200 /app/logs/stdouterr.log || true"
-            ])
-            tacacs_log = _run([
-                "docker","exec", tacacs_container, "sh","-lc",
-                "[ -f /app/logs/tacacs.log ] && tail -n 200 /app/logs/tacacs.log || true"
-            ])
+            stdouterr = _run(
+                [
+                    "docker",
+                    "exec",
+                    tacacs_container,
+                    "sh",
+                    "-lc",
+                    "[ -f /app/logs/stdouterr.log ] && tail -n 200 /app/logs/stdouterr.log || true",
+                ]
+            )
+            tacacs_log = _run(
+                [
+                    "docker",
+                    "exec",
+                    tacacs_container,
+                    "sh",
+                    "-lc",
+                    "[ -f /app/logs/tacacs.log ] && tail -n 200 /app/logs/tacacs.log || true",
+                ]
+            )
             raise AssertionError(
                 "Expected auth success: {msg}\n"
                 "--- container logs ---\n{cl}\n"
                 "--- stdouterr.log (tail) ---\n{se}\n"
                 "--- tacacs.log (tail) ---\n{tl}\n".format(
                     msg=msg,
-                    cl=(logs.stdout or "") + ("\n" + logs.stderr if logs.stderr else ""),
-                    se=(stdouterr.stdout or "") + ("\n" + stdouterr.stderr if stdouterr.stderr else ""),
-                    tl=(tacacs_log.stdout or "") + ("\n" + tacacs_log.stderr if tacacs_log.stderr else ""),
+                    cl=(logs.stdout or "")
+                    + ("\n" + logs.stderr if logs.stderr else ""),
+                    se=(stdouterr.stdout or "")
+                    + ("\n" + stdouterr.stderr if stdouterr.stderr else ""),
+                    tl=(tacacs_log.stdout or "")
+                    + ("\n" + tacacs_log.stderr if tacacs_log.stderr else ""),
                 )
             )
 
@@ -308,11 +366,13 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
 
         # Groups lookup via OAuth (direct Okta call) – ensure expected group exists for operator
         # Reuse scripts/okta_check.py logic lightly
-        import configparser as _cp
-        import requests as _rq
         import time as _t
+
+        import requests as _rq
+
         try:
             from base64 import b64encode as _b64e
+
             import jwt as _jwt
         except Exception:  # pragma: no cover
             _jwt = None
@@ -322,30 +382,63 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
             t_ep = sec.get("token_endpoint") or f"{org.rstrip('/')}/oauth2/v1/token"
             method = sec.get("auth_method", "").lower()
             if method == "client_secret":
-                cid = sec.get("client_id"); cs = sec.get("client_secret")
+                cid = sec.get("client_id")
+                cs = sec.get("client_secret")
                 if not (cid and cs):
                     return None
-                headers = {"Authorization": f"Basic {_b64e(f'{cid}:{cs}'.encode()).decode()}", "Content-Type": "application/x-www-form-urlencoded"}
-                data = {"grant_type": "client_credentials", "scope": "okta.users.read okta.groups.read"}
+                headers = {
+                    "Authorization": f"Basic {_b64e(f'{cid}:{cs}'.encode()).decode()}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                }
+                data = {
+                    "grant_type": "client_credentials",
+                    "scope": "okta.users.read okta.groups.read",
+                }
                 rr = _rq.post(t_ep, headers=headers, data=data, timeout=15)
-                return (rr.json() or {}).get("access_token") if rr.status_code == 200 else None
+                return (
+                    (rr.json() or {}).get("access_token")
+                    if rr.status_code == 200
+                    else None
+                )
             elif method == "private_key_jwt" and _jwt is not None:
-                cid = sec.get("client_id"); kid = sec.get("private_key_id"); pk = "/app/config/okta_service_private_key.pem"
+                cid = sec.get("client_id")
+                kid = sec.get("private_key_id")
                 # Host path mounted as /app/config/okta_service_private_key.pem in container above,
                 # but here we are on host; use the original path from okta_cfg
                 pk_host = ocp["okta"].get("private_key")
                 if not (cid and kid and pk_host):
                     return None
                 try:
-                    with open(pk_host, "r", encoding="utf-8") as fh:
+                    with open(pk_host, encoding="utf-8") as fh:
                         prv = fh.read()
                 except Exception:
                     return None
                 now = int(_t.time())
-                assertion = _jwt.encode({"iss": cid, "sub": cid, "aud": t_ep, "iat": now, "exp": now + 300, "jti": uuid.uuid4().hex}, prv, algorithm="RS256", headers={"kid": kid})
-                data = {"grant_type": "client_credentials", "scope": "okta.users.read okta.groups.read", "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer", "client_assertion": assertion}
+                assertion = _jwt.encode(
+                    {
+                        "iss": cid,
+                        "sub": cid,
+                        "aud": t_ep,
+                        "iat": now,
+                        "exp": now + 300,
+                        "jti": uuid.uuid4().hex,
+                    },
+                    prv,
+                    algorithm="RS256",
+                    headers={"kid": kid},
+                )
+                data = {
+                    "grant_type": "client_credentials",
+                    "scope": "okta.users.read okta.groups.read",
+                    "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                    "client_assertion": assertion,
+                }
                 rr = _rq.post(t_ep, data=data, timeout=15)
-                return (rr.json() or {}).get("access_token") if rr.status_code == 200 else None
+                return (
+                    (rr.json() or {}).get("access_token")
+                    if rr.status_code == 200
+                    else None
+                )
             return None
 
         token = _get_token(dict(ocp["okta"]))
@@ -356,21 +449,42 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
             if not op.get("id"):
                 # search by login
                 s_url = f"{org.rstrip('/')}/api/v1/users?q={operator_login}"
-                us = _rq.get(s_url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}, timeout=15)
+                us = _rq.get(
+                    s_url,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                    },
+                    timeout=15,
+                )
                 if us.status_code == 200:
                     lst = us.json() or []
                     if lst:
-                        url = f"{org.rstrip('/')}/api/v1/users/{lst[0].get('id')}/groups"
-            gr = _rq.get(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}, timeout=15)
-            assert gr.status_code == 200, f"Groups API failed: {gr.status_code} {gr.text}"
+                        url = (
+                            f"{org.rstrip('/')}/api/v1/users/{lst[0].get('id')}/groups"
+                        )
+            gr = _rq.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+                timeout=15,
+            )
+            assert gr.status_code == 200, (
+                f"Groups API failed: {gr.status_code} {gr.text}"
+            )
             names = {g.get("profile", {}).get("name") for g in (gr.json() or [])}
-            assert expected_group in names, f"Expected group {expected_group} in {names}"
+            assert expected_group in names, (
+                f"Expected group {expected_group} in {names}"
+            )
 
         # Determine the client IP the server sees to create specific /32 devices
         ip_client = None
         try:
             logs_now = _run(["docker", "logs", tacacs_container])
             import re as _re
+
             for line in (logs_now.stdout or "").splitlines()[::-1]:
                 m = _re.search(r"New connection from \('([0-9.]+)',", line)
                 if m:
@@ -403,23 +517,37 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
             "tacacs_secret": tacacs_secret,
             "allowed_user_groups": [ug_name],
         }
-        r_dgr = session.post(f"{base_url}/api/device-groups", json=dg_r_payload, timeout=15)
+        r_dgr = session.post(
+            f"{base_url}/api/device-groups", json=dg_r_payload, timeout=15
+        )
         if r_dgr.status_code not in (200, 201, 409):
             r_dgr.raise_for_status()
         # Resolve id
         r_list2 = session.get(f"{base_url}/api/device-groups", timeout=15)
         r_list2.raise_for_status()
-        items2 = r_list2.json() if r_list2.headers.get("content-type", "").startswith("application/json") else []
+        items2 = (
+            r_list2.json()
+            if r_list2.headers.get("content-type", "").startswith("application/json")
+            else []
+        )
         gid2 = None
         for it in items2:
-            if isinstance(it, dict) and str(it.get("name", "")).lower() == dg_restricted.lower():
+            if (
+                isinstance(it, dict)
+                and str(it.get("name", "")).lower() == dg_restricted.lower()
+            ):
                 gid2 = int(it.get("id", 0))
                 break
         assert gid2, f"device-group {dg_restricted} not found: {items2}"
         # Device in restricted group
         r_dev2 = session.post(
             f"{base_url}/api/devices",
-            json={"name": f"{dg_restricted}-dev", "ip_address": f"{ip_client}/32", "device_group_id": gid2, "enabled": True},
+            json={
+                "name": f"{dg_restricted}-dev",
+                "ip_address": f"{ip_client}/32",
+                "device_group_id": gid2,
+                "enabled": True,
+            },
             timeout=15,
         )
         if r_dev2.status_code not in (200, 201, 409):
@@ -427,12 +555,24 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
 
         # Disable the initial catch-all device to ensure selection of the restricted device-group
         devs_resp = session.get(f"{base_url}/api/devices", timeout=15)
-        devs = devs_resp.json() if devs_resp.headers.get("content-type", "").startswith("application/json") else []
+        devs = (
+            devs_resp.json()
+            if devs_resp.headers.get("content-type", "").startswith("application/json")
+            else []
+        )
         for d in devs:
-            if isinstance(d, dict) and d.get("name") == "okta-device" and d.get("enabled", True):
+            if (
+                isinstance(d, dict)
+                and d.get("name") == "okta-device"
+                and d.get("enabled", True)
+            ):
                 _id = d.get("id")
                 if _id:
-                    session.put(f"{base_url}/api/devices/{_id}", json={"enabled": False}, timeout=15)
+                    session.put(
+                        f"{base_url}/api/devices/{_id}",
+                        json={"enabled": False},
+                        timeout=15,
+                    )
 
         # Auth should succeed because operator is member of expected_group mapped to ug_name
         ok3, msg3 = tacacs_authenticate(
@@ -447,15 +587,24 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
         # 3) Negative: create a user-group mapped to a group the operator is NOT in (admin)
         #    First, delete existing devices to avoid ambiguous matches among same /32
         devs_before = session.get(f"{base_url}/api/devices", timeout=15)
-        if devs_before.status_code == 200 and devs_before.headers.get("content-type", "").startswith("application/json"):
+        if devs_before.status_code == 200 and devs_before.headers.get(
+            "content-type", ""
+        ).startswith("application/json"):
             for d in devs_before.json() or []:
                 if isinstance(d, dict) and d.get("id"):
                     session.delete(f"{base_url}/api/devices/{int(d['id'])}", timeout=15)
-        admin_group = (manifest.get("groups") or {}).get("admin", {}).get("name", "tacacs-admin")
+        admin_group = (
+            (manifest.get("groups") or {}).get("admin", {}).get("name", "tacacs-admin")
+        )
         ug_bad = f"okta-admin-{unique}"
         r_ug2 = session.post(
             f"{base_url}/api/user-groups",
-            json={"name": ug_bad, "description": "Okta admin mapping", "privilege_level": 15, "okta_group": admin_group},
+            json={
+                "name": ug_bad,
+                "description": "Okta admin mapping",
+                "privilege_level": 15,
+                "okta_group": admin_group,
+            },
             timeout=15,
         )
         if r_ug2.status_code not in (200, 201, 409):
@@ -476,16 +625,28 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
         # Resolve id
         r_list3 = session.get(f"{base_url}/api/device-groups", timeout=15)
         r_list3.raise_for_status()
-        items3 = r_list3.json() if r_list3.headers.get("content-type", "").startswith("application/json") else []
+        items3 = (
+            r_list3.json()
+            if r_list3.headers.get("content-type", "").startswith("application/json")
+            else []
+        )
         gid3 = None
         for it in items3:
-            if isinstance(it, dict) and str(it.get("name", "")).lower() == dg_denied.lower():
+            if (
+                isinstance(it, dict)
+                and str(it.get("name", "")).lower() == dg_denied.lower()
+            ):
                 gid3 = int(it.get("id", 0))
                 break
         assert gid3, f"device-group {dg_denied} not found: {items3}"
         r_dev3 = session.post(
             f"{base_url}/api/devices",
-            json={"name": f"{dg_denied}-dev", "ip_address": f"{ip_client}/32", "device_group_id": gid3, "enabled": True},
+            json={
+                "name": f"{dg_denied}-dev",
+                "ip_address": f"{ip_client}/32",
+                "device_group_id": gid3,
+                "enabled": True,
+            },
             timeout=15,
         )
         if r_dev3.status_code not in (200, 201, 409):
@@ -493,12 +654,24 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
 
         # Disable the restricted device so the denied device-group is selected for the next attempt
         devs_resp2 = session.get(f"{base_url}/api/devices", timeout=15)
-        devs2 = devs_resp2.json() if devs_resp2.headers.get("content-type", "").startswith("application/json") else []
+        devs2 = (
+            devs_resp2.json()
+            if devs_resp2.headers.get("content-type", "").startswith("application/json")
+            else []
+        )
         for d in devs2:
-            if isinstance(d, dict) and d.get("name") == f"{dg_restricted}-dev" and d.get("enabled", True):
+            if (
+                isinstance(d, dict)
+                and d.get("name") == f"{dg_restricted}-dev"
+                and d.get("enabled", True)
+            ):
                 _id = d.get("id")
                 if _id:
-                    session.put(f"{base_url}/api/devices/{_id}", json={"enabled": False}, timeout=15)
+                    session.put(
+                        f"{base_url}/api/devices/{_id}",
+                        json={"enabled": False},
+                        timeout=15,
+                    )
 
         # For denied case, we keep same tacacs_secret; TACACS handler chooses device by IP matching
         ok4, msg4 = tacacs_authenticate(
@@ -508,7 +681,9 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
             username=operator_login,
             password=operator_password,
         )
-        assert not ok4, f"Expected auth failure with admin-only restriction, got: {msg4}"
+        assert not ok4, (
+            f"Expected auth failure with admin-only restriction, got: {msg4}"
+        )
 
     finally:
         _run(["docker", "rm", "-f", tacacs_container])

@@ -9,7 +9,9 @@ class _TestStore(DeviceStore):
         # Attach an 'enabled' attribute dynamically for testing skip-disabled logic
         # Disable device named 'disabled-dev'
         try:
-            object.__setattr__(dev, "enabled", False if dev.name == "disabled-dev" else True)
+            object.__setattr__(
+                dev, "enabled", False if dev.name == "disabled-dev" else True
+            )
         except Exception:
             # If dataclass frozen prevents setattr, use a proxy pattern
             pass
@@ -29,4 +31,3 @@ def test_find_device_for_ip_skips_disabled(tmp_path: Path):
     dev = store.find_device_for_ip("10.0.0.5")
     assert dev is not None
     assert dev.name == "active-dev"
-
