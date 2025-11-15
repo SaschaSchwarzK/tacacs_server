@@ -166,6 +166,47 @@ jobs:
         run: |
           docker rm -f tacacs-ci || true
 
+  docker-smoke-https:
+    name: Docker HTTPS Build • Smoke Test
+    runs-on: ubuntu-latest
+    needs: [setup, quality, tests]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build HTTPS image
+        run: |
+          docker build -f docker/Dockerfile.https -t tacacs-https:ci .
+      - name: Run HTTPS container
+        run: |
+          docker run -d --rm --name tacacs-https-ci \
+            -e CUSTOMER_ID=test \
+            -e AZURE_STORAGE_CONNECTION_STRING=UseDevelopmentStorage=true \
+            -e STORAGE_CONTAINER=tacacs-data \
+            -e ADMIN_PASSWORD=DevAdminPass1 \
+            -e API_TOKEN=devtoken \
+            -p 8443:8443 \
+            tacacs-https:ci
+          echo "Waiting for HTTPS health on https://127.0.0.1:8443/health ..."
+          for i in {1..30}; do
+            if ! docker ps --format '{{.Names}}' | grep -q '^tacacs-https-ci$'; then
+              echo "HTTPS container exited unexpectedly"
+              docker logs tacacs-https-ci || true
+              exit 1
+            fi
+            if curl -kfsS https://127.0.0.1:8443/health >/dev/null 2>&1; then
+              echo "HTTPS container healthcheck OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for HTTPS health"
+          docker logs tacacs-https-ci || true
+          exit 1
+      - name: Stop HTTPS container
+        if: always()
+        run: |
+          docker rm -f tacacs-https-ci || true
+
   security-tests:
     name: Security Tests
     runs-on: ubuntu-latest

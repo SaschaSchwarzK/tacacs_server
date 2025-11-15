@@ -1,0 +1,70 @@
+FROM python:3.13-slim AS build
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml poetry.lock ./
+RUN pip install --no-cache-dir poetry poetry-plugin-export \
+ && poetry export -f requirements.txt -o req.txt --without-hashes
+
+RUN python -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+ && /opt/venv/bin/pip install --no-cache-dir -r req.txt \
+ && /opt/venv/bin/pip install --no-cache-dir \
+      azure-storage-blob \
+      azure-identity \
+      azure-keyvault-secrets \
+      cryptography
+
+COPY . .
+RUN /opt/venv/bin/pip install --no-cache-dir .
+
+###########
+# Runner  #
+###########
+FROM python:3.13-slim AS run
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH
+
+WORKDIR /app
+
+# Install Caddy + runtime deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tini curl libffi8 debian-keyring debian-archive-keyring apt-transport-https gnupg \
+    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list \
+    && apt-get update \
+    && apt-get install -y caddy \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -r -m app \
+ && mkdir -p /app/logs /app/config /certs \
+ && chown -R app:app /app /certs
+
+COPY --from=build /opt/venv /opt/venv
+COPY config/tacacs.aci.ini /app/config/tacacs.ini
+COPY docker/https/bootstrap-https.sh /app/bootstrap.sh
+COPY docker/https/fetch_cert.py /app/fetch_cert.py
+COPY docker/https/Caddyfile /app/Caddyfile
+
+RUN chmod +x /app/bootstrap.sh /app/fetch_cert.py
+
+USER app
+
+EXPOSE 49/tcp 1812/udp 1813/udp 8443/tcp
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -fsSk https://127.0.0.1:8443/health || curl -fsS http://127.0.0.1:8080/health || exit 1
+
+ENTRYPOINT ["tini","--"]
+CMD ["/bin/bash", "/app/bootstrap.sh"]
+
