@@ -944,28 +944,10 @@ class RADIUSServer:
                 client_config.network,
             )
 
-            # Build allowed Okta groups from client config -> allowed_user_groups -> local user groups' okta_group
-            allowed_okta_groups: list[str] = []
-            try:
-                allowed = list(getattr(client_config, "allowed_user_groups", []) or [])
-                if allowed and self.local_user_group_service:
-                    for gname in allowed:
-                        try:
-                            rec = self.local_user_group_service.get_group(gname)
-                            okg = getattr(rec, "okta_group", None)
-                            if okg:
-                                allowed_okta_groups.append(str(okg))
-                        except Exception:
-                            # Group lookup failed, skip this group
-                            continue
-            except Exception:
-                # Okta group resolution failed, continue without Okta groups
-                allowed_okta_groups = []
-
-            # Authenticate against backends with allowed Okta groups context
-            authenticated, auth_detail = self._authenticate_user(
-                username, password, allowed_okta_groups=allowed_okta_groups
-            )
+            # Authenticate against backends; backend-specific group enforcement is
+            # handled in the TACACS AAA layer for TACACS flows. RADIUS backend
+            # itself does not need device-scoped Okta groups here.
+            authenticated, auth_detail = self._authenticate_user(username, password)
 
             device_label = (
                 client_config.group or client_config.name or str(client_config.network)

@@ -1263,6 +1263,7 @@ async def user_groups_page(request: Request):
                     "metadata": r.metadata,
                     "ldap_group": r.ldap_group,
                     "okta_group": r.okta_group,
+                    "radius_group": getattr(r, "radius_group", None),
                     "privilege_level": r.privilege_level,
                 }
                 for r in records
@@ -1298,6 +1299,7 @@ async def create_user_group(request: Request):
             metadata=data.get("metadata"),
             ldap_group=data.get("ldap_group"),
             okta_group=data.get("okta_group"),
+            radius_group=data.get("radius_group"),
             privilege_level=int(data.get("privilege_level", 1)),
         )
         from fastapi.responses import JSONResponse
@@ -1321,6 +1323,7 @@ async def get_user_group(request: Request, name: str):
             "metadata": rec.metadata,
             "ldap_group": rec.ldap_group,
             "okta_group": rec.okta_group,
+            "radius_group": getattr(rec, "radius_group", None),
             "privilege_level": rec.privilege_level,
         }
     except Exception:
@@ -1341,6 +1344,7 @@ async def update_user_group(request: Request, name: str):
             metadata=data.get("metadata"),
             ldap_group=data.get("ldap_group") if "ldap_group" in data else UNSET,
             okta_group=data.get("okta_group") if "okta_group" in data else UNSET,
+            radius_group=data.get("radius_group") if "radius_group" in data else UNSET,
             privilege_level=int(data.get("privilege_level"))
             if "privilege_level" in data
             else None,

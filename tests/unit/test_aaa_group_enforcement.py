@@ -120,13 +120,12 @@ def test_group_enforcement_radius_mapping_uses_metadata_radius_group() -> None:
         {"alice": {"radius-admins"}},
         allowed_user_groups=["admins"],
     )
-    # Override group records with radius-specific metadata mapping
+    # Override group record with explicit radius_group mapping
     handlers.local_user_group_service._mapping["admins"] = _FakeGroupRecord(
-        okta_group=None
+        okta_group=None,
+        metadata={},
     )
-    handlers.local_user_group_service._mapping["admins"].metadata["radius_group"] = (
-        "radius-admins"
-    )
+    handlers.local_user_group_service._mapping["admins"].radius_group = "radius-admins"
     allowed, reason = handlers._enforce_device_group_policy("radius", "alice", device)
     assert allowed is True
     assert reason is None

@@ -1061,30 +1061,21 @@ class AAAHandlers:
                     record = self.local_user_group_service.get_group(gname)
                 except Exception:
                     continue
-                try:
-                    backend_name_norm = str(getattr(backend, "name", "")).lower()
-                except Exception:
-                    backend_name_norm = ""
+                backend_name_norm = str(getattr(backend, "name", "")).lower()
                 target_value: str | None = None
-                try:
-                    if backend_name_norm == "okta":
-                        target_value = getattr(record, "okta_group", None)
-                    elif backend_name_norm == "ldap":
-                        target_value = getattr(record, "ldap_group", None)
-                    elif backend_name_norm == "radius":
-                        md = getattr(record, "metadata", {}) or {}
-                        if isinstance(md, dict):
-                            raw = md.get("radius_group")
-                            if raw is not None:
-                                target_value = str(raw)
-                        # Fallback to local group name when no explicit radius_group
-                        if target_value is None:
-                            target_value = getattr(record, "name", None)
-                    elif backend_name_norm == "local":
-                        # For local backend, match directly on local group name.
-                        target_value = getattr(record, "name", None)
-                except Exception:
-                    target_value = None
+                if backend_name_norm == "okta":
+                    target_value = getattr(record, "okta_group", None)
+                elif backend_name_norm == "ldap":
+                    target_value = getattr(record, "ldap_group", None)
+                elif backend_name_norm == "radius":
+                    # For RADIUS, match against explicit radius_group if set,
+                    # otherwise fall back to the local group name.
+                    target_value = getattr(record, "radius_group", None) or getattr(
+                        record, "name", None
+                    )
+                elif backend_name_norm == "local":
+                    # For local backend, match directly on local group name.
+                    target_value = getattr(record, "name", None)
 
                 if target_value:
                     try:
