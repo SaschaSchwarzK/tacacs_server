@@ -1041,9 +1041,6 @@ class AAAHandlers:
         backend = self._get_backend_by_name(backend_name)
         if backend is None:
             return True, None
-        # Phase 1: only Okta backend participates in AAA group enforcement.
-        if getattr(backend, "name", None) != "okta":
-            return True, None
 
         device_group = getattr(device, "group", None)
         if not device_group:
@@ -1064,10 +1061,34 @@ class AAAHandlers:
                     record = self.local_user_group_service.get_group(gname)
                 except Exception:
                     continue
-                okta_group = getattr(record, "okta_group", None)
-                if okta_group:
+                try:
+                    backend_name_norm = str(getattr(backend, "name", "")).lower()
+                except Exception:
+                    backend_name_norm = ""
+                target_value: str | None = None
+                try:
+                    if backend_name_norm == "okta":
+                        target_value = getattr(record, "okta_group", None)
+                    elif backend_name_norm == "ldap":
+                        target_value = getattr(record, "ldap_group", None)
+                    elif backend_name_norm == "radius":
+                        md = getattr(record, "metadata", {}) or {}
+                        if isinstance(md, dict):
+                            raw = md.get("radius_group")
+                            if raw is not None:
+                                target_value = str(raw)
+                        # Fallback to local group name when no explicit radius_group
+                        if target_value is None:
+                            target_value = getattr(record, "name", None)
+                    elif backend_name_norm == "local":
+                        # For local backend, match directly on local group name.
+                        target_value = getattr(record, "name", None)
+                except Exception:
+                    target_value = None
+
+                if target_value:
                     try:
-                        allowed_targets.add(str(okta_group).lower())
+                        allowed_targets.add(str(target_value).lower())
                     except Exception:
                         continue
 

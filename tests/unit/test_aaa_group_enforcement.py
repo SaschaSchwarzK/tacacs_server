@@ -7,8 +7,8 @@ from tacacs_server.tacacs.handlers import AAAHandlers
 
 
 class _FakeBackend(AuthenticationBackend):
-    def __init__(self, groups_by_user: dict[str, set[str]]):
-        super().__init__("okta")
+    def __init__(self, name: str, groups_by_user: dict[str, set[str]]):
+        super().__init__(name)
         self._groups_by_user = groups_by_user
 
     def authenticate(self, username: str, password: str, **kwargs: Any) -> bool:
@@ -25,8 +25,9 @@ class _FakeBackend(AuthenticationBackend):
 
 
 class _FakeGroupRecord:
-    def __init__(self, okta_group: str | None):
+    def __init__(self, okta_group: str | None, metadata: dict[str, Any] | None = None):
         self.okta_group = okta_group
+        self.metadata = metadata or {}
 
 
 class _FakeLocalUserGroupService:
@@ -52,8 +53,12 @@ class _FakeDevice:
         self.ip = "192.0.2.1"
 
 
-def _build_handlers(groups_by_user: dict[str, set[str]], allowed_user_groups: list[str]):
-    backend = _FakeBackend(groups_by_user)
+def _build_handlers(
+    backend_name: str,
+    groups_by_user: dict[str, set[str]],
+    allowed_user_groups: list[str],
+):
+    backend = _FakeBackend(backend_name, groups_by_user)
     handlers = AAAHandlers([backend], db_logger=None)
     group_records = {
         "admins": _FakeGroupRecord("okta-admins"),
@@ -65,18 +70,22 @@ def _build_handlers(groups_by_user: dict[str, set[str]], allowed_user_groups: li
     return handlers, device
 
 
-def test_group_enforcement_allows_when_groups_intersect() -> None:
+def test_group_enforcement_allows_when_groups_intersect_okta() -> None:
     handlers, device = _build_handlers(
-        {"alice": {"okta-admins"}}, allowed_user_groups=["admins"]
+        "okta",
+        {"alice": {"okta-admins"}},
+        allowed_user_groups=["admins"],
     )
     allowed, reason = handlers._enforce_device_group_policy("okta", "alice", device)
     assert allowed is True
     assert reason is None
 
 
-def test_group_enforcement_denies_when_no_intersection() -> None:
+def test_group_enforcement_denies_when_no_intersection_okta() -> None:
     handlers, device = _build_handlers(
-        {"alice": {"okta-other"}}, allowed_user_groups=["admins"]
+        "okta",
+        {"alice": {"okta-other"}},
+        allowed_user_groups=["admins"],
     )
     allowed, reason = handlers._enforce_device_group_policy("okta", "alice", device)
     assert allowed is False
@@ -85,9 +94,50 @@ def test_group_enforcement_denies_when_no_intersection() -> None:
 
 def test_group_enforcement_noop_when_no_allowed_user_groups() -> None:
     handlers, device = _build_handlers(
-        {"alice": {"okta-admins"}}, allowed_user_groups=[]
+        "okta",
+        {"alice": {"okta-admins"}},
+        allowed_user_groups=[],
     )
     allowed, reason = handlers._enforce_device_group_policy("okta", "alice", device)
     assert allowed is True
     assert reason is None
 
+
+def test_group_enforcement_ldap_mapping_uses_ldap_group_field() -> None:
+    handlers, device = _build_handlers(
+        "ldap",
+        {"alice": {"ldap-admins"}},
+        allowed_user_groups=["admins"],
+    )
+    allowed, reason = handlers._enforce_device_group_policy("ldap", "alice", device)
+    assert allowed is True
+    assert reason is None
+
+
+def test_group_enforcement_radius_mapping_uses_metadata_radius_group() -> None:
+    handlers, device = _build_handlers(
+        "radius",
+        {"alice": {"radius-admins"}},
+        allowed_user_groups=["admins"],
+    )
+    # Override group records with radius-specific metadata mapping
+    handlers.local_user_group_service._mapping["admins"] = _FakeGroupRecord(
+        okta_group=None
+    )
+    handlers.local_user_group_service._mapping["admins"].metadata["radius_group"] = (
+        "radius-admins"
+    )
+    allowed, reason = handlers._enforce_device_group_policy("radius", "alice", device)
+    assert allowed is True
+    assert reason is None
+
+
+def test_group_enforcement_local_mapping_uses_group_name() -> None:
+    handlers, device = _build_handlers(
+        "local",
+        {"alice": {"admins"}},
+        allowed_user_groups=["admins"],
+    )
+    allowed, reason = handlers._enforce_device_group_policy("local", "alice", device)
+    assert allowed is True
+    assert reason is None

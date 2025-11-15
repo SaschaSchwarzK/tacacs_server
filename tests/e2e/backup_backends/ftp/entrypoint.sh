@@ -93,8 +93,15 @@ ls -ld "$SFTP_USER_HOME/.ssh" >&2 || true
 echo "[sshd] authorized_keys perms:" >&2
 ls -l "$SFTP_USER_HOME/.ssh/authorized_keys" >&2 || true
 
-# Ensure server host keys exist
+# Ensure server host keys exist (explicitly generate RSA/ed25519 so tests
+# can read them from /etc/ssh).
 ssh-keygen -A
+if [[ ! -f /etc/ssh/ssh_host_rsa_key ]]; then
+  ssh-keygen -t rsa -b "${SFTP_KEY_BITS:-2048}" -N '' -f /etc/ssh/ssh_host_rsa_key
+fi
+if [[ ! -f /etc/ssh/ssh_host_ed25519_key ]]; then
+  ssh-keygen -t ed25519 -N '' -f /etc/ssh/ssh_host_ed25519_key
+fi
 
 # Configure vsftpd
 PASV_ENABLE=${FTP_PASV_ENABLE:-YES}

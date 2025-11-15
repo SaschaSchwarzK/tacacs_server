@@ -38,14 +38,18 @@ from __future__ import annotations
 import configparser
 import json
 import os
+import secrets
+import string
 import subprocess
 import time
 import uuid
 from pathlib import Path
 
 import pytest
+import requests
 
 from tests.functional.tacacs.test_tacacs_basic import tacacs_authenticate
+from tools import okta_prepare_org
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -67,6 +71,58 @@ def _wait_http(url: str, timeout: float = 60.0) -> None:
             last_err = e
         time.sleep(1.0)
     raise TimeoutError(f"HTTP not ready: {last_err}")
+
+
+def _reset_okta_password(org_url: str, api_token: str, login: str) -> str:
+    """Set a new random password for an Okta user and return it.
+
+    This uses the Okta Users API to update the user's credentials with a
+    freshly generated password. No email is sent. It works even when the
+    user already exists.
+    """
+    base = org_url.rstrip("/")
+    headers = {
+        "Authorization": f"SSWS {api_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    # Find user by login
+    search_query = f'profile.login eq "{login}"'
+    users_resp = requests.get(
+        f"{base}/api/v1/users",
+        headers=headers,
+        params={"search": search_query},
+        timeout=20,
+    )
+    if users_resp.status_code != 200:
+        raise RuntimeError(
+            f"Okta user search failed ({users_resp.status_code}): {users_resp.text}"
+        )
+    users = users_resp.json() or []
+    if not users:
+        raise RuntimeError(f"Okta user with login {login!r} not found")
+    user_id = users[0].get("id")
+    if not user_id:
+        raise RuntimeError("Okta user search response missing 'id'")
+
+    # Generate a strong random password that satisfies common Okta policies.
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+    new_password = "".join(secrets.choice(alphabet) for _ in range(24))
+
+    # Update the user's password via Users API
+    update_payload = {"credentials": {"password": {"value": new_password}}}
+    update_resp = requests.post(
+        f"{base}/api/v1/users/{user_id}",
+        headers=headers,
+        json=update_payload,
+        timeout=20,
+    )
+    if update_resp.status_code not in (200, 201):
+        raise RuntimeError(
+            f"Okta password update failed ({update_resp.status_code}): {update_resp.text}"
+        )
+    return new_password
 
 
 @pytest.mark.e2e
@@ -121,6 +177,41 @@ def test_tacacs_server_with_okta_backend(
     okta_cfg_path = project_root / "config" / "okta.generated.conf"
     manifest_path = project_root / "okta_test_data.json"
 
+    # Okta Management API credentials are required to prepare the org.
+    org_url = os.getenv("OKTA_ORG_URL")
+    api_token = os.getenv("OKTA_API_TOKEN")
+    if not org_url or not api_token:
+        pytest.skip("Set OKTA_ORG_URL and OKTA_API_TOKEN to run Okta E2E prep")
+
+    # Ensure Okta test resources exist (groups, users, service app, keys, config).
+    # This mirrors the recommended CLI usage in tools/okta_prepare_org.py and is
+    # safe to run multiple times (idempotent).
+    try:
+        rc = okta_prepare_org.main(
+            [
+                "--org-url",
+                org_url,
+                "--api-token",
+                api_token,
+                "--output",
+                str(manifest_path),
+                "--no-app",
+                "--create-service-app",
+                "--service-auth-method",
+                "private_key_jwt",
+                "--service-private-key-out",
+                str(project_root / "okta_service_private_key.pem"),
+                "--service-public-jwk-out",
+                str(project_root / "okta_service_public_jwk.json"),
+                "--write-backend-config",
+                str(project_root / "config" / "okta.generated.conf"),
+            ]
+        )
+    except SystemExit as se:  # when parse_args() calls sys.exit on error
+        rc = int(se.code)
+    if rc != 0:
+        pytest.skip(f"tools/okta_prepare_org.py failed with exit code {rc}")
+
     if (
         not base_cfg_path.exists()
         or not okta_cfg_path.exists()
@@ -135,11 +226,19 @@ def test_tacacs_server_with_okta_backend(
         manifest = json.load(f)
     op = (manifest.get("users") or {}).get("operator") or {}
     operator_login = op.get("login") or os.getenv("OKTA_OPERATOR_LOGIN")
-    operator_password = os.getenv("OKTA_OPERATOR_PASSWORD")
-    if not operator_password:
-        pytest.skip("Set OKTA_OPERATOR_PASSWORD to run Okta E2E auth")
     if not operator_login:
         pytest.skip("No operator login in manifest and no OKTA_OPERATOR_LOGIN set")
+
+    # Determine operator password: prefer explicit env override for backwards
+    # compatibility; otherwise, reset the password via Okta API and use the
+    # returned temporary password (generated at runtime).
+    operator_password = os.getenv("OKTA_OPERATOR_PASSWORD")
+    if not operator_password:
+        try:
+            operator_password = _reset_okta_password(org_url, api_token, operator_login)
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"Failed to reset Okta operator password: {e}")
+
     # expected group from preparer
     expected_group = (
         (manifest.get("groups") or {}).get("ops", {}).get("name", "tacacs-ops")
