@@ -9,6 +9,8 @@ import os
 import socket
 import sys
 
+import pytest
+
 
 def _find_free_port() -> int:
     """Find a free port on localhost."""
@@ -27,6 +29,12 @@ def _find_free_port() -> int:
                     return 0
             except Exception:
                 return 0
+
+
+@pytest.fixture
+def free_tcp_port2(free_tcp_port_factory):
+    """Provide a second free TCP port for tests."""
+    return free_tcp_port_factory()
 
 
 def pytest_configure(config):

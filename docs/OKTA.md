@@ -165,7 +165,7 @@ Flow
 1) Server posts `/api/v1/authn` with the base password (after removing the suffix/keyword).
 2) If Okta returns `MFA_REQUIRED` and you provided an OTP, the server verifies the TOTP factor.
 3) If you provided `push`, the server initiates a push on the Okta Verify factor and polls until success or timeout.
-4) On success, normal group evaluation and device-scoped Okta group allow‑list enforcement continues.
+4) On success, normal group evaluation and device-scoped allow‑list enforcement continues in the AAA layer (see below).
 
 Caveats
 - Do not log passwords; the implementation redacts secrets and never stores OTPs.
@@ -176,8 +176,11 @@ Caveats
 ## Behavior
 
 - Auth cache is keyed by HMAC(username, password) with a server-side key (`AUTH_CACHE_HMAC_KEY`). Passwords are never stored; only boolean results and safe attributes are cached.
- 
 - Group names are normalized to lowercase before matching, and mappings are case-insensitive.
+- Device-scoped policies are enforced centrally in the TACACS+ AAA layer:
+  - OktaAuthBackend is responsible only for validating credentials and caching group memberships.
+  - AAAHandlers maps device group `allowed_user_groups` → local user groups → `okta_group` and evaluates intersection with the user's Okta groups (from the backend) on every auth.
+  - This design avoids pushing per-device policy into the backend and keeps the Okta auth cache free of device context.
 - 429 handling:
   - AuthN endpoint: backoff on 429 by opening the circuit breaker for a short cooldown.
   - Groups endpoint: respects `Retry-After` by increasing the short negative-cache TTL to reduce thundering herds.

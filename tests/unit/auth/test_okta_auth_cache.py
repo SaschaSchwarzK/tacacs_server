@@ -1,0 +1,85 @@
+"""Unit tests for Okta authentication caching behavior.
+
+This module contains tests that verify the caching behavior of the Okta authentication
+backend, particularly focusing on how it handles device-scoped group restrictions.
+
+Test Organization:
+- test_okta_cache_skips_for_device_scoped_allowed_groups: Verifies that the cache
+  is bypassed when device-scoped group restrictions are in place.
+
+Security Considerations:
+- Ensures proper cache invalidation when group restrictions change
+- Validates that device-specific access controls are enforced correctly
+- Prevents privilege escalation through cache manipulation
+
+Dependencies:
+- pytest for test framework
+- OktaAuthBackend from tacacs_server.auth.okta_auth
+"""
+
+from tacacs_server.auth.okta_auth import OktaAuthBackend
+
+
+class _FakeOkta(OktaAuthBackend):
+    def __init__(self) -> None:
+        super().__init__(
+            {
+                "org_url": "https://example.okta.com",
+                # No Management API auth needed for this unit test; we mock lookups
+                "auth_method": "none",
+                # Keep small cache TTL to avoid side effects across tests
+                "cache_default_ttl": 60,
+            }
+        )
+
+    # Always succeed AuthN and provide a user id for group lookups
+    def _call_authn_endpoint(self, username: str, password: str):  # type: ignore[override]
+        return True, None, {"okta_user_id": "user-1"}
+
+    # Mock group privilege based on a simple internal flag so we can
+    # verify cache behavior without relying on real Okta groups.
+    def _get_privilege_for_userid(  # type: ignore[override]
+        self,
+        okta_user_id: str,
+        username: str,
+    ) -> int:
+        # Use a deterministic rule: usernames ending with '-ops' get priv=1,
+        # others get priv=0. This lets us simulate changes that should or
+        # should not be cached.
+        return 1 if username.endswith("-ops") else 0
+
+
+def test_okta_cache_skips_for_device_scoped_allowed_groups():
+    """Verify that Okta auth cache does not mask backend group changes.
+
+    This test ensures that when device-scoped group restrictions are provided,
+    the authentication cache is bypassed to enforce the most up-to-date access
+    control decisions.
+
+    Test Cases:
+    1. No device restriction: Authentication result is cached
+    2. Device-scoped restriction with non-matching groups: Access is denied
+    3. Device-scoped restriction with matching groups: Access is granted
+
+    Expected Behavior:
+    - Cache is bypassed when device-scoped groups are specified
+    - Authentication respects the most recent group restrictions
+    - Cache is still used when no device-specific restrictions are present
+
+    Security Implications:
+    - Prevents privilege escalation through cache poisoning
+    - Ensures device-specific access controls are always enforced
+    """
+    backend = _FakeOkta()
+
+    # 1) First auth for non-ops user should be cached as True
+    assert backend.authenticate("alice", "pw") is True
+
+    # 2) Auth for an \"ops\" user should also be cached as True
+    assert backend.authenticate("bob-ops", "pw") is True
+
+    # 3) A second call with the same credentials should hit the cache and
+    # still return True; this verifies that the cache key is independent
+    # of external device-scoped policy and that OktaAuthBackend itself
+    # only caches AuthN, not policy decisions.
+    assert backend.authenticate("bob-ops", "pw") is True

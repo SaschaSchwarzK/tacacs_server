@@ -47,7 +47,12 @@ sequenceDiagram
   AH->>BE: authenticate(user, pass) with timeout
   alt backend accepts
     BE-->>AH: ok
-    AH-->>TS: PASS
+    AH-->>AH: Evaluate device-scoped group policy\n(Local/LDAP/Okta/RADIUS mapping)
+    alt AAA allows
+      AH-->>TS: PASS
+    else AAA denies
+      AH-->>TS: FAIL (group_not_allowed)
+    end
     TS-->>Dev: AUTHEN REPLY PASS
   else all backends reject
     BE-->>AH: fail/error

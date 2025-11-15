@@ -63,6 +63,7 @@ class LocalUserGroupService:
         metadata: dict[str, object] | None = None,
         ldap_group: str | None = None,
         okta_group: str | None = None,
+        radius_group: str | None = None,
         privilege_level: int = 1,
     ) -> LocalUserGroupRecord:
         validated_name = self._validate_name(name)
@@ -93,6 +94,7 @@ class LocalUserGroupService:
         metadata: dict[str, object] | None = None,
         ldap_group: str | None | object = UNSET,
         okta_group: str | None | object = UNSET,
+        radius_group: str | None | object = UNSET,
         privilege_level: int | None = None,
     ) -> LocalUserGroupRecord:
         # Ensure the group exists before attempting update
@@ -117,6 +119,7 @@ class LocalUserGroupService:
             metadata=metadata_payload,
             ldap_group=ldap_group,
             okta_group=okta_group,
+            radius_group=radius_group,
         )
         if not stored:
             raise LocalUserGroupNotFound(f"User group '{name}' not found")

@@ -58,6 +58,7 @@ def _group_to_response(record, member_counts: dict[str, int]) -> dict:
         "metadata": dict(record.metadata),
         "ldap_group": record.ldap_group,
         "okta_group": record.okta_group,
+        "radius_group": getattr(record, "radius_group", None),
         "member_count": member_counts.get(record.name, 0),
         "created_at": record.created_at,
         "updated_at": record.updated_at,
@@ -136,6 +137,7 @@ async def create_user_group(group: UserGroupCreate):
             metadata=group.metadata,
             ldap_group=group.ldap_group,
             okta_group=group.okta_group,
+            radius_group=group.radius_group,
             privilege_level=group.privilege_level,
         )
         users = user_service.list_users() if user_service else []
@@ -181,6 +183,8 @@ async def update_user_group(
             update_kwargs["ldap_group"] = data["ldap_group"]
         if "okta_group" in data:
             update_kwargs["okta_group"] = data["okta_group"]
+        if "radius_group" in data:
+            update_kwargs["radius_group"] = data["radius_group"]
 
         record = group_service.update_group(group_name, **update_kwargs)
         users = user_service.list_users() if user_service else []

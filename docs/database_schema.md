@@ -31,7 +31,12 @@ erDiagram
         int id PK
         string name
         string description
+        json metadata
+        string ldap_group
+        string okta_group
+        string radius_group
         datetime created_at
+        datetime updated_at
     }
 
     UserGroupMember {
@@ -143,14 +148,19 @@ Stores user account information.
 | updated_at | DateTime | When the user was last updated |
 
 #### UserGroup
-Groups users for easier permission management.
+Groups users for easier permission management and links to external identity providers.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| name | String | Group name |
-| description | String | Group description |
-| created_at | DateTime | When the group was created |
+| Column       | Type    | Description                                       |
+|--------------|---------|---------------------------------------------------|
+| id           | Integer | Primary key                                       |
+| name         | String  | Group name                                       |
+| description  | String  | Group description                                |
+| metadata     | JSON    | Arbitrary metadata (includes privilege_level)    |
+| ldap_group   | String  | Linked LDAP group DN or name (optional)          |
+| okta_group   | String  | Linked Okta group ID or name (optional)          |
+| radius_group | String  | Linked RADIUS group name/identifier (optional)   |
+| created_at   | DateTime| When the group was created                       |
+| updated_at   | DateTime| When the group was last updated                  |
 
 #### UserGroupMember
 Maps users to groups.
