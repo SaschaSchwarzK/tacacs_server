@@ -45,7 +45,7 @@ jobs:
             ~/.cache/pypoetry
             ~/.cache/pip
             .venv
-          key: poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-${{ steps.setup-python.outputs.python-version || 'py' }}
+          key: poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-py
           restore-keys: |
             poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-
             poetry-${{ runner.os }}-
@@ -105,7 +105,7 @@ jobs:
             ~/.cache/pypoetry
             ~/.cache/pip
             .venv
-          key: poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-${{ steps.setup-python.outputs.python-version || 'py' }}
+          key: poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-py
           restore-keys: |
             poetry-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}-
             poetry-${{ runner.os }}-
