@@ -696,11 +696,38 @@ class OktaAuthBackend(AuthenticationBackend):
         # AuthN is the only supported flow
         use_authn = True
 
+        # Device-scoped allowed Okta groups (from handlers) may not be cache-safe.
+        # Build the allowed set up-front so we can decide whether to skip cache.
+        allowed_okta_groups_kw = kwargs.get("allowed_okta_groups")
+        allowed_set: set[str] | None = None
+        if isinstance(allowed_okta_groups_kw, (list, set, tuple)):
+            try:
+                allowed_set = {
+                    str(x)
+                    for x in allowed_okta_groups_kw
+                    if isinstance(x, (str, int))
+                }
+            except Exception:
+                allowed_set = None
+        try:
+            if allowed_set:
+                logger.info(
+                    "Okta device-scope: enforcing allowed groups for %s -> %s",
+                    username,
+                    sorted(list(allowed_set)),
+                )
+        except Exception:
+            pass
+
         key = self._cache_key(username, password)
-        cached = self._cache_get(key)
-        if cached is not None:
-            logger.debug("Okta cache hit for %s -> %s", username, cached)
-            return cached
+        # Only use the global auth cache when there is no device-scoped restriction,
+        # because a cached "True" from a permissive context must not be reused under
+        # a more restrictive allowed_set.
+        if not allowed_set:
+            cached = self._cache_get(key)
+            if cached is not None:
+                logger.debug("Okta cache hit for %s -> %s", username, cached)
+                return cached
 
         success, expiry_ts, attrs = self._call_authn_endpoint(username, password)
         if not success:
@@ -726,24 +753,21 @@ class OktaAuthBackend(AuthenticationBackend):
         priv = 0
         if use_authn:
             okta_user_id = attrs.get("okta_user_id")
-            # Optional device-scoped allowed Okta groups
-            allowed_okta_groups_kw = kwargs.get("allowed_okta_groups")
-            allowed_set: set[str] | None = None
-            if isinstance(allowed_okta_groups_kw, (list, set, tuple)):
-                try:
-                    allowed_set = {
-                        str(x)
-                        for x in allowed_okta_groups_kw
-                        if isinstance(x, (str, int))
-                    }
-                except Exception:
-                    allowed_set = None
             if (
                 self.api_token or self.require_group_for_auth or allowed_set
             ) and okta_user_id:
                 priv = self._get_privilege_for_userid(
                     str(okta_user_id), username, allowed_okta_groups=allowed_set
                 )
+                try:
+                    logger.info(
+                        "Okta group check: user=%s allowed_set=%s priv=%s",
+                        username,
+                        sorted(list(allowed_set)) if allowed_set else [],
+                        priv,
+                    )
+                except Exception:
+                    pass
 
         # If device-scoped allowed groups provided or require_group_for_auth true and no privilege, fail
         if (kwargs.get("allowed_okta_groups") and priv == 0) or (
@@ -753,10 +777,8 @@ class OktaAuthBackend(AuthenticationBackend):
                 "Okta authentication valid but user lacks required Okta groups for device or mapping: %s",
                 username,
             )
-            if kwargs.get("allowed_okta_groups"):
-                # Do not cache device-scoped denials to avoid cross-device side effects
-                pass
-            else:
+            # Do not cache device-scoped denials to avoid cross-device side effects
+            if not allowed_set:
                 self._cache_set(
                     key,
                     False,
@@ -769,7 +791,10 @@ class OktaAuthBackend(AuthenticationBackend):
         safe_attrs = {"privilege": priv}
         if attrs.get("okta_user_id"):
             safe_attrs["okta_user_id"] = attrs["okta_user_id"]
-        self._cache_set(key, True, expiry_ts, safe_attrs)
+        # Do not cache positive result when a device-scoped allowed_set was in force,
+        # as it could be reused under a different (more restrictive) context.
+        if not allowed_set:
+            self._cache_set(key, True, expiry_ts, safe_attrs)
         with self._lock:
             self._attr_cache[username] = dict(safe_attrs)
         logger.info(

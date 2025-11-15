@@ -366,5 +366,149 @@ def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
             names = {g.get("profile", {}).get("name") for g in (gr.json() or [])}
             assert expected_group in names, f"Expected group {expected_group} in {names}"
 
+        # Determine the client IP the server sees to create specific /32 devices
+        ip_client = None
+        try:
+            logs_now = _run(["docker", "logs", tacacs_container])
+            import re as _re
+            for line in (logs_now.stdout or "").splitlines()[::-1]:
+                m = _re.search(r"New connection from \('([0-9.]+)',", line)
+                if m:
+                    ip_client = m.group(1)
+                    break
+        except Exception:
+            ip_client = None
+        # Fallback to Docker host IP if parsing failed; this still narrows from /0
+        if not ip_client:
+            ip_client = "127.0.0.1"
+
+        # --- Group enforcement tests ---
+        # 1) Create a local user-group mapped to operator's Okta group
+        ug_name = f"okta-ops-{unique}"
+        ug_payload = {
+            "name": ug_name,
+            "description": "Okta ops mapping",
+            "privilege_level": 15,
+            "okta_group": expected_group,
+        }
+        r_ug = session.post(f"{base_url}/api/user-groups", json=ug_payload, timeout=15)
+        if r_ug.status_code not in (200, 201, 409):
+            r_ug.raise_for_status()
+
+        # 2) Create a restricted device-group that allows only that user-group
+        dg_restricted = f"e2e-okta-restricted-{unique}"
+        dg_r_payload = {
+            "name": dg_restricted,
+            "description": "Restricted to Okta ops",
+            "tacacs_secret": tacacs_secret,
+            "allowed_user_groups": [ug_name],
+        }
+        r_dgr = session.post(f"{base_url}/api/device-groups", json=dg_r_payload, timeout=15)
+        if r_dgr.status_code not in (200, 201, 409):
+            r_dgr.raise_for_status()
+        # Resolve id
+        r_list2 = session.get(f"{base_url}/api/device-groups", timeout=15)
+        r_list2.raise_for_status()
+        items2 = r_list2.json() if r_list2.headers.get("content-type", "").startswith("application/json") else []
+        gid2 = None
+        for it in items2:
+            if isinstance(it, dict) and str(it.get("name", "")).lower() == dg_restricted.lower():
+                gid2 = int(it.get("id", 0))
+                break
+        assert gid2, f"device-group {dg_restricted} not found: {items2}"
+        # Device in restricted group
+        r_dev2 = session.post(
+            f"{base_url}/api/devices",
+            json={"name": f"{dg_restricted}-dev", "ip_address": f"{ip_client}/32", "device_group_id": gid2, "enabled": True},
+            timeout=15,
+        )
+        if r_dev2.status_code not in (200, 201, 409):
+            r_dev2.raise_for_status()
+
+        # Disable the initial catch-all device to ensure selection of the restricted device-group
+        devs_resp = session.get(f"{base_url}/api/devices", timeout=15)
+        devs = devs_resp.json() if devs_resp.headers.get("content-type", "").startswith("application/json") else []
+        for d in devs:
+            if isinstance(d, dict) and d.get("name") == "okta-device" and d.get("enabled", True):
+                _id = d.get("id")
+                if _id:
+                    session.put(f"{base_url}/api/devices/{_id}", json={"enabled": False}, timeout=15)
+
+        # Auth should succeed because operator is member of expected_group mapped to ug_name
+        ok3, msg3 = tacacs_authenticate(
+            host="127.0.0.1",
+            port=tacacs_host_port,
+            key=tacacs_secret,
+            username=operator_login,
+            password=operator_password,
+        )
+        assert ok3, f"Expected auth success with group enforcement: {msg3}"
+
+        # 3) Negative: create a user-group mapped to a group the operator is NOT in (admin)
+        #    First, delete existing devices to avoid ambiguous matches among same /32
+        devs_before = session.get(f"{base_url}/api/devices", timeout=15)
+        if devs_before.status_code == 200 and devs_before.headers.get("content-type", "").startswith("application/json"):
+            for d in devs_before.json() or []:
+                if isinstance(d, dict) and d.get("id"):
+                    session.delete(f"{base_url}/api/devices/{int(d['id'])}", timeout=15)
+        admin_group = (manifest.get("groups") or {}).get("admin", {}).get("name", "tacacs-admin")
+        ug_bad = f"okta-admin-{unique}"
+        r_ug2 = session.post(
+            f"{base_url}/api/user-groups",
+            json={"name": ug_bad, "description": "Okta admin mapping", "privilege_level": 15, "okta_group": admin_group},
+            timeout=15,
+        )
+        if r_ug2.status_code not in (200, 201, 409):
+            r_ug2.raise_for_status()
+        dg_denied = f"e2e-okta-denied-{unique}"
+        r_dg3 = session.post(
+            f"{base_url}/api/device-groups",
+            json={
+                "name": dg_denied,
+                "description": "Restricted to Okta admin",
+                "tacacs_secret": tacacs_secret,
+                "allowed_user_groups": [ug_bad],
+            },
+            timeout=15,
+        )
+        if r_dg3.status_code not in (200, 201, 409):
+            r_dg3.raise_for_status()
+        # Resolve id
+        r_list3 = session.get(f"{base_url}/api/device-groups", timeout=15)
+        r_list3.raise_for_status()
+        items3 = r_list3.json() if r_list3.headers.get("content-type", "").startswith("application/json") else []
+        gid3 = None
+        for it in items3:
+            if isinstance(it, dict) and str(it.get("name", "")).lower() == dg_denied.lower():
+                gid3 = int(it.get("id", 0))
+                break
+        assert gid3, f"device-group {dg_denied} not found: {items3}"
+        r_dev3 = session.post(
+            f"{base_url}/api/devices",
+            json={"name": f"{dg_denied}-dev", "ip_address": f"{ip_client}/32", "device_group_id": gid3, "enabled": True},
+            timeout=15,
+        )
+        if r_dev3.status_code not in (200, 201, 409):
+            r_dev3.raise_for_status()
+
+        # Disable the restricted device so the denied device-group is selected for the next attempt
+        devs_resp2 = session.get(f"{base_url}/api/devices", timeout=15)
+        devs2 = devs_resp2.json() if devs_resp2.headers.get("content-type", "").startswith("application/json") else []
+        for d in devs2:
+            if isinstance(d, dict) and d.get("name") == f"{dg_restricted}-dev" and d.get("enabled", True):
+                _id = d.get("id")
+                if _id:
+                    session.put(f"{base_url}/api/devices/{_id}", json={"enabled": False}, timeout=15)
+
+        # For denied case, we keep same tacacs_secret; TACACS handler chooses device by IP matching
+        ok4, msg4 = tacacs_authenticate(
+            host="127.0.0.1",
+            port=tacacs_host_port,
+            key=tacacs_secret,
+            username=operator_login,
+            password=operator_password,
+        )
+        assert not ok4, f"Expected auth failure with admin-only restriction, got: {msg4}"
+
     finally:
         _run(["docker", "rm", "-f", tacacs_container])

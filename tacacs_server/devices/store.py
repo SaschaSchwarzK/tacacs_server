@@ -1212,6 +1212,13 @@ class DeviceStore:
 
         for row in rows:
             device = self._row_to_device(row, groups)
+            # Skip disabled devices to honor runtime toggles
+            try:
+                if getattr(device, "enabled", True) is False:
+                    continue
+            except Exception:
+                # If attribute missing, assume enabled
+                pass
             try:
                 if ip_obj not in device.network:
                     continue

@@ -468,6 +468,24 @@ class AAAHandlers:
             except Exception:
                 allowed_okta_groups = []
 
+            # # Diagnostic logging to analyse device-scoped enforcement
+            # try:
+            #     logger.info(
+            #         "Auth attempt: user=%s device=%s group=%s networks=%s allowed_user_groups=%s allowed_okta_groups=%s",
+            #         user,
+            #         getattr(device, "name", ""),
+            #         getattr(getattr(device, "group", None), "name", None),
+            #         str(getattr(device, "network", "")),
+            #         list(
+            #             getattr(getattr(device, "group", None), "allowed_user_groups", [])
+            #         )
+            #         if getattr(device, "group", None)
+            #         else [],
+            #         allowed_okta_groups,
+            #     )
+            # except Exception:
+            #     pass
+
             authenticated, detail = self._authenticate_user(
                 user,
                 password,
