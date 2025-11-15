@@ -118,7 +118,14 @@ def _get_oauth_token(cfg: dict, verify=True) -> str | None:
         try:
             with open(pk_path, encoding="utf-8") as f:
                 private_key = f.read()
-        except Exception:
+        except FileNotFoundError:
+            print(f"Error: Private key file not found at '{pk_path}'", file=sys.stderr)
+            return None
+        except OSError as e:
+            print(
+                f"Error: Could not read private key file at '{pk_path}': {e}",
+                file=sys.stderr,
+            )
             return None
         now = int(time.time())
         claims = {
