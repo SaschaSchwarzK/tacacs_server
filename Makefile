@@ -1,6 +1,6 @@
 ## Simple developer helpers
 
-.PHONY: install-dev test lint format openapi mutmut
+.PHONY: install-dev test lint format openapi mutmut docker-build-https
 
 install-dev:
 	poetry install
@@ -20,3 +20,6 @@ openapi:
 mutmut:
 	poetry run mutmut run --paths-to-mutate tacacs_server --tests-dir tests || true
 	poetry run mutmut results
+
+docker-build-https:
+	docker build -f https-setup/Dockerfile.https -t tacacs-server:https .
