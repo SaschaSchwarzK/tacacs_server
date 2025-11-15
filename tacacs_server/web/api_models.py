@@ -1329,6 +1329,9 @@ class UserGroupBase(BaseModel):
     okta_group: str | None = Field(
         None, description="Linked Okta group", example="Network-Admins"
     )
+    radius_group: str | None = Field(
+        None, description="Linked RADIUS group", example="netops"
+    )
 
 
 class UserGroupCreate(UserGroupBase):
@@ -1365,6 +1368,9 @@ class UserGroupUpdate(BaseModel):
     )
     okta_group: str | None = Field(
         None, description="Updated Okta group link", example="Network-Admins"
+    )
+    radius_group: str | None = Field(
+        None, description="Updated RADIUS group link", example="netops"
     )
 
     model_config = ConfigDict(

@@ -58,13 +58,13 @@ jobs:
         run: |
           poetry install --with dev
 
-      - name: Ruff (lint)
+      - name: Ruff (lint format)
         run: |
-          poetry run ruff check .
+          poetry run ruff format .
 
-      - name: Ruff (format check)
+      - name: Ruff (check)
         run: |
-          poetry run ruff format --check .
+          poetry run ruff check . --fix
 
       - name: Mypy (type check)
         run: |

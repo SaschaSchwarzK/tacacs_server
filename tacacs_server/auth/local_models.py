@@ -57,6 +57,7 @@ class LocalUserGroupRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
     ldap_group: str | None = None
     okta_group: str | None = None
+    radius_group: str | None = None
     privilege_level: int = 1
     id: int | None = None
     created_at: datetime | None = None
@@ -72,6 +73,8 @@ class LocalUserGroupRecord:
             payload["ldap_group"] = self.ldap_group
         if self.okta_group is not None:
             payload["okta_group"] = self.okta_group
+        if self.radius_group is not None:
+            payload["radius_group"] = self.radius_group
         return payload
 
     @classmethod
@@ -82,5 +85,6 @@ class LocalUserGroupRecord:
             metadata=payload.get("metadata") or {},
             ldap_group=payload.get("ldap_group"),
             okta_group=payload.get("okta_group"),
+            radius_group=payload.get("radius_group"),
             privilege_level=int(payload.get("privilege_level", 1)),
         )

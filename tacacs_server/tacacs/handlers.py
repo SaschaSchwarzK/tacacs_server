@@ -443,54 +443,10 @@ class AAAHandlers:
                             logger.debug("Failed to invalidate user cache: %s", e)
             except Exception as e:
                 logger.debug("Failed to invalidate local backend cache: %s", e)
-            # Build allowed Okta groups from device group -> allowed_user_groups -> local user groups' okta_group
-            allowed_okta_groups: list[str] = []
-            try:
-                allowed = (
-                    list(
-                        getattr(
-                            getattr(device, "group", None), "allowed_user_groups", []
-                        )
-                        or []
-                    )
-                    if getattr(device, "group", None)
-                    else []
-                )
-                if allowed and self.local_user_group_service:
-                    for gname in allowed:
-                        try:
-                            rec = self.local_user_group_service.get_group(gname)
-                            okg = getattr(rec, "okta_group", None)
-                            if okg:
-                                allowed_okta_groups.append(str(okg))
-                        except Exception:
-                            continue
-            except Exception:
-                allowed_okta_groups = []
-
-            # # Diagnostic logging to analyse device-scoped enforcement
-            # try:
-            #     logger.info(
-            #         "Auth attempt: user=%s device=%s group=%s networks=%s allowed_user_groups=%s allowed_okta_groups=%s",
-            #         user,
-            #         getattr(device, "name", ""),
-            #         getattr(getattr(device, "group", None), "name", None),
-            #         str(getattr(device, "network", "")),
-            #         list(
-            #             getattr(getattr(device, "group", None), "allowed_user_groups", [])
-            #         )
-            #         if getattr(device, "group", None)
-            #         else [],
-            #         allowed_okta_groups,
-            #     )
-            # except Exception:
-            #     pass
-
             authenticated, detail = self._authenticate_user(
                 user,
                 password,
                 client_ip=client_ip,
-                allowed_okta_groups=allowed_okta_groups,
             )
             if not authenticated:
                 # One-time best-effort reload for local store to catch recent writes
@@ -521,6 +477,20 @@ class AAAHandlers:
                         )
                 except Exception as e:
                     logger.debug("Failed to retry authentication after reload: %s", e)
+            if authenticated:
+                backend_name = None
+                try:
+                    if detail and "backend=" in detail:
+                        backend_name = detail.split("backend=", 1)[1].split()[0]
+                except (IndexError, AttributeError):
+                    backend_name = None
+                allowed, reason = self._enforce_device_group_policy(
+                    backend_name, user, device
+                )
+                if not allowed:
+                    authenticated = False
+                    detail = f"backend={backend_name or 'unknown'} error={reason or 'group_not_allowed'}"
+
             if authenticated:
                 self._remember_username(packet.session_id, user)
                 self._log_auth_result(packet.session_id, user, device, True, detail)
@@ -625,7 +595,20 @@ class AAAHandlers:
                 username, password, client_ip=client_ip
             )
             if authenticated:
-                device = self.session_device.get(packet.session_id)
+                backend_name = None
+                try:
+                    if detail and "backend=" in detail:
+                        backend_name = detail.split("backend=", 1)[1].split()[0]
+                except (IndexError, AttributeError):
+                    backend_name = None
+                allowed, reason = self._enforce_device_group_policy(
+                    backend_name, username, device
+                )
+                if not allowed:
+                    authenticated = False
+                    detail = f"backend={backend_name or 'unknown'} error={reason or 'group_not_allowed'}"
+
+            if authenticated:
                 self._remember_username(packet.session_id, username)
                 self._log_auth_result(packet.session_id, username, device, True, detail)
                 return self._create_auth_response(
@@ -1030,6 +1013,122 @@ class AAAHandlers:
                 logger.debug("Failed to record accounting metric: %s", e)
         self.cleanup_session(packet.session_id)
         return response
+
+    def _get_backend_by_name(
+        self, backend_name: str | None
+    ) -> AuthenticationBackend | None:
+        if not backend_name:
+            return None
+        for backend in self.auth_backends:
+            try:
+                if getattr(backend, "name", None) == backend_name:
+                    return backend
+            except Exception:
+                continue
+        return None
+
+    def _enforce_device_group_policy(
+        self, backend_name: str | None, username: str, device: Any | None
+    ) -> tuple[bool, str | None]:
+        """Enforce device-scoped group policy in AAA for authenticated users.
+
+        For Phase 1, this enforces Okta group membership when a device group
+        has allowed_user_groups configured that map to Okta groups via the
+        local user group service.
+        """
+        if device is None:
+            return True, None
+        backend = self._get_backend_by_name(backend_name)
+        if backend is None:
+            return True, None
+
+        device_group = getattr(device, "group", None)
+        if not device_group:
+            return True, None
+        try:
+            allowed_group_names = list(
+                getattr(device_group, "allowed_user_groups", []) or []
+            )
+        except Exception:
+            allowed_group_names = []
+        if not allowed_group_names:
+            return True, None
+
+        allowed_targets: set[str] = set()
+        if self.local_user_group_service:
+            for gname in allowed_group_names:
+                try:
+                    record = self.local_user_group_service.get_group(gname)
+                except Exception:
+                    continue
+                backend_name_norm = str(getattr(backend, "name", "")).lower()
+                target_value: str | None = None
+                if backend_name_norm == "okta":
+                    target_value = getattr(record, "okta_group", None)
+                elif backend_name_norm == "ldap":
+                    target_value = getattr(record, "ldap_group", None)
+                elif backend_name_norm == "radius":
+                    # For RADIUS, match against explicit radius_group if set,
+                    # otherwise fall back to the local group name.
+                    target_value = getattr(record, "radius_group", None)
+                    if target_value is None:
+                        target_value = getattr(record, "name", None)
+                elif backend_name_norm == "local":
+                    # For local backend, match directly on local group name.
+                    target_value = getattr(record, "name", None)
+
+                if target_value:
+                    try:
+                        allowed_targets.add(str(target_value).lower())
+                    except Exception:
+                        continue
+
+        if not allowed_targets:
+            return True, None
+
+        user_groups: set[str] = set()
+        try:
+            raw_groups = backend.get_user_groups(username)
+            if isinstance(raw_groups, (list, set, tuple)):
+                user_groups = {str(g).lower() for g in raw_groups}
+        except Exception as e:
+            logger.debug(
+                "Failed to resolve user groups for %s via backend %s: %s",
+                username,
+                getattr(backend, "name", "<unknown>"),
+                e,
+            )
+            user_groups = set()
+
+        matches = sorted(list(allowed_targets & user_groups))
+        device_name = getattr(device, "name", None)
+        device_group_name = getattr(device_group, "name", None)
+
+        log_payload = {
+            "event": "group_enforcement",
+            "backend": getattr(backend, "name", None),
+            "user": username,
+            "device": device_name,
+            "device_group": device_group_name,
+            "allowed_user_groups": allowed_group_names,
+            "allowed_targets": sorted(list(allowed_targets)),
+            "user_groups": sorted(list(user_groups)),
+            "match": matches,
+        }
+
+        try:
+            if _HAS_JSON:
+                if matches:
+                    logger.info(_json.dumps({**log_payload, "result": "allow"}))
+                else:
+                    logger.warning(_json.dumps({**log_payload, "result": "deny"}))
+        except Exception:
+            # Best-effort logging; never fail auth flow due to logging errors
+            pass
+
+        if matches:
+            return True, None
+        return False, "group_not_allowed"
 
     def _authenticate_user(
         self, username: str, password: str, client_ip: str | None = None, **kwargs

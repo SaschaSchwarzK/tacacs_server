@@ -271,23 +271,29 @@ def test_backup_to_sftp_password_e2e(tmp_path: Path) -> None:
             f"Unexpected SFTP host: {sftp_host}"
         )
 
-        # Extract host public key from the container
-        hostkey = subprocess.run(
-            [
-                "docker",
-                "exec",
-                sftp_container,
-                "sh",
-                "-lc",
-                "(cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null; cat /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null) | sed '/^$/d'",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        assert hostkey.returncode == 0 and hostkey.stdout.strip(), (
-            f"Failed to read host key: {hostkey.stderr}"
-        )
+        # Extract host public key from the container. Allow a few retries in
+        # case sshd/host key generation is still in progress.
+        hostkey = None
+        for _ in range(5):
+            hostkey = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    sftp_container,
+                    "sh",
+                    "-lc",
+                    "(cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null; cat /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null) | sed '/^$/d'",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if hostkey.returncode == 0 and hostkey.stdout.strip():
+                break
+            time.sleep(1.0)
+        assert (
+            hostkey is not None and hostkey.returncode == 0 and hostkey.stdout.strip()
+        ), f"Failed to read host key: {hostkey.stderr}"
         # Write known_hosts file with the container IP as hostname for all keys
         known_hosts_host = data_dir / "known_hosts"
         lines = [ln.strip() for ln in hostkey.stdout.strip().splitlines() if ln.strip()]

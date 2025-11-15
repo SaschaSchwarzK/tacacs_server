@@ -51,7 +51,7 @@ group_attribute = memberOf
 
 ### Okta Integration
 
-The server integrates with Okta using the Authentication API (AuthN) for user authentication. Group membership can be fetched from the Management API to enforce device-scoped policies.
+The server integrates with Okta using the Authentication API (AuthN) for user authentication. Group membership is fetched from the Management API and evaluated by the central AAA layer to enforce device-scoped policies.
 
 For a complete guide on Okta integration, including MFA setup, the device-scoped authorization flow, and troubleshooting, please see the detailed [Okta Integration Guide](OKTA.md).
 
@@ -69,8 +69,9 @@ org_url = https://company.okta.com
 # Okta Management API token (required for group lookups)
 api_token = ${OKTA_API_TOKEN}
 
-# Optional: Require membership in an allowed Okta group for authentication to succeed.
-# See OKTA.md for details on the device-scoped enforcement.
+# Optional: Require membership in at least one Okta group for authentication to succeed.
+# Device- and backend-specific group allow-lists are enforced in AAAHandlers based on
+# local user groups linked via okta_group / ldap_group / radius_group.
 require_group_for_auth = false
 ```
 

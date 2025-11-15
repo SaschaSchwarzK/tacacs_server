@@ -111,6 +111,7 @@ class LocalAuthStore:
                     metadata TEXT,
                     ldap_group TEXT,
                     okta_group TEXT,
+                    radius_group TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
@@ -316,14 +317,16 @@ class LocalAuthStore:
 
     def insert_group(self, record: LocalUserGroupRecord) -> LocalUserGroupRecord:
         metadata_payload = dict(record.metadata or {})
+        # Persist privilege_level in metadata; radius_group is stored in its
+        # own column.
         metadata_payload["privilege_level"] = int(record.privilege_level)
         with self._lock:
             self._conn.execute(
                 """
                 INSERT INTO local_user_groups (
-                    name, description, metadata, ldap_group, okta_group,
+                    name, description, metadata, ldap_group, okta_group, radius_group,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.name,
@@ -331,6 +334,7 @@ class LocalAuthStore:
                     self._dump_dict(metadata_payload),
                     record.ldap_group,
                     record.okta_group,
+                    record.radius_group,
                     self._now(),
                     self._now(),
                 ),
@@ -351,6 +355,7 @@ class LocalAuthStore:
         metadata: dict | None = None,
         ldap_group: str | None | object = UNSET,
         okta_group: str | None | object = UNSET,
+        radius_group: str | None | object = UNSET,
     ) -> LocalUserGroupRecord | None:
         assignments = []
         params: list = []
@@ -376,6 +381,9 @@ class LocalAuthStore:
         if okta_group is not UNSET:
             assignments.append("okta_group = ?")
             params.append(okta_group)
+        if radius_group is not UNSET:
+            assignments.append("radius_group = ?")
+            params.append(radius_group)
 
         if not assignments:
             return self.get_group(name)
@@ -435,6 +443,7 @@ class LocalAuthStore:
             metadata=metadata,
             ldap_group=row["ldap_group"],
             okta_group=row["okta_group"],
+            radius_group=row["radius_group"],
             privilege_level=privilege,
             id=row["id"],
             created_at=self._parse_datetime(row["created_at"]),
