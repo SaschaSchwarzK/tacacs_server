@@ -944,9 +944,7 @@ class RADIUSServer:
                 client_config.network,
             )
 
-            # Authenticate against backends; backend-specific group enforcement is
-            # handled in the TACACS AAA layer for TACACS flows. RADIUS backend
-            # itself does not need device-scoped Okta groups here.
+            # Authenticate against backends.
             authenticated, auth_detail = self._authenticate_user(username, password)
 
             device_label = (
@@ -954,12 +952,71 @@ class RADIUSServer:
             )
 
             if authenticated:
+                # Enforce RADIUS client allowed_user_groups for Okta-backed users.
+                # This mirrors the TACACS AAA device-scoped enforcement: client
+                # allowed_user_groups (local group names) are mapped via local
+                # user groups' okta_group to Okta group names, then intersected
+                # with the user's Okta groups from the Okta backend.
+                denial_reason: str | None = None
+                try:
+                    svc = getattr(self, "local_user_group_service", None)
+                    if svc is not None and client_config.allowed_user_groups:
+                        okta_backends = [
+                            b
+                            for b in self.auth_backends
+                            if getattr(b, "name", "") == "okta"
+                        ]
+                        backend = okta_backends[0] if okta_backends else None
+                        if backend is not None:
+                            allowed_targets: set[str] = set()
+                            for gname in client_config.allowed_user_groups:
+                                try:
+                                    rec = svc.get_group(gname)
+                                except Exception:
+                                    continue
+                                okg = getattr(rec, "okta_group", None)
+                                if okg:
+                                    try:
+                                        allowed_targets.add(str(okg).lower())
+                                    except Exception:
+                                        continue
+                            if allowed_targets:
+                                try:
+                                    raw_groups = backend.get_user_groups(username)
+                                    user_groups = {
+                                        str(g).lower() for g in (raw_groups or [])
+                                    }
+                                except Exception as e:
+                                    logger.debug(
+                                        "RADIUS Okta group resolution failed for %s: %s",
+                                        username,
+                                        e,
+                                    )
+                                    user_groups = set()
+                                if not (allowed_targets & user_groups):
+                                    denial_reason = "group_not_allowed"
+                                    authenticated = False
+                                    auth_detail = "radius_okta_group_not_allowed"
+                                    logger.warning(
+                                        "RADIUS Okta user not in allowed groups for client %s: user=%s allowed_targets=%s user_groups=%s",
+                                        device_label,
+                                        username,
+                                        sorted(list(allowed_targets)),
+                                        sorted(list(user_groups)),
+                                    )
+                except Exception:
+                    # Best-effort enforcement; fall back to existing policy if this fails.
+                    logger.debug(
+                        "RADIUS Okta device-scoped enforcement failed; falling back to policy engine",
+                        exc_info=True,
+                    )
+
                 # Get user attributes for response
                 user_attrs = self._get_user_attributes(username)
                 allowed_ok, denial_message = self._apply_user_group_policy(
                     client_config, user_attrs
                 )
-                if allowed_ok:
+                if authenticated and allowed_ok and not denial_reason:
                     response = self._create_access_accept(request, user_attrs)
                     self._inc("auth_accepts")
                     logger.info(
@@ -976,7 +1033,9 @@ class RADIUSServer:
                         # Prometheus metrics recording failed, continue without metrics
                         pass
                 else:
-                    response = self._create_access_reject(request, denial_message)
+                    response = self._create_access_reject(
+                        request, denial_reason or denial_message
+                    )
                     self._inc("auth_rejects")
                     logger.warning(
                         "RADIUS authentication failed: user=%s reason=%s device=%s",
