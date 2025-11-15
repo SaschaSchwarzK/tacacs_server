@@ -1007,6 +1007,49 @@ class OktaAuthBackend(AuthenticationBackend):
         with self._lock:
             return dict(self._attr_cache.get(username) or {})
 
+    def get_user_groups(self, username: str) -> list[str]:
+        """
+        Return Okta group memberships for a user using the backend's group cache.
+
+        This adapter is used by AAAHandlers for device-scoped group enforcement
+        and intentionally returns lowercased group names.
+        """
+        try:
+            cached = self._group_cache.get(username)
+        except Exception:
+            cached = None
+
+        groups: list[str] = []
+        if isinstance(cached, dict):
+            raw_groups = cached.get("groups") or []
+            if isinstance(raw_groups, list):
+                groups = [str(g).lower() for g in raw_groups if isinstance(g, str)]
+
+        if groups:
+            return groups
+
+        # If groups are not cached yet, try to populate them using the
+        # existing Management API path keyed by okta_user_id from attributes.
+        try:
+            attrs = self.get_user_attributes(username)
+            okta_user_id = attrs.get("okta_user_id")
+            if okta_user_id:
+                self._get_privilege_for_userid(str(okta_user_id), username)
+                try:
+                    cached = self._group_cache.get(username)
+                except Exception:
+                    cached = None
+                if isinstance(cached, dict):
+                    raw_groups = cached.get("groups") or []
+                    if isinstance(raw_groups, list):
+                        groups = [
+                            str(g).lower() for g in raw_groups if isinstance(g, str)
+                        ]
+        except Exception:
+            groups = []
+
+        return groups
+
     def reload(self) -> None:
         with self._lock:
             self._cache.clear()
