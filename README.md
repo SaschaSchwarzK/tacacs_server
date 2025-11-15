@@ -769,6 +769,18 @@ sum by (reason) (rate(radius_packets_dropped_total[5m]))
 rate(radius_packets_dropped_total{reason="invalid_message_authenticator"}[5m])
 ```
 
+## Okta E2E Setup (AuthN + OAuth Management API)
+
+Use the helper scripts to prepare an Okta developer org, generate an OAuth service app (client_credentials), and write a backend config used by tests/tools:
+
+- Prepare org resources and write config/okta.generated.conf (private_key_jwt recommended):
+  - poetry run python tools/okta_prepare_org.py --org-url "$OKTA_ORG_URL" --api-token "$OKTA_API_TOKEN" --output ./okta_test_data.json --no-app --create-service-app --service-auth-method private_key_jwt --service-scopes "okta.users.read,okta.groups.read" --write-backend-config "config/okta.generated.conf"
+
+- Sanity-check AuthN and groups via OAuth using the generated files:
+  - poetry run python scripts/okta_check.py --backend-config config/okta.generated.conf --manifest okta_test_data.json
+
+To run the Okta E2E tests against your real org, export OKTA_E2E=1 (these tests are skipped by default since they require network access and real credentials).
+
 ## 📁 Project Architecture
 
 ```

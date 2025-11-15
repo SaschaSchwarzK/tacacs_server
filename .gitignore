@@ -33,3 +33,9 @@ test_backups_root/
 .codeql-db/
 .codeql-results/
 not_yet_ready/
+*.pem
+*private*
+*public*
+https-setup/
+okta_test_data.json
+config/okta.generated.conf

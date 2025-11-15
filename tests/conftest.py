@@ -397,24 +397,52 @@ class ServerInstance:
             cwd=str(self.work_dir),
         )
 
-        # Wait for server to start
+        # Wait for server to start (with early-exit detection)
         # TACACS+ may run regardless of enable_tacacs; wait for the configured port
         if self.tacacs_port:
-            if not _wait_for_port("127.0.0.1", self.tacacs_port, timeout=30):
+            deadline = time.time() + 30.0
+            listening = False
+            while time.time() < deadline:
+                # If the process has already exited, stop waiting and surface logs immediately
+                if self.process and (self.process.poll() is not None):
+                    log_contents = self.get_logs()
+                    raise RuntimeError(
+                        "TACACS+ server process exited before binding the port\n"
+                        f"Log:\n{log_contents[-4000:]}"
+                    )
+                if _wait_for_port("127.0.0.1", self.tacacs_port, timeout=0.5):
+                    listening = True
+                    break
+                # Give the child a brief moment to advance startup
+                time.sleep(0.1)
+            if not listening:
                 self.stop()
                 log_contents = self.get_logs()
                 raise RuntimeError(
                     f"TACACS+ server failed to start on port {self.tacacs_port}\n"
-                    f"Log:\n{log_contents[-2000:]}"
+                    f"Log:\n{log_contents[-4000:]}"
                 )
 
         if (self.enable_admin_api or self.enable_admin_web) and self.web_port:
-            if not _wait_for_port("127.0.0.1", self.web_port, timeout=30):
+            deadline = time.time() + 30.0
+            listening = False
+            while time.time() < deadline:
+                if self.process and (self.process.poll() is not None):
+                    log_contents = self.get_logs()
+                    raise RuntimeError(
+                        "Web server process exited before binding the port\n"
+                        f"Log:\n{log_contents[-4000:]}"
+                    )
+                if _wait_for_port("127.0.0.1", self.web_port, timeout=0.5):
+                    listening = True
+                    break
+                time.sleep(0.1)
+            if not listening:
                 self.stop()
                 log_contents = self.get_logs()
                 raise RuntimeError(
                     f"Web server failed to start on port {self.web_port}\n"
-                    f"Log:\n{log_contents[-2000:]}"
+                    f"Log:\n{log_contents[-4000:]}"
                 )
 
         # Give server a moment to fully initialize

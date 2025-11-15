@@ -16,7 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml poetry.lock ./
 # Install Poetry and the export plugin to generate requirements.txt
+ENV POETRY_NO_INTERACTION=1
 RUN pip install --no-cache-dir poetry poetry-plugin-export \
+ && poetry lock \
  && poetry export -f requirements.txt -o req.txt --without-hashes
 
 # Create a virtualenv under /opt/venv and install deps

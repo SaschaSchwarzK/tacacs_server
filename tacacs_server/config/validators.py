@@ -29,16 +29,30 @@ def validate_config(config: configparser.ConfigParser) -> list[str]:
     issues = []
 
     try:
+        # Base sections always validated
         config_dict: dict[str, dict[str, Any]] = {
             "server": dict(config["server"]),
             "auth": dict(config["auth"]),
             "security": dict(config["security"]),
         }
 
-        if "ldap" in config:
+        # Determine which backends are enabled to avoid validating unused sections
+        try:
+            backends = [
+                b.strip().lower()
+                for b in config.get("auth", "backends", fallback="local").split(",")
+                if b.strip()
+            ]
+        except Exception:
+            backends = ["local"]
+
+        # Include LDAP section only when ldap backend is enabled
+        if "ldap" in backends and "ldap" in config:
             config_dict["ldap"] = dict(config["ldap"])
-        if "okta" in config:
+        # Include Okta section only when okta backend is enabled
+        if "okta" in backends and "okta" in config:
             config_dict["okta"] = dict(config["okta"])
+        # Radius auth section is validated conditionally inside the schema
         if "radius_auth" in config:
             config_dict["radius_auth"] = dict(config["radius_auth"])
 
@@ -191,25 +205,40 @@ def validate_change(
     sec_dict = payload.setdefault(section, {})
     sec_dict[key] = str(value)
 
-    # 2) Schema validation
+    # 2) Schema validation (include only sections relevant to enabled backends)
     try:
-        validate_config_file(
-            {
-                "server": payload.get("server", {}),
-                "auth": payload.get("auth", {}),
-                "security": payload.get("security", {}),
-                **({"ldap": payload.get("ldap", {})} if "ldap" in payload else {}),
-                **({"okta": payload.get("okta", {})} if "okta" in payload else {}),
-                **(
-                    {"backup": payload.get("backup", {})} if "backup" in payload else {}
-                ),
-                **(
-                    {"radius_auth": payload.get("radius_auth", {})}
-                    if "radius_auth" in payload
-                    else {}
-                ),
-            }
-        )
+        # Determine enabled backends from the (possibly modified) payload
+        try:
+            auth_section = payload.get("auth", {})
+            backends = [
+                b.strip().lower()
+                for b in str(auth_section.get("backends", "local")).split(",")
+                if b.strip()
+            ]
+        except Exception:
+            backends = ["local"]
+
+        schema_payload: dict[str, dict[str, Any]] = {
+            "server": payload.get("server", {}),
+            "auth": payload.get("auth", {}),
+            "security": payload.get("security", {}),
+        }
+        # Only include LDAP if enabled or if the change targets LDAP section
+        if ("ldap" in backends) or (section == "ldap"):
+            if "ldap" in payload:
+                schema_payload["ldap"] = payload.get("ldap", {})
+        # Only include Okta if enabled or if the change targets Okta section
+        if ("okta" in backends) or (section == "okta"):
+            if "okta" in payload:
+                schema_payload["okta"] = payload.get("okta", {})
+        # Radius section can be present; schema enforces requireds only when enabled
+        if "radius_auth" in payload:
+            schema_payload["radius_auth"] = payload.get("radius_auth", {})
+        # Optional backup section
+        if "backup" in payload:
+            schema_payload["backup"] = payload.get("backup", {})
+
+        validate_config_file(schema_payload)
     except Exception as e:
         issues.append(str(e))
         return False, issues
