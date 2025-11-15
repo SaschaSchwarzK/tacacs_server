@@ -222,17 +222,29 @@ class OktaAuthBackend(AuthenticationBackend):
         self._cb_open_until = 0
         self._retries_429_total = 0
 
-        # Strict group mode: require API token when require_group_for_auth=true
+        # Strict group mode: require Management API credentials when
+        # require_group_for_auth=true. Accept either legacy SSWS token or
+        # OAuth client credentials (private_key_jwt or client_secret).
         self._strict_group_mode = bool(cfg.get("strict_group_mode", False))
         self._use_basic_auth_flag = False
-        if (
-            self.require_group_for_auth
-            and not self.api_token
-            and self._strict_group_mode
-        ):
-            raise ValueError(
-                "Okta configuration invalid: require_group_for_auth=true but no authentication method configured (api_token, client credentials, or private_key_jwt) and strict_group_mode=true"
-            )
+        if self.require_group_for_auth and self._strict_group_mode:
+            if not self._has_management_api_credentials():
+                raise ValueError(
+                    "Okta configuration invalid: require_group_for_auth=true and strict_group_mode=true, "
+                    "but no Management API credentials configured (SSWS api_token or OAuth client credentials)"
+                )
+
+    def _has_management_api_credentials(self) -> bool:
+        """Return True if Management API auth is configured (SSWS or OAuth)."""
+        # SSWS token
+        if bool(self.api_token):
+            return True
+        # OAuth client credentials (either method is acceptable)
+        if self.auth_method == "private_key_jwt":
+            return bool(self.client_id and self.private_key and self.private_key_id)
+        if self.auth_method == "client_secret":
+            return bool(self.client_id and self.client_secret)
+        return False
 
     def _validate_auth_config(self):
         """Validate OAuth/SSWS configuration."""
@@ -710,7 +722,7 @@ class OktaAuthBackend(AuthenticationBackend):
 
                 okta_circuit_reset_total.inc()
             except Exception:
-                pass
+                logger.debug("Okta circuit breaker reset failed")
         if self._cb_open_until and now_i < self._cb_open_until:
             logger.warning(
                 "Okta circuit breaker open; denying authentication for stability"
@@ -720,7 +732,7 @@ class OktaAuthBackend(AuthenticationBackend):
 
                 okta_circuit_open.set(1)
             except Exception:
-                pass
+                logger.debug("Okta circuit breaker open failed")
             return False
         else:
             try:
@@ -728,7 +740,7 @@ class OktaAuthBackend(AuthenticationBackend):
 
                 okta_circuit_open.set(0)
             except Exception:
-                pass
+                logger.debug("Okta circuit breaker open failed")
 
         # AuthN is the only supported flow
         use_authn = True
@@ -752,7 +764,7 @@ class OktaAuthBackend(AuthenticationBackend):
                     sorted(list(allowed_set)),
                 )
         except Exception:
-            pass
+            logger.debug("Okta device-scope allowed groups lookup failed")
 
         key = self._cache_key(username, password)
         # Only use the global auth cache when there is no device-scoped restriction,
@@ -782,7 +794,7 @@ class OktaAuthBackend(AuthenticationBackend):
 
                     okta_circuit_open_total.inc()
                 except Exception:
-                    pass
+                    logger.debug("Okta circuit breaker opening failed")
             return False
 
         priv = 0
@@ -802,7 +814,7 @@ class OktaAuthBackend(AuthenticationBackend):
                         priv,
                     )
                 except Exception:
-                    pass
+                    logger.debug("Okta group check failed")
 
         # If device-scoped allowed groups provided or require_group_for_auth true and no privilege, fail
         if (kwargs.get("allowed_okta_groups") and priv == 0) or (
@@ -867,7 +879,7 @@ class OktaAuthBackend(AuthenticationBackend):
                         ttl=self._group_cache_fail_ttl,
                     )
                 except Exception:
-                    pass
+                    logger.debug("Okta groups lookup failed")
                 return 0
 
             cached = self._group_cache.get(username)
@@ -875,13 +887,13 @@ class OktaAuthBackend(AuthenticationBackend):
                 try:
                     okta_group_cache_hits.inc()
                 except Exception:
-                    pass
+                    logger.debug("Okta groups cache hit failed")
                 return int(cached.get("priv", 0))
             else:
                 try:
                     okta_group_cache_misses.inc()
                 except Exception:
-                    pass
+                    logger.debug("Okta groups cache miss failed")
 
             groups_url = f"{self._groups_api_base}/users/{okta_user_id}/groups"
             headers = self._get_management_api_headers()
@@ -908,7 +920,7 @@ class OktaAuthBackend(AuthenticationBackend):
                     if r.status_code in (429, 500, 502, 503, 504):
                         okta_retries_total.inc()
                 except Exception:
-                    pass
+                    logger.debug("Okta groups API failed")
                 if r.status_code != 200:
                     logger.debug("Okta groups API failed: %s %s", r.status_code, r.text)
                     if r.status_code == 429:
@@ -921,7 +933,7 @@ class OktaAuthBackend(AuthenticationBackend):
                                 )
                                 self._retries_429_total += 1
                         except Exception:
-                            pass
+                            logger.debug("Okta groups API failed")
                     try:
                         self._group_cache.set(
                             username,
@@ -929,7 +941,7 @@ class OktaAuthBackend(AuthenticationBackend):
                             ttl=self._group_cache_fail_ttl,
                         )
                     except Exception:
-                        pass
+                        logger.debug("Okta groups API failed")
                     break
                 page = r.json()
                 if isinstance(page, list):
@@ -977,14 +989,14 @@ class OktaAuthBackend(AuthenticationBackend):
                             ttl=self._group_cache_fail_ttl,
                         )
                     except Exception:
-                        pass
+                        logger.debug("Okta groups API failed")
                     return 0
 
             # Cache group names; privilege remains 0 (computed later by policy engine)
             try:
                 self._group_cache.set(username, {"groups": groups, "priv": 0})
             except Exception:
-                pass
+                logger.debug("Okta groups API failed")
             return 0
         except Exception:
             logger.exception("Failed to determine Okta groups/privilege (by user id)")
@@ -1046,4 +1058,4 @@ class OktaAuthBackend(AuthenticationBackend):
         try:
             self._session.close()
         except Exception:
-            pass
+            logger.debug("Okta groups API failed")

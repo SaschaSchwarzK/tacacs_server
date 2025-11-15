@@ -338,6 +338,7 @@ class TacacsServer:
 
     def _setup_server_socket(self):
         """Setup and bind server socket"""
+        # Create socket (IPv6 dual-stack if enabled)
         if self.enable_ipv6:
             self.server_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
             try:
@@ -349,14 +350,60 @@ class TacacsServer:
         else:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Allow quick reuse after previous test shutdowns
+        try:
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        except Exception:
+            pass
 
         bind_host = self.host
         if self.enable_ipv6 and bind_host in ("0.0.0.0", "::"):
             bind_host = "::"
 
-        self.server_socket.bind((bind_host, self.port))
-        self.server_socket.listen(self.listen_backlog)
+        # Log bind attempt explicitly for easier diagnostics in CI logs
+        logger.info(
+            "Attempting to bind TACACS+ socket",
+            extra={"bind_host": bind_host, "bind_port": self.port},
+        )
+
+        try:
+            self.server_socket.bind((bind_host, self.port))
+        except OSError as e:
+            # Surface a precise error so test harness tails are actionable
+            try:
+                err_no = getattr(e, "errno", None)
+                err_str = getattr(e, "strerror", str(e))
+            except Exception:
+                err_no = None
+                err_str = str(e)
+            logger.error(
+                "Failed to bind TACACS+ socket",
+                extra={
+                    "host": bind_host,
+                    "port": self.port,
+                    "errno": err_no,
+                    "error": err_str,
+                },
+            )
+            # Re-raise to keep current control flow (manager will log and exit)
+            raise
+
+        try:
+            self.server_socket.listen(self.listen_backlog)
+            logger.info(
+                "TACACS+ socket bound and listening",
+                extra={
+                    "bind_host": bind_host,
+                    "bind_port": self.port,
+                    "backlog": self.listen_backlog,
+                },
+            )
+        except OSError as e:
+            logger.error(
+                "Failed to listen on TACACS+ socket",
+                extra={"host": bind_host, "port": self.port, "error": str(e)},
+            )
+            raise
 
     def _accept_loop(self):
         """Main accept loop with per-IP connection limiting"""

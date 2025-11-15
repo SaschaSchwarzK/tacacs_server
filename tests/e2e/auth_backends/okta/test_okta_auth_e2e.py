@@ -1,14 +1,36 @@
-"""E2E test for TACACS+ with real Okta backend.
+"""End-to-end tests for TACACS+ integration with Okta authentication backend.
 
-This test starts the TACACS container configured with the Okta backend and uses
-the generated backend config (config/okta.generated.conf) and manifest
-(okta_test_data.json) produced by tools/okta_prepare_org.py.
+This module contains end-to-end tests that verify the integration between TACACS+ server
+and Okta authentication service. These tests require a live Okta environment and are
+designed to run against a real Okta organization.
 
-The test is skipped by default and only runs when OKTA_E2E=1 is set.
-It performs:
- - Auth success with known Okta user
- - Auth failure with wrong password
- - Groups lookup via OAuth (Management API) to ensure expected group is present
+Test Organization:
+- test_tacacs_server_with_okta_backend: Verifies end-to-end authentication flow
+  - Successful authentication with valid credentials
+  - Authentication failure with invalid credentials
+  - Group membership verification via Okta Management API
+  - Device-group based access control
+
+Prerequisites:
+- OKTA_E2E=1 environment variable must be set to run these tests
+- A valid Okta test organization with test users and groups
+- Generated configuration files from tools/okta_prepare_org.py
+
+Security Considerations:
+- Tests use dedicated test users with minimal required permissions
+- No sensitive credentials are hardcoded in test files
+- Test users have limited access scopes in Okta
+- All test artifacts are cleaned up after test completion
+
+Dependencies:
+- pytest for test framework
+- docker for container management
+- requests for HTTP requests
+- urllib for HTTP health checks
+
+Configuration:
+- Uses config/okta.generated.conf for Okta client configuration
+- Uses okta_test_data.json for test user and group information
 """
 
 from __future__ import annotations
@@ -48,7 +70,49 @@ def _wait_http(url: str, timeout: float = 60.0) -> None:
 
 
 @pytest.mark.e2e
-def test_tacacs_server_with_okta_backend(tmp_path: Path) -> None:
+def test_tacacs_server_with_okta_backend(
+    tmp_path: Path,
+    free_tcp_port: int,
+    free_tcp_port2: int,
+) -> None:
+    """Test end-to-end TACACS+ authentication with Okta backend.
+
+    This test verifies the complete authentication flow using a real Okta backend,
+    including user authentication, group membership verification, and device-based
+    access control.
+
+    Test Cases:
+    1. Basic Authentication:
+       - Success with valid credentials
+       - Failure with invalid credentials
+
+    2. Group Membership Verification:
+       - Verify user is member of expected Okta groups
+       - Validate group-to-privilege level mapping
+
+    3. Device-Based Access Control:
+       - Verify access with matching device group restrictions
+       - Verify access denial with non-matching device group restrictions
+
+    Test Setup:
+    - Creates a temporary test environment with Docker containers
+    - Configures TACACS+ server with Okta backend
+    - Sets up test users and groups in Okta
+
+    Security Considerations:
+    - Uses temporary test users with minimal required permissions
+    - Cleans up all test artifacts after completion
+    - Validates proper access control enforcement
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory
+        free_tcp_port: Pytest fixture providing an available TCP port
+        free_tcp_port2: Pytest fixture providing another available TCP port
+
+    Raises:
+        AssertionError: If any test assertion fails
+        TimeoutError: If the test environment fails to start within timeout
+    """
     if os.getenv("OKTA_E2E") != "1":
         pytest.skip("Set OKTA_E2E=1 to run Okta E2E tests against a real org")
 

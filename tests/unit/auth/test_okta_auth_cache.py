@@ -1,3 +1,22 @@
+"""Unit tests for Okta authentication caching behavior.
+
+This module contains tests that verify the caching behavior of the Okta authentication
+backend, particularly focusing on how it handles device-scoped group restrictions.
+
+Test Organization:
+- test_okta_cache_skips_for_device_scoped_allowed_groups: Verifies that the cache
+  is bypassed when device-scoped group restrictions are in place.
+
+Security Considerations:
+- Ensures proper cache invalidation when group restrictions change
+- Validates that device-specific access controls are enforced correctly
+- Prevents privilege escalation through cache manipulation
+
+Dependencies:
+- pytest for test framework
+- OktaAuthBackend from tacacs_server.auth.okta_auth
+"""
+
 from tacacs_server.auth.okta_auth import OktaAuthBackend
 
 
@@ -31,6 +50,26 @@ class _FakeOkta(OktaAuthBackend):
 
 
 def test_okta_cache_skips_for_device_scoped_allowed_groups():
+    """Verify that device-scoped group restrictions bypass the authentication cache.
+
+    This test ensures that when device-scoped group restrictions are provided,
+    the authentication cache is bypassed to enforce the most up-to-date access
+    control decisions.
+
+    Test Cases:
+    1. No device restriction: Authentication result is cached
+    2. Device-scoped restriction with non-matching groups: Access is denied
+    3. Device-scoped restriction with matching groups: Access is granted
+
+    Expected Behavior:
+    - Cache is bypassed when device-scoped groups are specified
+    - Authentication respects the most recent group restrictions
+    - Cache is still used when no device-specific restrictions are present
+
+    Security Implications:
+    - Prevents privilege escalation through cache poisoning
+    - Ensures device-specific access controls are always enforced
+    """
     backend = _FakeOkta()
 
     # 1) No device restriction: result should be cached (True)

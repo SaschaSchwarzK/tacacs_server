@@ -37,3 +37,5 @@ not_yet_ready/
 *private*
 *public*
 https-setup/
+okta_test_data.json
+config/okta.generated.conf
