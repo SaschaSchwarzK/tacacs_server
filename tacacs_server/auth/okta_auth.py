@@ -506,10 +506,13 @@ class OktaAuthBackend(AuthenticationBackend):
             except Exception:
                 pass
             if resp.status_code not in (200, 201):
-                logger.debug(
-                    "Okta AuthN API returned non-200: %s %s",
+                # Elevate to warning so it appears in container logs
+                body_preview = resp.text[:300] if isinstance(resp.text, str) else str(resp.text)
+                logger.warning(
+                    "Okta AuthN HTTP failure: status=%s verify_tls=%s body=%s",
                     resp.status_code,
-                    resp.text,
+                    self.verify_tls,
+                    body_preview,
                 )
                 return False, None, {}
             data = resp.json() or {}
@@ -634,7 +637,7 @@ class OktaAuthBackend(AuthenticationBackend):
                     )
                     return False, None, {}
             else:
-                logger.debug("Okta AuthN status not SUCCESS: %s", data.get("status"))
+                logger.warning("Okta AuthN non-success status: %s", data.get("status"))
                 return False, None, {}
             # Extract user id for group lookups
             user_id = (
@@ -648,7 +651,7 @@ class OktaAuthBackend(AuthenticationBackend):
             # No trusted expiry from AuthN; leave None to use default TTL in cache
             return True, None, attrs
         except Exception:
-            logger.exception("Okta AuthN request failed")
+            logger.exception("Okta AuthN request error (network/TLS)")
             return False, None, {}
 
     # Userinfo-based group lookup removed; we resolve by user id directly

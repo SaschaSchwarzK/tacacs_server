@@ -1,0 +1,34 @@
+{
+  "groups": {
+    "ops": {
+      "id": "00gxgqv7vvAauAtzT697",
+      "name": "tacacs-ops"
+    },
+    "admin": {
+      "id": "00gxgqosqediZPC32697",
+      "name": "tacacs-admin"
+    }
+  },
+  "users": {
+    "operator": {
+      "id": "00uxh89md88EKKSXC697",
+      "login": "test.operator.okta@example.com",
+      "status": "ACTIVE"
+    },
+    "admin": {
+      "id": "00uxh8ddlaAD7GwAT697",
+      "login": "test.admin.okta@example.com",
+      "status": "ACTIVE"
+    }
+  },
+  "app": null,
+  "service_app": {
+    "id": "0oaxgrfyjcqNV0UdH697",
+    "clientId": "0oaxgrfyjcqNV0UdH697",
+    "clientSecret": null,
+    "authMethod": "private_key_jwt",
+    "appType": "service",
+    "privateKeyPath": "okta_service_private_key.pem",
+    "privateKeyId": "a63abf5fc503ce94"
+  }
+}

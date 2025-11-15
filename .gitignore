@@ -33,3 +33,7 @@ test_backups_root/
 .codeql-db/
 .codeql-results/
 not_yet_ready/
+*.pem
+*private*
+*public*
+https-setup/
