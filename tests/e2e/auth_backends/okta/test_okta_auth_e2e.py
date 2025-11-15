@@ -49,7 +49,6 @@ import pytest
 import requests
 
 from tests.functional.tacacs.test_tacacs_basic import tacacs_authenticate
-from tools import okta_prepare_org
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -182,6 +181,15 @@ def test_tacacs_server_with_okta_backend(
     api_token = os.getenv("OKTA_API_TOKEN")
     if not org_url or not api_token:
         pytest.skip("Set OKTA_ORG_URL and OKTA_API_TOKEN to run Okta E2E prep")
+
+    # Import the preparer lazily so normal test runs do not require the Okta
+    # SDK or its dependencies to be installed.
+    try:
+        import importlib
+
+        okta_prepare_org = importlib.import_module("tools.okta_prepare_org")
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"tools/okta_prepare_org.py not available or failed to import: {e}")
 
     # Ensure Okta test resources exist (groups, users, service app, keys, config).
     # This mirrors the recommended CLI usage in tools/okta_prepare_org.py and is

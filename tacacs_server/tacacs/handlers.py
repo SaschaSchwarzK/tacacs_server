@@ -1070,9 +1070,9 @@ class AAAHandlers:
                 elif backend_name_norm == "radius":
                     # For RADIUS, match against explicit radius_group if set,
                     # otherwise fall back to the local group name.
-                    target_value = getattr(record, "radius_group", None) or getattr(
-                        record, "name", None
-                    )
+                    target_value = getattr(record, "radius_group", None)
+                    if target_value is None:
+                        target_value = getattr(record, "name", None)
                 elif backend_name_norm == "local":
                     # For local backend, match directly on local group name.
                     target_value = getattr(record, "name", None)

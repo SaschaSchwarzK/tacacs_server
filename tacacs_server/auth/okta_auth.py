@@ -947,41 +947,37 @@ class OktaAuthBackend(AuthenticationBackend):
         This adapter is used by AAAHandlers for device-scoped group enforcement
         and intentionally returns lowercased group names.
         """
-        try:
-            cached = self._group_cache.get(username)
-        except Exception:
-            cached = None
 
-        groups: list[str] = []
-        if isinstance(cached, dict):
-            raw_groups = cached.get("groups") or []
-            if isinstance(raw_groups, list):
-                groups = [str(g).lower() for g in raw_groups if isinstance(g, str)]
+        def _extract_from_cache(user: str) -> list[str]:
+            try:
+                cached = self._group_cache.get(user)
+                if isinstance(cached, dict):
+                    raw_groups = cached.get("groups") or []
+                    if isinstance(raw_groups, list):
+                        return [
+                            str(g).lower() for g in raw_groups if isinstance(g, str)
+                        ]
+            except Exception:
+                pass
+            return []
 
+        groups = _extract_from_cache(username)
         if groups:
             return groups
 
-        # If groups are not cached yet, try to populate them using the
-        # existing Management API path keyed by okta_user_id from attributes.
+        # If groups are not cached yet, try to populate them by calling the
+        # Management API, then re-check the cache.
         try:
             attrs = self.get_user_attributes(username)
             okta_user_id = attrs.get("okta_user_id")
             if okta_user_id:
                 self._get_privilege_for_userid(str(okta_user_id), username)
-                try:
-                    cached = self._group_cache.get(username)
-                except Exception:
-                    cached = None
-                if isinstance(cached, dict):
-                    raw_groups = cached.get("groups") or []
-                    if isinstance(raw_groups, list):
-                        groups = [
-                            str(g).lower() for g in raw_groups if isinstance(g, str)
-                        ]
+                return _extract_from_cache(username)
         except Exception:
-            groups = []
+            # If any step fails, return an empty list.
+            return []
 
-        return groups
+        return []
 
     def reload(self) -> None:
         with self._lock:

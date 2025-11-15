@@ -70,9 +70,6 @@ class LocalUserGroupService:
         privilege = self._validate_privilege(privilege_level)
         metadata_payload = self._validate_metadata(metadata)
         metadata_payload["privilege_level"] = privilege
-        if radius_group is not None:
-            # Keep radius_group out of metadata; it has a dedicated column
-            pass
         record = LocalUserGroupRecord(
             name=validated_name,
             description=description,
