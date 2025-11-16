@@ -6,32 +6,26 @@ The TACACS+ server container implements intelligent startup orchestration that a
 
 ## Startup Flow
 
-```
-Container Start
-    ↓
-Check Azure Env Vars
-    ↓
-    ├─ Yes: Azure Configured
-    │   ↓
-    │   Try Restore Latest Backup
-    │   ↓
-    │   ├─ Success → Use Restored Data
-    │   │
-    │   └─ Failed/No Backup
-    │       ↓
-    │       Try Download Config File
-    │       ↓
-    │       ├─ Success → Use Downloaded Config
-    │       │
-    │       └─ Failed/No Config
-    │           ↓
-    │           Use Environment + Defaults
-    │
-    └─ No: Use Environment + Defaults
-        ↓
-    Validate Minimum Requirements
-        ↓
-    Start Server
+```mermaid
+flowchart TD
+    A[Container start] --> B{Azure storage configured?}
+    B -->|Yes| C[Restore latest backup from Azure]
+    B -->|No| H[Skip cloud recovery]
+
+    C --> D{Backup restored?}
+    D -->|Yes| E[Extract tarball into /app/data]
+    D -->|No| F[Download config from Azure]
+
+    F --> G{Config downloaded?}
+    G -->|Yes| I[Write /app/config/tacacs.azure.ini]
+    G -->|No| H
+
+    E --> J[Validate minimum config]
+    I --> J
+    H --> J
+
+    J --> K[Determine config path]
+    K --> L[Start main server process]
 ```
 
 ## Environment Variables
@@ -70,15 +64,12 @@ AZURE_STORAGE_CONTAINER=tacacs-backups
 ### Optional Azure Configuration
 
 ```bash
-# Backup storage path prefix
+# Backup storage path prefix (used by restore_from_azure_backup)
 AZURE_BACKUP_PATH=backups  # default: backups
 
-# Config file location
-AZURE_CONFIG_PATH=config   # default: config
-AZURE_CONFIG_FILE=tacacs.conf  # default: tacacs.conf
-
-# Azure endpoint suffix
-AZURE_ENDPOINT_SUFFIX=core.windows.net  # default
+# Config file location (used by download_config_from_azure)
+AZURE_CONFIG_PATH=config        # default: config
+AZURE_CONFIG_FILE=tacacs.conf   # default: tacacs.conf
 ```
 
 ### Server Configuration
@@ -88,21 +79,23 @@ AZURE_ENDPOINT_SUFFIX=core.windows.net  # default
 TACACS_CONFIG=/path/to/custom/config.ini
 
 # Admin credentials
+# Recommended (production): provide a bcrypt hash
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=secure-password
+ADMIN_PASSWORD_HASH='$2b$12$examplehash...'
 
-# Logging
-LOG_LEVEL=INFO
+# Development-only fallback: plaintext password (hashed at startup if
+# ADMIN_PASSWORD_HASH is not set)
+# ADMIN_PASSWORD=secure-password
 ```
 
 ## Configuration Priority
 
 The server selects configuration in this order:
 
-1. **Azure-downloaded config** (if available)
-2. **TACACS_CONFIG env var** (if specified and exists)
-3. **Container default** (`/app/config/tacacs.container.ini`)
-4. **Standard location** (`config/tacacs.conf`)
+1. **Azure-downloaded config** (`/app/config/tacacs.azure.ini`) if `download_config_from_azure` succeeded and the file exists.
+2. **`TACACS_CONFIG` env var** if set and points to an existing file.
+3. **Container default** (`/app/config/tacacs.container.ini`) bundled with the image.
+4. **Standard location** (`config/tacacs.conf`) in the working directory.
 
 ## Docker Compose Example
 
@@ -129,7 +122,6 @@ services:
       # Server config
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: ${ADMIN_PASSWORD_HASH}
-      LOG_LEVEL: INFO
     volumes:
       - tacacs-data:/app/data
       - tacacs-logs:/app/logs
@@ -209,9 +201,10 @@ When Azure storage is configured:
 1. **Connects to Azure Blob Storage** using provided credentials
 2. **Lists all available backups** in the configured path
 3. **Selects the latest backup** by timestamp
-4. **Downloads backup** to temporary location
-5. **Extracts backup** to `/app/data` directory
-6. **Continues startup** with restored data
+4. **Downloads backup** to a safe temporary location (using `backup.path_policy.join_safe_temp` when available)
+5. **Extracts backup** to `/app/data` directory using `backup.archive_utils.extract_tarball`
+6. **Cleans up temp file** (best effort)
+7. **Continues startup** with restored data
 
 If backup restoration fails (no backups, connection error, etc.), the startup continues to the next step.
 
@@ -220,20 +213,17 @@ If backup restoration fails (no backups, connection error, etc.), the startup co
 If backup restoration fails or no backup exists:
 
 1. **Checks for config file** in Azure storage
-2. **Downloads to** `/app/config/tacacs.azure.ini`
-3. **Uses downloaded config** for server startup
+2. **Computes remote path** as `<AZURE_CONFIG_PATH>/<AZURE_CONFIG_FILE>` (e.g. `config/tacacs.conf`)
+3. **Downloads to** `/app/config/tacacs.azure.ini` using:
+   - Direct `BlobServiceClient` when a connection string is present (with retries), or
+   - `AzureBlobBackupDestination.download_backup` as a helper
+4. **Uses downloaded config** for server startup if the file is present
 
 If config download fails, falls back to local configuration.
 
 ### Minimum Validation
 
-Before starting the server, the orchestrator validates:
-
-- Required environment variables are present
-- Configuration is valid and complete
-- Critical paths and files exist
-
-If validation fails, the container exits with error.
+`StartupOrchestrator.validate_minimum_config()` currently only checks a (potentially empty) list of required env vars and logs success. It is intentionally minimal so individual deployments can extend this logic (for example by enforcing required secrets).
 
 ### Skip Orchestration
 

@@ -14,7 +14,7 @@ server = ldap://ad.company.com:389
 base_dn = ou=Users,dc=company,dc=com
 user_attribute = sAMAccountName
 bind_dn = cn=tacacs-service,ou=Service Accounts,dc=company,dc=com
-bind_password = ${LDAP_PASSWORD}
+bind_password = "change-me"  # overridden by LDAP_BIND_PASSWORD if set
 use_tls = true
 timeout = 10
 group_attribute = memberOf
@@ -44,7 +44,7 @@ server = ldap://openldap.company.com:389
 base_dn = ou=people,dc=company,dc=com
 user_attribute = uid
 bind_dn = cn=admin,dc=company,dc=com
-bind_password = ${LDAP_PASSWORD}
+bind_password = "change-me"  # overridden by LDAP_BIND_PASSWORD if set
 use_tls = true
 group_attribute = memberOf
 ```

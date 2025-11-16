@@ -1326,9 +1326,6 @@ docker-compose up -d
 # View logs
 docker-compose logs -f tacacs-server
 
-# Scale for high availability
-docker-compose up -d --scale tacacs-server=3
-
 ## 🧱 Multi-Arch Images (amd64 + arm64)
 
 Build and publish a multi-architecture image so both Intel/AMD and Apple Silicon hosts can run the same tag.
@@ -1354,13 +1351,9 @@ Notes
 Security/cache note
 - For Okta/local auth result caching, set `AUTH_CACHE_HMAC_KEY` in your environment to keep cache keys stable across restarts (improves cache hit rates). If unset, a random key is generated at process start and cache entries won’t carry across restarts.
 
-Note on high availability
-- Scaling multiple containers behind a load balancer provides failover at the process level, but the current implementation does not replicate state between instances.
-- For true HA, run a shared database and shared config:
-  - Shared data: Use an external database or a shared persistent volume for `data/` so all replicas read/write the same state.
-  - Config sync: Ensure `config/tacacs.conf` and device/group data are consistent across replicas (e.g., Kubernetes ConfigMap/Secret, GitOps, or a shared config volume).
-  - Secrets: Distribute `ADMIN_PASSWORD_HASH` and group/device secrets via environment/secret stores so all replicas use identical values.
-  - Caution: Running independent local SQLite files per replica will diverge state and break HA semantics.
+Note on multiple instances
+- Running more than one instance (containers or processes) is possible, but the software does not implement clustering or state replication.
+- If you run multiple instances, you are responsible for providing shared data/configuration and understanding that this does **not** provide built‑in high availability semantics.
 ```
 
 ## 🔧 Admin CLI (tacacs-admin)
@@ -1463,7 +1456,6 @@ Notes
 - ✅ Security scanning with bandit and semgrep
 
 ### **Coming Soon**
-- 🔄 High availability clustering
 - 🔄 Advanced reporting and analytics
 - 🔄 SAML/OAuth2 integration
 - 🔄 REST API for device provisioning

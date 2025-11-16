@@ -6,7 +6,6 @@ This document provides practical examples and recipes for common TACACS+ server 
 - [Basic Server Setup](#basic-server-setup)
 - [LDAP Authentication](#ldap-authentication)
 - [Command Authorization](#command-authorization)
-- [High Availability](#high-availability)
 - [Troubleshooting](#troubleshooting)
 
 ## Basic Server Setup
