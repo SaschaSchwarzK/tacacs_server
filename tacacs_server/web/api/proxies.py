@@ -79,7 +79,7 @@ def _ensure_enabled():
 )
 async def list_proxies(limit: int = Query(100, ge=1, le=1000)):
     _ensure_enabled()
-    logger.info("Listing proxies", event="proxy.list", limit=limit)
+    logger.info("Listing proxies (limit=%d)", limit)
     svc: DeviceService = get_device_service()
     items = svc.list_proxies()[:limit]
     logger.debug("Returning %d proxies", len(items))
@@ -95,28 +95,16 @@ async def list_proxies(limit: int = Query(100, ge=1, le=1000)):
 )
 async def create_proxy(payload: ProxyCreate):
     _ensure_enabled()
-    logger.info(
-        "Creating proxy",
-        event="proxy.create",
-        name=payload.name,
-        network=payload.network,
-    )
+    logger.info("Creating proxy name=%s network=%s", payload.name, payload.network)
     svc: DeviceService = get_device_service()
     try:
         p = svc.create_proxy(
             payload.name, payload.network, metadata=payload.metadata or {}
         )
-        logger.info(
-            "Proxy created",
-            event="proxy.create.success",
-            proxy_id=p.id,
-            name=p.name,
-        )
+        logger.info("Proxy created id=%s name=%s", p.id, p.name)
         return _to_resp(p)
     except DeviceValidationError as e:
-        logger.warning(
-            "Proxy creation failed validation: %s", e, event="proxy.create.validation"
-        )
+        logger.warning("Proxy creation failed validation: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Unexpected error creating proxy")
@@ -131,26 +119,17 @@ async def create_proxy(payload: ProxyCreate):
 )
 async def get_proxy(proxy_id: int):
     _ensure_enabled()
-    logger.info("Fetching proxy", event="proxy.get", proxy_id=proxy_id)
+    logger.info("Fetching proxy id=%s", proxy_id)
     svc: DeviceService = get_device_service()
     try:
         p = svc.get_proxy(proxy_id)
-        logger.debug(
-            "Proxy fetched",
-            event="proxy.get.success",
-            proxy_id=p.id,
-            name=p.name,
-        )
+        logger.debug("Proxy fetched id=%s name=%s", p.id, p.name)
         return _to_resp(p)
     except DeviceValidationError as e:
-        logger.warning(
-            "Proxy not found: %s", e, event="proxy.get.not_found", proxy_id=proxy_id
-        )
+        logger.warning("Proxy not found: %s (id=%s)", e, proxy_id)
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception(
-            "Unexpected error fetching proxy", extra={"proxy_id": proxy_id}
-        )
+        logger.exception("Unexpected error fetching proxy id=%s", proxy_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -163,12 +142,11 @@ async def get_proxy(proxy_id: int):
 async def update_proxy(proxy_id: int, payload: ProxyUpdate):
     _ensure_enabled()
     logger.info(
-        "Updating proxy",
-        event="proxy.update",
-        proxy_id=proxy_id,
-        has_name=payload.name is not None,
-        has_network=payload.network is not None,
-        has_metadata=payload.metadata is not None,
+        "Updating proxy id=%s fields name=%s network=%s has_metadata=%s",
+        proxy_id,
+        payload.name is not None,
+        payload.network is not None,
+        payload.metadata is not None,
     )
     svc: DeviceService = get_device_service()
     try:
@@ -178,25 +156,17 @@ async def update_proxy(proxy_id: int, payload: ProxyUpdate):
             network=payload.network,
             metadata=payload.metadata,
         )
-        logger.info(
-            "Proxy updated",
-            event="proxy.update.success",
-            proxy_id=p.id,
-            name=p.name,
-        )
+        logger.info("Proxy updated id=%s name=%s", p.id, p.name)
         return _to_resp(p)
     except DeviceValidationError as e:
         logger.warning(
-            "Proxy update failed validation/not found: %s",
+            "Proxy update failed validation/not found: %s (id=%s)",
             e,
-            event="proxy.update.not_found",
-            proxy_id=proxy_id,
+            proxy_id,
         )
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception(
-            "Unexpected error updating proxy", extra={"proxy_id": proxy_id}
-        )
+        logger.exception("Unexpected error updating proxy id=%s", proxy_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -208,15 +178,11 @@ async def update_proxy(proxy_id: int, payload: ProxyUpdate):
 )
 async def delete_proxy(proxy_id: int):
     _ensure_enabled()
-    logger.info("Deleting proxy", event="proxy.delete", proxy_id=proxy_id)
+    logger.info("Deleting proxy id=%s", proxy_id)
     svc: DeviceService = get_device_service()
     ok = svc.delete_proxy(proxy_id)
     if not ok:
-        logger.warning(
-            "Proxy delete requested but not found",
-            event="proxy.delete.not_found",
-            proxy_id=proxy_id,
-        )
+        logger.warning("Proxy delete requested but not found (id=%s)", proxy_id)
         raise HTTPException(status_code=404, detail="Proxy not found")
-    logger.info("Proxy deleted", event="proxy.delete.success", proxy_id=proxy_id)
+    logger.info("Proxy deleted id=%s", proxy_id)
     return None
