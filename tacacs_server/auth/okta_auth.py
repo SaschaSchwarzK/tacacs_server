@@ -649,7 +649,9 @@ class OktaAuthBackend(AuthenticationBackend):
                             if isinstance(j, dict):
                                 resp_data = j
                         except Exception as json_exc:
-                            logger.debug(f"Failed to parse push verify response: {json_exc}")
+                            logger.debug(
+                                f"Failed to parse push verify response: {json_exc}"
+                            )
                         st = str(resp_data.get("status", "")).upper()
                         if st == "SUCCESS":
                             data = resp_data
