@@ -42,8 +42,11 @@ class URLConfigHandler:
         # Ensure cache directory exists
         try:
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        except Exception:
-            pass
+        except Exception as mkdir_exc:
+            logger.debug(
+                "ConfigStore cache directory creation failed for configuration URL source: %s",
+                mkdir_exc,
+            )
 
     def is_url_safe(self, source: str) -> bool:
         """Validate URL safety to prevent SSRF attacks.
@@ -219,8 +222,11 @@ class URLConfigHandler:
             ):
                 return False
 
-        except Exception:
-            pass
+        except Exception as url_load_exc:
+            logger.debug(
+                "ConfigStore metadata check failed for configuration URL source: %s",
+                url_load_exc,
+            )
 
         return True
 
@@ -273,8 +279,11 @@ def refresh_url_config(
                 config_store.set_metadata(
                     "last_url_fetch", datetime.now(UTC).isoformat()
                 )
-            except Exception:
-                pass
+            except Exception as meta_exc:
+                logger.debug(
+                    "ConfigStore metadata update failed for configuration URL source: %s",
+                    meta_exc,
+                )
         return False
 
     # Apply new configuration
