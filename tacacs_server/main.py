@@ -103,8 +103,8 @@ class TacacsServerManager:
                 # Bind instance identity into log context for all subsequent logs
                 try:
                     bind_context(instance_id=instance_id, instance_name=instance_name)
-                except Exception:
-                    pass
+                except Exception as binc_exc:
+                    logger.warning("Failed to bind instance context: %s", binc_exc)
                 logger.info(f"Instance: {instance_name} (ID: {instance_id[:8]}...)")
                 # Initial configuration snapshot
                 try:
@@ -158,9 +158,10 @@ class TacacsServerManager:
                 # Rebind handlers to use the new logger
                 if hasattr(self.server, "handlers") and self.server.handlers:
                     self.server.handlers.db_logger = self.server.db_logger
-        except Exception:
+        except Exception as db_logger_exc:
             # Fall back to default path if config/bind fails; server remains usable
-            pass
+            logger.warning("Failed to configure database logger: %s", db_logger_exc)
+
         # Apply extended server/network tuning
         try:
             net_cfg = self.config.get_server_network_config()
@@ -203,8 +204,10 @@ class TacacsServerManager:
                     )
                 except Exception:
                     self.server.proxy_reject_invalid = True
-            except Exception:
-                pass
+            except Exception as proxy_protocol_exc:
+                logger.warning(
+                    "Failed to initialize proxy protocol: %s", proxy_protocol_exc
+                )
         except Exception as e:
             logger.error("Failed to initialize ConnectionLimiter: %s", e, exc_info=True)
 
@@ -221,8 +224,8 @@ class TacacsServerManager:
                 threshold_count=wh.get("threshold_count"),
                 threshold_window=wh.get("threshold_window"),
             )
-        except Exception:
-            pass
+        except Exception as webhook_exc:
+            logger.warning("Failed to initialize webhook: %s", webhook_exc)
         # Apply security-related runtime limits
         try:
             sec_cfg = self.config.get_security_config()
@@ -237,8 +240,8 @@ class TacacsServerManager:
                     )
                 except Exception:
                     self.server.encryption_required = True
-        except Exception:
-            pass
+        except Exception as security_exc:
+            logger.warning("Failed to initialize security: %s", security_exc)
 
         # Initialize backup system
         try:
@@ -310,8 +313,10 @@ class TacacsServerManager:
                 ).default_device_group = self.device_store_config.get(
                     "default_group", "default"
                 )
-            except Exception:
-                pass
+            except Exception as device_store_exc:
+                logger.warning(
+                    "Failed to initialize device store: %s", device_store_exc
+                )
         except Exception as exc:
             logger.exception("Failed to initialise device store: %s", exc)
             self.device_store = None
@@ -533,18 +538,29 @@ class TacacsServerManager:
                         self.server.handlers.command_response_mode_default = str(
                             default_mode
                         )
-                    except Exception:
-                        pass
+                    except Exception as command_authorizer_exc:
+                        logger.warning(
+                            "Failed to initialize command authorizer: %s",
+                            command_authorizer_exc,
+                        )
                     # Pass privilege check ordering preference to handlers
                     try:
                         self.server.handlers.privilege_check_order = str(priv_order)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        except Exception:
+                    except Exception as command_authorizer_exc:
+                        logger.warning(
+                            "Failed to initialize command authorizer: %s",
+                            command_authorizer_exc,
+                        )
+            except Exception as command_authorizer_exc:
+                logger.warning(
+                    "Failed to initialize command authorizer: %s",
+                    command_authorizer_exc,
+                )
+        except Exception as command_authorizer_exc:
             # Do not fail startup if command authorization engine fails
-            pass
+            logger.warning(
+                "Failed to initialize command authorizer: %s", command_authorizer_exc
+            )
 
         # Enable monitoring if configured (tolerate missing section)
         # read monitoring section safely: prefer helper API, fallback to RawConfigParser
@@ -673,8 +689,11 @@ class TacacsServerManager:
                 self.radius_server.rcvbuf = max(
                     262144, int(radius_config.get("rcvbuf", 1048576))
                 )
-            except Exception:
-                pass
+            except Exception as radius_server_exc:
+                logger.warning(
+                    "Failed to initialize radius server: %s", radius_server_exc
+                )
+
             if self.device_store:
                 self.radius_server.device_store = self.device_store
                 # Wire device auto-registration behavior into RADIUS server
@@ -687,8 +706,8 @@ class TacacsServerManager:
                     ).default_device_group = self.device_store_config.get(
                         "default_group", "default"
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to initialize radius server: %s", exc)
             if self.local_user_group_service and self.radius_server:
                 self.radius_server.set_local_user_group_service(
                     self.local_user_group_service
@@ -855,8 +874,8 @@ class TacacsServerManager:
                             flags.get("trust_env"),
                             flags.get("require_group_for_auth"),
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to initialize radius server: %s", exc)
         # Add RADIUS info
         if self.radius_server:
             logger.info("")
@@ -888,9 +907,8 @@ class TacacsServerManager:
                     if len(group_counts) > 5:
                         summary += ", ..."
                     logger.info("  Client Groups: %s", summary)
-                except Exception:
-                    # If summarising fails just skip detailed output
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to initialize radius server: %s", exc)
         logger.info("")
         logger.info("Server ready - waiting for connections...")
         logger.info("Press Ctrl+C to stop")

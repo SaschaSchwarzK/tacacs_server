@@ -374,8 +374,8 @@ class ClientHandler:
                             }
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as log_exc:
+                    logger.debug("Failed to log packet header error: %s", log_exc)
             else:
                 conn_logger.warning("Invalid packet from %s: %s", address, e)
             return None
@@ -388,8 +388,8 @@ class ClientHandler:
                 new_extra = dict(base_extra)
                 new_extra["session_id"] = f"0x{session_id:08x}"
                 return logging.LoggerAdapter(logger, new_extra)
-        except Exception:
-            pass
+        except Exception as log_exc:
+            logger.debug("Failed to enrich logger: %s", log_exc)
         return conn_logger
 
     def _validate_and_read_body(
@@ -463,8 +463,8 @@ class ClientHandler:
             if packet.flags & TAC_PLUS_FLAGS.TAC_PLUS_UNENCRYPTED_FLAG:
                 conn_logger.warning("rejecting unencrypted tacacs+ auth")
                 return True
-        except Exception:
-            pass
+        except Exception as log_exc:
+            logger.debug("Failed to check encryption: %s", log_exc)
 
         return False
 
@@ -512,8 +512,8 @@ class ClientHandler:
                     self.stats.increment("acct_success")
                 else:
                     self.stats.increment("acct_failures")
-            except Exception:
-                pass
+            except Exception as ste_stat_exc:
+                logger.debug("Failed to parse accounting status: %s", ste_stat_exc)
 
         return response
 
@@ -523,5 +523,5 @@ class ClientHandler:
             from tacacs_server.web.web import PrometheusIntegration as _PM
 
             _PM.record_command_authorization(result)
-        except Exception:
-            pass
+        except Exception as rec_autho_exc:
+            logger.debug("Failed to record command authorization: %s", rec_autho_exc)

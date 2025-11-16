@@ -19,6 +19,7 @@ from sqlalchemy import create_engine, delete, func, select, update
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import sessionmaker
 
+from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.maintenance import get_db_manager
 
 from .models import Base, ConfigHistory, ConfigOverride, ConfigVersion, SystemMetadata
@@ -38,6 +39,9 @@ def compute_config_hash(config_json: str | bytes) -> str:
     """Compute SHA-256 hash of config JSON."""
     data = config_json.encode("utf-8") if isinstance(config_json, str) else config_json
     return hashlib.sha256(data).hexdigest()
+
+
+logger = get_logger(__name__)
 
 
 class ConfigStore:
@@ -91,8 +95,8 @@ class ConfigStore:
         # optional sqlite cursor is closed during restore.
         try:
             get_db_manager().register(self, self.close)
-        except Exception:
-            pass
+        except Exception as reg_exc:
+            logger.debug(f"Failed to register config store for maintenance: {reg_exc}")
 
     def _ensure_schema(self) -> None:
         """Create database tables if they don't exist."""
@@ -124,13 +128,8 @@ class ConfigStore:
         try:
             self.engine.dispose()
         except Exception:  # noqa: BLE001
-            # Ignore but do not hide completely in logs; disposal failures are rare
-            import traceback
-
-            try:
-                print("ConfigStore engine.dispose failed:\n" + traceback.format_exc())
-            except Exception:
-                pass
+            # Ignore but do not hide completely; disposal failures are rare
+            logger.exception("ConfigStore engine.dispose failed")
 
     def reload(self) -> None:
         """Re-open engine and optional sqlite cursor after maintenance."""
@@ -138,14 +137,14 @@ class ConfigStore:
             # Dispose existing engine connections
             try:
                 self.engine.dispose()
-            except Exception:
-                pass
+            except Exception as dispose_exc:
+                logger.debug(f"ConfigStore engine.dispose failed: {dispose_exc}")
             # Recreate the optional sqlite compatibility cursor if applicable
             if self._conn is not None:
                 try:
                     self._conn.close()
-                except Exception:
-                    pass
+                except Exception as close_exc:
+                    logger.debug(f"ConfigStore sqlite close failed: {close_exc}")
                 try:
                     # Recover original path from engine URL
                     url = str(self.engine.url)
@@ -157,21 +156,18 @@ class ConfigStore:
                             self._conn.execute("PRAGMA foreign_keys = ON")
                     else:
                         self._conn = None
-                except Exception:
+                except Exception as conn_exc:
+                    logger.debug(f"ConfigStore sqlite connect failed: {conn_exc}")
                     self._conn = None
             # Ensure schema is present
             self._ensure_schema()
-        except Exception:
-            # Best-effort reload
-            pass
+        except Exception as reload_exc:
+            logger.debug(f"ConfigStore reload failed: {reload_exc}")
         try:
             if self._conn is not None:
                 self._conn.close()
-        except Exception as exc:
-            try:
-                print(f"ConfigStore sqlite close failed: {exc}")
-            except Exception:
-                pass
+        except Exception as close_exc:
+            logger.debug(f"ConfigStore sqlite close failed: {close_exc}")
 
     # --- Session Management ---
     def _get_session(self) -> DBSession:
@@ -622,12 +618,13 @@ class ConfigStore:
                     full_config=full_config,
                 )
                 session.commit()
-            except Exception:
+            except Exception as commit_exc:
                 # Best-effort history recording; do not raise
                 try:
                     session.rollback()
-                except Exception:
-                    pass
+                except Exception as rollback_exc:
+                    logger.debug(f"ConfigStore rollback failed: {rollback_exc}")
+                logger.debug(f"ConfigStore commit failed: {commit_exc}")
 
     # --- Version Management ---
     def create_version(
@@ -683,8 +680,8 @@ class ConfigStore:
                     or ("baseline" if is_baseline else "save version"),
                     full_config=config_dict,
                 )
-            except Exception:
-                pass
+            except Exception as history_exc:
+                logger.debug(f"ConfigStore history recording failed: {history_exc}")
             session.commit()
 
             return {

@@ -692,22 +692,29 @@ class RADIUSServer:
         if self.auth_socket:
             try:
                 self.auth_socket.close()
-            except (OSError, AttributeError):
+            except (OSError, AttributeError) as socket_close_exc:
                 # Socket close failed, continue with shutdown
-                pass
+                logger.warning(
+                    "Failed to close RADIUS authentication socket: %s",
+                    socket_close_exc,
+                )
         if self.acct_socket:
             try:
                 self.acct_socket.close()
-            except (OSError, AttributeError):
+            except (OSError, AttributeError) as socket_close_exc:
                 # Socket close failed, continue with shutdown
-                pass
+                logger.warning(
+                    "Failed to close RADIUS accounting socket: %s", socket_close_exc
+                )
 
         if self._executor:
             try:
                 self._executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:
+            except Exception as executor_shutdown_exc:
                 # Executor shutdown failed, continue with cleanup
-                pass
+                logger.warning(
+                    "Failed to shutdown RADIUS executor: %s", executor_shutdown_exc
+                )
             finally:
                 self._executor = None
 
@@ -729,9 +736,12 @@ class RADIUSServer:
                 self.auth_socket.setsockopt(
                     socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf
                 )
-            except Exception:
+            except Exception as socket_setopt_exc:
                 # Socket buffer size tuning failed, continue with default
-                pass
+                logger.warning(
+                    "Failed to set RADIUS authentication socket buffer size: %s",
+                    socket_setopt_exc,
+                )
 
             logger.debug(
                 "RADIUS authentication server listening on %s:%s", self.host, self.port
@@ -764,9 +774,12 @@ class RADIUSServer:
             if self.auth_socket:
                 try:
                     self.auth_socket.close()
-                except (OSError, AttributeError):
+                except (OSError, AttributeError) as socket_close_exc:
                     # Socket close failed during cleanup
-                    pass
+                    logger.warning(
+                        "Failed to close RADIUS authentication socket: %s",
+                        socket_close_exc,
+                    )
                 finally:
                     self.auth_socket = None
 
@@ -781,9 +794,12 @@ class RADIUSServer:
                 self.acct_socket.setsockopt(
                     socket.SOL_SOCKET, socket.SO_RCVBUF, self.rcvbuf
                 )
-            except Exception:
+            except Exception as socket_setopt_exc:
                 # Socket buffer size tuning failed, continue with default
-                pass
+                logger.warning(
+                    "Failed to set RADIUS accounting socket buffer size: %s",
+                    socket_setopt_exc,
+                )
 
             logger.debug(
                 "RADIUS accounting server listening on %s:%s",
@@ -818,9 +834,12 @@ class RADIUSServer:
             if self.acct_socket:
                 try:
                     self.acct_socket.close()
-                except (OSError, AttributeError):
+                except (OSError, AttributeError) as socket_close_exc:
                     # Socket close failed during cleanup
-                    pass
+                    logger.warning(
+                        "Failed to close RADIUS accounting socket: %s",
+                        socket_close_exc,
+                    )
                 finally:
                     self.acct_socket = None
 
@@ -866,9 +885,12 @@ class RADIUSServer:
                         try:
                             configs = ds.iter_radius_clients()
                             self.refresh_clients(configs)
-                        except Exception:
+                        except Exception as refresh_clients_exc:
                             # Client refresh failed, continue with existing clients
-                            pass
+                            logger.warning(
+                                "Failed to refresh RADIUS clients: %s",
+                                refresh_clients_exc,
+                            )
                         client_config = self.lookup_client(client_ip)
                     except Exception as exc:
                         logger.warning(
@@ -915,9 +937,9 @@ class RADIUSServer:
                     nas_port=nas_port,
                     client_group=getattr(client_config, "group", None),
                 )
-            except Exception:
+            except Exception as debug_logging_exc:
                 # Debug logging failed, continue processing request
-                pass
+                logger.warning("Failed to log RADIUS request: %s", debug_logging_exc)
 
             # Extract authentication info
             username = request.get_string(ATTR_USER_NAME)
@@ -1029,9 +1051,12 @@ class RADIUSServer:
                         from ..web.monitoring import PrometheusIntegration
 
                         PrometheusIntegration.record_radius_auth("accept")
-                    except Exception:
+                    except Exception as prometheus_integration_exc:
                         # Prometheus metrics recording failed, continue without metrics
-                        pass
+                        logger.warning(
+                            "Failed to record RADIUS authentication accept: %s",
+                            prometheus_integration_exc,
+                        )
                 else:
                     response = self._create_access_reject(
                         request, denial_reason or denial_message
@@ -1047,9 +1072,12 @@ class RADIUSServer:
                         from ..web.monitoring import PrometheusIntegration
 
                         PrometheusIntegration.record_radius_auth("reject")
-                    except Exception:
+                    except Exception as prometheus_integration_exc:
                         # Prometheus metrics recording failed, continue without metrics
-                        pass
+                        logger.warning(
+                            "Failed to record RADIUS authentication reject: %s",
+                            prometheus_integration_exc,
+                        )
             else:
                 response = self._create_access_reject(request, "Authentication failed")
                 self._inc("auth_rejects")
@@ -1063,9 +1091,12 @@ class RADIUSServer:
                     from ..web.monitoring import PrometheusIntegration
 
                     PrometheusIntegration.record_radius_auth("reject")
-                except Exception:
+                except Exception as prometheus_integration_exc:
                     # Prometheus metrics recording failed, continue without metrics
-                    pass
+                    logger.warning(
+                        "Failed to record RADIUS authentication reject: %s",
+                        prometheus_integration_exc,
+                    )
 
             # Mirror Message-Authenticator if client used it
             if request.get_attribute(ATTR_MESSAGE_AUTHENTICATOR):
@@ -1089,9 +1120,9 @@ class RADIUSServer:
                     status=status,
                     client={"ip": client_ip, "port": client_port},
                 )
-            except Exception:
+            except Exception as debug_logging_exc:
                 # Debug logging failed, continue without response logging
-                pass
+                logger.warning("Failed to log RADIUS response: %s", debug_logging_exc)
 
         except Exception as e:
             logger.error("Error handling RADIUS auth request from %s: %s", client_ip, e)
@@ -1100,9 +1131,11 @@ class RADIUSServer:
             try:
                 if _ctx is not None:
                     clear_context(_ctx)
-            except Exception:
+            except Exception as context_cleanup_exc:
                 # Context cleanup failed, continue without cleanup
-                pass
+                logger.warning(
+                    "Failed to cleanup correlation context: %s", context_cleanup_exc
+                )
 
     def _handle_acct_request(self, data: bytes, addr: tuple[str, int]):
         """Handle RADIUS accounting request with improved error handling.
@@ -1148,9 +1181,12 @@ class RADIUSServer:
                         try:
                             configs = ds.iter_radius_clients()
                             self.refresh_clients(configs)
-                        except Exception:
+                        except Exception as refresh_clients_exc:
                             # Client refresh failed, continue with existing clients
-                            pass
+                            logger.warning(
+                                "Failed to refresh RADIUS clients: %s",
+                                refresh_clients_exc,
+                            )
                         client_config = self.lookup_client(client_ip)
                     except Exception as exc:
                         logger.warning(
@@ -1224,9 +1260,11 @@ class RADIUSServer:
                     status=status_name,
                     client_group=getattr(client_config, "group", None),
                 )
-            except Exception:
+            except Exception as debug_logging_exc:
                 # Debug logging failed, continue processing accounting request
-                pass
+                logger.warning(
+                    "Failed to log RADIUS accounting request: %s", debug_logging_exc
+                )
 
             # Log to accounting database if available
             if self.accounting_logger:
@@ -1252,9 +1290,11 @@ class RADIUSServer:
                     session=session_id,
                     status=status_name,
                 )
-            except Exception:
+            except Exception as debug_logging_exc:
                 # Debug logging failed, continue without response logging
-                pass
+                logger.warning(
+                    "Failed to log RADIUS accounting response: %s", debug_logging_exc
+                )
 
         except Exception as e:
             logger.error("Error handling RADIUS acct request from %s: %s", client_ip, e)
@@ -1262,9 +1302,11 @@ class RADIUSServer:
             try:
                 if _ctx is not None:
                     clear_context(_ctx)
-            except Exception:
+            except Exception as context_cleanup_exc:
                 # Context cleanup failed, continue without cleanup
-                pass
+                logger.warning(
+                    "Failed to cleanup correlation context: %s", context_cleanup_exc
+                )
 
     def _authenticate_user(
         self, username: str, password: str, **kwargs

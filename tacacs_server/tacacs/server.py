@@ -353,8 +353,8 @@ class TacacsServer:
         # Allow quick reuse after previous test shutdowns
         try:
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        except Exception:
-            pass
+        except Exception as set_soc_exc:
+            logger.debug("Failed to set socket options: %s", set_soc_exc)
 
         bind_host = self.host
         if self.enable_ipv6 and bind_host in ("0.0.0.0", "::"):
@@ -479,8 +479,8 @@ class TacacsServer:
 
                     sock_any = cast(Any, client_socket)
                     sock_any.selected_device = selected
-                except (AttributeError, TypeError):
-                    pass
+                except (AttributeError, TypeError) as atr_exc:
+                    logger.debug("Failed to set selected device: %s", atr_exc)
             except Exception as exc:
                 logger.debug("Device lookup during accept failed for %s: %s", ip, exc)
 
@@ -522,8 +522,8 @@ class TacacsServer:
                 if threading.current_thread().daemon:
                     with self._client_threads_lock:
                         self._client_threads.discard(threading.current_thread())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to release client thread: %s", e)
 
     def stop(self):
         """Stop TACACS+ server"""
@@ -579,8 +579,8 @@ class TacacsServer:
         for t in threads:
             try:
                 t.join(timeout=1.0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Thread join failed: %s", e)
 
         # Shutdown thread pool
         if self._executor:

@@ -137,8 +137,8 @@ class StartupOrchestrator:
                     fallback = Path(get_temp_root()) / temp_path.name
                     if fallback.exists():
                         src_path = fallback
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to initialize radius server: %s", exc)
 
             # Restore backup
             logger.info("Restoring backup...")
@@ -152,8 +152,8 @@ class StartupOrchestrator:
             # Cleanup
             try:
                 temp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to cleanup temp file: %s", exc)
 
             logger.info("✓ Backup restored successfully from Azure storage")
             self.backup_restored = True
@@ -270,8 +270,8 @@ class StartupOrchestrator:
                             config_path.parent.mkdir(parents=True, exist_ok=True)
                             fallback.replace(config_path)
                             downloaded = True
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("Failed to initialize radius server: %s", exc)
 
             if not downloaded or not config_path.exists():
                 raise RuntimeError(
