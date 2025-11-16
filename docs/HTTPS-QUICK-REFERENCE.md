@@ -1,63 +1,19 @@
-# TACACS+ Azure Deployment - Quick Reference
+# HTTPS Quick Reference
 
-## Prerequisites Setup (One-Time)
+This is a short “cheat sheet” for HTTPS/TLS deployment. For full details, always refer to:
 
-```bash
-# 1. Create resource group
-az group create --name tacacs-rg --location westeurope
+- `HTTPS-README.md` – HTTPS overview and file map.
+- `CERTIFICATE-OPTIONS.md` – certificate strategies/architecture.
+- `CERTIFICATE-FALLBACK.md` – Key Vault + self‑signed fallback behavior.
+- `DEPLOYMENT-GUIDE-HTTPS.md` – complete Azure deployment walk‑through.
 
-# 2. Create Key Vault
-az keyvault create \
-  --name tacacs-shared-kv \
-  --resource-group tacacs-rg \
-  --location westeurope
-
-# 3. Create Storage Account
-az storage account create \
-  --name tacacsstorage \
-  --resource-group tacacs-rg \
-  --location westeurope \
-  --sku Standard_LRS
-
-# 4. Get storage connection string and store in Key Vault
-STORAGE_CONN=$(az storage account show-connection-string \
-  --name tacacsstorage \
-  --resource-group tacacs-rg \
-  --query connectionString -o tsv)
-
-az keyvault secret set \
-  --vault-name tacacs-shared-kv \
-  --name storage-connection-string \
-  --value "$STORAGE_CONN"
-
-# 5. Create storage container
-az storage container create \
-  --name tacacs-data \
-  --account-name tacacsstorage
-```
-
-## Deploy New Customer
+## Local HTTPS smoke test (self‑signed)
 
 ```bash
-# Make scripts executable
-chmod +x deploy/aci/deploy-customer.sh deploy/aci/manage-customers.sh
-
-# Deploy with certificate
-./deploy/aci/deploy-customer.sh acme-corp acme-corp.pfx MyP@ssw0rd
-
-# Deploy without password-protected cert
-./deploy/aci/deploy-customer.sh contoso contoso.pfx
-```
-
-## Local HTTPS Smoke Test (Self-Signed)
-
-```bash
-# Build HTTPS image from repo root
 make docker-build-https
 
-# Run container with self-signed cert
 docker run --rm \
-  -e CUSTOMER_ID=test \
+  -e CUSTOMER_ID=dev \
   -e AZURE_STORAGE_CONNECTION_STRING=UseDevelopmentStorage=true \
   -e STORAGE_CONTAINER=tacacs-data \
   -e ADMIN_PASSWORD=DevAdminPass1 \
@@ -68,11 +24,10 @@ docker run --rm \
   -p 8443:8443 \
   tacacs-server:https
 
-# In another terminal – verify HTTPS health
 curl -k https://localhost:8443/health
 ```
 
-## Manage Customers
+## Manage customers (ACI helper scripts)
 
 ```bash
 # List all deployed customers
@@ -98,7 +53,7 @@ curl -k https://localhost:8443/health
 ./deploy/aci/manage-customers.sh purge acme-corp
 ```
 
-## Storage Structure
+## Storage structure
 
 ```
 Storage Account: tacacsstorage
@@ -111,7 +66,7 @@ Storage Account: tacacsstorage
             └── backup-2025-01-17-020000.db
 ```
 
-## Key Vault Structure
+## Key Vault structure
 
 ```
 Key Vault: tacacs-shared-kv
@@ -125,7 +80,7 @@ Secrets:
 └── <CUSTOMER_ID>-api-token          # API authentication token
 ```
 
-## Environment Variables
+## Environment variables (per container)
 
 Each container receives:
 

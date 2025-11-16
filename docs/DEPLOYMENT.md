@@ -2,6 +2,31 @@
 
 This guide covers deploying the TACACS+ server in various environments, from development to enterprise production deployments.
 
+## Deployment Overview
+
+```mermaid
+graph TD
+    subgraph Local
+        L1[Poetry dev server<br/>python -m tacacs_server.main]
+    end
+
+    subgraph Containers
+        D1[Docker single container]
+        D2[Docker Compose<br/>+ Prometheus/Grafana]
+        K1[Kubernetes Deployment<br/>(config via ConfigMap/Secret)]
+        A1[Azure ACI HTTPS image<br/>Key Vault + Storage]
+    end
+
+    L1 --> D1
+    D1 --> D2
+    D2 --> K1
+    K1 --> A1
+```
+
+Use this file as the top‑level deployment guide. HTTPS/ACI specifics are covered in detail in:
+- `DEPLOYMENT-GUIDE-HTTPS.md` – Azure ACI + Key Vault + Storage
+- `HTTPS-README.md` / `HTTPS-QUICK-REFERENCE.md` – HTTPS/TLS behavior and quick commands
+
 ## Quick Deployment
 
 ### Development Environment
@@ -75,7 +100,7 @@ services:
     volumes:
       - ./config:/app/config
       - ./data:/app/data
-  - ./logs:/app/logs
+      - ./logs:/app/logs
     environment:
       - TACACS_CONFIG=/app/config/tacacs.conf
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
@@ -143,17 +168,6 @@ docker-compose up -d
 
 # View logs
 docker-compose logs -f tacacs-server
-
-# Scale for high availability
-docker-compose up -d --scale tacacs-server=3
-
-High availability notes
-- Replicas by themselves do not replicate state. The current implementation does not sync data between per-instance databases.
-- For effective HA, use a shared datastore and consistent configuration across replicas:
-  - Shared data: Back the application with a shared database or a common persistent volume for `data/` so all instances operate on the same state.
-  - Config sync: Distribute `config/tacacs.conf`, device/group definitions, and rate limits via a central mechanism (ConfigMap/Secret in Kubernetes, shared volume, or config management).
-  - Secrets: Provide identical secrets and admin password hash to all replicas via your secret manager.
-  - Avoid split-brain: Do not run isolated SQLite files per pod/container; this yields divergent state and undermines HA.
 ```
 
 ## Kubernetes Deployment
@@ -376,11 +390,12 @@ sudo systemctl status tacacs-server
 sudo journalctl -u tacacs-server -f
 ```
 
-## High Availability Deployment
+## Example Load Balancer Configuration
 
-### Load Balancer Configuration
+> The server does **not** implement clustering or high availability.  
+> The following examples show how to route traffic through a proxy; they do not add state replication.
 
-#### HAProxy Configuration
+### HAProxy Configuration
 
 ```
 # /etc/haproxy/haproxy.cfg
@@ -437,7 +452,7 @@ backend web_servers
     server web3 10.0.1.12:8080 check
 ```
 
-#### NGINX Configuration
+### NGINX Configuration
 
 ```nginx
 # /etc/nginx/sites-available/tacacs-server
@@ -880,7 +895,7 @@ grep -i "slow\|timeout\|error" /opt/tacacs_server/logs/tacacs.log
 ### Production Readiness
 
 - [ ] Load balancer configured
-- [ ] High availability tested
+- [ ] Multiple instances tested (if used)
 - [ ] Disaster recovery plan
 - [ ] Performance benchmarks met
 - [ ] Security audit completed
