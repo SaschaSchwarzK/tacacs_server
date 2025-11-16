@@ -1,48 +1,54 @@
-# HTTPS Setup with Azure Key Vault Certificate
+# HTTPS / TLS Overview
 
-## Files Created
+This document gives a high‑level view of how HTTPS is provided around the TACACS+ server container and points you to more detailed, source‑of‑truth documents.
 
-1. **fetch_cert.py** - Fetches PFX from Key Vault, converts to PEM
-2. **Caddyfile** - Caddy reverse proxy config (HTTPS on 8443)
-3. **bootstrap-https.sh** - Modified bootstrap that fetches cert + starts Caddy
-4. **docker/Dockerfile.https** - Adds Caddy + Azure cert dependencies
+The web admin/API always listens on HTTP `:8080` inside the container. HTTPS is provided by a sidecar reverse proxy (Caddy) in the `https` image variant.
 
-## Environment Variables Required
+## Certificate strategy (source of truth)
 
-```bash
-# Existing
-CUSTOMER_ID=customer123
-AZURE_STORAGE_CONNECTION_STRING=...
-ADMIN_PASSWORD=...
-API_TOKEN=...
+For complete details of certificate behavior and fallback, see:
 
-# New for HTTPS
-KEYVAULT_URL=https://your-vault.vault.azure.net/
-CERT_NAME=your-cert-name
-CERT_PASSWORD=pfx-password  # Optional if PFX has password
-```
+- `CERTIFICATE-OPTIONS.md` – design/architecture of certificate options (per‑customer, wildcard, App Gateway).
+- `CERTIFICATE-FALLBACK.md` – exact behavior of the Key Vault + self‑signed fallback implementation.
 
-## How It Works
+In short:
 
-1. Container starts with Managed Identity
-2. `fetch_cert.py` attempts to download certificate from Key Vault
-3. **If Key Vault available**: Uses production certificate
-4. **If Key Vault unavailable**: Generates self-signed wildcard certificate (*.kyndryl.com)
-5. Converts to cert.pem + key.pem in `/certs/`
-6. Caddy starts on port 8443 with TLS
-7. Caddy proxies to web admin on localhost:8080
-8. Web admin always starts (with Key Vault or self-signed certificate)
+- Primary: fetch a PFX from Azure Key Vault, convert to PEM, and serve it via Caddy.
+- Fallback: if Key Vault is missing or unavailable, `fetch_cert.py` generates a self‑signed wildcard certificate (`CERT_FALLBACK_DOMAIN`, default `*.kyndryl.com`).
+- If both Key Vault and self‑signed generation fail: the container skips Caddy and still starts TACACS+/RADIUS with the internal HTTP admin on `8080`.
 
-## Certificate Behavior
+## Files involved (https image)
 
-- **Key Vault configured + accessible**: Uses production certificate
-- **Key Vault unavailable**: Generates self-signed *.kyndryl.com certificate (browser warning)
-- **No Key Vault configured**: Uses self-signed certificate (development mode)
-- **Certificate generation fails completely**: Web admin disabled, TACACS/RADIUS continue
-- **Caddy fails**: Web admin disabled, TACACS/RADIUS continue
-- **Config fetch fails**: Uses default config from image
+- `docker/https/fetch_cert.py` – fetches PFX from Key Vault and/or generates a self‑signed wildcard certificate, writes `cert.pem` and `key.pem` under `CERT_DIR` (default `/certs`).
+- `docker/https/bootstrap-https.sh` – downloads per‑customer config from Azure Blob Storage, runs `fetch_cert.py`, and starts Caddy + tacacs‑server.
+- `docker/Dockerfile.https` – Dockerfile that assembles the HTTPS image with Caddy, `fetch_cert.py` and the bootstrap.
+- `Caddyfile` – config used by Caddy to terminate TLS on `8443` and proxy to `http://localhost:8080`.
 
-## Build & Local Smoke Test
+These files define the behavior; the docs above summarize and reference them rather than duplicating their content.
+
+## Key environment variables
+
+The HTTPS image uses the following key variables (see `DEPLOYMENT-GUIDE-HTTPS.md` for full tables and Azure CLI examples):
+
+- Certificate / Key Vault:
+  - `KEYVAULT_URL` – Key Vault URL (e.g. `https://tacacs-shared-kv.vault.azure.net/`).
+  - `CERT_NAME` – secret name containing the PFX in Key Vault.
+  - `CERT_PASSWORD` – optional PFX password.
+  - `CERT_FALLBACK_DOMAIN` – domain to use when generating a self‑signed wildcard (default `*.kyndryl.com`).
+  - `CERT_DIR` – directory where `cert.pem`/`key.pem` are written (default `/certs`).
+- Storage / config:
+  - `AZURE_STORAGE_CONNECTION_STRING` – Azure Storage connection string.
+  - `STORAGE_CONTAINER` – container holding per‑customer configs (default `tacacs-data`).
+  - `CUSTOMER_ID` – per‑customer namespace; config is read from `<CUSTOMER_ID>/config.ini`.
+- Admin / API:
+  - `ADMIN_PASSWORD` – plaintext admin password for the web UI (hashed at startup by `web_app`).
+  - `API_TOKEN` – bearer token for `/api/*` protection.
+
+The full HTTPS deployment flow, including Managed Identity and Key Vault policy setup, is documented in `DEPLOYMENT-GUIDE-HTTPS.md`.
+
+## Local HTTPS smoke test (self‑signed)
+
+For a quick local HTTPS test using the self‑signed fallback:
 
 ```bash
 # Build HTTPS image from repo root
@@ -65,15 +71,7 @@ docker run --rm \
 curl -k https://localhost:8443/health
 ```
 
-## Access
-
-- TACACS: Port 49
-- RADIUS: Ports 1812/1813
-- Web Admin: https://localhost:8443 (was http://localhost:8080)
-
-## Notes
-
-- Healthcheck tries HTTPS first, falls back to HTTP
-- Caddy runs in background, TACACS server in foreground
-- Certificate must exist in Key Vault as Secret (not Certificate object)
-- Managed Identity needs "Get" permission on Key Vault secrets
+Access:
+- TACACS: port 49
+- RADIUS: ports 1812/1813 (UDP)
+- Web Admin/API: `https://localhost:8443` (proxied to `http://localhost:8080`)

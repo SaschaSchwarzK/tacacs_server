@@ -74,19 +74,10 @@ customer1.tacacs.yourdomain.com:8443 {
 
 ### Option 3: Self-Signed Per Container (Development Only)
 
-Generate self-signed cert at container startup.
+For the current `https` image, self‑signed certificates are handled centrally by `docker/https/fetch_cert.py`:
 
-**bootstrap-https.sh change:**
-```bash
-# Generate self-signed cert if Key Vault not configured
-if [ -z "${KEYVAULT_URL}" ]; then
-    echo "Generating self-signed certificate..."
-    openssl req -x509 -newkey rsa:4096 -nodes \
-        -keyout /certs/key.pem \
-        -out /certs/cert.pem \
-        -days 365 -subj "/CN=localhost"
-fi
-```
+- If `KEYVAULT_URL`/`CERT_NAME` are missing or Key Vault fetch fails, `fetch_cert.py` generates a self‑signed wildcard certificate for `CERT_FALLBACK_DOMAIN` (default `*.kyndryl.com`) and writes `cert.pem`/`key.pem` under `CERT_DIR` (default `/certs`).
+- There is no longer a need to manually mutate `bootstrap-https.sh` with `openssl` calls; that logic is encapsulated in `fetch_cert.py`.
 
 **Pros:**
 - No Key Vault needed for dev/test
@@ -96,7 +87,7 @@ fi
 **Cons:**
 - Browser warnings
 - Not for production
-- No trust chain
+- No public trust chain
 
 ---
 

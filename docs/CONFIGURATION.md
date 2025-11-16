@@ -162,7 +162,7 @@ server = ldap://ad.company.com:389
 base_dn = ou=Users,dc=company,dc=com
 user_attribute = sAMAccountName
 bind_dn = cn=tacacs-service,ou=Service Accounts,dc=company,dc=com
-bind_password = ${LDAP_PASSWORD}
+bind_password = ${LDAP_BIND_PASSWORD}
 use_tls = true
 group_attribute = memberOf
 ```
@@ -174,7 +174,7 @@ server = ldap://openldap.company.com:389
 base_dn = ou=people,dc=company,dc=com
 user_attribute = uid
 bind_dn = cn=admin,dc=company,dc=com
-bind_password = ${LDAP_PASSWORD}
+bind_password = ${LDAP_BIND_PASSWORD}
 use_tls = true
 group_attribute = memberOf
 ```
@@ -244,12 +244,14 @@ default_okta_group =
 [devices]
 database = data/devices.db
 default_group = default
+auto_register = true
 identity_cache_ttl_seconds = 60
 identity_cache_size = 10000
 ```
 
 - `database`: SQLite file where device groups and devices are stored
-- `default_group`: Group created on first start if none exists
+- `default_group`: Group created on first start if none exists and used for auto‑registered clients
+- `auto_register`: When true, unknown TACACS+/RADIUS clients are auto‑registered into the `default_group` (single‑host entries)
 - `identity_cache_ttl_seconds`: TTL (seconds) for the in-memory identity lookup cache `(client_ip, proxy_ip) -> device`
 - `identity_cache_size`: Maximum entries in the identity cache
 
@@ -436,20 +438,19 @@ poetry run python -c "from tacacs_server.utils.password_hash import hash_passwor
 
 ```ini
 [devices]
-# Device inventory database
+# SQLite database used by the device inventory
 database = data/devices.db
 
-# Default device group name
+# Name of the default device group that is ensured on startup and used
+# when auto-registering unknown RADIUS/TACACS+ clients (see devices.store)
 default_group = default
 
-# Auto-create device groups
-auto_create_groups = true
+# Enable/disable auto-registration of unknown clients into the default group
+auto_register = true
 
-# Default TACACS+ secret for new groups
-default_tacacs_secret = ${DEFAULT_TACACS_SECRET}
-
-# Default RADIUS secret for new groups
-default_radius_secret = ${DEFAULT_RADIUS_SECRET}
+# In‑memory identity cache for (client_ip, proxy_ip) → device lookups
+identity_cache_ttl_seconds = 60
+identity_cache_size = 10000
 ```
 
 ## RADIUS Server Configuration
@@ -490,15 +491,6 @@ web_host = 127.0.0.1
 
 # Web interface port
 web_port = 8080
-
-# Enable Prometheus metrics
-prometheus_enabled = true
-
-# Dashboard refresh interval in seconds
-dashboard_refresh_seconds = 30
-
-# Enable WebSocket real-time updates
-websocket_enabled = true
 ```
 
 ## Webhook Configuration
@@ -602,40 +594,47 @@ Notes:
 
 ## Environment Variables (credentials only)
 
-The server supports environment variable substitution in configuration files for credentials/secrets only. All non‑credential parameters MUST be set in the configuration file, not via environment variables.
+Configuration is loaded from a file/URL and then overridden by environment variables. Interpolation like `${VAR}` is not evaluated (the config parser runs with `interpolation=None`); secrets are injected by explicit overrides in the loader.
 
-Allowed variables
+Key environment variables
 
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| `TACACS_CONFIG` | Configuration file path (pointer only) | `/etc/tacacs/tacacs.conf` |
-| `ADMIN_PASSWORD_HASH` | Admin password hash | `$2b$12$...` |
-| `LDAP_PASSWORD` | LDAP bind password | `secret123` |
-| `OKTA_API_TOKEN` | Okta API token | `00abc...` |
-| `DEFAULT_TACACS_SECRET` | Default TACACS+ secret | `tacacs123` |
-| `DEFAULT_RADIUS_SECRET` | Default RADIUS secret | `radius123` |
-| `API_TOKEN` | Admin/API bearer token for `/api/*` | `s3cr3t-token` |
+| Variable | Purpose | Notes |
+|----------|---------|-------|
+| `TACACS_CONFIG` | Configuration source path/URL | Overrides default `config/tacacs.conf` |
+| `CONFIG_REFRESH_SECONDS` | URL config refresh interval | Used by config URL handler/scheduler |
+| `ADMIN_USERNAME` | Admin UI username | Mirrors `[admin].username` (file → env precedence) |
+| `ADMIN_PASSWORD_HASH` | Bcrypt admin password hash | Populates `[admin].password_hash`; preferred for production |
+| `ADMIN_PASSWORD` | Plaintext admin password | Hashed at startup only when `ADMIN_PASSWORD_HASH` is not set; development convenience only |
+| `LDAP_BIND_PASSWORD` | LDAP bind password | Injected into `[ldap].bind_password` |
+| `OKTA_DOMAIN` / `OKTA_CLIENT_ID` / `OKTA_PRIVATE_KEY` / `OKTA_API_TOKEN` | Okta integration secrets | Populate `[okta]` fields via the loader |
+| `BACKUP_ENCRYPTION_PASSPHRASE` | Backup encryption passphrase | Injected into `[backup].encryption_passphrase` |
+| `RADIUS_AUTH_SECRET` | RADIUS auth backend shared secret | Injected into `[radius_auth].radius_secret` |
+| `API_TOKEN` | Admin/API bearer token for `/api/*` | Used by the web API middleware/`require_admin_or_api` |
 
 Examples
 
 ```ini
-# In configuration file (use env only for secrets)
+# In configuration file: values are plain strings;
+# environment variables override them when set.
+
 [ldap]
-bind_password = ${LDAP_PASSWORD}
+bind_password = "change-me"  # overridden by LDAP_BIND_PASSWORD if present
 
 [okta]
-api_token = ${OKTA_API_TOKEN}
+api_token = "placeholder"    # overridden by OKTA_API_TOKEN if present
 
 [admin]
-password_hash = ${ADMIN_PASSWORD_HASH}
+username = admin
+password_hash = ""           # overridden by ADMIN_PASSWORD_HASH if present
 ```
 
 ```bash
-# In environment (credentials only)
-export LDAP_PASSWORD="secure_ldap_password"
+# In environment (secrets only; non-secret tuning via config file)
+export LDAP_BIND_PASSWORD="secure_ldap_password"
 export OKTA_API_TOKEN="00abc123def456..."
 export ADMIN_PASSWORD_HASH="$2b$12$..."
 export API_TOKEN="$(openssl rand -hex 24)"
+export TACACS_CONFIG="/etc/tacacs/tacacs.conf"
 ```
 
 ## Configuration Validation
@@ -701,7 +700,7 @@ server = ldaps://ad.company.com:636
 base_dn = ou=Users,dc=company,dc=com
 user_attribute = sAMAccountName
 bind_dn = cn=tacacs-service,ou=Service Accounts,dc=company,dc=com
-bind_password = ${LDAP_PASSWORD}
+bind_password = ${LDAP_BIND_PASSWORD}
 use_tls = true
 
 [security]
@@ -724,41 +723,6 @@ enabled = true
 web_host = 0.0.0.0
 web_port = 8080
 prometheus_enabled = true
-```
-
-### High Availability Configuration
-
-```ini
-[server]
-host = 0.0.0.0
-port = 49
-max_connections = 500
-
-[database]
-accounting_db = /shared/data/tacacs_accounting.db
-metrics_history_db = /shared/data/metrics_history.db
-audit_trail_db = /shared/data/audit_trail.db
-
-[devices]
-database = /shared/data/devices.db
-
-[auth]
-backends = ldap
-local_auth_db = /shared/data/local_auth.db
-
-[ldap]
-server = ldaps://ad1.company.com:636,ldaps://ad2.company.com:636
-base_dn = ou=Users,dc=company,dc=com
-user_attribute = sAMAccountName
-bind_dn = cn=tacacs-service,ou=Service Accounts,dc=company,dc=com
-bind_password = ${LDAP_PASSWORD}
-use_tls = true
-timeout = 5
-
-[security]
-max_auth_attempts = 3
-rate_limit_requests = 200
-rate_limit_window = 60
 ```
 
 ## Configuration Management

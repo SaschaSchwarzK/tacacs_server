@@ -20,15 +20,20 @@ This document provides comprehensive documentation for all API endpoints availab
 
 ## Base URL
 
-All API endpoints are prefixed with `/admin` and require authentication.
+The HTTP interface exposes:
+
+- Admin UI (HTML): `/admin`
+- JSON/REST API: `/api`
+
+Typical base URL for API clients:
 
 ```
-Base URL: http://localhost:8080/admin
+Base URL: http://localhost:8080/api
 ```
 
 ## Authentication
 
-### Login
+### Login (Admin UI / JSON)
 ```http
 POST /admin/login
 Content-Type: application/json
@@ -42,24 +47,27 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "success": true,
-  "token": "your-jwt-token"
+  "success": true
 }
 ```
 
 ### Using API Tokens
-Include the token in the `Authorization` header:
-```
-Authorization: Bearer your-jwt-token
-```
+For non‑browser clients, configure an API token (via `API_TOKEN` env) and send it on `/api/*` requests:
+
+- Header: `X-API-Token: <token>`
+- Or: `Authorization: Bearer <token>`
+
+The middleware accepts either a valid `admin_session` cookie **or** a matching API token for all `/api/*` paths except `/api/health` and `/api/status`.
 
 ## Rate Limiting
-- 100 requests per minute per IP address
-- 10 login attempts per minute per IP
-- Headers included in responses:
-  - `X-RateLimit-Limit`: Request limit
-  - `X-RateLimit-Remaining`: Remaining requests
-  - `X-RateLimit-Reset`: Time when limit resets (UTC timestamp)
+
+The HTTP admin/API layer currently does **not** emit `X-RateLimit-*` headers and does not enforce a dedicated per‑endpoint HTTP request budget.
+
+Rate limiting is implemented at the TACACS+/RADIUS layer:
+- A token‑bucket limiter (`RateLimiter`) is used for RADIUS/TACACS request flows (default 60 requests per IP per 60 seconds).
+- An authentication limiter (`AuthRateLimiter`) caps TACACS authentication attempts per IP (default 5 attempts per 300 seconds).
+
+These controls are implemented in `tacacs_server.utils.rate_limiter`, `tacacs_server.tacacs.limiter` and `tacacs_server.utils.security` and operate independently of the HTTP admin API.
 
 ## Error Handling
 
@@ -106,93 +114,93 @@ Authorization: Bearer your-jwt-token
 
 #### Get Server Status
 ```
-GET /admin/server/status
+GET /api/status
 ```
 
 #### Reload Configuration
 ```
-POST /admin/server/reload-config
+POST /api/admin/config/reload
 ```
 
 ### Device Management
 
 #### List Devices
 ```
-GET /admin/devices
+GET /api/devices
 ```
 
 #### Create Device
 ```
-POST /admin/devices
+POST /api/devices
 ```
 
 #### Get Device
 ```
-GET /admin/devices/{id}
+GET /api/devices/{id}
 ```
 
 #### Update Device
 ```
-PUT /admin/devices/{id}
+PUT /api/devices/{id}
 ```
 
 #### Delete Device
 ```
-DELETE /admin/devices/{id}
+DELETE /api/devices/{id}
 ```
 
 ### Device Groups
 
 #### List Device Groups
 ```
-GET /admin/device-groups
+GET /api/device-groups
 ```
 
 #### Create Device Group
 ```
-POST /admin/device-groups
+POST /api/device-groups
 ```
 
 #### Get Device Group
 ```
-GET /admin/device-groups/{id}
+GET /api/device-groups/{id}
 ```
 
 #### Update Device Group
 ```
-PUT /admin/device-groups/{id}
+PUT /api/device-groups/{id}
 ```
 
 #### Delete Device Group
 ```
-DELETE /admin/device-groups/{id}
+DELETE /api/device-groups/{id}
 ```
 
 ### User Management
 
 #### List Users
 ```
-GET /admin/users
+GET /api/users
 ```
 
 #### Create User
 ```
-POST /admin/users
+POST /api/users
 ```
 
 #### Get User
 ```
-GET /admin/users/{id}
+GET /api/users/{username}
 ```
 
 #### Update User
 ```
-PUT /admin/users/{id}
+PUT /api/users/{username}
 ```
 
 #### Delete User
 ```
-DELETE /admin/users/{id}
+DELETE /api/users/{username}
 ```
 
 ### Authentication
@@ -211,7 +219,7 @@ POST /admin/logout
 
 #### Get Logs
 ```
-GET /admin/logs
+GET /api/server/logs
 ```
 
 ### Backup & Restore
@@ -249,34 +257,29 @@ Body:
 { "devices": { "auto_register": "false", "default_group": "Strict" } }
 ```
 
-#### Create Backup
+### Backup & Restore
+
+Backup/admin endpoints are exposed under:
+
 ```
-POST /admin/backup
+Base path: /api/admin/backup
 ```
 
-#### List Backups
-```
-GET /admin/backup
-```
-
-#### Restore Backup
-```
-POST /admin/backup/restore
-```
+For detailed, field‑level documentation of all backup endpoints (destinations, executions, schedules, uploads/downloads), see `docs/api/backup.md`. This file is kept in sync with the implementation in `tacacs_server/web/api/backup.py`.
 
 ## OpenAPI Documentation
 
 The complete API specification is available via OpenAPI:
-- **Swagger UI**: `/docs`
-- **ReDoc**: `/redoc`
+- **Swagger UI**: `/api/docs`
+- **ReDoc**: `/api/redoc`
 
 ## Examples
 
 ### Create a New Device
 ```http
-POST /admin/devices
+POST /api/devices
 Content-Type: application/json
-Authorization: Bearer your-jwt-token
+X-API-Token: your-token
 
 {
   "name": "core-switch-01",
@@ -288,9 +291,9 @@ Authorization: Bearer your-jwt-token
 
 ### Update Device Group
 ```http
-PUT /admin/device-groups/1
+PUT /api/device-groups/1
 Content-Type: application/json
-Authorization: Bearer your-jwt-token
+X-API-Token: your-token
 
 {
   "name": "Core-Devices",
@@ -301,8 +304,8 @@ Authorization: Bearer your-jwt-token
 
 ### Get Server Logs
 ```http
-GET /admin/logs?limit=100&level=error
-Authorization: Bearer your-jwt-token
+GET /api/server/logs?limit=100&level=error
+X-API-Token: your-token
 ```
 
 ### Update Device Group

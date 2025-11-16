@@ -709,8 +709,7 @@ This setup provides:
 - ✅ **Organized storage structure** - one container, folders per customer
 - ✅ **Separate config and backups** - config at root, backups in subfolder
 - ✅ **HTTPS with corporate certificates** via Caddy + Key Vault
-- ✅ **High availability** - core services (TACACS/RADIUS) always run
-- ✅ **Graceful degradation** - web admin fails independently
+- ✅ **Graceful degradation** - web admin fails independently of TACACS/RADIUS
 - ✅ **Minimal permissions** via Managed Identity RBAC
 
 **Key Changes from Previous Version:**
