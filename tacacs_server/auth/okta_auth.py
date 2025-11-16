@@ -182,8 +182,8 @@ class OktaAuthBackend(AuthenticationBackend):
         if self._trust_env_flag is False:
             try:
                 self._session.trust_env = False
-            except Exception:
-                pass
+            except Exception as set_trust_exc:
+                logger.debug(f"Failed to set trust_env: {set_trust_exc}")
         adapter = HTTPAdapter(pool_connections=pool_maxsize, pool_maxsize=pool_maxsize)
         if _Retry is not None:
             retry = _Retry(
@@ -550,8 +550,8 @@ class OktaAuthBackend(AuthenticationBackend):
                 from tacacs_server.utils.metrics import okta_token_latency
 
                 okta_token_latency.observe(max(0.0, time.time() - a_start))
-            except Exception:
-                pass
+            except Exception as lat_met_exc:
+                logger.debug(f"Failed to record latency metric: {lat_met_exc}")
             if resp.status_code not in (200, 201):
                 # Elevate to warning so it appears in container logs
                 body_preview = (
@@ -567,7 +567,7 @@ class OktaAuthBackend(AuthenticationBackend):
             data = resp.json() or {}
             status_up = str(data.get("status", "")).upper()
             if status_up == "SUCCESS":
-                pass
+                logger.debug("Okta AuthN success")
             elif status_up == "MFA_REQUIRED" and self.mfa_enabled:
                 # Attempt MFA follow-up if caller supplied an OTP or push keyword
                 state_token = data.get("stateToken")
@@ -587,7 +587,8 @@ class OktaAuthBackend(AuthenticationBackend):
                             ) and "verify" in (f.get("_links") or {}):
                                 verify_href = f["_links"]["verify"]["href"]
                                 break
-                        except Exception:
+                        except Exception as top_exc:
+                            logger.debug(f"Failed to find TOTP factor: {top_exc}")
                             continue
                     if not verify_href:
                         logger.debug("No TOTP factor available for OTP verification")
@@ -647,8 +648,8 @@ class OktaAuthBackend(AuthenticationBackend):
                             j = current.json()
                             if isinstance(j, dict):
                                 resp_data = j
-                        except Exception:
-                            pass
+                        except Exception as json_exc:
+                            logger.debug(f"Failed to parse push verify response: {json_exc}")
                         st = str(resp_data.get("status", "")).upper()
                         if st == "SUCCESS":
                             data = resp_data
@@ -957,8 +958,8 @@ class OktaAuthBackend(AuthenticationBackend):
                         return [
                             str(g).lower() for g in raw_groups if isinstance(g, str)
                         ]
-            except Exception:
-                pass
+            except Exception as cache_exc:
+                logger.debug(f"Failed to extract groups from cache: {cache_exc}")
             return []
 
         groups = _extract_from_cache(username)
