@@ -1,12 +1,8 @@
 """Network handling utilities for TACACS+ server"""
 
 import socket
-from typing import TYPE_CHECKING
 
 from tacacs_server.utils.logger import get_logger
-
-if TYPE_CHECKING:
-    pass
 
 logger = get_logger(__name__)
 
@@ -33,12 +29,12 @@ class NetworkHandler:
         """Safely close socket with proper error handling"""
         try:
             sock.shutdown(socket.SHUT_RDWR)
-        except (OSError, AttributeError):
-            pass
+        except (OSError, AttributeError) as shut_exc:
+            logger.debug("Failed to shutdown socket: %s", shut_exc)
         try:
             sock.close()
-        except (OSError, AttributeError):
-            pass
+        except (OSError, AttributeError) as close_exc:
+            logger.debug("Failed to close socket: %s", close_exc)
 
     @staticmethod
     def enable_tcp_keepalive(

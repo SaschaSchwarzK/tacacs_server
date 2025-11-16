@@ -166,9 +166,12 @@ async def maintenance_cleanup():
                     deleted_users += 1
                 except Exception:
                     continue
-    except Exception:
+    except Exception as usr_exc:
         # User deletion failed, continue with other cleanup
-        pass
+        logger.warning(
+            "User deletion failed, continue with other cleanup",
+            extra={"usr_exc": usr_exc},
+        )
 
     try:
         if ug_svc:
@@ -178,9 +181,12 @@ async def maintenance_cleanup():
                     deleted_ugroups += 1
                 except Exception:
                     continue
-    except Exception:
+    except Exception as usr_grp_exc:
         # User group deletion failed, continue with other cleanup
-        pass
+        logger.warning(
+            "User group deletion failed, continue with other cleanup",
+            extra={"usr_grp_exc": usr_grp_exc},
+        )
 
     try:
         if dev_svc:
@@ -208,9 +214,12 @@ async def maintenance_cleanup():
                             deleted_dgroups += 1
                     except Exception:
                         continue
-    except Exception:
+    except Exception as dev_grp_exc:
         # Device/group deletion failed, continue with cleanup
-        pass
+        logger.warning(
+            "Device/group deletion failed, continue with cleanup",
+            extra={"dev_grp_exc": dev_grp_exc},
+        )
 
     return {
         "users": deleted_users,
@@ -945,9 +954,13 @@ async def delete_command_rule(rule_id: int):
                 component="web_api",
                 id=rule_id,
             )
-        except Exception:
+        except Exception as aud_log_exc:
             # Audit logging failed, continue without audit trail
-            pass
+            logger.warning(
+                "Audit logging failed: %s",
+                aud_log_exc,
+                extra={"aud_log_exc": aud_log_exc},
+            )
     else:
         logger.info(
             "Command auth delete_rule engine unavailable",
