@@ -61,7 +61,7 @@ class SessionManager:
             try:
                 self.session_secrets.pop(session_id)
             except KeyError:
-                pass
+                logger.debug("Session %s not found", session_id)
             try:
                 if handlers:
                     handlers.cleanup_session(session_id)
@@ -81,7 +81,7 @@ class SessionManager:
                 try:
                     self.session_secrets.pop(session_id)
                 except KeyError:
-                    pass
+                    logger.debug("Session %s not found", session_id)
                 try:
                     if handlers:
                         handlers.cleanup_session(session_id)
