@@ -205,7 +205,9 @@ class TacacsServerManager:
                 except Exception:
                     self.server.proxy_reject_invalid = True
             except Exception as proxy_protocol_exc:
-                logger.warning("Failed to initialize proxy protocol: %s", proxy_protocol_exc)
+                logger.warning(
+                    "Failed to initialize proxy protocol: %s", proxy_protocol_exc
+                )
         except Exception as e:
             logger.error("Failed to initialize ConnectionLimiter: %s", e, exc_info=True)
 
@@ -312,7 +314,9 @@ class TacacsServerManager:
                     "default_group", "default"
                 )
             except Exception as device_store_exc:
-                logger.warning("Failed to initialize device store: %s", device_store_exc)
+                logger.warning(
+                    "Failed to initialize device store: %s", device_store_exc
+                )
         except Exception as exc:
             logger.exception("Failed to initialise device store: %s", exc)
             self.device_store = None
@@ -535,17 +539,28 @@ class TacacsServerManager:
                             default_mode
                         )
                     except Exception as command_authorizer_exc:
-                        logger.warning("Failed to initialize command authorizer: %s", command_authorizer_exc)
+                        logger.warning(
+                            "Failed to initialize command authorizer: %s",
+                            command_authorizer_exc,
+                        )
                     # Pass privilege check ordering preference to handlers
                     try:
                         self.server.handlers.privilege_check_order = str(priv_order)
                     except Exception as command_authorizer_exc:
-                        logger.warning("Failed to initialize command authorizer: %s", command_authorizer_exc)
+                        logger.warning(
+                            "Failed to initialize command authorizer: %s",
+                            command_authorizer_exc,
+                        )
             except Exception as command_authorizer_exc:
-                logger.warning("Failed to initialize command authorizer: %s", command_authorizer_exc)
+                logger.warning(
+                    "Failed to initialize command authorizer: %s",
+                    command_authorizer_exc,
+                )
         except Exception as command_authorizer_exc:
             # Do not fail startup if command authorization engine fails
-            logger.warning("Failed to initialize command authorizer: %s", command_authorizer_exc)
+            logger.warning(
+                "Failed to initialize command authorizer: %s", command_authorizer_exc
+            )
 
         # Enable monitoring if configured (tolerate missing section)
         # read monitoring section safely: prefer helper API, fallback to RawConfigParser
@@ -675,8 +690,10 @@ class TacacsServerManager:
                     262144, int(radius_config.get("rcvbuf", 1048576))
                 )
             except Exception as radius_server_exc:
-                logger.warning("Failed to initialize radius server: %s", radius_server_exc)
-                
+                logger.warning(
+                    "Failed to initialize radius server: %s", radius_server_exc
+                )
+
             if self.device_store:
                 self.radius_server.device_store = self.device_store
                 # Wire device auto-registration behavior into RADIUS server
