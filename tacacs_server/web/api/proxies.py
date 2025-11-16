@@ -4,11 +4,15 @@ from importlib import import_module
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tacacs_server.utils.logger import get_logger
+
 from ...devices.service import DeviceService, DeviceValidationError
 from ..api_models import BaseModel, Field
 from .device_groups import get_device_service
 
 router = APIRouter(prefix="/api/proxies", tags=["Proxies"])
+
+logger = get_logger("tacacs.api.proxies")
 
 
 class ProxyCreate(BaseModel):
@@ -40,21 +44,31 @@ def _get_config_lazy():
     """Lazily import monitoring.get_config to avoid circular imports."""
     try:
         mon = import_module("tacacs_server.web.web")
-        return getattr(mon, "get_config", lambda: None)()
-    except Exception:
+        cfg = getattr(mon, "get_config", lambda: None)()
+        if cfg is None:
+            logger.debug(
+                "Proxy configuration not available from web module; get_config() returned None"
+            )
+        return cfg
+    except Exception as exc:
+        logger.debug("Failed to import proxy configuration accessor: %s", exc)
         return None
 
 
 def _ensure_enabled():
     cfg = _get_config_lazy()
     if cfg is None:
+        logger.debug(
+            "Proxy feature check skipped because configuration service is unavailable"
+        )
         return
     try:
         net = cfg.get_server_network_config()
         if not bool(net.get("proxy_enabled", False)):
+            logger.info("Proxy functionality disabled by configuration")
             raise HTTPException(status_code=503, detail="Proxy functionality disabled")
-    except Exception:
-        pass
+    except Exception as cfg_exc:
+        logger.debug("Failed to get proxy configuration status: %s", cfg_exc)
 
 
 @router.get(
@@ -65,8 +79,10 @@ def _ensure_enabled():
 )
 async def list_proxies(limit: int = Query(100, ge=1, le=1000)):
     _ensure_enabled()
+    logger.info("Listing proxies", event="proxy.list", limit=limit)
     svc: DeviceService = get_device_service()
     items = svc.list_proxies()[:limit]
+    logger.debug("Returning %d proxies", len(items))
     return [_to_resp(p) for p in items]
 
 
@@ -79,15 +95,31 @@ async def list_proxies(limit: int = Query(100, ge=1, le=1000)):
 )
 async def create_proxy(payload: ProxyCreate):
     _ensure_enabled()
+    logger.info(
+        "Creating proxy",
+        event="proxy.create",
+        name=payload.name,
+        network=payload.network,
+    )
     svc: DeviceService = get_device_service()
     try:
         p = svc.create_proxy(
             payload.name, payload.network, metadata=payload.metadata or {}
         )
+        logger.info(
+            "Proxy created",
+            event="proxy.create.success",
+            proxy_id=p.id,
+            name=p.name,
+        )
         return _to_resp(p)
     except DeviceValidationError as e:
+        logger.warning(
+            "Proxy creation failed validation: %s", e, event="proxy.create.validation"
+        )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("Unexpected error creating proxy")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -99,13 +131,26 @@ async def create_proxy(payload: ProxyCreate):
 )
 async def get_proxy(proxy_id: int):
     _ensure_enabled()
+    logger.info("Fetching proxy", event="proxy.get", proxy_id=proxy_id)
     svc: DeviceService = get_device_service()
     try:
         p = svc.get_proxy(proxy_id)
+        logger.debug(
+            "Proxy fetched",
+            event="proxy.get.success",
+            proxy_id=p.id,
+            name=p.name,
+        )
         return _to_resp(p)
     except DeviceValidationError as e:
+        logger.warning(
+            "Proxy not found: %s", e, event="proxy.get.not_found", proxy_id=proxy_id
+        )
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception(
+            "Unexpected error fetching proxy", extra={"proxy_id": proxy_id}
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -117,6 +162,14 @@ async def get_proxy(proxy_id: int):
 )
 async def update_proxy(proxy_id: int, payload: ProxyUpdate):
     _ensure_enabled()
+    logger.info(
+        "Updating proxy",
+        event="proxy.update",
+        proxy_id=proxy_id,
+        has_name=payload.name is not None,
+        has_network=payload.network is not None,
+        has_metadata=payload.metadata is not None,
+    )
     svc: DeviceService = get_device_service()
     try:
         p = svc.update_proxy(
@@ -125,10 +178,25 @@ async def update_proxy(proxy_id: int, payload: ProxyUpdate):
             network=payload.network,
             metadata=payload.metadata,
         )
+        logger.info(
+            "Proxy updated",
+            event="proxy.update.success",
+            proxy_id=p.id,
+            name=p.name,
+        )
         return _to_resp(p)
     except DeviceValidationError as e:
+        logger.warning(
+            "Proxy update failed validation/not found: %s",
+            e,
+            event="proxy.update.not_found",
+            proxy_id=proxy_id,
+        )
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception(
+            "Unexpected error updating proxy", extra={"proxy_id": proxy_id}
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -140,8 +208,15 @@ async def update_proxy(proxy_id: int, payload: ProxyUpdate):
 )
 async def delete_proxy(proxy_id: int):
     _ensure_enabled()
+    logger.info("Deleting proxy", event="proxy.delete", proxy_id=proxy_id)
     svc: DeviceService = get_device_service()
     ok = svc.delete_proxy(proxy_id)
     if not ok:
+        logger.warning(
+            "Proxy delete requested but not found",
+            event="proxy.delete.not_found",
+            proxy_id=proxy_id,
+        )
         raise HTTPException(status_code=404, detail="Proxy not found")
+    logger.info("Proxy deleted", event="proxy.delete.success", proxy_id=proxy_id)
     return None
