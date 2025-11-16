@@ -11,6 +11,8 @@ import os
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
+from tacacs_server.utils.logger import get_logger
+
 from .constants import (
     ENV_ADMIN_PASSWORD_HASH,
     ENV_BACKUP_ENCRYPTION_PASSPHRASE,
@@ -22,6 +24,8 @@ from .constants import (
     ENV_RADIUS_AUTH_SECRET,
 )
 
+logger = get_logger(__name__)
+
 
 def is_url(source: str) -> bool:
     """Check if source is a URL."""
@@ -31,10 +35,15 @@ def is_url(source: str) -> bool:
 
 def load_from_url(source: str, cache_path: str | None = None) -> str | None:
     """Load configuration from URL with optional caching."""
+    logger.debug("Attempting to load configuration from URL source")
     try:
         max_size = 1024 * 1024  # 1MB limit
         with urlopen(source, timeout=10) as response:
             if response.length and response.length > max_size:
+                logger.warning(
+                    "Configuration from URL source exceeds max allowed size; "
+                    "skipping load"
+                )
                 return None
             content: str = response.read().decode("utf-8")
 
@@ -44,18 +53,28 @@ def load_from_url(source: str, cache_path: str | None = None) -> str | None:
                 os.makedirs(os.path.dirname(cache_path), exist_ok=True)
                 with open(cache_path, "w", encoding="utf-8") as f:
                     f.write(content)
-            except Exception:
-                pass  # Cache write failed, continue
+            except Exception as cache_wr_exc:
+                logger.debug(
+                    "ConfigStore cache write failed for configuration URL source: %s",
+                    cache_wr_exc,
+                )
 
         return content
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Failed to load configuration from URL source, will try cache fallback: %s",
+            exc,
+        )
         # Try cache fallback if available
         if cache_path and os.path.exists(cache_path):
             try:
                 with open(cache_path, encoding="utf-8") as f:
                     return f.read()
-            except Exception:
-                pass
+            except Exception as cache_rd_exc:
+                logger.debug(
+                    "ConfigStore cache read failed for configuration URL source: %s",
+                    cache_rd_exc,
+                )
         return None
 
 
@@ -82,6 +101,12 @@ def apply_env_overrides(
         if not config.has_section(section):
             config.add_section(section)
         config.set(section, key, value)
+        logger.debug(
+            "Applied environment override for config key '%s.%s' from '%s'",
+            section,
+            key,
+            env_var,
+        )
 
 
 def apply_env_overrides_section(
@@ -333,6 +358,7 @@ def load_config(
 
     # Step 2: Load from file/URL
     if is_url(source):
+        logger.info("Loading configuration from URL source")
         if url_handler:
             # Use URLConfigHandler for proper caching and security
             content = url_handler.load_from_url(source, use_cache_fallback=True)
@@ -344,7 +370,14 @@ def load_config(
             config.read_string(content)
     else:
         if os.path.exists(source):
+            logger.info("Loading configuration from file source '%s'", source)
             config.read(source)
+        else:
+            logger.warning(
+                "Configuration file source '%s' does not exist; using defaults "
+                "and environment overrides only",
+                source,
+            )
 
     # Step 3: Apply environment overrides
     apply_all_env_overrides(config)
@@ -367,9 +400,13 @@ def reload_config(
     """
     # For URL sources, check if content changed
     if is_url(source):
+        logger.debug("Checking for configuration changes from URL source")
         cache_path = os.path.join("data", "config_baseline_cache.conf")
         new_content = load_from_url(source, cache_path)
         if not new_content:
+            logger.debug(
+                "No configuration content fetched from URL source; skipping reload"
+            )
             return False
 
         # Create temp config to compare
@@ -380,7 +417,7 @@ def reload_config(
         if not force:
             # Simple comparison - check if sections/keys differ
             if set(temp.sections()) != set(config.sections()):
-                pass  # Different, will reload
+                logger.debug("ConfigStore: Different sections, will reload")
             else:
                 same = True
                 for section in temp.sections():
@@ -388,17 +425,25 @@ def reload_config(
                         same = False
                         break
                 if same:
+                    logger.debug(
+                        "Configuration from URL source unchanged; skipping reload"
+                    )
                     return False
 
         # Reload
         config.clear()
         config.read_string(new_content)
+        logger.info("Configuration reloaded from URL source")
     else:
         # For file sources, just reload
         if os.path.exists(source):
             config.clear()
             config.read(source)
+            logger.info("Configuration reloaded from file source '%s'", source)
         else:
+            logger.warning(
+                "Configuration file source '%s' not found; reload skipped", source
+            )
             return False
 
     # Reapply environment overrides
