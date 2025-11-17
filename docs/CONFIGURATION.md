@@ -244,14 +244,14 @@ default_okta_group =
 [devices]
 database = data/devices.db
 default_group = default
-auto_register = true
+auto_register = false
 identity_cache_ttl_seconds = 60
 identity_cache_size = 10000
 ```
 
 - `database`: SQLite file where device groups and devices are stored
 - `default_group`: Group created on first start if none exists and used for auto‑registered clients
-- `auto_register`: When true, unknown TACACS+/RADIUS clients are auto‑registered into the `default_group` (single‑host entries)
+- `auto_register`: When true, unknown TACACS+/RADIUS clients are auto‑registered into the `default_group` (single‑host entries). Defaults to `false` for stricter security and must be enabled explicitly.
 - `identity_cache_ttl_seconds`: TTL (seconds) for the in-memory identity lookup cache `(client_ip, proxy_ip) -> device`
 - `identity_cache_size`: Maximum entries in the identity cache
 
@@ -445,8 +445,9 @@ database = data/devices.db
 # when auto-registering unknown RADIUS/TACACS+ clients (see devices.store)
 default_group = default
 
-# Enable/disable auto-registration of unknown clients into the default group
-auto_register = true
+# Enable/disable auto-registration of unknown clients into the default group.
+# Defaults to false for stricter security; enable explicitly when required.
+auto_register = false
 
 # In‑memory identity cache for (client_ip, proxy_ip) → device lookups
 identity_cache_ttl_seconds = 60

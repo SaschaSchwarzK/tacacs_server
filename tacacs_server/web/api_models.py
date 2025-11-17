@@ -338,6 +338,13 @@ class DeviceGroupBase(BaseModel):
         description="Proxy ID linked to this group",
         example=1,
     )
+    # Optional direct proxy network (CIDR). When provided, the device service
+    # will ensure a proxy exists for this network and associate it.
+    proxy_network: str | None = Field(
+        None,
+        description="Proxy network CIDR associated with this group",
+        example="10.0.0.0/24",
+    )
 
 
 class DeviceGroupCreate(DeviceGroupBase):

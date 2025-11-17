@@ -743,8 +743,10 @@ class RADIUSServer:
                     socket_setopt_exc,
                 )
 
-            logger.debug(
-                "RADIUS authentication server listening on %s:%s", self.host, self.port
+            logger.info(
+                "RADIUS authentication server listening on %s:%s",
+                self.host,
+                self.port,
             )
 
             sock = self.auth_socket
@@ -801,7 +803,7 @@ class RADIUSServer:
                     socket_setopt_exc,
                 )
 
-            logger.debug(
+            logger.info(
                 "RADIUS accounting server listening on %s:%s",
                 self.host,
                 self.accounting_port,
@@ -865,7 +867,7 @@ class RADIUSServer:
             client_config = self.lookup_client(client_ip)
             if not client_config:
                 # Auto-register unknown client as device when enabled, then retry
-                auto_reg = bool(getattr(self, "device_auto_register", True))
+                auto_reg = bool(getattr(self, "device_auto_register", False))
                 ds = getattr(self, "device_store", None)
                 if auto_reg and ds is not None:
                     try:
@@ -1164,7 +1166,7 @@ class RADIUSServer:
             client_config = self.lookup_client(client_ip)
             if not client_config:
                 # Auto-register unknown client as device when enabled, then retry
-                auto_reg = bool(getattr(self, "device_auto_register", True))
+                auto_reg = bool(getattr(self, "device_auto_register", False))
                 ds = getattr(self, "device_store", None)
                 if auto_reg and ds is not None:
                     try:

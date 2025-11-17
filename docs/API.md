@@ -228,7 +228,7 @@ GET /api/server/logs
 
 - Section: `devices`
 - Keys:
-  - `auto_register` (boolean, default `true`): When enabled, unknown devices contacting TACACS+ are automatically added as single-host entries and assigned to `default_group`.
+  - `auto_register` (boolean, default `false`): When enabled, unknown devices contacting TACACS+ are automatically added as single-host entries and assigned to `default_group`. Defaults to `false` for stricter security; enable explicitly when needed.
   - `default_group` (string, default `default`): Group name used for auto-registered devices.
   - `identity_cache_ttl_seconds` (int, optional): Cache TTL for device identity lookups.
   - `identity_cache_size` (int, optional): Max entries for device identity cache.
