@@ -24,16 +24,17 @@ The Configuration Service is the foundation of the TACACS+ server, responsible f
 ### 3. Default Values
 - Defined in `TacacsConfig` class
 - Validated during initialization
-- Can be overridden by environment variables
+- Environment variables are used to supply keys not present in the loaded configuration; sensitive secrets (for example `ADMIN_PASSWORD_HASH`, Okta API token, RADIUS secret) are read only from the environment.
 
 ## Runtime Behavior
 
 ### Initialization
-1. Loads configuration from file
-2. Applies environment variable overrides
-3. Initializes configuration store
-4. Validates all settings
-5. Makes configuration available to other services
+1. Loads configuration from file (or URL)
+2. Applies environment variable fills for keys missing from the loaded configuration
+3. Initializes the configuration store (runtime DB)
+4. Applies runtime/DB overrides from the configuration store (these take highest precedence)
+5. Validates all settings
+6. Makes configuration available to other services
 
 ### Configuration Changes
 1. **Via API**:

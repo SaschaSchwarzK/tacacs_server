@@ -177,17 +177,23 @@ Notes
 
 ## ⚙️ Configuration
 
-### Configuration Priority
+### Configuration precedence
 
-**IMPORTANT:** Configuration values are loaded in this priority order:
+**IMPORTANT:** Configuration values are applied with the following precedence (highest wins):
 
 ```
-1. Configuration File (highest priority)
-   ↓
-2. Environment Variables
-   ↓
-3. Default Values (lowest priority)
+1. Runtime / DB overrides (Admin UI or in-memory overrides)
+  ↓
+2. Configuration file or URL
+  ↓
+3. Environment variables
+  ↓
+4. Default values (lowest priority)
 ```
+
+Notes:
+ - Runtime overrides made via the Admin UI are stored in the config override store (e.g. `data/config_overrides.db`) and are always applied last on top of other sources.
+ - When the server reloads configuration (file reload or URL refresh), environment overrides are re-applied and then runtime/DB overrides are re-applied so the precedence above is preserved.
 
 **Example:**
 ```ini
@@ -658,10 +664,13 @@ rate_limit_window = 60
 - **Environment variables**: Support for secrets via environment variables
 
 #### Configuration Sources & Precedence
-1. Defaults: internal safe defaults
-2. Base: file (config/tacacs.conf) or HTTPS URL (cached to `data/config_baseline_cache.conf`)
-3. Environment variables: only if not set in config file (secrets are always from environment)
-4. Database overrides: runtime changes stored in `data/config_overrides.db` (highest priority)
+Configuration values are applied with a clear precedence so the effective runtime value is deterministic (highest priority first):
+
+1. Runtime / Database overrides: runtime changes made via the Admin UI or API are persisted to `data/config_overrides.db` and have the highest precedence.
+2. Configuration file or URL: the selected config file (or fetched URL payload) provides the next-highest set of values.
+3. Environment variables: used to fill keys not present in the loaded configuration. Environment variables follow the `TACACS_<SECTION>_<KEY>` pattern (e.g. `TACACS_SERVER_HOST`).
+  - Exception: sensitive secrets (for example `ADMIN_PASSWORD_HASH`, Okta API token, RADIUS secret) are read only from the environment and will be set from ENV regardless of a file value.
+4. Defaults: internal safe defaults shipped with the application (lowest priority).
 
 #### Overrides via API/UI
 - Validate change: `POST /api/admin/config/validate?section=server&key=port&value=5050`

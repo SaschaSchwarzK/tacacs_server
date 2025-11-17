@@ -42,7 +42,7 @@ from .getters import (
     get_syslog_config,
     get_webhook_config,
 )
-from .loader import is_url, load_config
+from .loader import apply_all_env_overrides, is_url, load_config
 from .updaters import (
     _export_full_config as export_full_config_impl,
 )
@@ -645,13 +645,27 @@ class TacacsConfig:
     # URL configuration refresh
     def refresh_url_config(self, force: bool = False) -> bool:
         """Refresh configuration from URL if the source is a URL."""
-        return refresh_url_config(
+        updated = refresh_url_config(
             self.config,
             self.config_source,
             self.config_store,
             force,
             self.url_handler.refresh_interval,
         )
+        if updated:
+            # After loading new configuration from URL, ensure environment
+            # overrides are applied (without overwriting file values), and
+            # then re-apply any runtime/database overrides stored in ConfigStore.
+            try:
+                apply_all_env_overrides(self.config)
+            except Exception:
+                pass
+            try:
+                # Re-apply runtime overrides so they remain highest precedence
+                self._apply_overrides()
+            except Exception:
+                pass
+        return updated
 
     def _export_full_config(self) -> dict[str, dict[str, str]]:
         """Export full configuration as nested dict.

@@ -51,19 +51,23 @@ The TACACS+ server uses INI-style configuration files with the following section
 | `ADMIN_PASSWORD_HASH` | Hashed admin password | `$2b$...` |
 | `CONFIG_REFRESH_SECONDS` | Config refresh interval | `300` |
 
-## Configuration Precedence
+## Configuration precedence
 
-**IMPORTANT:** Configuration values are loaded in this priority order:
+**IMPORTANT:** Configuration values are applied in this precedence order (highest wins):
 
 ```
-1. Configuration File (highest priority)
-   ↓
-2. Environment Variables
-   ↓
-3. Default Values (lowest priority)
+1. Runtime / DB overrides (Admin UI or in-memory overrides)
+  ↓
+2. Configuration file or URL
+  ↓
+3. Environment variables
+  ↓
+4. Default values (lowest priority)
 ```
 
-**Note:** Runtime overrides via the Admin UI are stored in the database and take precedence over all other sources for those specific values.
+Notes:
+- Runtime overrides made via the Admin UI are stored in the configuration override store (e.g. `data/config_overrides.db`) and are applied on top of other sources.
+- When the server reloads configuration (file reload or URL refresh), environment overrides are reapplied and then runtime/DB overrides are reapplied so the precedence above is preserved.
 
 ## Next Steps
 
@@ -602,7 +606,7 @@ Notes:
 
 ## Environment Variables (credentials only)
 
-Configuration is loaded from a file/URL and then overridden by environment variables. Interpolation like `${VAR}` is not evaluated (the config parser runs with `interpolation=None`); secrets are injected by explicit overrides in the loader.
+Configuration is loaded from a file/URL. Environment variables are used to supply keys that are not present in the loaded configuration; sensitive secrets (for example `ADMIN_PASSWORD_HASH`, Okta API token, RADIUS secret) are injected from the environment regardless of a file value. Interpolation like `${VAR}` is not evaluated (the config parser runs with `interpolation=None`); secrets are injected by explicit overrides in the loader.
 
 Key environment variables
 
