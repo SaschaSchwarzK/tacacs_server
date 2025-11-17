@@ -55,9 +55,7 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
     Receives tasks as tuples: (backend_config, username, password, kwargs, result_q)
     Puts results into the provided result_q as (ok, err_msg).
     """
-    # Initialize backends in this worker process
-    backends = []
-    
+
     while True:
         try:
             task = in_q.get()
@@ -72,15 +70,16 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
             continue
         try:
             # Create backend instance in worker process
-            backend_type = backend_config.get('type')
-            if backend_type == 'local':
+            backend_type = backend_config.get("type")
+            if backend_type == "local":
                 from tacacs_server.auth.local import LocalAuthBackend
-                backend = LocalAuthBackend(backend_config.get('database_url', ''))
+
+                backend = LocalAuthBackend(backend_config.get("database_url", ""))
             else:
                 # For now, only support local backend in process pool
                 task_result_q.put((False, f"unsupported_backend_type_{backend_type}"))
                 continue
-                
+
             ok = bool(backend.authenticate(username, password, **(kwargs or {})))
             task_result_q.put((ok, None))
         except Exception as e:  # noqa: BLE001
@@ -88,7 +87,6 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
                 task_result_q.put((False, str(e)))
             except Exception:
                 pass
-
 
 
 class AAAHandlers:
@@ -151,9 +149,9 @@ class AAAHandlers:
             pool_size = int(backend_process_pool_size)
 
         self._process_pool_size = pool_size if pool_size and pool_size > 0 else 0
-        self._process_ctx = None
-        self._process_workers: list[mp.Process] = []
-        self._process_in_queues: list[mp.Queue] = []
+        self._process_ctx: mp.context.BaseContext | None = None
+        self._process_workers: list[mp.process.BaseProcess] = []
+        self._process_in_queues: list[Any] = []
         # When using per-task result queues we create them on demand
         self._process_lock = threading.Lock()
         self._next_worker = 0
@@ -164,19 +162,19 @@ class AAAHandlers:
             try:
                 # Only use fork context - spawn doesn't work with backend sharing
                 self._process_ctx = mp.get_context("fork")
-                
+
                 # Prepare backend configurations for worker processes
                 global _PROCESS_POOL_BACKEND_CONFIGS
                 _PROCESS_POOL_BACKEND_CONFIGS = []
                 for backend in self.auth_backends:
-                    if hasattr(backend, 'name') and backend.name == 'local':
+                    if hasattr(backend, "name") and backend.name == "local":
                         config = {
-                            'type': 'local',
-                            'database_url': getattr(backend, 'database_url', '')
+                            "type": "local",
+                            "database_url": getattr(backend, "database_url", ""),
                         }
                         _PROCESS_POOL_BACKEND_CONFIGS.append(config)
                     # Add other backend types as needed
-                
+
                 # Test if we can actually create a process
                 test_q = self._process_ctx.Queue()
                 test_p = self._process_ctx.Process(
@@ -187,7 +185,7 @@ class AAAHandlers:
                 if test_p.is_alive():
                     test_p.terminate()
                     raise RuntimeError("Test process failed to complete")
-                
+
                 # If test succeeded, create the actual worker pool
                 for _ in range(self._process_pool_size):
                     in_q = self._process_ctx.Queue()
@@ -198,8 +196,10 @@ class AAAHandlers:
                     p.start()
                     self._process_workers.append(p)
                     self._process_in_queues.append(in_q)
-                    
-                logger.debug(f"Created process pool with {len(self._process_workers)} workers")
+
+                logger.debug(
+                    f"Created process pool with {len(self._process_workers)} workers"
+                )
             except Exception as e:
                 # Could not create process pool; fall back to thread pool only
                 logger.debug(f"Process pool creation failed, using thread pool: {e}")
@@ -1432,29 +1432,33 @@ class AAAHandlers:
         # If we have a persistent process pool, dispatch the task to a worker
         # and wait on a per-task result queue. If the worker hangs, terminate
         # and replace it to preserve pool size.
-        if (getattr(self, "_process_workers", None) and 
-            getattr(self, "_process_ctx", None) and 
-            len(self._process_workers) > 0):
+        if (
+            getattr(self, "_process_workers", None)
+            and getattr(self, "_process_ctx", None)
+            and len(self._process_workers) > 0
+        ):
             try:
                 # Find backend config
                 backend_config = None
-                if hasattr(backend, 'name') and backend.name == 'local':
+                if hasattr(backend, "name") and backend.name == "local":
                     backend_config = {
-                        'type': 'local',
-                        'database_url': getattr(backend, 'database_url', '')
+                        "type": "local",
+                        "database_url": getattr(backend, "database_url", ""),
                     }
-                
+
                 if not backend_config:
                     # Fall back to thread pool for unsupported backends
                     raise Exception("Backend not supported in process pool")
 
                 # Create a per-task result queue
-                result_q = self._process_ctx.Queue()
+                result_q = self._process_ctx.Queue()  # type: ignore[union-attr]
 
                 # Select worker round-robin
                 with self._process_lock:
                     wi = self._next_worker
-                    self._next_worker = (self._next_worker + 1) % len(self._process_workers)
+                    self._next_worker = (self._next_worker + 1) % len(
+                        self._process_workers
+                    )
 
                 in_q = self._process_in_queues[wi]
                 # Put task: (backend_config, username, password, kwargs, result_q)
@@ -1478,18 +1482,24 @@ class AAAHandlers:
                                 pass
                         # Spawn replacement worker
                         try:
-                            new_in_q = self._process_ctx.Queue()
-                            new_out_q = self._process_ctx.Queue()
-                            new_p = self._process_ctx.Process(
-                                target=_backend_worker_main, args=(new_in_q, new_out_q), daemon=True
+                            new_in_q = self._process_ctx.Queue()  # type: ignore[union-attr]
+                            new_out_q = self._process_ctx.Queue()  # type: ignore[union-attr]
+                            new_p = self._process_ctx.Process(  # type: ignore[union-attr]
+                                target=_backend_worker_main,
+                                args=(new_in_q, new_out_q),
+                                daemon=True,
                             )
                             new_p.start()
                             self._process_workers[wi] = new_p
                             self._process_in_queues[wi] = new_in_q
                         except Exception:
-                            logger.debug("Failed to respawn backend worker after timeout")
+                            logger.debug(
+                                "Failed to respawn backend worker after timeout"
+                            )
                     except Exception:
-                        logger.debug("Error while handling timed-out worker replacement")
+                        logger.debug(
+                            "Error while handling timed-out worker replacement"
+                        )
                     try:
                         backend_name = getattr(backend, "name", str(backend))
                     except Exception:
