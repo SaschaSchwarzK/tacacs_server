@@ -106,8 +106,8 @@ def _backup_env_roots(tmp_path_factory: pytest.TempPathFactory):
 
     backup_root = tmp_path_factory.mktemp("backups_root")
     temp_root = tmp_path_factory.mktemp("backups_tmp")
-    _os.environ["BACKUP_ROOT"] = str(backup_root)
-    _os.environ["BACKUP_TEMP"] = str(temp_root)
+    _os.environ["TACACS_BACKUP_ROOT"] = str(backup_root)
+    _os.environ["TACACS_BACKUP_TEMP"] = str(temp_root)
     yield
 
 

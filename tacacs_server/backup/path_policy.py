@@ -71,27 +71,27 @@ def _ensure_dir_secure(p: Path) -> Path:
 
 def get_backup_root() -> Path:
     """Return the fixed backup root directory."""
-    env_path = _env_path("BACKUP_ROOT")
+    env_path = _env_path("TACACS_BACKUP_ROOT")
     if env_path is not None:
         base = env_path
     else:
         base = DEFAULT_BACKUP_ROOT
 
     if not base.is_absolute():
-        raise ValueError("BACKUP_ROOT must be an absolute path")
+        raise ValueError("TACACS_BACKUP_ROOT must be an absolute path")
     return _ensure_dir_secure(base)
 
 
 def get_temp_root() -> Path:
     """Return the fixed temp root directory for backup operations."""
-    env_path = _env_path("BACKUP_TEMP")
+    env_path = _env_path("TACACS_BACKUP_TEMP")
     if env_path is not None:
         base = env_path
     else:
         base = DEFAULT_TEMP_ROOT
 
     if not base.is_absolute():
-        raise ValueError("BACKUP_TEMP must be an absolute path")
+        raise ValueError("TACACS_BACKUP_TEMP must be an absolute path")
     return _ensure_dir_secure(base)
 
 

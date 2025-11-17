@@ -9,7 +9,7 @@ Usage:
     poetry run python scripts/export_openapi.py
 
 Optional env:
-    OUTPUT_PATH: override output path (default: docs/openapi.json)
+    TACACS_OUTPUT_PATH: override output path (default: docs/openapi.json)
 """
 
 from __future__ import annotations
@@ -37,6 +37,6 @@ def export_schema(output_path: str = "docs/openapi.json") -> str:
 
 
 if __name__ == "__main__":
-    dest = os.environ.get("OUTPUT_PATH", "docs/openapi.json")
+    dest = os.environ.get("TACACS_OUTPUT_PATH", "docs/openapi.json")
     path = export_schema(dest)
     print(f"✔ OpenAPI schema exported to: {path}")

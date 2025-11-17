@@ -15,8 +15,8 @@ def test_local_destination_lifecycle(tmp_path: Path):
     repo_root = Path(__file__).resolve().parents[2]
     forced_root = (repo_root / "test_backups_root").resolve()
     forced_root.mkdir(parents=True, exist_ok=True)
-    original_env_backup_root = os.environ.get("BACKUP_ROOT")
-    os.environ["BACKUP_ROOT"] = str(forced_root)
+    original_env_backup_root = os.environ.get("TACACS_BACKUP_ROOT")
+    os.environ["TACACS_BACKUP_ROOT"] = str(forced_root)
     # Some platforms have symlinked parents (e.g., /private/var). Our production
     # policy forbids symlinked parents; to test behavior without relaxing policy,
     # temporarily relax parent-symlink checks in validate_base_directory.
@@ -119,6 +119,6 @@ def test_local_destination_lifecycle(tmp_path: Path):
         _pp.ALLOWED_ROOTS[:] = _orig_allowed
         _pp.DEFAULT_BACKUP_ROOT = _orig_default
         if original_env_backup_root is not None:
-            os.environ["BACKUP_ROOT"] = original_env_backup_root
+            os.environ["TACACS_BACKUP_ROOT"] = original_env_backup_root
         else:
-            os.environ.pop("BACKUP_ROOT", None)
+            os.environ.pop("TACACS_BACKUP_ROOT", None)

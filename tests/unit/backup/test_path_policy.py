@@ -15,8 +15,8 @@ from tacacs_server.backup.path_policy import (
 def test_roots_use_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     br = tmp_path / "br"
     tr = tmp_path / "tr"
-    monkeypatch.setenv("BACKUP_ROOT", str(br))
-    monkeypatch.setenv("BACKUP_TEMP", str(tr))
+    monkeypatch.setenv("TACACS_BACKUP_ROOT", str(br))
+    monkeypatch.setenv("TACACS_BACKUP_TEMP", str(tr))
 
     assert get_backup_root().resolve() == br.resolve()
     assert get_temp_root().resolve() == tr.resolve()
@@ -27,8 +27,8 @@ def test_safe_local_output_and_temp_paths(
 ):
     br = tmp_path / "backups"
     tr = tmp_path / "temp"
-    monkeypatch.setenv("BACKUP_ROOT", str(br))
-    monkeypatch.setenv("BACKUP_TEMP", str(tr))
+    monkeypatch.setenv("TACACS_BACKUP_ROOT", str(br))
+    monkeypatch.setenv("TACACS_BACKUP_TEMP", str(tr))
 
     p1 = safe_local_output("foo/bar.tar.gz")
     assert str(p1).startswith(str(br))
