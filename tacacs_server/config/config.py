@@ -658,13 +658,21 @@ class TacacsConfig:
             # then re-apply any runtime/database overrides stored in ConfigStore.
             try:
                 apply_all_env_overrides(self.config)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    "Failed to apply environment overrides after URL refresh: %s",
+                    e,
+                    exc_info=True,
+                )
             try:
                 # Re-apply runtime overrides so they remain highest precedence
                 self._apply_overrides()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(
+                    "Failed to apply database overrides after URL refresh: %s",
+                    e,
+                    exc_info=True,
+                )
         return updated
 
     def _export_full_config(self) -> dict[str, dict[str, str]]:

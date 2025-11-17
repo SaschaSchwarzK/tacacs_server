@@ -15,7 +15,7 @@ def write_temp_config(contents: str) -> str:
     return path
 
 
-def test_env_overrides_take_precedence_over_file(tmp_path, monkeypatch):
+def test_file_value_overrides_env_var(tmp_path, monkeypatch):
     """
     Verify intended precedence: config file > environment > defaults.
 
@@ -125,7 +125,7 @@ port = 49
         tc._apply_overrides()
 
 
-def test_url_refresh_reapplies_env_and_db_overrides(monkeypatch, tmp_path):
+def test_db_override_precedence(monkeypatch, tmp_path):
     """
     Ensure that when a URL-based config refresh occurs, environment overrides
     are reapplied (without overwriting file values) and runtime/DB overrides
