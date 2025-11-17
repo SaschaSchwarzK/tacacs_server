@@ -175,14 +175,61 @@ pytest -q
 Notes
 - Deactivate the venv when done: `deactivate`
 
-## Configuration
+## ⚙️ Configuration
 
-All configuration is done through the configuration file. The following environment variables are used for sensitive data only:
+### Configuration Priority
 
-- `TACACS_ADMIN_PASSWORD` - Admin password (for initial setup)
-- `LDAP_BIND_PASSWORD` - LDAP bind password (if using LDAP auth)
-- `AZURE_STORAGE_CONNECTION_STRING` - Azure Storage connection string (for Azure backups)
-- `ENCRYPTION_KEY` - Encryption key for sensitive data
+**IMPORTANT:** Configuration values are loaded in this priority order:
+
+```
+1. Configuration File (highest priority)
+   ↓
+2. Environment Variables
+   ↓
+3. Default Values (lowest priority)
+```
+
+**Example:**
+```ini
+# config/tacacs.conf
+[server]
+port = 5049
+# client_timeout not specified
+```
+
+```bash
+export TACACS_SERVER_PORT=49               # Ignored - config file has port=5049
+export TACACS_SERVER_CLIENT_TIMEOUT=60     # Used - not in config file
+```
+
+**Result:**
+- `port = 5049` (from config file - overrides env var)
+- `client_timeout = 60` (from environment - config file didn't set it)
+- `max_connections = 50` (from default - not set anywhere)
+
+### Configuration Sources
+
+All configuration is done through the **configuration file**. The following environment variables are used **only for sensitive data**:
+
+**Secrets (Never in Config Files):**
+```bash
+ADMIN_PASSWORD_HASH=<bcrypt-hash>      # Admin web UI password
+LDAP_BIND_PASSWORD=<password>          # LDAP bind password
+OKTA_API_TOKEN=<token>                 # Okta API token
+RADIUS_AUTH_SECRET=<secret>            # RADIUS auth backend secret
+BACKUP_ENCRYPTION_PASSPHRASE=<key>    # Backup encryption key
+AZURE_STORAGE_CONNECTION_STRING=<conn> # Azure backup connection
+```
+
+**Configuration Overrides (Optional):**
+```bash
+# Override config file values (only when config file doesn't set them)
+TACACS_SERVER_PORT=5049                    # Server port
+TACACS_SERVER_HOST=0.0.0.0                 # Bind address
+TACACS_SERVER_CLIENT_TIMEOUT=30            # Client timeout
+TACACS_AUTH_BACKEND_TIMEOUT=5              # Backend auth timeout
+TACACS_SERVER_MAX_CONNECTIONS=1000         # Max concurrent connections
+```
 
 ### Server and Networking
 ```ini
@@ -613,8 +660,8 @@ rate_limit_window = 60
 #### Configuration Sources & Precedence
 1. Defaults: internal safe defaults
 2. Base: file (config/tacacs.conf) or HTTPS URL (cached to `data/config_baseline_cache.conf`)
-3. Database overrides: runtime changes stored in `data/config_overrides.db`
-4. Environment variables: selected keys (e.g., `SERVER_PORT`) override at read time
+3. Environment variables: only if not set in config file (secrets are always from environment)
+4. Database overrides: runtime changes stored in `data/config_overrides.db` (highest priority)
 
 #### Overrides via API/UI
 - Validate change: `POST /api/admin/config/validate?section=server&key=port&value=5050`
@@ -929,8 +976,13 @@ logs/                        # Log files
 
 ### **Configuration Loading Priority**
 1. Command line `--config` parameter
-2. `TACACS_CONFIG` environment variable
+2. `TACACS_CONFIG` environment variable  
 3. Default `config/tacacs.conf` file
+
+**Within each configuration source, the priority is:**
+1. Configuration File values (highest priority)
+2. Environment Variables (only if not in config file)
+3. Default Values (lowest priority)
 
 ### **Environment Variables**
 
@@ -1316,6 +1368,7 @@ Comprehensive documentation is available in the `docs/` directory:
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment instructions
 - **[Integration Guide](docs/INTEGRATIONS.md)** - LDAP, Okta, and other integrations
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - System architecture and component diagrams
 
 ## 🐳 Docker Deployment
 

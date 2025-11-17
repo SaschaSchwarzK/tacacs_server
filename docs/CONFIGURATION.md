@@ -53,10 +53,17 @@ The TACACS+ server uses INI-style configuration files with the following section
 
 ## Configuration Precedence
 
-1. Runtime overrides (database)
-2. Environment variables
-3. Configuration file values
-4. Default values
+**IMPORTANT:** Configuration values are loaded in this priority order:
+
+```
+1. Configuration File (highest priority)
+   ↓
+2. Environment Variables
+   ↓
+3. Default Values (lowest priority)
+```
+
+**Note:** Runtime overrides via the Admin UI are stored in the database and take precedence over all other sources for those specific values.
 
 ## Next Steps
 

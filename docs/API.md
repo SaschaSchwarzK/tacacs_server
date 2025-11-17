@@ -52,10 +52,16 @@ Content-Type: application/json
 ```
 
 ### Using API Tokens
-For non‑browser clients, configure an API token (via `API_TOKEN` env) and send it on `/api/*` requests:
+For non‑browser clients, configure an API token and send it on `/api/*` requests:
 
 - Header: `X-API-Token: <token>`
 - Or: `Authorization: Bearer <token>`
+
+**API Token Configuration:**
+- Set `API_TOKEN="<your-strong-token>"` to require a specific token for all `/api/*` requests
+- Set `API_TOKEN_REQUIRED=true` to force token requirement even without pinning a specific value
+- If `API_TOKEN` is not set, any non-empty token is accepted when `API_TOKEN_REQUIRED=true`
+- Admin endpoints under `/api/admin/*` also require an authenticated admin session
 
 The middleware accepts either a valid `admin_session` cookie **or** a matching API token for all `/api/*` paths except `/api/health` and `/api/status`.
 
