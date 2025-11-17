@@ -114,7 +114,7 @@ flowchart TD
 ## Device Management
 - **Device Lookup**: Client devices are looked up by IP address from the device store
 - **Auto-Creation**: Unknown devices can be automatically registered with configurable defaults
-  - Enabled via `auto_register` setting (default: true)
+  - Enabled via `auto_register` setting (default: false; must be enabled explicitly)
   - Uses `default_device_group` for new devices (default: "default")
   - Generates device names in format `auto-<IP>` (e.g., `auto-192.168.1.1`)
 - **Device Groups**: Devices can be grouped for easier management and policy application

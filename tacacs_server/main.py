@@ -300,13 +300,19 @@ class TacacsServerManager:
             self._device_change_unsubscribe = self.device_service.add_change_listener(
                 self._handle_device_change
             )
-            # Expose store on server for future integrations
-            if hasattr(self.server, "device_store"):
-                self.server.device_store = self.device_store
+            # Expose store and device service on server for integrations (e.g. web_app)
+            try:
+                if hasattr(self.server, "device_store"):
+                    self.server.device_store = self.device_store
+                # Ensure web layer reuses the same DeviceService instance so that
+                # change listeners (including RADIUS client refresh) remain wired.
+                setattr(self.server, "device_service", self.device_service)
+            except Exception as exc:
+                logger.debug("Failed to attach device store/service to server: %s", exc)
             # Wire device auto-registration behavior into TACACS server
             try:
                 cast(Any, self.server).device_auto_register = bool(
-                    self.device_store_config.get("auto_register", True)
+                    self.device_store_config.get("auto_register", False)
                 )
                 cast(
                     Any, self.server
@@ -474,6 +480,18 @@ class TacacsServerManager:
             set_admin_auth_dependency(None)
         # Setup RADIUS server if enabled
         radius_config = self.config.get_radius_config()
+        try:
+            logger.info(
+                "RADIUS configuration loaded",
+                service="tacacs_server",
+                component="radius",
+                enabled=radius_config.get("enabled", False),
+                host=radius_config.get("host"),
+                auth_port=radius_config.get("auth_port"),
+                acct_port=radius_config.get("acct_port"),
+            )
+        except Exception:
+            logger.debug("Failed to log RADIUS configuration snapshot")
         if radius_config["enabled"]:
             self._setup_radius_server(radius_config)
         auth_backends = self.config.create_auth_backends()
@@ -699,7 +717,7 @@ class TacacsServerManager:
                 # Wire device auto-registration behavior into RADIUS server
                 try:
                     cast(Any, self.radius_server).device_auto_register = bool(
-                        self.device_store_config.get("auto_register", True)
+                        self.device_store_config.get("auto_register", False)
                     )
                     cast(
                         Any, self.radius_server

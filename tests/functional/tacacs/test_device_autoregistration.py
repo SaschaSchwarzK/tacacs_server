@@ -193,7 +193,10 @@ def test_autoregistration_enabled_creates_device(server_factory):
     - Ensures proper audit logging
     - Verifies correct group assignment
     """
-    server = server_factory(config={"auth_backends": "local"}, enable_tacacs=True)
+    server = server_factory(
+        config={"auth_backends": "local", "devices": {"auto_register": "true"}},
+        enable_tacacs=True,
+    )
     with server:
         # Create a local user
         from tacacs_server.auth.local_user_service import LocalUserService

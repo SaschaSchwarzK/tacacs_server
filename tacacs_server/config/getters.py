@@ -94,9 +94,9 @@ def get_device_store_config(config: configparser.ConfigParser) -> dict[str, Any]
         "database": config.get("devices", "database", fallback="data/devices.db"),
         "default_group": config.get("devices", "default_group", fallback="default"),
         "auto_register": (
-            config.getboolean("devices", "auto_register", fallback=True)
+            config.getboolean("devices", "auto_register", fallback=False)
             if "devices" in config
-            else True
+            else False
         ),
         "identity_cache_ttl_seconds": int(
             config.get("devices", "identity_cache_ttl_seconds", fallback="60")

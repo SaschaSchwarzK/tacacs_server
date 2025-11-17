@@ -44,7 +44,7 @@ class ClientHandler:
         default_secret: str = "CHANGE_ME_FALLBACK",
         encryption_required: bool = True,
         client_timeout: float = 15.0,
-        device_auto_register: bool = True,
+        device_auto_register: bool = False,
         default_device_group: str = "default",
     ):
         self.handlers = handlers

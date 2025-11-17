@@ -170,6 +170,15 @@ class DeviceService:
                 raise DeviceValidationError(f"Proxy id {proxy_id} not found")
             proxy_network = str(proxy.network)
 
+        # Validate proxy_network CIDR when provided explicitly
+        if proxy_network is not None:
+            try:
+                ipaddress.ip_network(str(proxy_network), strict=False)
+            except ValueError as exc:
+                raise DeviceValidationError(
+                    f"Invalid proxy network: {proxy_network}"
+                ) from exc
+
         group = self.store.ensure_group(
             name,
             description=description,

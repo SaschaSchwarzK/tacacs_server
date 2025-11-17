@@ -141,12 +141,16 @@ async def create_device_group(group: DeviceGroupCreate | dict = Body(...)):
             tac_sec = meta.get("tacacs_secret") or payload.get("tacacs_secret")
             rad_sec = meta.get("radius_secret") or payload.get("radius_secret")
             allowed_vals = payload.get("allowed_user_groups")
+            proxy_id = payload.get("proxy_id")
+            proxy_network = payload.get("proxy_network")
         else:
             name = group.name
             description = group.description
             tac_sec = group.tacacs_secret
             rad_sec = group.radius_secret
             allowed_vals = group.allowed_user_groups
+            proxy_id = getattr(group, "proxy_id", None)
+            proxy_network = getattr(group, "proxy_network", None)
 
         # Normalize allowed_user_groups to local user group NAMES
         aug_allowed = None
@@ -180,11 +184,8 @@ async def create_device_group(group: DeviceGroupCreate | dict = Body(...)):
             tacacs_secret=tac_sec,
             radius_secret=rad_sec,
             allowed_user_groups=aug_allowed,
-            proxy_id=(
-                group.get("proxy_id")
-                if isinstance(group, dict)
-                else getattr(group, "proxy_id", None)
-            ),
+            proxy_network=proxy_network,
+            proxy_id=proxy_id,
         )
 
         return new_group

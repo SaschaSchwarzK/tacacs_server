@@ -3,8 +3,11 @@ TACACS+ AAA Request Handlers
 """
 
 import os
+import re
 import struct
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any
 
 try:
@@ -70,6 +73,11 @@ class AAAHandlers:
         # Defaults injected from main; ensure attributes exist for type checkers
         self.command_response_mode_default: str | None = None
         self.privilege_check_order: str = "before"
+        # Bounded worker pool for backend authentication calls; avoids
+        # unbounded daemon thread creation on slow/hanging backends.
+        self._backend_executor = ThreadPoolExecutor(
+            max_workers=8, thread_name_prefix="backend-auth"
+        )
         # Per-backend authentication timeout (seconds) to avoid slow backend DoS
         if backend_timeout is not None:
             try:
@@ -88,6 +96,8 @@ class AAAHandlers:
     def _redact_args(self, args: dict[str, str]) -> dict[str, str]:
         """Return a copy of args with sensitive values redacted.
         Keys containing common secrets (pass, pwd, secret, token, key) are masked.
+        Additionally, values that look like obvious secrets (very long opaque
+        strings or common PII patterns) are redacted defensively.
         """
         if not isinstance(args, dict):
             return {}
@@ -95,10 +105,21 @@ class AAAHandlers:
         SENSITIVE = ("pass", "pwd", "secret", "token", "key")
         try:
             for k, v in args.items():
-                if any(s in str(k).lower() for s in SENSITIVE):
+                key_s = str(k).lower()
+                val_s = str(v)
+                # Known sensitive key names
+                if any(s in key_s for s in SENSITIVE):
+                    redacted[str(k)] = "***"
+                    continue
+                # Heuristic redaction for values:
+                # - long opaque tokens (>= 24 chars, no whitespace)
+                # - digit-heavy sequences (potential card numbers)
+                if (
+                    len(val_s) >= 24 and not any(ch.isspace() for ch in val_s)
+                ) or re.fullmatch(r"[0-9\-]{12,}", val_s):
                     redacted[str(k)] = "***"
                 else:
-                    redacted[str(k)] = str(v)
+                    redacted[str(k)] = val_s
         except Exception:
             # Fallback to empty on unexpected structures
             return {}
@@ -1281,29 +1302,37 @@ class AAAHandlers:
         """Call backend.authenticate with a timeout.
 
         Returns (ok, timed_out, error_msg).
-        Does not attempt to kill the backend call; if it exceeds timeout,
-        the result is ignored and timed_out is True.
+        The underlying backend call runs in a bounded thread pool to avoid
+        unbounded daemon thread creation. Python threads cannot be forcibly
+        killed; on timeout we ignore the result and mark timed_out=True.
         """
-        result_container: dict[str, Any] = {}
+        effective_timeout = timeout_s if timeout_s and timeout_s > 0 else None
+        try:
+            future = self._backend_executor.submit(
+                backend.authenticate, username, password, **kwargs
+            )
+        except Exception as exc:
+            # Pool submission failure or executor shutdown
+            return False, False, str(exc)
 
-        def _worker():
+        try:
+            ok = bool(future.result(timeout=effective_timeout))
+            return ok, False, None
+        except FuturesTimeoutError:
             try:
-                result_container["ok"] = bool(
-                    backend.authenticate(username, password, **kwargs)
-                )
-            except AuthenticationError as exc:
-                result_container["error"] = str(exc)
-            except Exception as exc:  # noqa: BLE001
-                result_container["error"] = str(exc)
-
-        t = threading.Thread(target=_worker, daemon=True)
-        t.start()
-        t.join(timeout=timeout_s if timeout_s and timeout_s > 0 else None)
-        if t.is_alive():
+                backend_name = getattr(backend, "name", str(backend))
+            except Exception:
+                backend_name = str(backend)
+            logger.warning(
+                "Auth backend %s timed out after %.2fs",
+                backend_name,
+                timeout_s,
+            )
             return False, True, None
-        if "error" in result_container:
-            return False, False, result_container.get("error")
-        return bool(result_container.get("ok", False)), False, None
+        except AuthenticationError as exc:
+            return False, False, str(exc)
+        except Exception as exc:  # noqa: BLE001
+            return False, False, str(exc)
 
     def _build_authorization_attributes(
         self, user_attrs: dict[str, Any], request_args: dict[str, str]

@@ -507,7 +507,7 @@ class TacacsServer:
                 default_secret=self.secret_key or "CHANGE_ME_FALLBACK",
                 encryption_required=self.encryption_required,
                 client_timeout=self.client_timeout,
-                device_auto_register=getattr(self, "device_auto_register", True),
+                device_auto_register=getattr(self, "device_auto_register", False),
                 default_device_group=getattr(self, "default_device_group", "default"),
             )
 

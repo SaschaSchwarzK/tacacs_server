@@ -127,11 +127,14 @@ def test_clients_can_connect_to_tacacs(tmp_path: Path) -> None:
         )
 
         # Create device group with TACACS secret and a device covering all IPs
+        # Use a unique group name per test run to avoid collisions with
+        # any pre-existing data in the container's device database.
+        group_name = f"e2e-clients-{unique}"
         _api_post(
             sess,
             f"{base_url}/api/device-groups",
             {
-                "name": "e2e-clients",
+                "name": group_name,
                 "description": "Clients group",
                 "tacacs_secret": "TacacsSecret123!",
                 "radius_secret": "testing123",
@@ -147,8 +150,8 @@ def test_clients_can_connect_to_tacacs(tmp_path: Path) -> None:
             for it in dg_list.json()
             if isinstance(it, dict)
         }
-        gid = group_map.get("e2e-clients")
-        assert gid, "Device group e2e-clients not found"
+        gid = group_map.get(group_name.lower())
+        assert gid, f"Device group {group_name} not found"
 
         _api_post(
             sess,
@@ -283,6 +286,77 @@ def _assert_cmd(
             server_logs = (logs.stdout or "") + (
                 "\n" + logs.stderr if logs.stderr else ""
             )
+            # Also try to include the internal tacacs.log from the container for
+            # richer diagnostics (e.g., TACACS/RADIUS details).
+            extra = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    server_container,
+                    "sh",
+                    "-lc",
+                    "tail -n 200 /app/logs/tacacs.log 2>/dev/null || echo '(no /app/logs/tacacs.log)'",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            extra_logs = (extra.stdout or "") + (
+                "\n" + extra.stderr if extra.stderr else ""
+            )
+            server_logs = f"{server_logs}\n--- /app/logs/tacacs.log ---\n{extra_logs}"
+            # Additionally, try to snapshot device inventory and RADIUS clients
+            # from inside the container for deeper diagnostics (e.g., whether
+            # per-group secrets are wired through to RADIUS/TACACS).
+            try:
+                script = """
+from tacacs_server.devices.store import DeviceStore
+ds = DeviceStore("/app/data/devices.db")
+print("=== DEVICE GROUPS ===")
+for g in ds.list_groups():
+    try:
+        print(g.id, g.name, "tacacs_secret=", bool(getattr(g, "tacacs_secret", None)), "radius_secret=", bool(getattr(g, "radius_secret", None)))
+    except Exception as exc:
+        print("group_error", exc)
+print("=== DEVICES ===")
+for d in ds.list_devices():
+    try:
+        grp = d.group.name if d.group else None
+        print(d.id, d.name, str(d.network), "group=", grp)
+    except Exception as exc:
+        print("device_error", exc)
+print("=== RADIUS CLIENTS ===")
+for c in ds.iter_radius_clients():
+    try:
+        sec = getattr(c, "secret", "")
+        print(str(c.network), "secret_len=", len(sec), "name=", c.name, "group=", getattr(c, "group", None))
+    except Exception as exc:
+        print("radius_client_error", exc)
+"""
+                device_snapshot = subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        server_container,
+                        "sh",
+                        "-lc",
+                        "/opt/venv/bin/python - << 'PY'\n"
+                        + script
+                        + "\nPY",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                device_logs = (device_snapshot.stdout or "") + (
+                    "\n" + device_snapshot.stderr if device_snapshot.stderr else ""
+                )
+                server_logs = (
+                    f"{server_logs}\n--- device store / radius snapshot ---\n{device_logs}"
+                )
+            except Exception:
+                # Best-effort; if this fails, keep original logs.
+                pass
         except Exception:
             server_logs = "(failed to read server docker logs)"
         raise AssertionError(

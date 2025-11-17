@@ -595,6 +595,10 @@ def test_incomplete_body_logs_warning(server_factory):
     """
     server = server_factory(enable_tacacs=True)
     with server:
+        # Ensure the source IP is a known device so the connection reaches
+        # TACACS packet handling instead of being rejected as unknown.
+        _setup_device_and_user(server, "edgeuser", "EdgePass1", "testsecret")
+
         host, port = "127.0.0.1", server.tacacs_port
         session = 0xA1B2C3D4
         # Advertise a small body (e.g., 10 bytes) but send none
@@ -642,6 +646,10 @@ def test_corrupted_header(server_factory):
     """
     server = server_factory(enable_tacacs=True)
     with server:
+        # Register a known device so the server processes the packet header
+        # instead of closing early due to unknown device.
+        _setup_device_and_user(server, "edgeuser", "EdgePass1", "testsecret")
+
         host, port = "127.0.0.1", server.tacacs_port
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
@@ -690,6 +698,10 @@ def test_unknown_packet_type(server_factory):
     """
     server = server_factory(enable_tacacs=True)
     with server:
+        # Ensure device exists so unknown packet type is validated and logged,
+        # rather than connection being rejected as an unknown device.
+        _setup_device_and_user(server, "edgeuser", "EdgePass1", "testsecret")
+
         host, port = "127.0.0.1", server.tacacs_port
         session = 0x22223333
         # Use an invalid type number 99

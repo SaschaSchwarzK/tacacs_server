@@ -319,6 +319,12 @@ def validate_change(
             except Exception:
                 issues.append(f"{key} must be an integer")
 
+    # Command authorization custom validation
+    if section == "command_authorization" and key == "privilege_check_order":
+        sval = str(value).strip().lower()
+        if sval not in ("before", "after", "none"):
+            issues.append("privilege_check_order must be one of: before, after, none")
+
     return (len(issues) == 0), issues
 
 

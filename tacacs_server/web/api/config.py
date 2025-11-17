@@ -390,7 +390,7 @@ async def get_section(
             # Ensure defaults if section missing keys
             values.setdefault(
                 "auto_register",
-                str(cfg.get_device_store_config().get("auto_register", True)).lower(),
+                str(cfg.get_device_store_config().get("auto_register", False)).lower(),
             )
             values.setdefault(
                 "default_group",
