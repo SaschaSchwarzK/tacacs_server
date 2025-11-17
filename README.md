@@ -227,9 +227,9 @@ BACKUP_ENCRYPTION_PASSPHRASE=<key>    # Backup encryption key
 AZURE_STORAGE_CONNECTION_STRING=<conn> # Azure backup connection
 ```
 
-**Configuration Overrides (Optional):**
+**Environment Variable Fallbacks (Optional):**
 ```bash
-# Override config file values (only when config file doesn't set them)
+# Provide values for settings not defined in the config file
 TACACS_SERVER_PORT=5049                    # Server port
 TACACS_SERVER_HOST=0.0.0.0                 # Bind address
 TACACS_SERVER_CLIENT_TIMEOUT=30            # Client timeout
