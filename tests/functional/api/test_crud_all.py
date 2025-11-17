@@ -156,6 +156,30 @@ def test_crud_device_groups(server_factory):
         assert r.status_code in [204, 409]  # 409 if already deleted
 
 
+def test_device_group_invalid_proxy_network_rejected(server_factory):
+    """Creating a device group with invalid proxy_network must be rejected."""
+    server = server_factory(
+        config={"admin_username": "admin", "admin_password": "admin123"},
+        enable_admin_api=True,
+    )
+    with server:
+        s = _login(server)
+        base = server.get_base_url()
+
+        # Clearly invalid CIDR should fail validation in DeviceService.create_group
+        payload = {
+            "name": "bad-proxy-group",
+            "description": "Invalid proxy network",
+            "proxy_network": "not-a-cidr",
+            "metadata": {"tacacs_secret": "TacacsSecret123!"},
+        }
+        r, data = _json(s, "POST", f"{base}/api/device-groups", json=payload)
+        # FastAPI will typically surface this as 400/422 depending on error mapping
+        assert r.status_code in (400, 422), (
+            f"Expected validation error, got {r.status_code}: {data}"
+        )
+
+
 def test_crud_devices(server_factory):
     server = server_factory(
         config={"admin_username": "admin", "admin_password": "admin123"},

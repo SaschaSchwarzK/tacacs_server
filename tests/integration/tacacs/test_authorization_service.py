@@ -49,6 +49,24 @@ from tacacs_server.tacacs.constants import (
 from tacacs_server.tacacs.packet import TacacsPacket
 
 
+def _ensure_authorization_device(server) -> None:
+    """Ensure a known TACACS device exists for 127.0.0.1.
+
+    With strict device auto-registration disabled by default, these tests must
+    explicitly register the client IP so that authorization packets reach the
+    TACACS handlers instead of being rejected as unknown devices.
+    """
+    from tacacs_server.devices.store import DeviceStore
+
+    store = DeviceStore(str(server.devices_db))
+    store.ensure_group(
+        "default",
+        description="Default authorization group",
+        metadata={"tacacs_secret": "testing123"},
+    )
+    store.ensure_device(name="auth-device", network="127.0.0.1", group="default")
+
+
 def _read_exact(sock: socket.socket, length: int, timeout: float = 2.0) -> bytes:
     """Read exactly 'length' bytes from a socket with timeout.
 
@@ -191,6 +209,7 @@ def _send_author(host: str, port: int, body: bytes) -> TacacsPacket | None:
 def test_authorization_multiple_arguments(server_factory):
     server = server_factory(enable_tacacs=True)
     with server:
+        _ensure_authorization_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         args = ["service=shell", "cmd=show ip interface", "priv-lvl=15", "role=netops"]
         body = _mk_author_body("user1", args, priv=15)
@@ -209,6 +228,7 @@ def test_authorization_multiple_arguments(server_factory):
 def test_authorization_avpairs_roundtrip(server_factory):
     server = server_factory(enable_tacacs=True)
     with server:
+        _ensure_authorization_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         args = ["service=exec", "cmd=show version"]
         body = _mk_author_body("user2", args, priv=15)
@@ -226,6 +246,7 @@ def test_authorization_avpairs_roundtrip(server_factory):
 def test_authorization_response_pass_repl_behavior(server_factory):
     server = server_factory(enable_tacacs=True)
     with server:
+        _ensure_authorization_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         # Request without cmd; server replies PASS_ADD with minimal attributes
         body = _mk_author_body("user3", ["service=exec"], priv=1)
@@ -241,6 +262,7 @@ def test_authorization_response_pass_repl_behavior(server_factory):
 def test_malformed_authorization_request_handling(server_factory):
     server = server_factory(enable_tacacs=True)
     with server:
+        _ensure_authorization_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         # Build malformed body: argc claims 3, but provide zero arg lengths/args
         head = struct.pack("!BBBBBBBB", 0, 1, 1, 1, 0, 0, 0, 3)
@@ -258,6 +280,7 @@ def test_malformed_authorization_request_handling(server_factory):
 def test_authorization_empty_username(server_factory):
     server = server_factory(enable_tacacs=True)
     with server:
+        _ensure_authorization_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         args = ["service=shell", "cmd=show clock"]
         # empty username
@@ -271,6 +294,7 @@ def test_authorization_empty_username(server_factory):
 def test_authorization_timeout_scenarios(server_factory, monkeypatch):
     server = server_factory(enable_tacacs=True)
     with server:
+        _ensure_authorization_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         # Simulate backend attribute retrieval delay, ensure server still returns
         try:

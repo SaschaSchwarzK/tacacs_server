@@ -254,9 +254,9 @@ Section `[devices]`:
 [devices]
 database = data/devices.db
 default_group = default
-auto_register = true   # true = auto‑create unknown devices; false = strict deny
+auto_register = false   # true = auto‑create unknown devices; false = strict deny (default)
 ```
 
-- When `auto_register=true` (default), the server creates a single-host entry (`/32` for IPv4, `/128` for IPv6) named `auto-<ip>` and assigns it to `default_group`.
-- When `auto_register=false`, unknown devices are rejected and not created.
+- When `auto_register=true`, the server creates a single-host entry (`/32` for IPv4, `/128` for IPv6) named `auto-<ip>` and assigns it to `default_group`.
+- When `auto_register=false` (default), unknown devices are rejected and not created.
 - Per‑group TACACS/RADIUS secrets continue to apply. Auto-registered devices inherit the default group's configuration. For RADIUS, the default group must define a RADIUS shared secret to allow the new client to authenticate.

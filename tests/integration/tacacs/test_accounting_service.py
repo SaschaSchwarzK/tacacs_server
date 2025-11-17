@@ -51,6 +51,24 @@ from tacacs_server.tacacs.constants import (
 from tacacs_server.tacacs.packet import TacacsPacket
 
 
+def _ensure_accounting_device(server) -> None:
+    """Ensure a known TACACS device exists for 127.0.0.1.
+
+    With strict device auto-registration disabled by default, tests must
+    explicitly register the client IP so that accounting packets reach
+    the TACACS handlers instead of being rejected as unknown devices.
+    """
+    from tacacs_server.devices.store import DeviceStore
+
+    store = DeviceStore(str(server.devices_db))
+    store.ensure_group(
+        "default",
+        description="Default accounting group",
+        metadata={"tacacs_secret": "testing123"},
+    )
+    store.ensure_device(name="acct-device", network="127.0.0.1", group="default")
+
+
 def _read_exact(sock: socket.socket, length: int, timeout: float = 2.0) -> bytes:
     """Read exactly 'length' bytes from a socket with timeout.
 
@@ -294,6 +312,7 @@ def test_accounting_start_update_stop(server_factory):
         enable_tacacs=True, config={"database": {"accounting_db": acc_db}}
     )
     with server:
+        _ensure_accounting_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         session = int(time.time()) & 0xFFFFFFFF
         _wait_for_table(_db_path(server))
@@ -346,6 +365,7 @@ def test_accounting_flags_variations(server_factory):
         enable_tacacs=True, config={"database": {"accounting_db": acc_db}}
     )
     with server:
+        _ensure_accounting_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         session = (int(time.time()) + 1) & 0xFFFFFFFF
         _wait_for_table(_db_path(server))
@@ -377,6 +397,7 @@ def test_accounting_session_correlation(server_factory):
         enable_tacacs=True, config={"database": {"accounting_db": acc_db}}
     )
     with server:
+        _ensure_accounting_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         s1 = (int(time.time()) + 10) & 0xFFFFFFFF
         s2 = (int(time.time()) + 11) & 0xFFFFFFFF
@@ -415,6 +436,7 @@ def test_accounting_db_storage_verification(server_factory):
         enable_tacacs=True, config={"database": {"accounting_db": acc_db}}
     )
     with server:
+        _ensure_accounting_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         sess = (int(time.time()) + 20) & 0xFFFFFFFF
         _wait_for_table(_db_path(server))
@@ -449,6 +471,7 @@ def test_accounting_concurrent_sessions(server_factory):
         enable_tacacs=True, config={"database": {"accounting_db": acc_db}}
     )
     with server:
+        _ensure_accounting_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         sessions = [(int(time.time()) + i) & 0xFFFFFFFF for i in range(30, 35)]
         _wait_for_table(_db_path(server))
@@ -476,6 +499,7 @@ def test_accounting_disconnect_mid_session(server_factory):
         enable_tacacs=True, config={"database": {"accounting_db": acc_db}}
     )
     with server:
+        _ensure_accounting_device(server)
         host, port = "127.0.0.1", server.tacacs_port
         pre_sid = (int(time.time()) + 49) & 0xFFFFFFFF
         _send_acct(

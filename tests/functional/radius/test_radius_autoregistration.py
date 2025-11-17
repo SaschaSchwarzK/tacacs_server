@@ -188,7 +188,11 @@ def test_radius_autoregistration_enabled(server_factory):
     """
     # Prepare default group with RADIUS secret so the auto-registered device can be used
     server = server_factory(
-        config={"auth_backends": "local", "radius_share_backends": "true"},
+        config={
+            "auth_backends": "local",
+            "radius_share_backends": "true",
+            "devices": {"auto_register": "true"},
+        },
         enable_radius=True,
     )
 
