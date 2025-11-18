@@ -79,7 +79,14 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
             if backend_type == "local":
                 from tacacs_server.auth.local import LocalAuthBackend
 
-                backend = LocalAuthBackend(backend_config.get("database_url", ""))
+                db_path = backend_config.get("database_url", "")
+                # Handle sqlite:// URLs properly
+                if db_path.startswith("sqlite://"):
+                    db_path = db_path[9:]  # Remove "sqlite://" prefix
+                    # Handle in-memory database
+                    if db_path == "/:memory:":
+                        db_path = ":memory:"
+                backend = LocalAuthBackend(db_path)
             elif backend_type == "ldap":
                 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
 
@@ -315,9 +322,10 @@ class AAAHandlers:
             backend_name = getattr(backend, "name", "")
 
             if backend_name == "local":
+                db_path = getattr(backend, "db_path", "")
                 return {
                     "type": "local",
-                    "database_url": getattr(backend, "db_path", ""),
+                    "database_url": db_path,
                 }
             elif backend_name == "ldap":
                 return {

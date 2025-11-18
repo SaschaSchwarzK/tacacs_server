@@ -172,8 +172,15 @@ def test_process_pool_with_multiple_backend_types():
             backend_process_pool_size=2,
         )
 
-        # If process pool creation succeeded, test it
-        if len(handler._process_workers) > 0:
+        # Test that the handler was created successfully
+        assert handler is not None
+        assert handler._process_pool_size == 2  # Requested size
+
+        # Process pool creation may fail on some environments (GitHub runners, etc.)
+        # In that case, it should fall back to thread pool mode
+        process_pool_created = len(handler._process_workers) > 0
+
+        if process_pool_created:
             # Test that process pool was created successfully
             assert len(handler._process_workers) == 2
             assert len(handler._process_in_queues) == 2
@@ -199,12 +206,24 @@ def test_process_pool_with_multiple_backend_types():
             assert isinstance(ok, bool)
         else:
             # Process pool creation failed, ensure thread pool fallback works
+            # This is expected on some environments (GitHub runners, macOS, etc.)
+            assert handler._process_pool_size == 0  # Should be reset to 0 on failure
+
             ok, timed_out, err = handler._authenticate_backend_with_timeout(
                 local_backend, "testuser", "testpass", timeout_s=handler.backend_timeout
             )
             # Mock should work in thread pool
             assert ok is True
             assert timed_out is False
+
+            ok, timed_out, err = handler._authenticate_backend_with_timeout(
+                ldap_backend, "ldapuser", "ldappass", timeout_s=handler.backend_timeout
+            )
+            # Mock should work in thread pool
+            assert ok is True
+            assert timed_out is False
+
+        # Test should always pass regardless of whether process pool was created
 
     finally:
         # No cleanup needed
