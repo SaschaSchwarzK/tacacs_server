@@ -74,6 +74,10 @@ def get_backup_root() -> Path:
     env_path = _env_path("TACACS_BACKUP_ROOT")
     if env_path is not None:
         base = env_path
+        # Ensure environment-configured backup root is in ALLOWED_ROOTS
+        base_resolved = base.resolve()
+        if base_resolved not in ALLOWED_ROOTS:
+            ALLOWED_ROOTS.append(base_resolved)
     else:
         base = DEFAULT_BACKUP_ROOT
 
