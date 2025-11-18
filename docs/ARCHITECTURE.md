@@ -1,5 +1,7 @@
 # Architecture Overview
 
+## Component Diagram
+
 ## Components and Data Flow
 
 ```mermaid
@@ -29,7 +31,9 @@ flowchart LR
   RS -. Prometheus .-> Web
 ```
 
-## TACACS+ Authentication (PAP)
+## Request Flow (Authentication/Authorization)
+
+### TACACS+ Authentication (PAP)
 
 ```mermaid
 sequenceDiagram

@@ -42,7 +42,7 @@ def test_validate_allowed_root_and_base_directory_strict_and_relaxed(
     # Set a controlled default backup root for this test and reset allowed list
     default_root = Path(tempfile.mkdtemp(prefix="tacacs-default-root-")).resolve()
     default_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("BACKUP_ROOT", str(default_root))
+    monkeypatch.setenv("TACACS_BACKUP_ROOT", str(default_root))
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     importlib.reload(pp)
 
@@ -99,7 +99,7 @@ def test_symlink_rejection_for_base_and_input(
     # Prepare default root
     default_root = Path(tempfile.mkdtemp(prefix="tacacs-bp-root-")).resolve()
     default_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("BACKUP_ROOT", str(default_root))
+    monkeypatch.setenv("TACACS_BACKUP_ROOT", str(default_root))
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     importlib.reload(pp)
     if default_root.resolve() not in pp.ALLOWED_ROOTS:

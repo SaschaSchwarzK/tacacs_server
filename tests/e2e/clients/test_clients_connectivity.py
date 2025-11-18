@@ -340,9 +340,7 @@ for c in ds.iter_radius_clients():
                         server_container,
                         "sh",
                         "-lc",
-                        "/opt/venv/bin/python - << 'PY'\n"
-                        + script
-                        + "\nPY",
+                        "/opt/venv/bin/python - << 'PY'\n" + script + "\nPY",
                     ],
                     check=False,
                     capture_output=True,
@@ -351,9 +349,7 @@ for c in ds.iter_radius_clients():
                 device_logs = (device_snapshot.stdout or "") + (
                     "\n" + device_snapshot.stderr if device_snapshot.stderr else ""
                 )
-                server_logs = (
-                    f"{server_logs}\n--- device store / radius snapshot ---\n{device_logs}"
-                )
+                server_logs = f"{server_logs}\n--- device store / radius snapshot ---\n{device_logs}"
             except Exception:
                 # Best-effort; if this fails, keep original logs.
                 pass

@@ -42,13 +42,13 @@ def _setup_test_backup_root():
     import tacacs_server.backup.path_policy as _pp
 
     # Get the backup root from environment (set by conftest fixture)
-    backup_root_str = os.environ.get("BACKUP_ROOT")
+    backup_root_str = os.environ.get("TACACS_BACKUP_ROOT")
     if backup_root_str:
         backup_root = Path(backup_root_str).resolve()
         # Ensure it's in ALLOWED_ROOTS
         if backup_root not in _pp.ALLOWED_ROOTS:
             _pp.ALLOWED_ROOTS.append(backup_root)
-        _pp.DEFAULT_BACKUP_ROOT = backup_root
+            _pp.DEFAULT_BACKUP_ROOT = backup_root
         return backup_root
     return _pp.DEFAULT_BACKUP_ROOT
 

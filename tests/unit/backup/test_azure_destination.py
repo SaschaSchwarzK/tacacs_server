@@ -99,8 +99,8 @@ def test_connection_string_upload_sets_metadata_and_tags(
     mock_container.exists.return_value = True
 
     # Ensure path policy allows tmp-based inputs
-    monkeypatch.setenv("BACKUP_TEMP", str(tmp_path))
-    monkeypatch.setenv("BACKUP_ROOT", str(tmp_path))
+    monkeypatch.setenv("TACACS_BACKUP_TEMP", str(tmp_path))
+    monkeypatch.setenv("TACACS_BACKUP_ROOT", str(tmp_path))
 
     # Test with connection string auth
     dest = AzureBlobBackupDestination(

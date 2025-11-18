@@ -265,7 +265,7 @@ def test_backup_workflow_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     # Use test backup root from environment
     import tacacs_server.backup.path_policy as _pp
 
-    test_backup_root = _pp.get_backup_root()
+    test_backup_root = _pp.get_backup_root()  # Change BACKUP_ROOT to TACACS_BACKUP_ROOT
     dest_dir = test_backup_root / "dest"
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -299,7 +299,7 @@ def test_restore_workflow_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     # Use test backup root from environment
     import tacacs_server.backup.path_policy as _pp
 
-    test_backup_root = _pp.get_backup_root()
+    test_backup_root = _pp.get_backup_root()  # Change BACKUP_ROOT to TACACS_BACKUP_ROOT
     dest_dir = test_backup_root / "dest"
     dest_dir.mkdir(parents=True, exist_ok=True)
 

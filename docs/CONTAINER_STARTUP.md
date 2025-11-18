@@ -88,14 +88,31 @@ ADMIN_PASSWORD_HASH='$2b$12$examplehash...'
 # ADMIN_PASSWORD=secure-password
 ```
 
-## Configuration Priority
+## Configuration Priority and Precedence
 
-The server selects configuration in this order:
+When the container starts it selects which configuration file to use according to the following file-selection order (which file path to load):
 
 1. **Azure-downloaded config** (`/app/config/tacacs.azure.ini`) if `download_config_from_azure` succeeded and the file exists.
 2. **`TACACS_CONFIG` env var** if set and points to an existing file.
 3. **Container default** (`/app/config/tacacs.container.ini`) bundled with the image.
 4. **Standard location** (`config/tacacs.conf`) in the working directory.
+
+Once a configuration file (or URL) is selected and loaded, the server applies configuration *values* using the global precedence rules (highest wins):
+
+```
+1. Runtime / DB overrides (Admin UI or in-memory overrides stored in the config override store)
+  ↓
+2. Configuration file or URL (the file selected from the steps above)
+  ↓
+3. Environment variables (pattern: `TACACS_<SECTION>_<KEY>`, e.g. `TACACS_SERVER_HOST`)
+  ↓
+4. Defaults shipped with the application (lowest priority)
+```
+
+Notes:
+- Environment variables are only applied when the loaded configuration does not already define that key (environment does not overwrite file values).
+- Sensitive secrets (e.g. `ADMIN_PASSWORD_HASH`, Okta API token, RADIUS secret) are read only from environment and will be set from ENV regardless of file presence.
+- When the server reloads configuration (file reload or URL refresh), environment overrides are reapplied and then runtime/DB overrides are reapplied so runtime overrides continue to take precedence.
 
 ## Docker Compose Example
 

@@ -175,14 +175,67 @@ pytest -q
 Notes
 - Deactivate the venv when done: `deactivate`
 
-## Configuration
+## ⚙️ Configuration
 
-All configuration is done through the configuration file. The following environment variables are used for sensitive data only:
+### Configuration precedence
 
-- `TACACS_ADMIN_PASSWORD` - Admin password (for initial setup)
-- `LDAP_BIND_PASSWORD` - LDAP bind password (if using LDAP auth)
-- `AZURE_STORAGE_CONNECTION_STRING` - Azure Storage connection string (for Azure backups)
-- `ENCRYPTION_KEY` - Encryption key for sensitive data
+**IMPORTANT:** Configuration values are applied with the following precedence (highest wins):
+
+```
+1. Runtime / DB overrides (Admin UI or in-memory overrides)
+  ↓
+2. Configuration file or URL
+  ↓
+3. Environment variables
+  ↓
+4. Default values (lowest priority)
+```
+
+Notes:
+ - Runtime overrides made via the Admin UI are stored in the config override store (e.g. `data/config_overrides.db`) and are always applied last on top of other sources.
+ - When the server reloads configuration (file reload or URL refresh), environment overrides are re-applied and then runtime/DB overrides are re-applied so the precedence above is preserved.
+
+**Example:**
+```ini
+# config/tacacs.conf
+[server]
+port = 5049
+# client_timeout not specified
+```
+
+```bash
+export TACACS_SERVER_PORT=49               # Ignored - config file has port=5049
+export TACACS_SERVER_CLIENT_TIMEOUT=60     # Used - not in config file
+```
+
+**Result:**
+- `port = 5049` (from config file - overrides env var)
+- `client_timeout = 60` (from environment - config file didn't set it)
+- `max_connections = 50` (from default - not set anywhere)
+
+### Configuration Sources
+
+All configuration is done through the **configuration file**. The following environment variables are used **only for sensitive data**:
+
+**Secrets (Never in Config Files):**
+```bash
+ADMIN_PASSWORD_HASH=<bcrypt-hash>      # Admin web UI password
+LDAP_BIND_PASSWORD=<password>          # LDAP bind password
+OKTA_API_TOKEN=<token>                 # Okta API token
+RADIUS_AUTH_SECRET=<secret>            # RADIUS auth backend secret
+BACKUP_ENCRYPTION_PASSPHRASE=<key>    # Backup encryption key
+AZURE_STORAGE_CONNECTION_STRING=<conn> # Azure backup connection
+```
+
+**Environment Variable Fallbacks (Optional):**
+```bash
+# Provide values for settings not defined in the config file
+TACACS_SERVER_PORT=5049                    # Server port
+TACACS_SERVER_HOST=0.0.0.0                 # Bind address
+TACACS_SERVER_CLIENT_TIMEOUT=30            # Client timeout
+TACACS_AUTH_BACKEND_TIMEOUT=5              # Backend auth timeout
+TACACS_SERVER_MAX_CONNECTIONS=1000         # Max concurrent connections
+```
 
 ### Server and Networking
 ```ini
@@ -611,10 +664,13 @@ rate_limit_window = 60
 - **Environment variables**: Support for secrets via environment variables
 
 #### Configuration Sources & Precedence
-1. Defaults: internal safe defaults
-2. Base: file (config/tacacs.conf) or HTTPS URL (cached to `data/config_baseline_cache.conf`)
-3. Database overrides: runtime changes stored in `data/config_overrides.db`
-4. Environment variables: selected keys (e.g., `SERVER_PORT`) override at read time
+Configuration values are applied with a clear precedence so the effective runtime value is deterministic (highest priority first):
+
+1. Runtime / Database overrides: runtime changes made via the Admin UI or API are persisted to `data/config_overrides.db` and have the highest precedence.
+2. Configuration file or URL: the selected config file (or fetched URL payload) provides the next-highest set of values.
+3. Environment variables: used to fill keys not present in the loaded configuration. Environment variables follow the `TACACS_<SECTION>_<KEY>` pattern (e.g. `TACACS_SERVER_HOST`).
+  - Exception: sensitive secrets (for example `ADMIN_PASSWORD_HASH`, Okta API token, RADIUS secret) are read only from the environment and will be set from ENV regardless of a file value.
+4. Defaults: internal safe defaults shipped with the application (lowest priority).
 
 #### Overrides via API/UI
 - Validate change: `POST /api/admin/config/validate?section=server&key=port&value=5050`
@@ -929,8 +985,13 @@ logs/                        # Log files
 
 ### **Configuration Loading Priority**
 1. Command line `--config` parameter
-2. `TACACS_CONFIG` environment variable
+2. `TACACS_CONFIG` environment variable  
 3. Default `config/tacacs.conf` file
+
+**Within each configuration source, the priority is:**
+1. Configuration File values (highest priority)
+2. Environment Variables (only if not in config file)
+3. Default Values (lowest priority)
 
 ### **Environment Variables**
 
@@ -1316,6 +1377,7 @@ Comprehensive documentation is available in the `docs/` directory:
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment instructions
 - **[Integration Guide](docs/INTEGRATIONS.md)** - LDAP, Okta, and other integrations
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - System architecture and component diagrams
 
 ## 🐳 Docker Deployment
 
