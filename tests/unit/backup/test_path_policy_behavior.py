@@ -46,6 +46,10 @@ def test_validate_allowed_root_and_base_directory_strict_and_relaxed(
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
     importlib.reload(pp)
 
+    # Get the actual default root that the module is using after reload
+    # Use get_backup_root() which respects the environment variable
+    actual_default_root = pp.get_backup_root()
+
     # Work with a separate candidate root outside the default
     other_root = Path(tempfile.mkdtemp(prefix="tacacs-other-root-")).resolve()
     other_root.mkdir(parents=True, exist_ok=True)
@@ -60,9 +64,10 @@ def test_validate_allowed_root_and_base_directory_strict_and_relaxed(
 
     # 2) validate_base_directory without allowed_root: must be under DEFAULT_BACKUP_ROOT
     # Base under default should pass
-    base_ok = default_root / "subdir"
+    base_ok = actual_default_root / "subdir"
     base_ok.mkdir(parents=True, exist_ok=True)
-    assert pp.validate_base_directory(str(base_ok)) == base_ok.resolve()
+    result = pp.validate_base_directory(str(base_ok))
+    assert os.path.samefile(str(result), str(base_ok.resolve()))
     # Skip attempting to create directories outside the secure root here,
     # as some environments enforce guard rails that raise earlier. We verify
     # the positive path with allowed_root in the next step.
