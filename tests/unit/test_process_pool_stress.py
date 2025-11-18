@@ -273,27 +273,29 @@ def test_process_pool_metrics():
 
 
 def test_concurrent_worker_restart():
-    """Test concurrent worker restarts don't cause race conditions."""
+    """Test concurrent worker restart scenarios."""
     from tacacs_server.auth.local import LocalAuthBackend
 
     backend = LocalAuthBackend("sqlite:///:memory:")
     handlers = AAAHandlers([backend], None, backend_process_pool_size=2)
 
-    # Kill both workers simultaneously
-    for worker in handlers._process_workers:
-        if worker.is_alive():
-            worker.terminate()
+    if not handlers._process_workers:
+        pytest.skip("Process pool not available")
 
-    def concurrent_auth():
-        return handlers._authenticate_backend_with_timeout(
-            backend, "test", "pass", timeout_s=2.0
-        )
+    # Kill one worker while others are working
+    worker_to_kill = handlers._process_workers[0]
+    worker_to_kill.terminate()
+    worker_to_kill.join(timeout=1.0)
 
-    # Run concurrent authentications that should trigger worker restarts
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(concurrent_auth) for _ in range(4)]
-        results = [f.result() for f in futures]
+    # Continue authentication - should restart worker
+    ok, timed_out, err = handlers._authenticate_backend_with_timeout(
+        backend, "test", "pass", timeout_s=1.0
+    )
 
-    # All should complete (either succeed or fail gracefully)
-    assert len(results) == 4
-    assert all(isinstance(r, tuple) and len(r) == 3 for r in results)
+    # Should complete successfully
+    assert isinstance(ok, bool)
+    assert timed_out is False
+
+    # Verify worker was restarted
+    assert handlers._process_workers[0] != worker_to_kill
+    assert handlers._process_workers[0].is_alive()

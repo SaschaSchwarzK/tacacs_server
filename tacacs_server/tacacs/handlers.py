@@ -203,6 +203,8 @@ class AAAHandlers:
         self._next_worker = 0
         self._next_task_id = 0
         self._pending_tasks: dict[int, Any] = {}
+        self._pending_tasks_max_size = 1000  # Limit pending tasks
+        self._last_cleanup_time = 0.0  # Track last cleanup
 
         # Process pool now supports all backend types and is enabled by default when configured
         if self._process_pool_size:
@@ -229,10 +231,10 @@ class AAAHandlers:
                     test_p.terminate()
                     raise RuntimeError("Test process failed to complete")
 
-                # If test succeeded, create the actual worker pool
-                self._process_out_queue = self._process_ctx.Queue()
+                # If test succeeded, create the actual worker pool with bounded queues
+                self._process_out_queue = self._process_ctx.Queue(maxsize=100)
                 for _ in range(self._process_pool_size):
-                    in_q = self._process_ctx.Queue()
+                    in_q = self._process_ctx.Queue(maxsize=50)  # Limit queue size
                     p = self._process_ctx.Process(
                         target=_backend_worker_main,
                         args=(in_q, self._process_out_queue),
@@ -259,6 +261,29 @@ class AAAHandlers:
 
     def set_local_user_group_service(self, service) -> None:
         self.local_user_group_service = service
+
+    def _cleanup_pending_tasks(self) -> None:
+        """Clean up old pending tasks to prevent unbounded growth.
+
+        Called periodically when adding new pending tasks.
+        Removes tasks older than 30 seconds or when dict is too large.
+        """
+        import time
+
+        current_time = time.time()
+        # Only cleanup every 10 seconds to avoid overhead
+        if current_time - self._last_cleanup_time < 10.0:
+            return
+
+        self._last_cleanup_time = current_time
+
+        # If dict is getting large, remove oldest entries
+        if len(self._pending_tasks) > self._pending_tasks_max_size * 0.8:
+            # Remove oldest 20% of entries (simple FIFO cleanup)
+            to_remove = max(1, len(self._pending_tasks) // 5)
+            keys_to_remove = list(self._pending_tasks.keys())[:to_remove]
+            for key in keys_to_remove:
+                self._pending_tasks.pop(key, None)
 
     def _serialize_backend_config(
         self, backend: AuthenticationBackend
@@ -1581,7 +1606,7 @@ class AAAHandlers:
                             pass
                         # Restart dead worker
                         if self._process_ctx:
-                            new_in_q = self._process_ctx.Queue()
+                            new_in_q = self._process_ctx.Queue(maxsize=50)
                             new_p = self._process_ctx.Process(  # type: ignore[attr-defined]
                                 target=_backend_worker_main,
                                 args=(new_in_q, self._process_out_queue),
@@ -1593,7 +1618,13 @@ class AAAHandlers:
 
                 in_q = self._process_in_queues[wi]
                 # Put task: (task_id, backend_config, username, password, kwargs)
-                in_q.put((task_id, backend_config, username, password, kwargs))
+                try:
+                    in_q.put_nowait(
+                        (task_id, backend_config, username, password, kwargs)
+                    )
+                except Exception:
+                    # Queue full, fall back to thread pool
+                    raise Exception("Process queue full, falling back to thread pool")
 
                 # Wait for result on shared output queue
                 import time
@@ -1614,7 +1645,11 @@ class AAAHandlers:
                             return bool(ok), False, err
                         # Not our result, put it back for other threads
                         with self._process_lock:
-                            self._pending_tasks[result_task_id] = (ok, err)
+                            # Cleanup old tasks before adding new ones
+                            self._cleanup_pending_tasks()
+                            if len(self._pending_tasks) < self._pending_tasks_max_size:
+                                self._pending_tasks[result_task_id] = (ok, err)
+                            # If at max size, drop the result (worker will timeout)
                     except Exception:
                         # Timeout or other error
                         if (
@@ -1638,7 +1673,7 @@ class AAAHandlers:
                                 # Spawn replacement worker
                                 try:
                                     if self._process_ctx:
-                                        new_in_q = self._process_ctx.Queue()
+                                        new_in_q = self._process_ctx.Queue(maxsize=50)
                                         new_p = self._process_ctx.Process(  # type: ignore[attr-defined]
                                             target=_backend_worker_main,
                                             args=(new_in_q, self._process_out_queue),
