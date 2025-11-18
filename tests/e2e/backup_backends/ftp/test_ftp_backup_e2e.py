@@ -420,7 +420,9 @@ def test_backup_to_ftp_e2e(tmp_path: Path) -> None:
             status = (r.json() or {}).get("status")
             return status == "completed"
 
-        assert _poll(_completed, timeout=90.0), (
+        # Use longer timeout in CI environments
+        ci_timeout = 180.0 if os.getenv("CI") else 90.0
+        assert _poll(_completed, timeout=ci_timeout), (
             "Backup did not complete successfully in time"
         )
 

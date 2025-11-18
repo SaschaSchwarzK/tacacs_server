@@ -83,8 +83,8 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
                 # Handle sqlite:// URLs properly
                 if db_path.startswith("sqlite://"):
                     db_path = db_path[9:]  # Remove "sqlite://" prefix
-                    # Handle in-memory database
-                    if db_path == "/:memory:":
+                    # Handle in-memory database - both /:memory: and :memory:
+                    if db_path in ("/:memory:", ":memory:"):
                         db_path = ":memory:"
                 backend = LocalAuthBackend(db_path)
             elif backend_type == "ldap":

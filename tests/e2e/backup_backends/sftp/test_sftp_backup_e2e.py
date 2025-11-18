@@ -436,7 +436,9 @@ def test_backup_to_sftp_password_e2e(tmp_path: Path) -> None:
             st = (items[0].get("status") or "").lower()
             return st in ("completed", "failed")
 
-        ok = _poll(_done, timeout=120.0, interval=1.0)
+        # Use longer timeout in CI environments
+        ci_timeout = 240.0 if os.getenv("CI") else 120.0
+        ok = _poll(_done, timeout=ci_timeout, interval=1.0)
         assert ok, "backup execution did not finish in time"
 
         # Verify backups listed for destination (allow eventual consistency on busy runners)

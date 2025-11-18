@@ -13,7 +13,11 @@ DEFAULT_TEMP_ROOT = Path("/var/run/tacacs/tmp")
 
 _TEST_MODE = os.getenv("PYTEST_CURRENT_TEST") is not None
 
-ALLOWED_ROOTS = [DEFAULT_BACKUP_ROOT.resolve()]
+# Predefined allowed backup roots - no dynamic additions for security
+ALLOWED_ROOTS = [
+    Path("/data/backups"),  # Default/local development
+    Path("/app/data/backups"),  # Container/production
+]
 
 
 def _sanitize_path_input(val: str) -> str:
@@ -74,10 +78,9 @@ def get_backup_root() -> Path:
     env_path = _env_path("TACACS_BACKUP_ROOT")
     if env_path is not None:
         base = env_path
-        # Ensure environment-configured backup root is in ALLOWED_ROOTS
-        base_resolved = base.resolve()
-        if base_resolved not in ALLOWED_ROOTS:
-            ALLOWED_ROOTS.append(base_resolved)
+        # Validate that env path is in predefined allowed roots
+        if not any(base.resolve() == allowed.resolve() for allowed in ALLOWED_ROOTS):
+            raise ValueError(f"TACACS_BACKUP_ROOT {base} not in allowed roots")
     else:
         base = DEFAULT_BACKUP_ROOT
 
