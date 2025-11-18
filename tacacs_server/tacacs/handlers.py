@@ -45,10 +45,6 @@ from .structures import parse_acct_request, parse_authen_start, parse_author_req
 logger = get_logger(__name__)
 
 
-# Global backend configuration for worker processes
-_PROCESS_POOL_BACKEND_CONFIGS: list[dict] | None = None
-
-
 def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
     """Process main loop for backend worker.
 
@@ -72,12 +68,14 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
             # Create backend instance in worker process
             backend_type = backend_config.get("type")
             backend = None
-            
+
             if backend_type == "local":
                 from tacacs_server.auth.local import LocalAuthBackend
+
                 backend = LocalAuthBackend(backend_config.get("database_url", ""))
             elif backend_type == "ldap":
                 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
+
                 backend = LDAPAuthBackend(
                     ldap_server=backend_config.get("ldap_server", ""),
                     base_dn=backend_config.get("base_dn", ""),
@@ -85,10 +83,11 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
                     bind_password=backend_config.get("bind_password"),
                     user_attribute=backend_config.get("user_attribute", "uid"),
                     use_tls=backend_config.get("use_tls", False),
-                    timeout=backend_config.get("timeout", 10)
+                    timeout=backend_config.get("timeout", 10),
                 )
             elif backend_type == "okta":
                 from tacacs_server.auth.okta_auth import OktaAuthBackend
+
                 # Okta backend expects a config dict
                 okta_config = {
                     "org_url": backend_config.get("org_url", ""),
@@ -99,11 +98,14 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
                     "private_key_id": backend_config.get("private_key_id", ""),
                     "auth_method": backend_config.get("auth_method", ""),
                     "verify_tls": backend_config.get("verify_tls", True),
-                    "require_group_for_auth": backend_config.get("require_group_for_auth", False)
+                    "require_group_for_auth": backend_config.get(
+                        "require_group_for_auth", False
+                    ),
                 }
                 backend = OktaAuthBackend(okta_config)
             elif backend_type == "radius":
                 from tacacs_server.auth.radius_auth import RADIUSAuthBackend
+
                 # RADIUS backend expects a config dict
                 radius_config = {
                     "radius_server": backend_config.get("radius_server", ""),
@@ -112,7 +114,9 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
                     "radius_timeout": backend_config.get("radius_timeout", 5),
                     "radius_retries": backend_config.get("radius_retries", 3),
                     "radius_nas_ip": backend_config.get("radius_nas_ip", "0.0.0.0"),
-                    "radius_nas_identifier": backend_config.get("radius_nas_identifier")
+                    "radius_nas_identifier": backend_config.get(
+                        "radius_nas_identifier"
+                    ),
                 }
                 backend = RADIUSAuthBackend(radius_config)
             else:
@@ -180,11 +184,11 @@ class AAAHandlers:
 
         # Optional persistent process pool for running backend.authenticate
         # in isolated processes that can be terminated on timeout. Default
-        # size: 0 (disabled), configurable via parameter or env `TACACS_BACKEND_PROCESS_POOL`.
+        # size: 2 (enabled), configurable via parameter or env `TACACS_BACKEND_PROCESS_POOL`.
         try:
-            env_pool = int(os.getenv("TACACS_BACKEND_PROCESS_POOL", "0"))
+            env_pool = int(os.getenv("TACACS_BACKEND_PROCESS_POOL", "2"))
         except Exception:
-            env_pool = 0
+            env_pool = 2
         if backend_process_pool_size is None:
             pool_size = env_pool
         else:
@@ -200,20 +204,19 @@ class AAAHandlers:
         self._next_task_id = 0
         self._pending_tasks: dict[int, Any] = {}
 
-        # Process pool is disabled by default due to complexity with backend sharing
-        # across process boundaries. Only enable if explicitly requested and working.
-        if self._process_pool_size and os.getenv("TACACS_ENABLE_PROCESS_POOL") == "1":
+        # Process pool now supports all backend types and is enabled by default when configured
+        if self._process_pool_size:
             try:
                 # Only use fork context - spawn doesn't work with backend sharing
                 self._process_ctx = mp.get_context("fork")
 
                 # Prepare backend configurations for worker processes
-                global _PROCESS_POOL_BACKEND_CONFIGS
-                _PROCESS_POOL_BACKEND_CONFIGS = []
+                # Don't use global variable - pass configs directly to workers
+                self._backend_configs = []
                 for backend in self.auth_backends:
                     config = self._serialize_backend_config(backend)
                     if config:
-                        _PROCESS_POOL_BACKEND_CONFIGS.append(config)
+                        self._backend_configs.append(config)
 
                 # Test if we can actually create a process
                 test_q = self._process_ctx.Queue()
@@ -231,7 +234,9 @@ class AAAHandlers:
                 for _ in range(self._process_pool_size):
                     in_q = self._process_ctx.Queue()
                     p = self._process_ctx.Process(
-                        target=_backend_worker_main, args=(in_q, self._process_out_queue), daemon=True
+                        target=_backend_worker_main,
+                        args=(in_q, self._process_out_queue),
+                        daemon=True,
                     )
                     p.start()
                     self._process_workers.append(p)
@@ -255,19 +260,21 @@ class AAAHandlers:
     def set_local_user_group_service(self, service) -> None:
         self.local_user_group_service = service
 
-    def _serialize_backend_config(self, backend: AuthenticationBackend) -> dict[str, Any] | None:
+    def _serialize_backend_config(
+        self, backend: AuthenticationBackend
+    ) -> dict[str, Any] | None:
         """Serialize backend configuration for process pool workers.
-        
+
         Returns a dictionary with backend configuration that can be used to
         recreate the backend instance in a worker process.
         """
         try:
             backend_name = getattr(backend, "name", "")
-            
+
             if backend_name == "local":
                 return {
                     "type": "local",
-                    "database_url": getattr(backend, "database_url", "")
+                    "database_url": getattr(backend, "database_url", ""),
                 }
             elif backend_name == "ldap":
                 return {
@@ -278,7 +285,7 @@ class AAAHandlers:
                     "bind_password": getattr(backend, "bind_password", None),
                     "user_attribute": getattr(backend, "user_attribute", "uid"),
                     "use_tls": getattr(backend, "use_tls", False),
-                    "timeout": getattr(backend, "timeout", 10)
+                    "timeout": getattr(backend, "timeout", 10),
                 }
             elif backend_name == "okta":
                 return {
@@ -291,7 +298,9 @@ class AAAHandlers:
                     "private_key_id": getattr(backend, "private_key_id", ""),
                     "auth_method": getattr(backend, "auth_method", ""),
                     "verify_tls": getattr(backend, "verify_tls", True),
-                    "require_group_for_auth": getattr(backend, "require_group_for_auth", False)
+                    "require_group_for_auth": getattr(
+                        backend, "require_group_for_auth", False
+                    ),
                 }
             elif backend_name == "radius":
                 # RADIUS secret is stored as bytes, convert back to string for serialization
@@ -306,10 +315,14 @@ class AAAHandlers:
                     "radius_timeout": getattr(backend, "radius_timeout", 5),
                     "radius_retries": getattr(backend, "radius_retries", 3),
                     "radius_nas_ip": getattr(backend, "radius_nas_ip", "0.0.0.0"),
-                    "radius_nas_identifier": getattr(backend, "radius_nas_identifier", None)
+                    "radius_nas_identifier": getattr(
+                        backend, "radius_nas_identifier", None
+                    ),
                 }
             else:
-                logger.debug(f"Backend type '{backend_name}' not supported in process pool")
+                logger.debug(
+                    f"Backend type '{backend_name}' not supported in process pool"
+                )
                 return None
         except Exception as e:
             logger.debug(f"Failed to serialize backend config for {backend_name}: {e}")
@@ -1540,9 +1553,13 @@ class AAAHandlers:
             and len(self._process_workers) > 0
         ):
             try:
-                # Serialize backend config
-                backend_config = self._serialize_backend_config(backend)
-                
+                # Find matching backend config from our serialized configs
+                backend_config = None
+                for config in getattr(self, "_backend_configs", []):
+                    if config.get("type") == getattr(backend, "name", ""):
+                        backend_config = config
+                        break
+
                 if not backend_config:
                     # Fall back to thread pool for unsupported backends
                     raise Exception("Backend not supported in process pool")
@@ -1562,16 +1579,22 @@ class AAAHandlers:
 
                 # Wait for result on shared output queue
                 import time
+
                 start_time = time.time()
                 while True:
                     try:
-                        result_task_id, ok, err = self._process_out_queue.get(timeout=0.1)
+                        result_task_id, ok, err = self._process_out_queue.get(
+                            timeout=0.1
+                        )
                         if result_task_id == task_id:
                             return bool(ok), False, err
                         # Not our result, ignore (shouldn't happen with proper task isolation)
                     except Exception:
                         # Timeout or other error
-                        if effective_timeout and (time.time() - start_time) >= effective_timeout:
+                        if (
+                            effective_timeout
+                            and (time.time() - start_time) >= effective_timeout
+                        ):
                             # Overall timeout exceeded
                             try:
                                 proc = self._process_workers[wi]
@@ -1579,7 +1602,9 @@ class AAAHandlers:
                                     try:
                                         proc.terminate()
                                     except Exception:
-                                        logger.debug("Failed to terminate worker process")
+                                        logger.debug(
+                                            "Failed to terminate worker process"
+                                        )
                                     try:
                                         proc.join(1)
                                     except Exception:

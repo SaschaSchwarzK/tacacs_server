@@ -1,5 +1,4 @@
 import multiprocessing as mp
-import os
 import sys
 import types
 
@@ -83,7 +82,11 @@ class MockRadiusBackend(AuthenticationBackend):
         super().__init__("radius")
         self.radius_server = cfg.get("radius_server", "")
         self.radius_port = cfg.get("radius_port", 1812)
-        self.radius_secret = cfg.get("radius_secret", "").encode("utf-8") if cfg.get("radius_secret") else b""
+        self.radius_secret = (
+            cfg.get("radius_secret", "").encode("utf-8")
+            if cfg.get("radius_secret")
+            else b""
+        )
         self.radius_timeout = cfg.get("radius_timeout", 5)
         self.radius_retries = cfg.get("radius_retries", 3)
         self.radius_nas_ip = cfg.get("radius_nas_ip", "0.0.0.0")
@@ -107,24 +110,25 @@ def test_all_backend_types_serialization():
         bind_password="secret",
         user_attribute="uid",
         use_tls=False,
-        timeout=10
+        timeout=10,
     )
-    okta_backend = MockOktaBackend({
-        "org_url": "https://test.okta.com",
-        "api_token": "test_token"
-    })
-    radius_backend = MockRadiusBackend({
-        "radius_server": "radius.test.com",
-        "radius_port": 1812,
-        "radius_secret": "radius_secret"
-    })
+    okta_backend = MockOktaBackend(
+        {"org_url": "https://test.okta.com", "api_token": "test_token"}
+    )
+    radius_backend = MockRadiusBackend(
+        {
+            "radius_server": "radius.test.com",
+            "radius_port": 1812,
+            "radius_secret": "radius_secret",
+        }
+    )
 
     # Create handler with all backend types
     handler = AAAHandlers(
         auth_backends=[local_backend, ldap_backend, okta_backend, radius_backend],
         db_logger=None,
         backend_timeout=1.0,
-        backend_process_pool_size=0  # Don't create actual process pool for this test
+        backend_process_pool_size=0,  # Don't create actual process pool for this test
     )
 
     # Test serialization of each backend type
@@ -156,8 +160,6 @@ def test_all_backend_types_serialization():
 
 def test_process_pool_with_multiple_backend_types():
     """Test that process pool works with multiple backend types when enabled."""
-    # Enable process pool explicitly for this test
-    os.environ["TACACS_ENABLE_PROCESS_POOL"] = "1"
     try:
         # Create mock backends
         local_backend = MockLocalBackend("sqlite:///:memory:")
@@ -167,7 +169,7 @@ def test_process_pool_with_multiple_backend_types():
             auth_backends=[local_backend, ldap_backend],
             db_logger=None,
             backend_timeout=0.5,
-            backend_process_pool_size=2
+            backend_process_pool_size=2,
         )
 
         # If process pool creation succeeded, test it
@@ -176,7 +178,7 @@ def test_process_pool_with_multiple_backend_types():
             assert len(handler._process_workers) == 2
             assert len(handler._process_in_queues) == 2
             assert handler._process_out_queue is not None
-            
+
             # Test local backend authentication - expect it to fail since we're using
             # a real LocalAuthBackend in the worker process, not our mock
             ok, timed_out, err = handler._authenticate_backend_with_timeout(
@@ -205,19 +207,20 @@ def test_process_pool_with_multiple_backend_types():
             assert timed_out is False
 
     finally:
-        # Clean up environment
-        os.environ.pop("TACACS_ENABLE_PROCESS_POOL", None)
+        # No cleanup needed
+        pass
 
 
 def test_unsupported_backend_serialization():
     """Test that unsupported backend types return None for serialization."""
+
     class UnsupportedBackend(AuthenticationBackend):
         def __init__(self):
             super().__init__("unsupported")
 
         def authenticate(self, username: str, password: str, **kwargs) -> bool:
             return False
-            
+
         def get_user_attributes(self, username: str):
             return {}
 
@@ -225,7 +228,7 @@ def test_unsupported_backend_serialization():
         auth_backends=[],
         db_logger=None,
         backend_timeout=1.0,
-        backend_process_pool_size=0
+        backend_process_pool_size=0,
     )
 
     unsupported_backend = UnsupportedBackend()

@@ -1,5 +1,4 @@
 import multiprocessing as mp
-import os
 import sys
 import time
 import types
@@ -45,8 +44,6 @@ class SlowBackend(AuthenticationBackend):
 
 
 def test_process_pool_worker_timeout_and_restart():
-    # Enable process pool explicitly for this test
-    os.environ["TACACS_ENABLE_PROCESS_POOL"] = "1"
     try:
         # Process pool only works with local backends currently
         from tacacs_server.auth.local import LocalAuthBackend
@@ -91,5 +88,5 @@ def test_process_pool_worker_timeout_and_restart():
             assert handler._process_workers[0].is_alive()
             assert handler._process_workers[0].pid == pid_before
     finally:
-        # Clean up environment
-        os.environ.pop("TACACS_ENABLE_PROCESS_POOL", None)
+        # No cleanup needed
+        pass
