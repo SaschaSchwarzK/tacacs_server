@@ -10,10 +10,42 @@ from werkzeug.utils import secure_filename
 
 DEFAULT_BACKUP_ROOT = Path("/data/backups")
 DEFAULT_TEMP_ROOT = Path("/var/run/tacacs/tmp")
+CONTAINER_TEMP_ROOT = Path("/app/data/backup_tmp")  # Container path used in E2E tests
 
 _TEST_MODE = os.getenv("PYTEST_CURRENT_TEST") is not None
 
-ALLOWED_ROOTS = [DEFAULT_BACKUP_ROOT.resolve()]
+# Include common container paths for E2E tests
+def _init_allowed_roots():
+    roots = []
+    # Always include default backup root
+    try:
+        roots.append(DEFAULT_BACKUP_ROOT.resolve())
+    except OSError:
+        # If default doesn't exist, add it without resolving
+        roots.append(DEFAULT_BACKUP_ROOT)
+    
+    # Add container paths if they exist (for E2E tests)
+    container_backup_path = Path("/app/data/backups")
+    try:
+        if container_backup_path.exists():
+            roots.append(container_backup_path.resolve())
+        else:
+            roots.append(container_backup_path)  # Add without resolving
+    except OSError:
+        roots.append(container_backup_path)
+    
+    container_temp_path = Path("/app/data/backup_tmp")
+    try:
+        if container_temp_path.exists():
+            roots.append(container_temp_path.resolve())
+        else:
+            roots.append(container_temp_path)  # Add without resolving
+    except OSError:
+        roots.append(container_temp_path)
+    
+    return roots
+
+ALLOWED_ROOTS = _init_allowed_roots()
 
 
 def _sanitize_path_input(val: str) -> str:
@@ -92,7 +124,11 @@ def get_temp_root() -> Path:
     if env_path is not None:
         base = env_path
     else:
-        base = DEFAULT_TEMP_ROOT
+        # Check if we're in a container environment
+        if CONTAINER_TEMP_ROOT.exists():
+            base = CONTAINER_TEMP_ROOT
+        else:
+            base = DEFAULT_TEMP_ROOT
 
     if not base.is_absolute():
         raise ValueError("TACACS_BACKUP_TEMP must be an absolute path")
