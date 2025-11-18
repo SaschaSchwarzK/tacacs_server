@@ -29,7 +29,7 @@ def test_pending_tasks_cleanup():
     # Manually add many pending tasks to simulate buildup
     with handlers._process_lock:
         for i in range(1000):
-            handlers._pending_tasks[i] = (True, None)
+            handlers._pending_tasks[i] = (True, None, time.time())
 
     # Trigger cleanup by adding a new task
     with handlers._process_lock:
@@ -49,13 +49,13 @@ def test_pending_tasks_max_size_limit():
     # Fill up to max size
     with handlers._process_lock:
         for i in range(handlers._pending_tasks_max_size + 100):
-            handlers._pending_tasks[i] = (True, None)
+            handlers._pending_tasks[i] = (True, None, time.time())
 
     # Simulate adding a new result when at max size
     with handlers._process_lock:
         handlers._cleanup_pending_tasks()
         if len(handlers._pending_tasks) < handlers._pending_tasks_max_size:
-            handlers._pending_tasks[9999] = (True, None)
+            handlers._pending_tasks[9999] = (True, None, time.time())
 
     # Should not exceed max size
     assert len(handlers._pending_tasks) <= handlers._pending_tasks_max_size
@@ -98,7 +98,7 @@ def test_cleanup_timing():
     # Add some tasks
     with handlers._process_lock:
         for i in range(100):
-            handlers._pending_tasks[i] = (True, None)
+            handlers._pending_tasks[i] = (True, None, time.time())
 
     initial_count = len(handlers._pending_tasks)
 
@@ -145,7 +145,11 @@ def test_concurrent_pending_tasks_access():
             with handlers._process_lock:
                 # Simulate concurrent access
                 handlers._cleanup_pending_tasks()
-                handlers._pending_tasks[threading.current_thread().ident] = (True, None)
+                handlers._pending_tasks[threading.current_thread().ident] = (
+                    True,
+                    None,
+                    time.time(),
+                )
                 results.append(len(handlers._pending_tasks))
         except Exception as e:
             errors.append(e)

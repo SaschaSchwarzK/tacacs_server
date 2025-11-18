@@ -286,13 +286,22 @@ class AAAHandlers:
 
         self._last_cleanup_time = current_time
 
-        # If dict is getting large, remove oldest entries
+        # Remove tasks older than 30 seconds
+        expired_keys = [
+            task_id
+            for task_id, (ok, err, timestamp) in self._pending_tasks.items()
+            if current_time - timestamp > 30.0
+        ]
+        for key in expired_keys:
+            self._pending_tasks.pop(key, None)
+
+        # If dict is still large after time-based cleanup, remove oldest entries
         if len(self._pending_tasks) > self._pending_tasks_max_size * 0.8:
-            # Remove oldest 20% of entries (simple FIFO cleanup)
-            to_remove = max(1, len(self._pending_tasks) // 5)
-            keys_to_remove = list(self._pending_tasks.keys())[:to_remove]
-            for key in keys_to_remove:
-                self._pending_tasks.pop(key, None)
+            # Sort by timestamp and remove oldest 20%
+            sorted_tasks = sorted(self._pending_tasks.items(), key=lambda x: x[1][2])
+            to_remove = max(1, len(sorted_tasks) // 5)
+            for task_id, _ in sorted_tasks[:to_remove]:
+                self._pending_tasks.pop(task_id, None)
 
     def _serialize_backend_config(
         self, backend: AuthenticationBackend
@@ -1656,8 +1665,13 @@ class AAAHandlers:
                             return bool(ok), False, err
                         # Store result for other threads
                         with self._process_lock:
+                            self._cleanup_pending_tasks()
                             if len(self._pending_tasks) < self._pending_tasks_max_size:
-                                self._pending_tasks[result_task_id] = (ok, err)
+                                self._pending_tasks[result_task_id] = (
+                                    ok,
+                                    err,
+                                    time.time(),
+                                )
                     except Exception:
                         # Check timeout
                         if (
@@ -1668,7 +1682,7 @@ class AAAHandlers:
                         # Check if result appeared in pending tasks
                         with self._process_lock:
                             if task_id in self._pending_tasks:
-                                ok, err = self._pending_tasks.pop(task_id)
+                                ok, err, _ = self._pending_tasks.pop(task_id)
                                 return bool(ok), False, err
             except Exception as exc:
                 # Fall back to thread pool on any unexpected error
