@@ -269,7 +269,7 @@ jobs:
           OKTA_ORG_URL: ${{ secrets.OKTA_ORG_URL }}
           OKTA_API_TOKEN: ${{ secrets.OKTA_API_TOKEN }}
         run: |
-          poetry run pytest -m e2e -q --junitxml=test-results/junit-e2e.xml
+          poetry run pytest --e2e -q --junitxml=test-results/junit-e2e.xml
       - name: Upload e2e test artifacts
         uses: actions/upload-artifact@v4
         if: always()
