@@ -67,7 +67,7 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
         try:
             # Create backend instance in worker process
             backend_type = backend_config.get("type")
-            backend = None
+            backend: Any = None
 
             if backend_type == "local":
                 from tacacs_server.auth.local import LocalAuthBackend
@@ -1573,6 +1573,24 @@ class AAAHandlers:
                         self._process_workers
                     )
 
+                    # Check if worker is alive, restart if dead
+                    if not self._process_workers[wi].is_alive():
+                        try:
+                            self._process_workers[wi].join(0.1)
+                        except Exception:
+                            pass
+                        # Restart dead worker
+                        if self._process_ctx:
+                            new_in_q = self._process_ctx.Queue()
+                            new_p = self._process_ctx.Process(  # type: ignore[attr-defined]
+                                target=_backend_worker_main,
+                                args=(new_in_q, self._process_out_queue),
+                                daemon=True,
+                            )
+                            new_p.start()
+                            self._process_workers[wi] = new_p
+                            self._process_in_queues[wi] = new_in_q
+
                 in_q = self._process_in_queues[wi]
                 # Put task: (task_id, backend_config, username, password, kwargs)
                 in_q.put((task_id, backend_config, username, password, kwargs))
@@ -1581,6 +1599,12 @@ class AAAHandlers:
                 import time
 
                 start_time = time.time()
+
+                # Check if result already available in pending tasks
+                with self._process_lock:
+                    if task_id in self._pending_tasks:
+                        ok, err = self._pending_tasks.pop(task_id)
+                        return bool(ok), False, err
                 while True:
                     try:
                         result_task_id, ok, err = self._process_out_queue.get(
@@ -1588,7 +1612,9 @@ class AAAHandlers:
                         )
                         if result_task_id == task_id:
                             return bool(ok), False, err
-                        # Not our result, ignore (shouldn't happen with proper task isolation)
+                        # Not our result, put it back for other threads
+                        with self._process_lock:
+                            self._pending_tasks[result_task_id] = (ok, err)
                     except Exception:
                         # Timeout or other error
                         if (
@@ -1611,15 +1637,16 @@ class AAAHandlers:
                                         pass
                                 # Spawn replacement worker
                                 try:
-                                    new_in_q = self._process_ctx.Queue()  # type: ignore[union-attr]
-                                    new_p = self._process_ctx.Process(  # type: ignore[union-attr]
-                                        target=_backend_worker_main,
-                                        args=(new_in_q, self._process_out_queue),
-                                        daemon=True,
-                                    )
-                                    new_p.start()
-                                    self._process_workers[wi] = new_p
-                                    self._process_in_queues[wi] = new_in_q
+                                    if self._process_ctx:
+                                        new_in_q = self._process_ctx.Queue()
+                                        new_p = self._process_ctx.Process(  # type: ignore[attr-defined]
+                                            target=_backend_worker_main,
+                                            args=(new_in_q, self._process_out_queue),
+                                            daemon=True,
+                                        )
+                                        new_p.start()
+                                        self._process_workers[wi] = new_p
+                                        self._process_in_queues[wi] = new_in_q
                                 except Exception:
                                     logger.debug(
                                         "Failed to respawn backend worker after timeout"
