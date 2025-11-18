@@ -11,7 +11,7 @@ def test_all_backends_use_process_pool():
     # Create mock backends for each type
     local_backend = Mock()
     local_backend.name = "local"
-    local_backend.database_url = "sqlite:///:memory:"
+    local_backend.db_path = "sqlite:///:memory:"
 
     ldap_backend = Mock()
     ldap_backend.name = "ldap"
@@ -82,7 +82,7 @@ def test_backend_serialization_completeness():
     # Test local backend serialization
     local_backend = Mock()
     local_backend.name = "local"
-    local_backend.database_url = "sqlite:///test.db"
+    local_backend.db_path = "sqlite:///test.db"
 
     handlers = AAAHandlers([local_backend], None, backend_process_pool_size=1)
     config = handlers._serialize_backend_config(local_backend)
@@ -210,7 +210,7 @@ def test_process_pool_worker_receives_correct_configs(mock_worker):
     # Create backends with specific configurations
     local_backend = Mock()
     local_backend.name = "local"
-    local_backend.database_url = "sqlite:///specific.db"
+    local_backend.db_path = "sqlite:///specific.db"
 
     ldap_backend = Mock()
     ldap_backend.name = "ldap"

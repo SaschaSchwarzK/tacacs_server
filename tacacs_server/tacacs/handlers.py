@@ -2,6 +2,13 @@
 TACACS+ AAA Request Handlers
 """
 
+# NOTE: On modern macOS versions, using fork() without an immediate exec()
+# can cause crashes when network, DNS, or Objective-C based libraries are used.
+# This is due to Apple's stricter post-fork safety rules. Avoid fork() on macOS
+# or use a spawn/forkserver start method instead.
+# As this code is supposed to run in containers, we assume Linux environments where fork() is safe.
+# But this still might affect users running on macOS hosts directly for testing.
+
 import multiprocessing as mp
 import os
 import re
@@ -195,7 +202,7 @@ class AAAHandlers:
             pool_size = int(backend_process_pool_size)
 
         self._process_pool_size = pool_size if pool_size and pool_size > 0 else 0
-        self._process_ctx: mp.context.BaseContext | None = None
+        self._process_ctx: Any = None
         self._process_workers: list[mp.process.BaseProcess] = []
         self._process_in_queues: list[Any] = []
         self._process_out_queue: Any = None
@@ -205,16 +212,15 @@ class AAAHandlers:
         self._pending_tasks: dict[int, Any] = {}
         self._pending_tasks_max_size = 1000  # Limit pending tasks
         self._last_cleanup_time = 0.0  # Track last cleanup
+        self._backend_configs: list[dict[str, Any]] = []  # Always initialize
 
-        # Process pool now supports all backend types and is enabled by default when configured
+        # Process pool creation with robust error handling
         if self._process_pool_size:
             try:
                 # Only use fork context - spawn doesn't work with backend sharing
                 self._process_ctx = mp.get_context("fork")
 
                 # Prepare backend configurations for worker processes
-                # Don't use global variable - pass configs directly to workers
-                self._backend_configs = []
                 for backend in self.auth_backends:
                     config = self._serialize_backend_config(backend)
                     if config:
@@ -226,15 +232,18 @@ class AAAHandlers:
                     target=lambda: test_q.put("test"), daemon=True
                 )
                 test_p.start()
-                test_p.join(timeout=1.0)
+                test_p.join(timeout=2.0)  # Increased timeout
                 if test_p.is_alive():
                     test_p.terminate()
+                    test_p.join(timeout=1.0)
                     raise RuntimeError("Test process failed to complete")
 
                 # If test succeeded, create the actual worker pool with bounded queues
-                self._process_out_queue = self._process_ctx.Queue(maxsize=100)
+                self._process_out_queue = self._process_ctx.Queue(
+                    maxsize=200
+                )  # Increased buffer
                 for _ in range(self._process_pool_size):
-                    in_q = self._process_ctx.Queue(maxsize=50)  # Limit queue size
+                    in_q = self._process_ctx.Queue(maxsize=100)  # Increased buffer
                     p = self._process_ctx.Process(
                         target=_backend_worker_main,
                         args=(in_q, self._process_out_queue),
@@ -249,14 +258,14 @@ class AAAHandlers:
                 )
             except Exception as e:
                 # Could not create process pool; fall back to thread pool only
-                logger.debug(f"Process pool creation failed, using thread pool: {e}")
+                logger.warning(f"Process pool creation failed, using thread pool: {e}")
                 self._process_ctx = None
                 self._process_workers = []
                 self._process_in_queues = []
                 self._process_out_queue = None
                 self._process_pool_size = 0
         else:
-            # Process pool disabled or not explicitly enabled
+            # Process pool disabled
             self._process_pool_size = 0
 
     def set_local_user_group_service(self, service) -> None:
@@ -299,7 +308,7 @@ class AAAHandlers:
             if backend_name == "local":
                 return {
                     "type": "local",
-                    "database_url": getattr(backend, "database_url", ""),
+                    "database_url": getattr(backend, "db_path", ""),
                 }
             elif backend_name == "ldap":
                 return {
@@ -1605,9 +1614,11 @@ class AAAHandlers:
                         except Exception:
                             pass
                         # Restart dead worker
-                        if self._process_ctx:
-                            new_in_q = self._process_ctx.Queue(maxsize=50)
-                            new_p = self._process_ctx.Process(  # type: ignore[attr-defined]
+                        try:
+                            if self._process_ctx is None:
+                                raise Exception("Process context is None")
+                            new_in_q = self._process_ctx.Queue(maxsize=100)
+                            new_p = self._process_ctx.Process(
                                 target=_backend_worker_main,
                                 args=(new_in_q, self._process_out_queue),
                                 daemon=True,
@@ -1615,6 +1626,10 @@ class AAAHandlers:
                             new_p.start()
                             self._process_workers[wi] = new_p
                             self._process_in_queues[wi] = new_in_q
+                        except Exception as e:
+                            logger.debug(f"Failed to restart worker: {e}")
+                            # Fall back to thread pool for this request
+                            raise Exception("Worker restart failed")
 
                 in_q = self._process_in_queues[wi]
                 # Put task: (task_id, backend_config, username, password, kwargs)
@@ -1626,82 +1641,35 @@ class AAAHandlers:
                     # Queue full, fall back to thread pool
                     raise Exception("Process queue full, falling back to thread pool")
 
-                # Wait for result on shared output queue
+                # Wait for result with simplified timeout handling
                 import time
 
                 start_time = time.time()
 
-                # Check if result already available in pending tasks
-                with self._process_lock:
-                    if task_id in self._pending_tasks:
-                        ok, err = self._pending_tasks.pop(task_id)
-                        return bool(ok), False, err
                 while True:
                     try:
+                        # Use shorter poll intervals for responsiveness
                         result_task_id, ok, err = self._process_out_queue.get(
                             timeout=0.1
                         )
                         if result_task_id == task_id:
                             return bool(ok), False, err
-                        # Not our result, put it back for other threads
+                        # Store result for other threads
                         with self._process_lock:
-                            # Cleanup old tasks before adding new ones
-                            self._cleanup_pending_tasks()
                             if len(self._pending_tasks) < self._pending_tasks_max_size:
                                 self._pending_tasks[result_task_id] = (ok, err)
-                            # If at max size, drop the result (worker will timeout)
                     except Exception:
-                        # Timeout or other error
+                        # Check timeout
                         if (
                             effective_timeout
                             and (time.time() - start_time) >= effective_timeout
                         ):
-                            # Overall timeout exceeded
-                            try:
-                                proc = self._process_workers[wi]
-                                if proc.is_alive():
-                                    try:
-                                        proc.terminate()
-                                    except Exception:
-                                        logger.debug(
-                                            "Failed to terminate worker process"
-                                        )
-                                    try:
-                                        proc.join(1)
-                                    except Exception:
-                                        pass
-                                # Spawn replacement worker
-                                try:
-                                    if self._process_ctx:
-                                        new_in_q = self._process_ctx.Queue(maxsize=50)
-                                        new_p = self._process_ctx.Process(  # type: ignore[attr-defined]
-                                            target=_backend_worker_main,
-                                            args=(new_in_q, self._process_out_queue),
-                                            daemon=True,
-                                        )
-                                        new_p.start()
-                                        self._process_workers[wi] = new_p
-                                        self._process_in_queues[wi] = new_in_q
-                                except Exception:
-                                    logger.debug(
-                                        "Failed to respawn backend worker after timeout"
-                                    )
-                            except Exception:
-                                logger.debug(
-                                    "Error while handling timed-out worker replacement"
-                                )
-                            try:
-                                backend_name = getattr(backend, "name", str(backend))
-                            except Exception:
-                                backend_name = str(backend)
-                            logger.warning(
-                                "Auth backend %s timed out after %.2fs (worker terminated)",
-                                backend_name,
-                                timeout_s,
-                            )
                             return False, True, None
-                        # Continue waiting
-                        continue
+                        # Check if result appeared in pending tasks
+                        with self._process_lock:
+                            if task_id in self._pending_tasks:
+                                ok, err = self._pending_tasks.pop(task_id)
+                                return bool(ok), False, err
             except Exception as exc:
                 # Fall back to thread pool on any unexpected error
                 logger.debug("Process-pool dispatch error, falling back: %s", exc)

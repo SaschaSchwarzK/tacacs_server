@@ -30,7 +30,7 @@ from tacacs_server.tacacs.handlers import AAAHandlers  # noqa: E402
 class MockLocalBackend(AuthenticationBackend):
     def __init__(self, database_url: str = ""):
         super().__init__("local")
-        self.database_url = database_url
+        self.db_path = database_url  # Use db_path to match real LocalAuthBackend
 
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
         return username == "testuser" and password == "testpass"
