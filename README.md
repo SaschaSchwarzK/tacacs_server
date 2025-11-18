@@ -844,8 +844,7 @@ Use the helper scripts to prepare an Okta developer org, generate an OAuth servi
 - Sanity-check AuthN and groups via OAuth using the generated files:
   - poetry run python scripts/okta_check.py --backend-config config/okta.generated.conf --manifest okta_test_data.json
 
-To run the Okta E2E tests against your real org, export OKTA_E2E=1 (these tests are skipped by default since they require network access and real credentials).
-Testing on Windows and MacOS warning: When pool workser enabled, fork() without exec() may crash when network/Obj-C libraries are used. The code only work properly on Linux.
+Testing on Windows and MacOS warning: When the pool worker is enabled, fork() without exec() may crash when network/Obj-C libraries are used. The code only works properly on Linux.
 
 ## 📁 Project Architecture
 

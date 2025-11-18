@@ -79,14 +79,7 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
             if backend_type == "local":
                 from tacacs_server.auth.local import LocalAuthBackend
 
-                db_path = backend_config.get("database_url", "")
-                # Handle sqlite:// URLs properly
-                if db_path.startswith("sqlite://"):
-                    db_path = db_path[9:]  # Remove "sqlite://" prefix
-                    # Handle in-memory database - both /:memory: and :memory:
-                    if db_path in ("/:memory:", ":memory:"):
-                        db_path = ":memory:"
-                backend = LocalAuthBackend(db_path)
+                backend = LocalAuthBackend(backend_config.get("database_url", ""))
             elif backend_type == "ldap":
                 from tacacs_server.auth.ldap_auth import LDAPAuthBackend
 
@@ -156,6 +149,10 @@ class AAAHandlers:
     authorization decisions via a policy engine, and accounting persistence.
     Emits structured JSON logs for observability and safety.
     """
+
+    # Pending task cleanup configuration
+    _PENDING_TASK_CLEANUP_INTERVAL_S = 10.0
+    _PENDING_TASK_EXPIRY_S = 30.0
 
     def __init__(
         self,
@@ -282,22 +279,25 @@ class AAAHandlers:
         """Clean up old pending tasks to prevent unbounded growth.
 
         Called periodically when adding new pending tasks.
-        Removes tasks older than 30 seconds or when dict is too large.
+        Removes tasks older than _PENDING_TASK_EXPIRY_S seconds or when dict is too large.
         """
         import time
 
         current_time = time.time()
-        # Only cleanup every 10 seconds to avoid overhead
-        if current_time - self._last_cleanup_time < 10.0:
+        # Only cleanup every _PENDING_TASK_CLEANUP_INTERVAL_S seconds to avoid overhead
+        if (
+            current_time - self._last_cleanup_time
+            < self._PENDING_TASK_CLEANUP_INTERVAL_S
+        ):
             return
 
         self._last_cleanup_time = current_time
 
-        # Remove tasks older than 30 seconds
+        # Remove tasks older than _PENDING_TASK_EXPIRY_S seconds
         expired_keys = [
             task_id
             for task_id, (ok, err, timestamp) in self._pending_tasks.items()
-            if current_time - timestamp > 30.0
+            if current_time - timestamp > self._PENDING_TASK_EXPIRY_S
         ]
         for key in expired_keys:
             self._pending_tasks.pop(key, None)
@@ -1663,6 +1663,12 @@ class AAAHandlers:
 
                 start_time = time.time()
 
+                # Complex polling loop for shared output queue:
+                # Since multiple threads share a single output queue from all workers,
+                # we may receive results for other threads' tasks. When this happens,
+                # we store the "wrong" result in _pending_tasks so the correct thread
+                # can find it later. This avoids blocking other threads when results
+                # arrive out of order.
                 while True:
                     try:
                         # Use shorter poll intervals for responsiveness
@@ -1671,7 +1677,7 @@ class AAAHandlers:
                         )
                         if result_task_id == task_id:
                             return bool(ok), False, err
-                        # Store result for other threads
+                        # Store result for other threads - another thread will pick this up
                         with self._process_lock:
                             self._cleanup_pending_tasks()
                             if len(self._pending_tasks) < self._pending_tasks_max_size:
@@ -1687,7 +1693,7 @@ class AAAHandlers:
                             and (time.time() - start_time) >= effective_timeout
                         ):
                             return False, True, None
-                        # Check if result appeared in pending tasks
+                        # Check if our result was consumed by another thread and stored
                         with self._process_lock:
                             if task_id in self._pending_tasks:
                                 ok, err, _ = self._pending_tasks.pop(task_id)

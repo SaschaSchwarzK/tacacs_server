@@ -4,6 +4,9 @@ Test configuration and fixtures - Real server instances only, no mocks
 
 from __future__ import annotations
 
+# Import backup fixtures to make them available
+from .conftest_backup_fixtures import backup_test_root, setup_test_backup_root
+
 import configparser
 import os
 import signal

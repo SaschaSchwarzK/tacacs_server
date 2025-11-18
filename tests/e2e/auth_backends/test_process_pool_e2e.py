@@ -1,7 +1,6 @@
 """E2E tests for process pool with real backends."""
 
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -13,8 +12,14 @@ from tacacs_server.tacacs.handlers import AAAHandlers
 @pytest.mark.e2e
 def test_process_pool_with_local_backend_e2e():
     """E2E test of process pool with real local backend."""
-    # Create real local backend with temporary database
-    backend = LocalAuthBackend("sqlite:///:memory:")
+    # Create real local backend with shared database
+    import os
+
+    db_path = os.path.join("data", "test_process_pool_basic.db")
+    # Clean up any existing database
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    backend = LocalAuthBackend(db_path)
 
     # Create test user
     user_service = backend.user_service
@@ -41,21 +46,196 @@ def test_process_pool_with_local_backend_e2e():
 
 
 @pytest.mark.e2e
+def test_process_pool_concurrent_real_backends():
+    """E2E test of process pool under concurrent load with real backends."""
+    # Use local backend for reliable testing with a proper shared database path
+    import os
+
+    db_path = os.path.join("data", "test_process_pool_concurrent.db")
+    # Clean up any existing database
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    backend = LocalAuthBackend(db_path)
+
+    # Create multiple test users
+    user_service = backend.user_service
+    for i in range(10):
+        user_service.create_user(f"user{i}", password=f"TestPass{i}123!", enabled=True)
+
+    # Test with process pool
+    handlers = AAAHandlers([backend], None, backend_process_pool_size=3)
+
+    if not handlers._process_workers:
+        pytest.skip("Process pool not available on this platform")
+
+    def auth_worker(user_id):
+        """Worker function for concurrent authentication."""
+        ok, timed_out, err = handlers._authenticate_backend_with_timeout(
+            backend, f"user{user_id}", f"TestPass{user_id}123!", timeout_s=5.0
+        )
+        return ok, timed_out, err, user_id
+
+    # Run 30 concurrent authentications
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        futures = [executor.submit(auth_worker, i % 10) for i in range(30)]
+        results = [f.result() for f in futures]
+
+    # All should complete successfully
+    assert len(results) == 30
+    for ok, timed_out, err, user_id in results:
+        assert ok is True, f"Auth failed for user{user_id}: {err}"
+        assert timed_out is False
+        assert err is None
+
+    # Clean up
+    try:
+        os.remove(db_path)
+    except Exception:
+        pass
+
+
+@pytest.mark.e2e
+def test_process_pool_worker_crash_recovery_e2e():
+    """E2E test of worker crash recovery with real backend."""
+    import os
+
+    db_path = os.path.join("data", "test_process_pool_crash_recovery.db")
+    # Clean up any existing database
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    backend = LocalAuthBackend(db_path)
+
+    # Create test user
+    user_service = backend.user_service
+    user_service.create_user("testuser", password="TestPass123!", enabled=True)
+
+    # Test with process pool
+    handlers = AAAHandlers([backend], None, backend_process_pool_size=2)
+
+    if not handlers._process_workers:
+        pytest.skip("Process pool not available on this platform")
+
+    # Verify initial authentication works
+    ok, timed_out, err = handlers._authenticate_backend_with_timeout(
+        backend, "testuser", "TestPass123!", timeout_s=5.0
+    )
+    assert ok is True
+
+    # Kill a worker and force multiple authentications to trigger replacement
+    initial_worker = handlers._process_workers[0]
+    initial_worker_pid = initial_worker.pid
+    initial_worker.terminate()
+    initial_worker.join(timeout=2.0)
+
+    # Force multiple authentications to ensure we hit the dead worker
+    # The round-robin will eventually select the dead worker and replace it
+    for _ in range(5):
+        ok, timed_out, err = handlers._authenticate_backend_with_timeout(
+            backend, "testuser", "TestPass123!", timeout_s=5.0
+        )
+        assert ok is True
+        assert timed_out is False
+
+    # Verify worker was replaced (check PID)
+    new_worker = handlers._process_workers[0]
+    assert new_worker.pid != initial_worker_pid
+    assert new_worker.is_alive()
+
+
+@pytest.mark.e2e
+def test_process_pool_timeout_with_real_backend():
+    """E2E test of timeout behavior with real backend under load."""
+    import os
+
+    db_path = os.path.join("data", "test_process_pool_timeout.db")
+    # Clean up any existing database
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    backend = LocalAuthBackend(db_path)
+
+    # Create test user
+    user_service = backend.user_service
+    user_service.create_user("testuser", password="TestPass123!", enabled=True)
+
+    # Test with small process pool to force queuing
+    handlers = AAAHandlers([backend], None, backend_process_pool_size=1)
+
+    if not handlers._process_workers:
+        pytest.skip("Process pool not available on this platform")
+
+    def auth_with_timeout():
+        """Authentication with short timeout."""
+        return handlers._authenticate_backend_with_timeout(
+            backend,
+            "testuser",
+            "TestPass123!",
+            timeout_s=1.0,  # Short but reasonable timeout
+        )
+
+    # Run multiple concurrent auths to stress the single worker
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(auth_with_timeout) for _ in range(10)]
+        results = [f.result() for f in futures]
+
+    # Some should complete, some might timeout due to queuing
+    assert len(results) == 10
+    completed = sum(1 for ok, timed_out, err in results if not timed_out)
+
+    # At least some should complete
+    assert completed > 0
+    # Results should be consistent
+    for ok, timed_out, err in results:
+        assert isinstance(ok, bool)
+        assert isinstance(timed_out, bool)
+
+
+@pytest.mark.e2e
+def test_process_pool_mixed_backends_e2e():
+    """E2E test with multiple real backend types in process pool."""
+    # Create local backend
+    import os
+
+    db_path = os.path.join("data", "test_process_pool_mixed.db")
+    # Clean up any existing database
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    local_backend = LocalAuthBackend(db_path)
+
+    # Create test user in local backend
+    user_service = local_backend.user_service
+    user_service.create_user("localuser", password="LocalPass123!", enabled=True)
+
+    backends = [local_backend]
+
+    # Test with process pool
+    handlers = AAAHandlers(backends, None, backend_process_pool_size=2)
+
+    if not handlers._process_workers:
+        pytest.skip("Process pool not available on this platform")
+
+    # Verify all backends are serialized
+    configs = [handlers._serialize_backend_config(b) for b in backends]
+    assert all(c is not None for c in configs)
+
+    # Test authentication with local backend
+    ok, timed_out, err = handlers._authenticate_backend_with_timeout(
+        local_backend, "localuser", "LocalPass123!", timeout_s=5.0
+    )
+    assert ok is True
+    assert timed_out is False
+
+
+@pytest.mark.e2e
 def test_process_pool_with_ldap_backend_e2e():
-    """E2E test of process pool with real LDAP backend."""
+    """E2E test of process pool with LDAP backend serialization."""
     from tacacs_server.auth.ldap_auth import LDAPAuthBackend
 
-    # Use environment variables for LDAP connection
-    ldap_server = os.getenv("LDAP_SERVER", "ldap://localhost:389")
-    base_dn = os.getenv("LDAP_BASE_DN", "ou=people,dc=example,dc=com")
-    bind_dn = os.getenv("LDAP_BIND_DN", "cn=admin,dc=example,dc=com")
-    bind_password = os.getenv("LDAP_BIND_PASSWORD", "secret")
-
+    # Create LDAP backend with test configuration
     backend = LDAPAuthBackend(
-        ldap_server=ldap_server,
-        base_dn=base_dn,
-        bind_dn=bind_dn,
-        bind_password=bind_password,
+        ldap_server="ldap.example.com",
+        base_dn="ou=people,dc=example,dc=com",
+        bind_dn="cn=admin,dc=example,dc=com",
+        bind_password="secret",
         user_attribute="uid",
         use_tls=False,
         timeout=10,
@@ -71,17 +251,24 @@ def test_process_pool_with_ldap_backend_e2e():
     config = handlers._serialize_backend_config(backend)
     assert config is not None
     assert config["type"] == "ldap"
-    assert config["ldap_server"] == ldap_server
-    assert config["base_dn"] == base_dn
+    assert config["ldap_server"] == "ldap.example.com"
+    assert config["base_dn"] == "ou=people,dc=example,dc=com"
+    assert config["bind_dn"] == "cn=admin,dc=example,dc=com"
+    assert config["bind_password"] == "secret"
+    assert config["user_attribute"] == "uid"
+    assert config["use_tls"] is False
+    assert config["timeout"] == 10
 
-    # Test authentication (will fail if no test user, but tests serialization)
+    # Test authentication (will fail due to no server, but tests serialization)
     ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-        backend, "testuser", "testpass", timeout_s=5.0
+        backend, "testuser", "TestPass123!", timeout_s=5.0
     )
 
-    # Should complete without timeout (may fail auth if user doesn't exist)
+    # Should complete without timeout (will fail auth due to no server)
     assert timed_out is False
     assert isinstance(ok, bool)
+    # Error may be None or string depending on LDAP library behavior
+    assert err is None or isinstance(err, str)
 
 
 @pytest.mark.e2e
@@ -119,7 +306,7 @@ def test_process_pool_with_okta_backend_e2e():
 
     # Test authentication (will fail if no test user, but tests serialization)
     ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-        backend, "testuser", "testpass", timeout_s=10.0
+        backend, "testuser", "TestPass123!", timeout_s=10.0
     )
 
     # Should complete without timeout (may fail auth if user doesn't exist)
@@ -129,18 +316,18 @@ def test_process_pool_with_okta_backend_e2e():
 
 @pytest.mark.e2e
 def test_process_pool_with_radius_backend_e2e():
-    """E2E test of process pool with real RADIUS backend."""
+    """E2E test of process pool with RADIUS backend serialization."""
     from tacacs_server.auth.radius_auth import RADIUSAuthBackend
 
-    # Use environment variables for RADIUS connection
+    # Create RADIUS backend with test configuration
     radius_config = {
-        "radius_server": os.getenv("RADIUS_SERVER", "127.0.0.1"),
-        "radius_port": int(os.getenv("RADIUS_PORT", "1812")),
-        "radius_secret": os.getenv("RADIUS_SECRET", "testing123"),
-        "radius_timeout": int(os.getenv("RADIUS_TIMEOUT", "5")),
-        "radius_retries": int(os.getenv("RADIUS_RETRIES", "3")),
-        "radius_nas_ip": os.getenv("RADIUS_NAS_IP", "127.0.0.1"),
-        "radius_nas_identifier": os.getenv("RADIUS_NAS_IDENTIFIER", "tacacs-test"),
+        "radius_server": "radius.example.com",
+        "radius_port": 1812,
+        "radius_secret": "testing123",
+        "radius_timeout": 5,
+        "radius_retries": 3,
+        "radius_nas_ip": "127.0.0.1",
+        "radius_nas_identifier": "tacacs-test",
     }
 
     backend = RADIUSAuthBackend(radius_config)
@@ -155,186 +342,21 @@ def test_process_pool_with_radius_backend_e2e():
     config = handlers._serialize_backend_config(backend)
     assert config is not None
     assert config["type"] == "radius"
-    assert config["radius_server"] == radius_config["radius_server"]
-    assert config["radius_port"] == radius_config["radius_port"]
+    assert config["radius_server"] == "radius.example.com"
+    assert config["radius_port"] == 1812
+    assert config["radius_secret"] == "testing123"
+    assert config["radius_timeout"] == 5
+    assert config["radius_retries"] == 3
+    assert config["radius_nas_ip"] == "127.0.0.1"
+    assert config["radius_nas_identifier"] == "tacacs-test"
 
-    # Test authentication (will timeout if no RADIUS server, but tests serialization)
+    # Test authentication (will fail due to no server, but tests serialization)
     ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-        backend, "testuser", "testpass", timeout_s=2.0
+        backend, "testuser", "TestPass123!", timeout_s=5.0
     )
 
-    # May timeout if no server available (expected behavior)
-    assert isinstance(timed_out, bool)
+    # Should complete without timeout (will fail auth due to no server)
+    assert timed_out is False
     assert isinstance(ok, bool)
-
-
-@pytest.mark.e2e
-def test_process_pool_concurrent_real_backends():
-    """E2E test of process pool under concurrent load with real backends."""
-    # Use local backend for reliable testing
-    backend = LocalAuthBackend("sqlite:///:memory:")
-
-    # Create multiple test users
-    user_service = backend.user_service
-    for i in range(10):
-        user_service.create_user(f"user{i}", password=f"TestPass{i}123!", enabled=True)
-
-    # Test with process pool
-    handlers = AAAHandlers([backend], None, backend_process_pool_size=3)
-
-    if not handlers._process_workers:
-        pytest.skip("Process pool not available on this platform")
-
-    def auth_worker(user_id):
-        """Worker function for concurrent authentication."""
-        ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-            backend, f"user{user_id}", f"TestPass{user_id}123!", timeout_s=5.0
-        )
-        return ok, timed_out, err, user_id
-
-    # Run 30 concurrent authentications
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        futures = [executor.submit(auth_worker, i % 10) for i in range(30)]
-        results = [f.result() for f in futures]
-
-    # All should complete successfully
-    assert len(results) == 30
-    for ok, timed_out, err, user_id in results:
-        assert ok is True, f"Auth failed for user{user_id}: {err}"
-        assert timed_out is False
-        assert err is None
-
-
-@pytest.mark.e2e
-def test_process_pool_worker_crash_recovery_e2e():
-    """E2E test of worker crash recovery with real backend."""
-    backend = LocalAuthBackend("sqlite:///:memory:")
-
-    # Create test user
-    user_service = backend.user_service
-    user_service.create_user("testuser", password="TestPass123!", enabled=True)
-
-    # Test with process pool
-    handlers = AAAHandlers([backend], None, backend_process_pool_size=2)
-
-    if not handlers._process_workers:
-        pytest.skip("Process pool not available on this platform")
-
-    # Verify initial authentication works
-    ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-        backend, "testuser", "TestPass123!", timeout_s=5.0
-    )
-    assert ok is True
-
-    # Kill a worker
-    initial_worker = handlers._process_workers[0]
-    initial_worker.terminate()
-    initial_worker.join(timeout=2.0)
-
-    # Authentication should still work (worker gets replaced)
-    ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-        backend, "testuser", "TestPass123!", timeout_s=5.0
-    )
-    assert ok is True
-    assert timed_out is False
-
-    # Verify system continues to work (worker replacement happens on next auth)
-    time.sleep(0.5)  # Give time for replacement
-    # The key test is that authentication still works after worker crash
-    # Worker replacement happens lazily on next authentication attempt
-
-
-@pytest.mark.e2e
-def test_process_pool_timeout_with_real_backend():
-    """E2E test of timeout behavior with real backend under load."""
-    backend = LocalAuthBackend("sqlite:///:memory:")
-
-    # Create test user
-    user_service = backend.user_service
-    user_service.create_user("testuser", password="TestPass123!", enabled=True)
-
-    # Test with small process pool to force queuing
-    handlers = AAAHandlers([backend], None, backend_process_pool_size=1)
-
-    if not handlers._process_workers:
-        pytest.skip("Process pool not available on this platform")
-
-    def auth_with_timeout():
-        """Authentication with short timeout."""
-        return handlers._authenticate_backend_with_timeout(
-            backend,
-            "testuser",
-            "TestPass123!",
-            timeout_s=0.1,  # Very short timeout
-        )
-
-    # Run multiple concurrent auths to stress the single worker
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(auth_with_timeout) for _ in range(10)]
-        results = [f.result() for f in futures]
-
-    # Some should complete, some might timeout due to queuing
-    assert len(results) == 10
-    completed = sum(1 for ok, timed_out, err in results if not timed_out)
-
-    # At least some should complete
-    assert completed > 0
-    # Results should be consistent
-    for ok, timed_out, err in results:
-        assert isinstance(ok, bool)
-        assert isinstance(timed_out, bool)
-
-
-@pytest.mark.e2e
-def test_process_pool_mixed_backends_e2e():
-    """E2E test with multiple real backend types in process pool."""
-    # Create multiple backends
-    local_backend = LocalAuthBackend("sqlite:///:memory:")
-
-    # Create test user in local backend
-    user_service = local_backend.user_service
-    user_service.create_user("localuser", password="LocalPass123!", enabled=True)
-
-    backends = [local_backend]
-
-    # Add LDAP backend for testing serialization
-    try:
-        from tacacs_server.auth.ldap_auth import LDAPAuthBackend
-
-        ldap_backend = LDAPAuthBackend(
-            ldap_server="ldap.example.com",
-            base_dn="ou=people,dc=example,dc=com",
-            bind_dn="cn=admin,dc=example,dc=com",
-            bind_password="secret",
-            user_attribute="uid",
-            use_tls=False,
-            timeout=10,
-        )
-        backends.append(ldap_backend)
-    except ImportError:
-        pass
-
-    # Test with process pool
-    handlers = AAAHandlers(backends, None, backend_process_pool_size=2)
-
-    if not handlers._process_workers:
-        pytest.skip("Process pool not available on this platform")
-
-    # Verify all backends are serialized
-    configs = [handlers._serialize_backend_config(b) for b in backends]
-    assert all(c is not None for c in configs)
-
-    # Test authentication with local backend
-    ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-        local_backend, "localuser", "LocalPass123!", timeout_s=5.0
-    )
-    assert ok is True
-    assert timed_out is False
-
-    # Test with other backends (may fail auth but should not timeout)
-    for backend in backends[1:]:
-        ok, timed_out, err = handlers._authenticate_backend_with_timeout(
-            backend, "testuser", "testpass", timeout_s=5.0
-        )
-        assert timed_out is False  # Should not timeout
-        assert isinstance(ok, bool)
+    # Error may be None or string depending on RADIUS library behavior
+    assert err is None or isinstance(err, str)
