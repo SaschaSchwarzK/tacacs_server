@@ -42,7 +42,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: detect --source . --report-path gitleaks-report.json --exit-code 1
+          args: detect --source . --no-git --redact --exit-code=1 --report-format=sarif --report-path=results.sarif
 
       - name: Upload Gitleaks report
         uses: actions/upload-artifact@v4
