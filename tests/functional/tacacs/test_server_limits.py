@@ -8,8 +8,8 @@ from tacacs_server.tacacs.constants import (
     TAC_PLUS_MAJOR_VER,
     TAC_PLUS_PACKET_TYPE,
 )
-from tacacs_server.tacacs.limiter import ConnectionLimiter
 from tacacs_server.tacacs.server import TacacsServer
+from tacacs_server.utils.rate_limiter import ConnectionLimiter
 
 
 def _mk_header(

@@ -230,10 +230,14 @@ def validate_allowed_root(root: str | Path) -> Path:
     # Check if path is under any allowed root
     for safe_base in ALLOWED_ROOTS:
         try:
-            # Use _safe_under to securely resolve and validate the path
+            # Derive relative path to the candidate base
             relative_part = p.relative_to(safe_base)
-            resolved = _safe_under(safe_base, str(relative_part))
-            # Normalize result to a stable form for checks and return
+            if relative_part == Path("."):
+                # Exact match with allowed base; validate base itself without _safe_under
+                resolved = Path(os.path.normpath(str(safe_base)))
+            else:
+                # Securely validate child path under the allowed base
+                resolved = _safe_under(safe_base, str(relative_part))
 
             # Final check for symlinks on the final path
             if os.path.islink(os.path.normpath(str(resolved))):
@@ -371,9 +375,10 @@ def safe_input_file(path: str) -> Path:
     temp_root = get_temp_root()
 
     base_to_check = None
-    if os.path.commonpath([backup_root, p]) == str(backup_root):
+    # Use string paths for os.path.commonpath for consistent behavior
+    if os.path.commonpath([str(backup_root), str(p)]) == str(backup_root):
         base_to_check = backup_root
-    elif os.path.commonpath([temp_root, p]) == str(temp_root):
+    elif os.path.commonpath([str(temp_root), str(p)]) == str(temp_root):
         base_to_check = temp_root
 
     if base_to_check is None:

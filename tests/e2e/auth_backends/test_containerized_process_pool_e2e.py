@@ -1,4 +1,25 @@
-"""End-to-end test verifying TACACS+ server with a process pool in a containerized environment."""
+"""Containerized E2E for process-pool authentication across supported backends.
+
+Purpose
+-------
+- Validate that the TACACS+ server runs in a Dockerized environment with a working
+  process pool and that supported backends authenticate via worker processes without
+  falling back to the thread pool.
+- Assert positive evidence (worker-only markers: ``process_pool.handled``) and absence
+  of negative evidence (no process-pool fallback) in the container logs.
+
+Environment assumptions
+-----------------------
+- Requires Docker. Skips if Docker is unavailable.
+- Starts an ephemeral network and three containers: TACACS server, FreeRADIUS, OpenLDAP.
+- Okta is excluded by default; it is only enabled when E2E_OKTA=1 and Okta env values
+  are provided. This keeps the test hermetic and avoids external network dependencies.
+
+Log sources
+-----------
+- Both stdout/stderr and file-based ``/app/logs/tacacs.log`` are read to assert markers,
+  because some structured logs are written to file inside the container.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +41,25 @@ from tests.functional.tacacs.test_tacacs_basic import tacacs_authenticate
 
 @pytest.mark.e2e
 def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
-    """Test TACACS+ server with a containerized process pool."""
+    """Run TACACS+ server with process pool in containers and assert pool usage.
+
+    Steps
+    -----
+    - Build and run containers (server, LDAP, RADIUS) in an ephemeral Docker network.
+    - Configure server with process-pool size and enable monitoring for health checks.
+    - Provision a local user and a device/device-group via the HTTP API.
+    - For each backend (local, radius, ldap; optionally okta if enabled):
+      - Capture logs before a concurrent auth burst.
+      - Run a small burst of concurrent authentication requests.
+      - Assert no log lines indicate process-pool fallback since the snapshot.
+      - Assert presence of the worker-only handled marker for the backend.
+
+    Rationale
+    ---------
+    Positive + negative log assertions provide strong evidence that authentication
+    occurs in worker processes rather than the thread fallback. File logs are included
+    to avoid missing structured entries that do not go to stdout.
+    """
 
     if not shutil.which("docker"):
         pytest.skip("Docker is required for this E2E test")
@@ -213,7 +252,10 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             "-lc",
             "/opt/venv/bin/tacacs-server --config /app/config/tacacs.container.ini",
         ]
-        print(f"Starting TACACS container with: docker {' '.join(tacacs_cmd)}")
+
+        print(
+            f"Starting TACACS container with: docker {' '.join(_redact_sensitive_args(tacacs_cmd))}"
+        )
         _run_docker(tacacs_cmd)
         started_containers.append(tacacs_container)
 
@@ -412,11 +454,34 @@ def _run_concurrent_auth_test(
     print(f"--- {backend_name} backend test successful ---")
 
 
+def _redact_sensitive_args(args: list[str]) -> list[str]:
+    """Redact sensitive arguments from docker command for logging."""
+    SENSITIVE_KEYS = [
+        "API_TOKEN",
+        "RADIUS_AUTH_SECRET",
+        "LDAP_BIND_PASSWORD",
+        "OKTA_API_TOKEN",
+    ]
+    redacted = []
+    for arg in args:
+        if arg.startswith("-e"):
+            redacted.append(arg)
+            continue
+        for key in SENSITIVE_KEYS:
+            # Redact env variable assignment if relevant
+            if arg.startswith(f"{key}="):
+                redacted.append(f"{key}=<REDACTED>")
+                break
+        else:
+            redacted.append(arg)
+    return redacted
+
+
 def _run_docker(args: list[str]) -> None:
     """Execute a Docker command."""
     result = subprocess.run(["docker", *args], capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"Docker command failed: {' '.join(args)}")
+        print(f"Docker command failed: {' '.join(_redact_sensitive_args(args))}")
         print(f"STDOUT: {result.stdout}")
         print(f"STDERR: {result.stderr}")
         raise subprocess.CalledProcessError(

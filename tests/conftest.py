@@ -22,6 +22,10 @@ from pyftpdlib.servers import FTPServer
 from requests.exceptions import RequestException
 
 # Import backup fixtures to make them available
+from .conftest_backup_fixtures import (  # noqa: F401
+    backup_test_root,
+    setup_test_backup_root,
+)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
