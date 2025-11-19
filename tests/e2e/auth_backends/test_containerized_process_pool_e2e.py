@@ -252,10 +252,10 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             "-lc",
             "/opt/venv/bin/tacacs-server --config /app/config/tacacs.container.ini",
         ]
-
-        print(
-            f"Starting TACACS container with: docker {' '.join(_redact_sensitive_args(tacacs_cmd))}"
-        )
+        # enable only for debug
+        # print(
+        #     f"Starting TACACS container with: docker {' '.join(_redact_sensitive_args(tacacs_cmd))}"
+        # )
         _run_docker(tacacs_cmd)
         started_containers.append(tacacs_container)
 
