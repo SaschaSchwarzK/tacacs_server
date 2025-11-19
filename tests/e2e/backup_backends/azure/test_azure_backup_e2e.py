@@ -404,7 +404,9 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                diag.append("--- docker logs (tacacs) ---\n" + (tlog.stdout or "")[-4000:])
+                diag.append(
+                    "--- docker logs (tacacs) ---\n" + (tlog.stdout or "")[-4000:]
+                )
             except Exception:
                 pass
             try:
@@ -414,10 +416,14 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                diag.append("--- docker logs (azurite) ---\n" + (zlog.stdout or "")[-4000:])
+                diag.append(
+                    "--- docker logs (azurite) ---\n" + (zlog.stdout or "")[-4000:]
+                )
             except Exception:
                 pass
-            raise AssertionError("Backup did not complete successfully in time\n" + "\n".join(diag))
+            raise AssertionError(
+                "Backup did not complete successfully in time\n" + "\n".join(diag)
+            )
 
         # Verify list_backups for destination returns at least one item (allow eventual consistency)
         backups: list[dict[str, object]] = []
@@ -455,7 +461,9 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                diag.append("--- docker logs (tacacs) ---\n" + (tlog.stdout or "")[-4000:])
+                diag.append(
+                    "--- docker logs (tacacs) ---\n" + (tlog.stdout or "")[-4000:]
+                )
             except Exception:
                 pass
             try:
@@ -465,7 +473,9 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
                     capture_output=True,
                     text=True,
                 )
-                diag.append("--- docker logs (azurite) ---\n" + (zlog.stdout or "")[-4000:])
+                diag.append(
+                    "--- docker logs (azurite) ---\n" + (zlog.stdout or "")[-4000:]
+                )
             except Exception:
                 pass
             raise AssertionError(

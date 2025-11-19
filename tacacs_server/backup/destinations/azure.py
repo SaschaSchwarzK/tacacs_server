@@ -444,7 +444,9 @@ class AzureBlobBackupDestination(BackupDestination):
             for blob in it:
                 name: str = getattr(blob, "name", "")
                 # Accept plain and encrypted tarballs
-                if not name or not (name.endswith(".tar.gz") or name.endswith(".tar.gz.enc")):
+                if not name or not (
+                    name.endswith(".tar.gz") or name.endswith(".tar.gz.enc")
+                ):
                     continue
                 size = int(getattr(blob, "size", 0) or 0)
                 lm = getattr(blob, "last_modified", None)

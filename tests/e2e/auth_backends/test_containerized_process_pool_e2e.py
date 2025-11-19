@@ -463,17 +463,32 @@ def _redact_sensitive_args(args: list[str]) -> list[str]:
         "OKTA_API_TOKEN",
     ]
     redacted = []
-    for arg in args:
-        if arg.startswith("-e"):
-            redacted.append(arg)
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        # If the argument is "-e" and followed by KEY=VALUE, check redaction
+        if arg == "-e" and i + 1 < len(args):
+            next_arg = args[i + 1]
+            for key in SENSITIVE_KEYS:
+                if next_arg.startswith(f"{key}="):
+                    # redact value from KEY=VALUE
+                    redacted.append(arg)
+                    redacted.append(f"{key}=<REDACTED>")
+                    i += 2
+                    break
+            else:
+                redacted.append(arg)
+                redacted.append(next_arg)
+                i += 2
             continue
+        # Also cover KEY=VALUE passed as a standalone arg (not via -e)
         for key in SENSITIVE_KEYS:
-            # Redact env variable assignment if relevant
             if arg.startswith(f"{key}="):
                 redacted.append(f"{key}=<REDACTED>")
                 break
         else:
             redacted.append(arg)
+        i += 1
     return redacted
 
 
@@ -481,9 +496,10 @@ def _run_docker(args: list[str]) -> None:
     """Execute a Docker command."""
     result = subprocess.run(["docker", *args], capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"Docker command failed: {' '.join(_redact_sensitive_args(args))}")
-        print(f"STDOUT: {result.stdout}")
-        print(f"STDERR: {result.stderr}")
+        # enable only for debug
+        # print(f"Docker command failed: {' '.join(_redact_sensitive_args(args))}")
+        # print(f"STDOUT: {result.stdout}")
+        # print(f"STDERR: {result.stderr}")
         raise subprocess.CalledProcessError(
             result.returncode, result.args, result.stdout, result.stderr
         )
