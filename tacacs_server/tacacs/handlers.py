@@ -168,6 +168,7 @@ class AAAHandlers:
         self._lock = threading.RLock()
         self.auth_sessions: dict[int, dict[str, Any]] = {}
         self.rate_limiter = AuthRateLimiter()
+        self.rate_limit_enabled: bool = True
         self.session_device: dict[int, Any] = {}
         self.session_usernames: dict[int, str] = {}
         # Optional command authorization engine injected by main
@@ -1456,7 +1457,11 @@ class AAAHandlers:
         if len(password) > MAX_PASSWORD_LENGTH:
             return False, "password too long"
 
-        if client_ip and not self.rate_limiter.is_allowed(client_ip):
+        if (
+            self.rate_limit_enabled
+            and client_ip
+            and not self.rate_limiter.is_allowed(client_ip)
+        ):
             try:
                 if _HAS_JSON:
                     logger.warning(
@@ -1472,7 +1477,7 @@ class AAAHandlers:
                 logger.debug("Failed to log rate limit: %s", e)
             return False, f"rate limit exceeded for {client_ip}"
 
-        if client_ip:
+        if self.rate_limit_enabled and client_ip:
             self.rate_limiter.record_attempt(client_ip)
 
         last_error: str | None = None
