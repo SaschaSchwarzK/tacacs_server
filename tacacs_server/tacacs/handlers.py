@@ -58,6 +58,8 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
     Receives tasks as tuples: (task_id, backend_config, username, password, kwargs)
     Puts results into out_q as (task_id, ok, err_msg).
     """
+    # Emit a worker-only startup marker with this process PID
+    logger.info("process_pool.worker_started pid=%s", os.getpid())
 
     while True:
         try:
@@ -132,6 +134,16 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
 
             if backend:
                 ok = bool(backend.authenticate(username, password, **(kwargs or {})))
+                # Emit a worker-only handled marker including backend type and PID
+                try:
+                    logger.info(
+                        "process_pool.handled backend=%s pid=%s ok=%s",
+                        backend_type,
+                        os.getpid(),
+                        ok,
+                    )
+                except Exception:
+                    pass
                 out_q.put((task_id, ok, None))
             else:
                 out_q.put((task_id, False, "backend_creation_failed"))
@@ -377,8 +389,49 @@ class AAAHandlers:
                 )
                 return None
         except Exception as e:
+            # Ensure serialization errors don't break pool setup; log and skip
+            try:
+                backend_name = getattr(backend, "name", "unknown")
+            except Exception:
+                backend_name = "unknown"
             logger.debug(f"Failed to serialize backend config for {backend_name}: {e}")
             return None
+
+    def on_backend_added(self, backend: AuthenticationBackend) -> None:
+        """Register a newly added backend with the process-pool config list.
+
+        This allows pools created during __init__ (when auth_backends might have been empty)
+        to recognize backends added later by the server.
+        """
+        try:
+            cfg = self._serialize_backend_config(backend)
+            if not cfg:
+                return
+            # Avoid duplicates of same type/server tuple where applicable
+            try:
+                key = (
+                    cfg.get("type"),
+                    cfg.get("ldap_server")
+                    or cfg.get("radius_server")
+                    or cfg.get("database_url"),
+                )
+                existing = [
+                    (
+                        c.get("type"),
+                        c.get("ldap_server")
+                        or c.get("radius_server")
+                        or c.get("database_url"),
+                    )
+                    for c in self._backend_configs
+                ]
+                if key in existing:
+                    return
+            except Exception:
+                # On any error computing keys, fall back to appending
+                pass
+            self._backend_configs.append(cfg)
+        except Exception as e:
+            logger.debug("Failed to register backend with process pool: %s", e)
 
     def _redact_args(self, args: dict[str, str]) -> dict[str, str]:
         """Return a copy of args with sensitive values redacted.

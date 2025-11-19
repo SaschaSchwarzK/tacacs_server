@@ -118,10 +118,11 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
     started_containers: list[str] = []
 
     try:
-        _run_docker(["build", "-t", tacacs_image, str(project_root)])
+        _run_docker(["build", "--no-cache", "-t", tacacs_image, str(project_root)])
         _run_docker(
             [
                 "build",
+                "--no-cache",
                 "-t",
                 radius_image,
                 str(process_pool_dir.parent / "process_pool_radius"),
@@ -191,7 +192,8 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             f"API_TOKEN={api_token}",
             "-e",
             "PYTHONUNBUFFERED=1",
-            "-e","TACACS_BACKEND_PROCESS_POOL_SIZE=2",
+            "-e",
+            "TACACS_BACKEND_PROCESS_POOL_SIZE=2",
             "-e",
             "LDAP_BIND_PASSWORD=adminpassword",
             "-e",
@@ -270,6 +272,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         _assert_no_pool_fallback_since(
             tacacs_container, local_logs_before, backend_label="local"
         )
+        _assert_worker_handled_since(
+            tacacs_container, local_logs_before, backend_label="local"
+        )
         time.sleep(0.2)
         radius_logs_before = _get_container_logs(tacacs_container)
         _run_concurrent_auth_test(
@@ -282,6 +287,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             max_workers=3,
         )
         _assert_no_pool_fallback_since(
+            tacacs_container, radius_logs_before, backend_label="radius"
+        )
+        _assert_worker_handled_since(
             tacacs_container, radius_logs_before, backend_label="radius"
         )
         time.sleep(0.2)
@@ -298,6 +306,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         _assert_no_pool_fallback_since(
             tacacs_container, ldap_logs_before, backend_label="ldap"
         )
+        _assert_worker_handled_since(
+            tacacs_container, ldap_logs_before, backend_label="ldap"
+        )
         time.sleep(0.2)
         if enable_okta:
             okta_logs_before = _get_container_logs(tacacs_container)
@@ -311,6 +322,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
                 max_workers=3,
             )
             _assert_no_pool_fallback_since(
+                tacacs_container, okta_logs_before, backend_label="okta"
+            )
+            _assert_worker_handled_since(
                 tacacs_container, okta_logs_before, backend_label="okta"
             )
 
@@ -415,7 +429,23 @@ def _get_container_logs(container: str) -> str:
     pr = subprocess.run(
         ["docker", "logs", container], check=False, capture_output=True, text=True
     )
-    return (pr.stdout or "") + (pr.stderr or "")
+    docker_out = (pr.stdout or "") + (pr.stderr or "")
+    # Also include file-based logs written to /app/logs/tacacs.log inside the container
+    pr2 = subprocess.run(
+        [
+            "docker",
+            "exec",
+            container,
+            "sh",
+            "-lc",
+            "cat /app/logs/tacacs.log 2>/dev/null || true",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    file_out = (pr2.stdout or "") + ("\n" + pr2.stderr if pr2.stderr else "")
+    return docker_out + "\n" + file_out
 
 
 def _assert_no_pool_fallback_since(
@@ -423,11 +453,27 @@ def _assert_no_pool_fallback_since(
 ) -> None:
     """Assert no process-pool fallback occurred in logs appended since before_logs."""
     current = _get_container_logs(container)
-    suffix = current[len(before_logs) :] if len(current) >= len(before_logs) else current
+    suffix = (
+        current[len(before_logs) :] if len(current) >= len(before_logs) else current
+    )
     fallback_msg = "Backend not supported in process pool"
-    assert (
-        fallback_msg not in suffix
-    ), f"Process-pool fallback detected for {backend_label} in new log output"
+    assert fallback_msg not in suffix, (
+        f"Process-pool fallback detected for {backend_label} in new log output"
+    )
+
+
+def _assert_worker_handled_since(
+    container: str, before_logs: str, backend_label: str
+) -> None:
+    """Assert that a worker-only handled marker appears for the backend since before_logs."""
+    current = _get_container_logs(container)
+    suffix = (
+        current[len(before_logs) :] if len(current) >= len(before_logs) else current
+    )
+    needle = f"process_pool.handled backend={backend_label}"
+    assert needle in suffix, (
+        f"Expected worker-handled marker '{needle}' not found in new log output for {backend_label}"
+    )
 
 
 def _find_free_port() -> int:

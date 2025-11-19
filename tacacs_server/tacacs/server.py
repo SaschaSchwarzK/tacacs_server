@@ -314,6 +314,12 @@ class TacacsServer:
         """Add authentication backend"""
         self.auth_backends.append(backend)
         self.handlers.auth_backends = self.auth_backends
+        # Inform handlers/process-pool about the newly added backend
+        try:
+            if hasattr(self.handlers, "on_backend_added"):
+                self.handlers.on_backend_added(backend)
+        except Exception as e:
+            logger.debug("Failed to register backend with handlers: %s", e)
         name = getattr(backend, "name", str(backend))
         logger.info(
             "Authentication backend added",
