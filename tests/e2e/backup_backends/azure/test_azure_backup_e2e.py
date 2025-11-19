@@ -266,6 +266,8 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
                 [
                     "docker",
                     "exec",
+                    "-u",
+                    "0",
                     tacacs_container,
                     "sh",
                     "-lc",
