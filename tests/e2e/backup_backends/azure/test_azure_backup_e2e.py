@@ -368,7 +368,35 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
             return st in ("completed", "failed")
 
         ok = _poll(_done, timeout=90.0, interval=1.0)
-        assert ok, "backup execution did not finish in time"
+        if not ok:
+            # Diagnostics on timeout
+            diag = []
+            try:
+                r = s.get(f"{base}/api/admin/backup/executions", timeout=5)
+                diag.append(f"executions: {r.status_code}: {(r.text or '')[:800]}")
+            except Exception as e:
+                diag.append(f"exec fetch failed: {e}")
+            try:
+                tlog = subprocess.run(
+                    ["docker", "logs", tacacs_container, "--tail", "200"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                diag.append("--- docker logs (tacacs) ---\n" + (tlog.stdout or "")[-4000:])
+            except Exception:
+                pass
+            try:
+                zlog = subprocess.run(
+                    ["docker", "logs", azurite_container, "--tail", "200"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                diag.append("--- docker logs (azurite) ---\n" + (zlog.stdout or "")[-4000:])
+            except Exception:
+                pass
+            raise AssertionError("Backup did not complete successfully in time\n" + "\n".join(diag))
 
         # Verify list_backups for destination returns at least one item (allow eventual consistency)
         backups: list[dict[str, object]] = []
@@ -391,9 +419,37 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
             backups[:] = current
             return True
 
-        assert _poll(_backups_available, timeout=60.0, interval=1.0), (
-            f"No backups listed in Azure destination (last response: {last_list_info})"
-        )
+        ok_list = _poll(_backups_available, timeout=60.0, interval=1.0)
+        if not ok_list:
+            diag = [f"last list resp: {last_list_info}"]
+            try:
+                r = s.get(f"{base}/api/admin/backup/executions", timeout=5)
+                diag.append(f"executions: {r.status_code}: {(r.text or '')[:800]}")
+            except Exception:
+                pass
+            try:
+                tlog = subprocess.run(
+                    ["docker", "logs", tacacs_container, "--tail", "200"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                diag.append("--- docker logs (tacacs) ---\n" + (tlog.stdout or "")[-4000:])
+            except Exception:
+                pass
+            try:
+                zlog = subprocess.run(
+                    ["docker", "logs", azurite_container, "--tail", "200"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                diag.append("--- docker logs (azurite) ---\n" + (zlog.stdout or "")[-4000:])
+            except Exception:
+                pass
+            raise AssertionError(
+                "No backups listed in Azure destination\n" + "\n".join(diag)
+            )
         assert backups, "No backups listed in Azure destination"
 
         # Validate the last execution shows non-zero size if available
