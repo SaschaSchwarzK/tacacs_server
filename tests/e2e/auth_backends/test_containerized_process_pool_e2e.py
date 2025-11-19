@@ -191,6 +191,7 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             f"API_TOKEN={api_token}",
             "-e",
             "PYTHONUNBUFFERED=1",
+            "-e","TACACS_BACKEND_PROCESS_POOL_SIZE=2",
             "-e",
             "LDAP_BIND_PASSWORD=adminpassword",
             "-e",
@@ -255,6 +256,8 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         time.sleep(5)
 
         # Test backends (limit burst size to avoid hitting auth rate limiter)
+        # Verify each backend runs via process pool (no fallback to threading)
+        local_logs_before = _get_container_logs(tacacs_container)
         _run_concurrent_auth_test(
             "local",
             tacacs_host_port,
@@ -264,7 +267,11 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             num_requests=3,
             max_workers=3,
         )
+        _assert_no_pool_fallback_since(
+            tacacs_container, local_logs_before, backend_label="local"
+        )
         time.sleep(0.2)
+        radius_logs_before = _get_container_logs(tacacs_container)
         _run_concurrent_auth_test(
             "RADIUS",
             tacacs_host_port,
@@ -274,7 +281,11 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             num_requests=3,
             max_workers=3,
         )
+        _assert_no_pool_fallback_since(
+            tacacs_container, radius_logs_before, backend_label="radius"
+        )
         time.sleep(0.2)
+        ldap_logs_before = _get_container_logs(tacacs_container)
         _run_concurrent_auth_test(
             "LDAP",
             tacacs_host_port,
@@ -284,8 +295,12 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             num_requests=3,
             max_workers=3,
         )
+        _assert_no_pool_fallback_since(
+            tacacs_container, ldap_logs_before, backend_label="ldap"
+        )
         time.sleep(0.2)
         if enable_okta:
+            okta_logs_before = _get_container_logs(tacacs_container)
             _run_concurrent_auth_test(
                 "Okta",
                 tacacs_host_port,
@@ -294,6 +309,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
                 "TestPass123!",
                 num_requests=3,
                 max_workers=3,
+            )
+            _assert_no_pool_fallback_since(
+                tacacs_container, okta_logs_before, backend_label="okta"
             )
 
     finally:
@@ -392,6 +410,26 @@ def _run_docker(args: list[str]) -> None:
         )
 
 
+def _get_container_logs(container: str) -> str:
+    """Fetch full logs for a container (stdout+stderr)."""
+    pr = subprocess.run(
+        ["docker", "logs", container], check=False, capture_output=True, text=True
+    )
+    return (pr.stdout or "") + (pr.stderr or "")
+
+
+def _assert_no_pool_fallback_since(
+    container: str, before_logs: str, backend_label: str
+) -> None:
+    """Assert no process-pool fallback occurred in logs appended since before_logs."""
+    current = _get_container_logs(container)
+    suffix = current[len(before_logs) :] if len(current) >= len(before_logs) else current
+    fallback_msg = "Backend not supported in process pool"
+    assert (
+        fallback_msg not in suffix
+    ), f"Process-pool fallback detected for {backend_label} in new log output"
+
+
 def _find_free_port() -> int:
     """Find an available TCP port on localhost."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -475,6 +513,8 @@ ou: people
             "-i",
             container,
             "ldapadd",
+            "-H",
+            "ldap://127.0.0.1",
             "-x",
             "-D",
             "cn=admin,dc=example,dc=org",
@@ -515,6 +555,8 @@ dc: example
             "-i",
             container,
             "ldapadd",
+            "-H",
+            "ldap://127.0.0.1",
             "-x",
             "-D",
             "cn=admin,dc=example,dc=org",
@@ -538,6 +580,8 @@ dc: example
                 "-i",
                 container,
                 "ldapadd",
+                "-H",
+                "ldap://127.0.0.1",
                 "-x",
                 "-D",
                 "cn=admin,dc=example,dc=org",
@@ -605,13 +649,15 @@ gidNumber: 10000
 homeDirectory: /home/{username}
 userPassword: {password}
 """
-    subprocess.run(
+    res = subprocess.run(
         [
             "docker",
             "exec",
             "-i",
             container,
             "ldapadd",
+            "-H",
+            "ldap://127.0.0.1",
             "-x",
             "-D",
             "cn=admin,dc=example,dc=org",
@@ -619,7 +665,11 @@ userPassword: {password}
             "adminpassword",
         ],
         input=ldif,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"Failed to create LDAP user: rc={res.returncode} out={res.stdout} err={res.stderr}"
+        )
