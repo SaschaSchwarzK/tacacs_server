@@ -259,6 +259,26 @@ def test_backup_to_ftp_e2e(tmp_path: Path) -> None:
         )
         started_containers.append(tacacs_container)
 
+        # Ensure bind-mounted /app/data is writable inside the container (CI may mount as root)
+        try:
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    "-u",
+                    "0",
+                    tacacs_container,
+                    "sh",
+                    "-lc",
+                    "mkdir -p /app/data/backup_tmp /app/data/backups && chmod -R 777 /app/data",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            pass
+
         # Wait for admin API to become ready
         _wait_http_ok(f"http://127.0.0.1:{api_host_port}/health", timeout=90.0)
 
@@ -420,7 +440,9 @@ def test_backup_to_ftp_e2e(tmp_path: Path) -> None:
             status = (r.json() or {}).get("status")
             return status == "completed"
 
-        assert _poll(_completed, timeout=90.0), (
+        # Use longer timeout in CI environments
+        ci_timeout = 180.0 if os.getenv("CI") else 90.0
+        assert _poll(_completed, timeout=ci_timeout), (
             "Backup did not complete successfully in time"
         )
 

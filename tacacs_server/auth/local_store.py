@@ -58,7 +58,11 @@ class LocalAuthStore:
     # Connection helpers
     # ------------------------------------------------------------------
     def _open_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        # Handle in-memory databases specially to avoid creating files
+        db_str = str(self.db_path)
+        if db_str == ":memory:" or db_str.endswith("/:memory:"):
+            db_str = ":memory:"
+        conn = sqlite3.connect(db_str, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
 

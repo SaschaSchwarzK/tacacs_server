@@ -56,7 +56,12 @@ class TacacsServer:
         # Core components
         self.auth_backends: list[AuthenticationBackend] = []
         self.db_logger = DatabaseLogger()
-        self.handlers = AAAHandlers(self.auth_backends, self.db_logger)
+        pool_size = self._get_backend_process_pool_size()
+        self.handlers = AAAHandlers(
+            self.auth_backends,
+            self.db_logger,
+            backend_process_pool_size=pool_size,
+        )
         self.metrics = MetricsCollector()
 
         # Managers
@@ -207,6 +212,30 @@ class TacacsServer:
         self._client_threads: set[threading.Thread] = set()
         self._client_threads_lock = threading.RLock()
 
+    def _get_backend_process_pool_size(self) -> int:
+        """Get backend process pool size from config, env, or default.
+
+        Precedence: config.get_server_config()["backend_process_pool_size"] > env TACACS_BACKEND_PROCESS_POOL_SIZE > default 0 (disabled)
+        """
+        # 1) Config object method
+        if self.config and hasattr(self.config, "get_server_config"):
+            try:
+                srv = self.config.get_server_config() or {}
+                val = srv.get("backend_process_pool_size")
+                if val is not None:
+                    return int(val)
+            except Exception:
+                pass
+        # 2) Env override
+        env_val = os.getenv("TACACS_BACKEND_PROCESS_POOL_SIZE")
+        if env_val:
+            try:
+                return int(env_val)
+            except Exception:
+                pass
+        # 3) Default (disabled)
+        return 0
+
     def enable_web_monitoring(
         self, web_host="127.0.0.1", web_port=8080, radius_server=None
     ):
@@ -285,6 +314,12 @@ class TacacsServer:
         """Add authentication backend"""
         self.auth_backends.append(backend)
         self.handlers.auth_backends = self.auth_backends
+        # Inform handlers/process-pool about the newly added backend
+        try:
+            if hasattr(self.handlers, "on_backend_added"):
+                self.handlers.on_backend_added(backend)
+        except Exception as e:
+            logger.debug("Failed to register backend with handlers: %s", e)
         name = getattr(backend, "name", str(backend))
         logger.info(
             "Authentication backend added",

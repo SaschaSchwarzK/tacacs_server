@@ -11,9 +11,17 @@ from werkzeug.utils import secure_filename
 DEFAULT_BACKUP_ROOT = Path("/data/backups")
 DEFAULT_TEMP_ROOT = Path("/var/run/tacacs/tmp")
 
-_TEST_MODE = os.getenv("PYTEST_CURRENT_TEST") is not None
 
-ALLOWED_ROOTS = [DEFAULT_BACKUP_ROOT.resolve()]
+def _is_test_mode() -> bool:
+    """Check if we're currently in test mode."""
+    return os.getenv("PYTEST_CURRENT_TEST") is not None
+
+
+# Predefined allowed backup roots - no dynamic additions for security
+ALLOWED_ROOTS = [
+    Path("/data/backups"),  # Default/local development
+    Path("/app/data/backups"),  # Container/production
+]
 
 
 def _sanitize_path_input(val: str) -> str:
@@ -74,6 +82,11 @@ def get_backup_root() -> Path:
     env_path = _env_path("TACACS_BACKUP_ROOT")
     if env_path is not None:
         base = env_path
+        # Validate that env path is in predefined allowed roots or allow in test mode
+        if not _is_test_mode() and not any(
+            base.resolve() == allowed.resolve() for allowed in ALLOWED_ROOTS
+        ):
+            raise ValueError(f"TACACS_BACKUP_ROOT {base} not in allowed roots")
     else:
         base = DEFAULT_BACKUP_ROOT
 
@@ -95,7 +108,7 @@ def get_temp_root() -> Path:
     return _ensure_dir_secure(base)
 
 
-def _sanitize_relpath_secure(path: str, *, max_segments: int = 10) -> str:
+def _sanitize_relpath_secure(path: str, *, max_segments: int = 20) -> str:
     """Sanitize a multi-segment relative path using werkzeug's secure_filename.
 
     - Reject absolute paths and dangerous characters (\\ and NUL).
@@ -214,38 +227,42 @@ def validate_allowed_root(root: str | Path) -> Path:
     if not p.is_absolute():
         raise ValueError("allowed_root must be an absolute path")
 
-    if not _TEST_MODE:
-        for safe_base in ALLOWED_ROOTS:
-            try:
-                # Use _safe_under to securely resolve and validate the path
-                relative_part = p.relative_to(safe_base)
+    # Check if path is under any allowed root
+    for safe_base in ALLOWED_ROOTS:
+        try:
+            # Derive relative path to the candidate base
+            relative_part = p.relative_to(safe_base)
+            if relative_part == Path("."):
+                # Exact match with allowed base; validate base itself without _safe_under
+                resolved = Path(os.path.normpath(str(safe_base)))
+            else:
+                # Securely validate child path under the allowed base
                 resolved = _safe_under(safe_base, str(relative_part))
-                # Normalize result to a stable form for checks and return
 
-                # Final check for symlinks on the final path
-                if os.path.islink(os.path.normpath(str(resolved))):
-                    raise ValueError("allowed_root may not be a symlink")
-                if str(resolved) == "/":
-                    raise ValueError(
-                        "allowed_root may not be system root directory '/'"
-                    )
+            # Final check for symlinks on the final path
+            if os.path.islink(os.path.normpath(str(resolved))):
+                raise ValueError("allowed_root may not be a symlink")
+            if str(resolved) == "/":
+                raise ValueError("allowed_root may not be system root directory '/'")
 
-                return Path(os.path.normpath(str(resolved)))
-            except ValueError:
-                # This will trigger if p is not under safe_base or traversal is detected
-                continue
+            return Path(os.path.normpath(str(resolved)))
+        except ValueError:
+            # This will trigger if p is not under safe_base or traversal is detected
+            continue
 
-        raise ValueError(f"allowed_root '{p}' is not under an approved base directory")
+    # If not under any allowed root, check if we're in test mode
+    if _is_test_mode():
+        # In test mode, allow paths that pass basic validation
+        if os.path.islink(os.path.normpath(str(p))):
+            raise ValueError("allowed_root may not be a symlink")
+        if os.path.normpath(str(p)) == "/":
+            raise ValueError("allowed_root may not be system root directory '/'")
+        return Path(os.path.normpath(str(p)))
 
-    # In test mode, normalize path without following symlinks and perform checks
-    if os.path.islink(os.path.normpath(str(p))):
-        raise ValueError("allowed_root may not be a symlink")
-    if os.path.normpath(str(p)) == "/":
-        raise ValueError("allowed_root may not be system root directory '/'")
-    return Path(os.path.normpath(str(p)))
+    raise ValueError(f"allowed_root '{p}' is not under an approved base directory")
 
 
-def validate_relpath(path: str, *, max_segments: int = 10) -> str:
+def validate_relpath(path: str, *, max_segments: int = 20) -> str:
     """Validate a multi-segment relative path."""
     s = str(path or "").strip()
     if not s:
@@ -279,12 +296,8 @@ def validate_base_directory(path: str, allowed_root: Path | None = None) -> Path
     eff_allowed: Path
     if allowed_root is not None:
         eff_allowed = validate_allowed_root(allowed_root)
-    elif not _TEST_MODE:
-        eff_allowed = get_backup_root()
     else:
-        import tempfile
-
-        eff_allowed = Path(tempfile.gettempdir()).resolve()
+        eff_allowed = get_backup_root()
 
     # Sanitize and validate the user-provided path string as a single segment
     safe_path_str = _sanitize_path_input(path)
@@ -362,9 +375,10 @@ def safe_input_file(path: str) -> Path:
     temp_root = get_temp_root()
 
     base_to_check = None
-    if os.path.commonpath([backup_root, p]) == str(backup_root):
+    # Use string paths for os.path.commonpath for consistent behavior
+    if os.path.commonpath([str(backup_root), str(p)]) == str(backup_root):
         base_to_check = backup_root
-    elif os.path.commonpath([temp_root, p]) == str(temp_root):
+    elif os.path.commonpath([str(temp_root), str(p)]) == str(temp_root):
         base_to_check = temp_root
 
     if base_to_check is None:

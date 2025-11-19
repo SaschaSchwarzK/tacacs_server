@@ -146,6 +146,78 @@ class TacacsServerManager:
             port=server_config["port"],
             config=self.config,  # Pass config to constructor for proper initialization
         )
+        # Configure TACACS auth rate limiting from [security] (and env overrides)
+        try:
+            sec_cfg = self.config.get_security_config() or {}
+            # Read config values
+            cfg_enabled = sec_cfg.get("rate_limit_enabled")
+            cfg_requests = sec_cfg.get("rate_limit_requests")
+            cfg_window = sec_cfg.get("rate_limit_window")
+            # Env overrides (optional)
+            env_enabled = os.getenv("TACACS_AUTH_RATE_LIMIT_ENABLED")
+            env_requests = os.getenv("TACACS_AUTH_RATE_LIMIT_REQUESTS")
+            env_window = os.getenv("TACACS_AUTH_RATE_LIMIT_WINDOW")
+
+            # Precedence: config (already includes DB overrides) > env > defaults
+            if cfg_enabled is not None:
+                enabled: bool = str(cfg_enabled).lower() not in ("false", "0", "no")
+            elif env_enabled is not None:
+                enabled = env_enabled.lower() not in ("false", "0", "no")
+            else:
+                enabled = True
+
+            # rate_limit_requests
+            if cfg_requests is not None:
+                try:
+                    max_req: int = int(cfg_requests)
+                except Exception:
+                    max_req = 5
+            elif env_requests is not None:
+                try:
+                    max_req = int(env_requests)
+                except Exception:
+                    max_req = 5
+            else:
+                max_req = 5
+
+            # rate_limit_window (seconds)
+            if cfg_window is not None:
+                try:
+                    window_s: int = int(cfg_window)
+                except Exception:
+                    window_s = 300
+            elif env_window is not None:
+                try:
+                    window_s = int(env_window)
+                except Exception:
+                    window_s = 300
+            else:
+                window_s = 300
+
+            # Apply to handlers (rate limiter uses the flag gate in handlers)
+            if (
+                self.server
+                and hasattr(self.server, "handlers")
+                and self.server.handlers
+            ):
+                try:
+                    self.server.handlers.rate_limit_enabled = bool(enabled)
+                except Exception:
+                    pass
+                try:
+                    from tacacs_server.utils.security import AuthRateLimiter as _ARL
+
+                    self.server.handlers.rate_limiter = _ARL(
+                        max_attempts=max_req, window_seconds=window_s
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to apply configured auth rate limiter", exc_info=True
+                    )
+        except Exception:
+            logger.debug(
+                "Auth rate limiter configuration skipped due to error", exc_info=True
+            )
         # Config is now passed in constructor and accessible via self.server.config
         # Configure accounting database logger path from config
         try:

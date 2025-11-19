@@ -454,7 +454,7 @@ class SFTPBackupDestination(BackupDestination):
 
                 base = self.base_path.rstrip("/")
                 for p, entry in _walk(base):
-                    if not re.search(r"(\.tar\.gz)$", p):
+                    if not re.search(r"(\.tar\.gz(\.enc)?)$", p):
                         continue
                     ts = datetime.fromtimestamp(entry.st_mtime, UTC).isoformat()
                     items.append(

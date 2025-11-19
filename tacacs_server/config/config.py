@@ -645,6 +645,8 @@ class TacacsConfig:
     # URL configuration refresh
     def refresh_url_config(self, force: bool = False) -> bool:
         """Refresh configuration from URL if the source is a URL."""
+        if not self.is_url_config():
+            return False
         updated = refresh_url_config(
             self.config,
             self.config_source,

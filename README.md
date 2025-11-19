@@ -99,7 +99,8 @@ A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Desig
 - **Hot reload**: Configuration changes without service restart
 
 ### **Development & Testing**
-- **Comprehensive test suite**: 245 tests with >90% coverage
+- **Comprehensive test suite**: 469 tests with >90% coverage
+- **End to End Tests**: E2E test with containers for Auth and Storage backends
 - **Batch testing**: Test multiple credentials simultaneously
 - **Performance benchmarks**: Built-in performance testing and metrics
 - **Client tools**: TACACS+ and RADIUS client scripts for testing
@@ -117,14 +118,22 @@ See also: FAQ.md for common issues, environment limitations (e.g., UDP on cloud 
 ```
 tests/
   unit/                             # Small, fast tests
+    auth/
+    backup/
+    config/
+    devices/
+  config/
   integration/
     rate_limit/                     # TACACS/RADIUS/web limiter checks (logs + behavior)
     tacacs/                         # TACACS features (e.g., command authorization)
     admin/                          # Admin API CRUD (e.g., webhooks config)
+    performance/
   functional/
     webhooks/                       # Webhook delivery (E2E + injected transport)
   security/                         # Security/pentest checks
   chaos/                            # Chaos experiments (opt‑in)
+  e2e/                              # End-to-end tests with containers
+  performance/                      # Performance benchmarks
   README.md, QUICK_START.md         # Test docs & examples
 ```
 
@@ -835,7 +844,7 @@ Use the helper scripts to prepare an Okta developer org, generate an OAuth servi
 - Sanity-check AuthN and groups via OAuth using the generated files:
   - poetry run python scripts/okta_check.py --backend-config config/okta.generated.conf --manifest okta_test_data.json
 
-To run the Okta E2E tests against your real org, export OKTA_E2E=1 (these tests are skipped by default since they require network access and real credentials).
+Testing on Windows and MacOS warning: When the pool worker is enabled, fork() without exec() may crash when network/Obj-C libraries are used. The code only works properly on Linux.
 
 ## 📁 Project Architecture
 

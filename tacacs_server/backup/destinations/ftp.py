@@ -308,7 +308,8 @@ class FTPBackupDestination(BackupDestination):
 
                 base = self.base_path.rstrip("/")
                 for p, facts in _walk(base):
-                    if not re.search(r"(\.tar\.gz)$", p):
+                    # Accept plain and encrypted tarballs
+                    if not re.search(r"(\.tar\.gz(\.enc)?)$", p):
                         continue
                     size = int(facts.get("size", 0)) if facts else 0
                     modify = facts.get("modify") if facts else None

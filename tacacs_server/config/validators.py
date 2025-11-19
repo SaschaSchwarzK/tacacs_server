@@ -57,7 +57,6 @@ def validate_config(config: configparser.ConfigParser) -> list[str]:
             config_dict["radius_auth"] = dict(config["radius_auth"])
 
         validated: TacacsConfigSchema = validate_config_file(config_dict)
-        logger.info("✓ Configuration validation passed")
 
         # Directory existence checks
         auth_db_path = validated.auth.local_auth_db
@@ -80,6 +79,9 @@ def validate_config(config: configparser.ConfigParser) -> list[str]:
     except ValueError as exc:
         logger.error("✗ Configuration validation failed: %s", exc)
         issues.append(str(exc))
+
+    if not issues:
+        logger.info("✓ Configuration validation passed")
 
     return issues
 
