@@ -259,6 +259,25 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
         )
         started_containers.append(tacacs_container)
 
+        # On some CI runners the bind-mounted /app/data may be owned by root with restrictive perms.
+        # Ensure it's writable by the container user to avoid Permission denied on backup_tmp.
+        try:
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    tacacs_container,
+                    "sh",
+                    "-lc",
+                    "mkdir -p /app/data/backup_tmp /app/data/backups && chmod -R 777 /app/data",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            pass
+
         # Wait for admin API to become ready
         _wait_http_ok(f"http://127.0.0.1:{api_host_port}/health", timeout=90.0)
 
