@@ -128,7 +128,6 @@ def _reset_okta_password(org_url: str, api_token: str, login: str) -> str:
 def test_tacacs_server_with_okta_backend(
     tmp_path: Path,
     free_tcp_port: int,
-    free_tcp_port2: int,
 ) -> None:
     """Test end-to-end TACACS+ authentication with Okta backend.
 

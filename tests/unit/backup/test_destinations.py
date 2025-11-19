@@ -23,7 +23,6 @@ Dependencies:
 
 import os
 import stat
-import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -35,59 +34,19 @@ from tacacs_server.backup.destinations.local import LocalBackupDestination
 
 
 def _abs(p: Path) -> str:
-    """Convert a Path to an absolute path string.
-
-    Args:
-        p: Path to convert
-
-    Returns:
-        str: Absolute path as string
-    """
+    """Convert a Path to an absolute path string."""
     return str(p.resolve())
 
 
-def _get_test_backup_root() -> Path:
-    """Get the test backup root that's been set up by conftest."""
-    return _pp.get_backup_root()
-
-
-def _short_test_root() -> Path:
-    root = Path(tempfile.mkdtemp(prefix="tacacs-test-backups-"))
+def _short_test_root(backup_root: Path) -> Path:
+    """Create a unique test directory under backup root."""
+    root = backup_root / f"test-{os.getpid()}-{int(time.time() * 1000000) % 1000000}"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
-def _ensure_allowed(root: Path) -> None:
-    """Ensure test root is permitted by policy for allowed_root validation."""
-
-    resolved_root = root.resolve()
-    temp_base = Path(tempfile.gettempdir()).resolve()
-    if temp_base not in _pp.ALLOWED_ROOTS:
-        _pp.ALLOWED_ROOTS.append(temp_base)
-    if resolved_root not in _pp.ALLOWED_ROOTS:
-        _pp.ALLOWED_ROOTS.append(resolved_root)
-
-
-def test_config_validation_requires_absolute_base(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Verify that only valid absolute paths are accepted for base_path.
-
-    Test Steps:
-    1. Attempt to create LocalBackupDestination with missing base_path
-    2. Attempt with relative path
-    3. Verify success with absolute path
-
-    Expected Results:
-    - Missing base_path raises ValueError
-    - Relative path raises ValueError
-    - Absolute path creates instance successfully
-
-    Edge Cases:
-    - Empty configuration
-    - Relative paths in different formats
-    - Path traversal attempts (implicitly tested)
-    """
+def test_config_validation_requires_absolute_base(tmp_path: Path, backup_test_root):
+    """Verify that only valid absolute paths are accepted for base_path."""
     # Missing base_path
     with pytest.raises(ValueError):
         LocalBackupDestination({})
@@ -97,52 +56,26 @@ def test_config_validation_requires_absolute_base(
         LocalBackupDestination({"base_path": "relative/path"})
 
     # Valid absolute path under policy-compliant root
-    test_root = _short_test_root()
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
-    test_root = _get_test_backup_root()
-    _ensure_allowed(test_root)
+    backup_root, _ = backup_test_root
+    test_root = _short_test_root(backup_root)
     base = test_root / f"dest_{tmp_path.name}"
     base.mkdir(parents=True, exist_ok=True)
     d = LocalBackupDestination(
-        {"base_path": _abs(base), "allowed_root": _abs(test_root)}
+        {"base_path": _abs(base), "allowed_root": _abs(backup_root)}
     )
-    assert isinstance(d, LocalBackupDestination), (
-        "Should create instance with valid path"
-    )
+    assert isinstance(d, LocalBackupDestination)
 
 
-def test_connection_testing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Verify connection testing handles various directory states correctly.
-
-    Test Cases:
-    1. Writable directory
-    2. Non-existent directory (after initialization)
-    3. Read-only directory
-
-    Expected Results:
-    - Writable directory should pass connection test
-    - Non-existent directory should fail connection test
-    - Read-only directory should fail connection test
-
-    Security Considerations:
-    - Verifies proper handling of file system permissions
-    - Ensures directory existence and write permissions are checked
-    """
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("BACKUP_ROOT", str(tmp_path / "backups_root"))
-    test_root = _short_test_root()
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
-    test_root = _get_test_backup_root()
-    _ensure_allowed(test_root)
-    _ensure_allowed(test_root)
+def test_connection_testing(tmp_path: Path, backup_test_root):
+    """Verify connection testing handles various directory states correctly."""
+    backup_root, _ = backup_test_root
+    test_root = _short_test_root(backup_root)
 
     # Test with writable directory
     base = test_root / f"writable_{tmp_path.name}"
     base.mkdir(parents=True, exist_ok=True)
     dest = LocalBackupDestination(
-        {"base_path": _abs(base), "allowed_root": _abs(test_root)}
+        {"base_path": _abs(base), "allowed_root": _abs(backup_root)}
     )
     ok, msg = dest.test_connection()
     assert ok, f"Connection test failed with message: {msg}"
@@ -150,7 +83,7 @@ def test_connection_testing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Test with non-existent directory (after initialization)
     ro = test_root / f"noexist_{tmp_path.name}"
     dest2 = LocalBackupDestination(
-        {"base_path": _abs(ro), "allowed_root": _abs(test_root)}
+        {"base_path": _abs(ro), "allowed_root": _abs(backup_root)}
     )
     # Directory is created on init; remove to simulate missing
     ro.rmdir()
@@ -164,7 +97,7 @@ def test_connection_testing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     ro_dir.chmod(stat.S_IREAD | stat.S_IEXEC)
     try:
         dest3 = LocalBackupDestination(
-            {"base_path": _abs(ro_dir), "allowed_root": _abs(test_root)}
+            {"base_path": _abs(ro_dir), "allowed_root": _abs(backup_root)}
         )
         ok3, _ = dest3.test_connection()
         assert not ok3, "Should fail with read-only directory"
@@ -173,12 +106,9 @@ def test_connection_testing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         ro_dir.chmod(stat.S_IWUSR | stat.S_IREAD | stat.S_IEXEC)
 
 
-def test_upload_download_and_preserve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    test_root = _short_test_root()
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
-    test_root = _get_test_backup_root()
-    _ensure_allowed(test_root)
+def test_upload_download_and_preserve(tmp_path: Path, backup_test_root):
+    backup_root, _ = backup_test_root
+    test_root = _short_test_root(backup_root)
     base = test_root / f"dest_{tmp_path.name}"
     srcdir = test_root / f"src_{tmp_path.name}"
     srcdir.mkdir(parents=True, exist_ok=True)
@@ -193,7 +123,7 @@ def test_upload_download_and_preserve(tmp_path: Path, monkeypatch: pytest.Monkey
     os.utime(src, (mtime, mtime))
 
     dest = LocalBackupDestination(
-        {"base_path": _abs(base), "allowed_root": _abs(test_root)}
+        {"base_path": _abs(base), "allowed_root": _abs(backup_root)}
     )
     remote = dest.upload_backup(str(src), "sub/dir/file.tar.gz")
     rp = Path(remote)
@@ -203,19 +133,15 @@ def test_upload_download_and_preserve(tmp_path: Path, monkeypatch: pytest.Monkey
     assert abs(rp.stat().st_mtime - mtime) < 2.5
 
     # Download to a new path
-    # Use a unique name to avoid collisions across tests using shared temp root
     rel_name = f"dl_{tmp_path.name}.tar.gz"
     ok = dest.download_backup(str(rp), rel_name)
     expected = _pp.safe_temp_path(rel_name)
     assert ok and expected.read_bytes() == content
 
 
-def test_listing_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    test_root = _short_test_root()
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
-    test_root = _get_test_backup_root()
-    _ensure_allowed(test_root)
+def test_listing_and_metadata(tmp_path: Path, backup_test_root):
+    backup_root, _ = backup_test_root
+    test_root = _short_test_root(backup_root)
     base = test_root / f"d_{tmp_path.name}"
     base.mkdir(parents=True, exist_ok=True)
 
@@ -226,7 +152,7 @@ def test_listing_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (base / "ignored.txt").write_text("x")
 
     dest = LocalBackupDestination(
-        {"base_path": _abs(base), "allowed_root": _abs(test_root)}
+        {"base_path": _abs(base), "allowed_root": _abs(backup_root)}
     )
     items = dest.list_backups()
     names = [i.filename for i in items]
@@ -237,12 +163,9 @@ def test_listing_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert len(pref) >= 1 and pref[0].filename == "a.tar.gz"
 
 
-def test_delete_and_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    test_root = _short_test_root()
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
-    test_root = _get_test_backup_root()
-    _ensure_allowed(test_root)
+def test_delete_and_manifest(tmp_path: Path, backup_test_root):
+    backup_root, _ = backup_test_root
+    test_root = _short_test_root(backup_root)
     base = test_root / f"x_{tmp_path.name}"
     base.mkdir(parents=True, exist_ok=True)
 
@@ -252,7 +175,7 @@ def test_delete_and_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (base / "old.tar.gz.manifest.json").write_text("{}", encoding="utf-8")
 
     dest = LocalBackupDestination(
-        {"base_path": _abs(base), "allowed_root": _abs(test_root)}
+        {"base_path": _abs(base), "allowed_root": _abs(backup_root)}
     )
     assert dest.delete_backup(str(f)) is True
     assert not f.exists()
@@ -262,11 +185,9 @@ def test_delete_and_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert dest.delete_backup(str(f)) is False
 
 
-def test_retention_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    test_root = _short_test_root()
-    monkeypatch.setenv("PYTEST_CURRENT_TEST", "1")
-    monkeypatch.setenv("BACKUP_ROOT", str(test_root))
-    test_root = _get_test_backup_root()
+def test_retention_policy(tmp_path: Path, backup_test_root):
+    backup_root, _ = backup_test_root
+    test_root = _short_test_root(backup_root)
     base = test_root / f"ret_{tmp_path.name}"
     base.mkdir(parents=True, exist_ok=True)
 
@@ -282,7 +203,7 @@ def test_retention_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     os.utime(new, (new_ts, new_ts))
 
     dest = LocalBackupDestination(
-        {"base_path": _abs(base), "allowed_root": _abs(test_root)}
+        {"base_path": _abs(base), "allowed_root": _abs(backup_root)}
     )
     deleted = dest.apply_retention_policy(7)
     assert deleted >= 1

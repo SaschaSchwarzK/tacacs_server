@@ -37,6 +37,12 @@ class LocalAuthBackend(AuthenticationBackend):
         cache_ttl_seconds: int | None = None,
     ):
         super().__init__("local")
+        # Handle SQLite URLs properly
+        if db_path.startswith("sqlite://"):
+            db_path = db_path[9:]  # Remove "sqlite://" prefix
+            # Handle in-memory database - both /:memory: and :memory:
+            if db_path in ("/:memory:", ":memory:"):
+                db_path = ":memory:"
         self.db_path = db_path
         # Track if a service was explicitly provided so we do not override it
         # with any environment-based alignment logic.

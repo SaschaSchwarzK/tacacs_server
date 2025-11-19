@@ -5,7 +5,6 @@ This test suite demonstrates that the fixed version properly rejects
 malicious path inputs that could lead to path traversal attacks.
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -60,17 +59,13 @@ class TestPathInjectionPrevention:
     """Tests that demonstrate the fixed code properly prevents path injection attacks."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, monkeypatch):
+    def setup(self, monkeypatch, backup_test_root):
         """Setup test environment and mock imports."""
         # Set test mode
         monkeypatch.setenv("PYTEST_CURRENT_TEST", "test")
 
-        short_root = Path(tempfile.mkdtemp(prefix="tacacs-test-root-"))
-        monkeypatch.setenv("BACKUP_ROOT", str(short_root))
-        import tacacs_server.backup.path_policy as _pp
-
-        if short_root.resolve() not in _pp.ALLOWED_ROOTS:
-            _pp.ALLOWED_ROOTS.append(short_root.resolve())
+        backup_root, _ = backup_test_root
+        monkeypatch.setenv("TACACS_BACKUP_ROOT", str(backup_root))
 
         # Mock the BackupDestination import
         import sys
@@ -97,7 +92,7 @@ class TestPathInjectionPrevention:
         ]
 
         for malicious in malicious_paths:
-            monkeypatch.setenv("BACKUP_ROOT", malicious)
+            monkeypatch.setenv("TACACS_BACKUP_ROOT", malicious)
             with pytest.raises(ValueError):
                 get_backup_root()
 
@@ -257,30 +252,19 @@ class TestPathInjectionPrevention:
         with pytest.raises(ValueError):
             validate_allowed_root("/")
 
-    def test_containment_enforcement(self, tmp_path, monkeypatch):
+    def test_containment_enforcement(self, backup_test_root):
         """Test that paths are enforced to stay within their allowed boundaries."""
         from tacacs_server.backup.path_policy import (
             safe_local_output,
         )
 
-        # Set up a specific backup root
-        backup_root = tmp_path / "backups"
-        backup_root.mkdir()
-        monkeypatch.setenv("BACKUP_ROOT", str(backup_root))
-
-        # Try to create a path outside the backup root
-        outside_root = tmp_path / "outside"
-        outside_root.mkdir()
-
-        # In test mode, containment is relaxed, but we can still test the validation logic
-        # by trying to validate a base directory outside the configured root
-
         # Use safeLocalOutput to construct a path under backup root
         valid_rel = "valid/file.txt"
         result = safe_local_output(valid_rel)
+        backup_root, _ = backup_test_root
         assert str(result).startswith(str(backup_root))
 
-    def test_safe_path_construction(self, tmp_path, monkeypatch):
+    def test_safe_path_construction(self, backup_test_root):
         """Test that safe path construction functions work correctly with valid inputs."""
         from tacacs_server.backup.path_policy import (
             join_safe_backup,
@@ -289,14 +273,7 @@ class TestPathInjectionPrevention:
             safe_temp_path,
         )
 
-        # Set up test roots
-        backup_root = tmp_path / "backups"
-        temp_root = tmp_path / "temp"
-        backup_root.mkdir()
-        temp_root.mkdir()
-
-        monkeypatch.setenv("BACKUP_ROOT", str(backup_root))
-        monkeypatch.setenv("BACKUP_TEMP", str(temp_root))
+        backup_root, temp_root = backup_test_root
 
         # Test safe construction with valid inputs
         valid_relative = "2024/11/backup.tar.gz"
@@ -332,14 +309,13 @@ class TestSecurityImprovedBehavior:
     """Tests that demonstrate improved security behavior."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, monkeypatch):
+    def setup(self, monkeypatch, backup_test_root):
         """Setup test environment."""
         monkeypatch.setenv("PYTEST_CURRENT_TEST", "test")
 
-        short_root = Path(tempfile.mkdtemp(prefix="tacacs-sec-root-"))
-        short_root.mkdir(parents=True, exist_ok=True)
-        self._test_root = short_root.resolve()
-        monkeypatch.setenv("BACKUP_ROOT", str(self._test_root))
+        backup_root, _ = backup_test_root
+        self._test_root = backup_root.resolve()
+        monkeypatch.setenv("TACACS_BACKUP_ROOT", str(self._test_root))
 
         # Mock the BackupDestination import
         import sys
@@ -367,9 +343,6 @@ class TestSecurityImprovedBehavior:
         finally:
             # Cleanup
             readonly_parent.chmod(0o755)
-
-    def test_type_safety(self):
-        """Test that type validation is enforced."""
         from tacacs_server.backup.path_policy import _sanitize_path_input as _spi
 
         # Test that non-strings are rejected
@@ -390,7 +363,7 @@ class TestSecurityImprovedBehavior:
 
         # Even with valid environment variables, the code should validate them
         valid_but_checked = str(tmp_path / "backup")
-        monkeypatch.setenv("BACKUP_ROOT", valid_but_checked)
+        monkeypatch.setenv("TACACS_BACKUP_ROOT", valid_but_checked)
 
         # Should succeed and return a validated Path
         root = get_backup_root()

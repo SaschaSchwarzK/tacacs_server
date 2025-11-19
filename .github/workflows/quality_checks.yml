@@ -251,29 +251,32 @@ jobs:
           path: |
             test-results/junit-performance.xml
 
-  # e2e-tests:
-  #   name: End-to-End Tests
-  #   runs-on: ubuntu-latest
-  #   needs: [setup, quality, tests, docker-smoke, performance-tests, security-tests]
-  #   timeout-minutes: 30
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./.github/actions/setup-python-poetry
-  #     - name: Install (dev)
-  #       run: |
-  #         poetry install --with dev
-  #     - name: Run e2e tests (--e2e)
-  #       env:
-  #         PYTHONPATH: ${{ github.workspace }}
-  #       run: |
-  #         poetry run pytest --e2e -q --junitxml=test-results/junit-e2e.xml
-  #     - name: Upload e2e test artifacts
-  #       uses: actions/upload-artifact@v4
-  #       if: always()
-  #       with:
-  #         name: test-artifacts-e2e
-  #         path: |
-  #           test-results/junit-e2e.xml
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: [setup, quality, tests, docker-smoke, performance-tests, security-tests]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-poetry
+      - name: Install (dev)
+        run: |
+          poetry install --with dev
+      - name: Run e2e tests (--e2e)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          OKTA_E2E: "1"
+          OKTA_ORG_URL: ${{ secrets.OKTA_ORG_URL }}
+          OKTA_API_TOKEN: ${{ secrets.OKTA_API_TOKEN }}
+        run: |
+          poetry run pytest --e2e -q --junitxml=test-results/junit-e2e.xml
+      - name: Upload e2e test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-artifacts-e2e
+          path: |
+            test-results/junit-e2e.xml
  
   codeql:
     name: CodeQL (Python)

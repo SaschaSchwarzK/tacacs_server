@@ -306,6 +306,8 @@ def test_tacacs_device_prefers_narrower_when_no_host(server_factory):
             # was actually treated as a failure (e.g., invalid auth type).
             _dump_diag(server, session, base, note="/16 should fail when /24 present")
             logs = server.get_logs()
-            assert ("auth.failure" in logs) or ("Unsupported authentication type" in logs)
+            assert ("auth.failure" in logs) or (
+                "Unsupported authentication type" in logs
+            )
         else:
             assert not ok16, f"/16 secret should fail when /24 present (msg={msg16})"

@@ -100,13 +100,21 @@ def apply_env_overrides(
     if value is not None:
         if not config.has_section(section):
             config.add_section(section)
-        config.set(section, key, value)
-        logger.debug(
-            "Applied environment override for config key '%s.%s' from '%s'",
-            section,
-            key,
-            env_var,
-        )
+        # only overwrite if the key is not already set in the config file
+        if not config.has_option(section, key):
+            config.set(section, key, value)
+            logger.debug(
+                "Applied environment override for config key '%s.%s' from '%s'",
+                section,
+                key,
+                env_var,
+            )
+        else:
+            logger.debug(
+                "Skipping environment override for '%s.%s' because config file already defines it",
+                section,
+                key,
+            )
 
 
 def apply_env_overrides_section(

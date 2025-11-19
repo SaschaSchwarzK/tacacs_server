@@ -440,9 +440,9 @@ def test_backup_to_sftp_key_e2e(tmp_path: Path, key_type: str) -> None:
                 "-e",
                 "ADMIN_PASSWORD=admin123",
                 "-e",
-                f"BACKUP_ROOT={str(Path('/app/data') / 'backups')}",
+                f"TACACS_BACKUP_ROOT={str(Path('/app/data') / 'backups')}",
                 "-e",
-                f"BACKUP_TEMP={str(Path('/app/data') / 'backup_tmp')}",
+                f"TACACS_BACKUP_TEMP={str(Path('/app/data') / 'backup_tmp')}",
                 "-e",
                 "PYTHONUNBUFFERED=1",
                 "-v",
@@ -458,6 +458,26 @@ def test_backup_to_sftp_key_e2e(tmp_path: Path, key_type: str) -> None:
             ]
         )
         started_containers.append(tacacs_container)
+
+        # Ensure bind-mounted /app/data is writable inside the container (CI may mount as root)
+        try:
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    "-u",
+                    "0",
+                    tacacs_container,
+                    "sh",
+                    "-lc",
+                    "mkdir -p /app/data/backup_tmp /app/data/backups && chmod -R 777 /app/data",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            pass
 
         _wait_http_ok(f"http://127.0.0.1:{api_host_port}/health", timeout=90.0)
         base = f"http://127.0.0.1:{api_host_port}"
@@ -652,17 +672,6 @@ def test_backup_to_sftp_key_e2e(tmp_path: Path, key_type: str) -> None:
             size_val = 0
         assert size_val > 0, (
             f"SFTP file empty or missing: {sftp_path}, stat={statp.stdout}"
-        )
-
-        # Echo fingerprints again on success so they appear in normal test logs
-        print(
-            "== key fingerprints (success) ==\n"
-            + "authorized_keys[0]:\n"
-            + (ak_fp.stdout or "")
-            + "chosen_private_key ("
-            + chosen_path
-            + "):\n"
-            + (pk_fp.stdout or "")
         )
 
     finally:

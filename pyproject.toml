@@ -31,6 +31,7 @@ sqlalchemy = "^2.0.44"
 werkzeug = "^3.0.0"
 pyjwt = {extras = ["crypto"], version = "^2.8.0"}
 cryptography = "^44.0.1"
+brotli = "^1.2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4"

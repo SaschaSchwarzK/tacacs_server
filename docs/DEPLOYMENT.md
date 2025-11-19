@@ -112,6 +112,10 @@ services:
       # Azure auth choices (pick one):
       - AZURE_CONNECTION_STRING=${AZURE_CONNECTION_STRING}
       - AZURE_ACCOUNT_KEY=${AZURE_ACCOUNT_KEY}
+      # Core configuration
+      - CONFIG_REFRESH_SECONDS=300
+      - INSTANCE_NAME=tacacs-prod-01
+      - ENV=production
       # Optional runtime tuning
       - TACACS_LISTEN_BACKLOG=512
       - TACACS_CLIENT_TIMEOUT=15
@@ -347,6 +351,9 @@ User=tacacs
 Group=tacacs
 WorkingDirectory=/opt/tacacs_server
 Environment=PATH=/opt/tacacs_server/.venv/bin
+Environment=CONFIG_REFRESH_SECONDS=300
+Environment=INSTANCE_NAME=tacacs-prod-01
+Environment=ENV=production
 Environment=TACACS_LISTEN_BACKLOG=512
 Environment=TACACS_CLIENT_TIMEOUT=15
 Environment=TACACS_MAX_PACKET_LENGTH=4096

@@ -54,7 +54,7 @@ compression_level = 6
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `BACKUP_ENCRYPTION_PASSPHRASE` | Encryption passphrase | `your-secure-passphrase` |
-| `BACKUP_ROOT` | Fixed backup root for local destination | `/data/backups` |
+| `TACACS_BACKUP_ROOT` | Fixed backup root for local destination | `/data/backups` |
 
 ## Backup Destinations
 
@@ -62,11 +62,11 @@ compression_level = 6
 ```ini
 [backup.destinations.local_daily]
 type = local
-; base_path is ignored — local destination writes under BACKUP_ROOT (/data/backups)
+; base_path is ignored — local destination writes under TACACS_BACKUP_ROOT (/data/backups)
 retention_days = 30
 ```
 
-> Note: The backup system writes persistent artifacts under `/data/backups` (override with `BACKUP_ROOT`).
+> Note: The backup system writes persistent artifacts under `/data/backups` (override with `TACACS_BACKUP_ROOT`).
 > The temporary working directory is fixed and managed internally by the server.
 
 ### SFTP (Recommended for Remote)

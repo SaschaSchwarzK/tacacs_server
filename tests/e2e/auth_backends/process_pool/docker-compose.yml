@@ -1,0 +1,69 @@
+version: "3.9"
+
+services:
+  ldap:
+    build:
+      context: ../ldap
+      dockerfile: Dockerfile
+    container_name: ldap-process-pool-e2e
+    ports:
+      - "389:389"
+    environment:
+      LDAP_DOMAIN: example.org
+      LDAP_ADMIN_PASSWORD: secret
+      LDAP_TLS_ENABLE: false
+    volumes:
+      - ../ldap/bootstrap:/bootstrap:ro
+    networks:
+      - process-pool-net
+
+  radius:
+    build:
+      context: ../radius
+      dockerfile: Dockerfile
+    container_name: radius-process-pool-e2e
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    networks:
+      - process-pool-net
+
+  tacacs:
+    build:
+      context: ../../../../
+      dockerfile: Dockerfile
+    container_name: tacacs-process-pool-e2e
+    ports:
+      - "5049:5049"
+      - "8080:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TACACS_BACKEND_TIMEOUT=10
+      - LDAP_BIND_PASSWORD=secret
+      - RADIUS_AUTH_SECRET=radsecret
+      - API_TOKEN=test-token
+    volumes:
+      - ./tacacs.container.ini:/app/config/tacacs.container.ini:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - ldap
+      - radius
+    networks:
+      - process-pool-net
+    command: >
+      sh -lc "
+      /opt/venv/bin/tacacs-server --config /app/config/tacacs.container.ini 2>&1 | 
+      tee -a /app/logs/stdouterr.log; 
+      code=$$?; 
+      echo $$code > /app/logs/exitcode.txt; 
+      exit $$code
+      "
+
+networks:
+  process-pool-net:
+    driver: bridge
+
+volumes:
+  process-pool-data:
+  process-pool-logs:

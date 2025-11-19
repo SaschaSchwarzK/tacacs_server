@@ -55,6 +55,45 @@ The server integrates with Okta using the Authentication API (AuthN) for user au
 
 For a complete guide on Okta integration, including MFA setup, the device-scoped authorization flow, and troubleshooting, please see the detailed [Okta Integration Guide](OKTA.md).
 
+#### Complete Okta Configuration Example
+
+```ini
+[okta]
+# Your Okta organization URL
+org_url = https://company.okta.com
+
+# Okta Management API token (required for group lookups)
+api_token = ${OKTA_API_TOKEN}
+
+# TLS verification (default true)
+verify_tls = true
+
+# Optional: Require membership in at least one Okta group for authentication to succeed
+require_group_for_auth = false
+
+# Connection and pooling options
+request_timeout = 10
+connect_timeout = 3
+read_timeout = 10
+pool_maxsize = 50
+max_retries = 2
+backoff_factor = 0.3
+trust_env = false
+
+# Group cache controls
+group_cache_ttl = 1800
+group_cache_maxsize = 50000
+group_cache_fail_ttl = 60
+
+# Flow controls
+authn_enabled = true
+strict_group_mode = false
+
+# Circuit breaker for Okta outages
+circuit_failures = 5
+circuit_cooldown = 30
+```
+
 #### Basic Configuration
 
 1.  Log into the Okta Admin Console, navigate to **Security > API > Tokens**, and create a token. This is required for the server to look up a user's group memberships.

@@ -71,7 +71,7 @@ def test_container_name_validation():
 
 @patch("azure.storage.blob.BlobServiceClient")
 def test_connection_string_upload_sets_metadata_and_tags(
-    mock_bsc, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mock_bsc, tmp_path: Path, backup_test_root
 ):
     """Verify upload with connection string sets metadata and tags correctly.
 
@@ -98,9 +98,13 @@ def test_connection_string_upload_sets_metadata_and_tags(
     mock_container.get_blob_client.return_value = mock_blob_client
     mock_container.exists.return_value = True
 
-    # Ensure path policy allows tmp-based inputs
-    monkeypatch.setenv("BACKUP_TEMP", str(tmp_path))
-    monkeypatch.setenv("BACKUP_ROOT", str(tmp_path))
+    # Use test backup root
+    backup_root, temp_root = backup_test_root
+
+    # Create test file in allowed location
+    test_file = backup_root / "test.tar.gz"
+    test_file.write_bytes(os.urandom(1024))
+    src = str(test_file)
 
     # Test with connection string auth
     dest = AzureBlobBackupDestination(
@@ -113,7 +117,6 @@ def test_connection_string_upload_sets_metadata_and_tags(
     )
 
     # Perform upload
-    src = _tmp_file(tmp_path)
     dest.upload_backup(src, "test.tar.gz")
 
     # Verify Azure SDK interactions
