@@ -36,13 +36,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Gitleaks (secrets scan)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: detect --source . --no-git --redact --exit-code=1 --report-format=sarif --report-path=results.sarif
 
       - name: Upload Gitleaks report
         uses: actions/upload-artifact@v4
