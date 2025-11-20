@@ -12,7 +12,7 @@ Environment assumptions
 -----------------------
 - Requires Docker. Skips if Docker is unavailable.
 - Starts an ephemeral network and three containers: TACACS server, FreeRADIUS, OpenLDAP.
-- Okta is excluded by default; it is only enabled when OKTA_E2E=1=1 and Okta env values
+- Okta is excluded by default; it is only enabled when OKTA_E2E=1 and Okta env values
   are provided. This keeps the test hermetic and avoids external network dependencies.
 
 Log sources
@@ -117,7 +117,7 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
     if not enable_okta:
         reasons: list[str] = []
         if not enable_okta_flag:
-            reasons.append("OKTA_E2E=1=1 not set")
+            reasons.append("OKTA_E2E=1 not set")
         if not okta_org:
             reasons.append("OKTA_ORG_URL missing")
         if not okta_token:
