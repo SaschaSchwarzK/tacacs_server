@@ -109,4 +109,4 @@ class StatsManager:
                 "acct_success": 0,
                 "acct_failures": 0,
             }
-        logger.info("Server statistics reset")
+        logger.debug("Server statistics reset")

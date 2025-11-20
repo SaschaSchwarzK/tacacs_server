@@ -536,26 +536,25 @@ class AAAHandlers:
         except (IndexError, AttributeError):
             backend_name = None  # Failed to parse backend name from detail
         try:
-            fields = {
-                "event": "auth.success" if success else "auth.failure",
-                "service": "tacacs",
-                "component": "handlers",
-                "session": sess_hex,
-                "correlation_id": sess_hex,
-                "user_ref": safe_user,
-                "device": device_name,
-                "device_group": group_name,
-                "auth": {
+            log_kwargs = dict(
+                event="auth.success" if success else "auth.failure",
+                service="tacacs",
+                component="handlers",
+                session=sess_hex,
+                correlation_id=sess_hex,
+                user_ref=safe_user,
+                device=device_name,
+                device_group=group_name,
+                auth={
                     "backend": backend_name or "unknown",
                     "result": "success" if success else "failure",
                 },
-                "detail": detail or "",
-            }
-            # Pass structured fields via 'extra' to satisfy logging typing and adapter
+                detail=detail or "",
+            )
             if success:
-                logger.info("Authentication result", extra=fields)
+                logger.info("Authentication result", extra=log_kwargs)
             else:
-                logger.warning("Authentication result", extra=fields)
+                logger.warning("Authentication result", extra=log_kwargs)
         except Exception:
             # Fallback plain logs to avoid any crash due to logging
             if success:
@@ -600,7 +599,13 @@ class AAAHandlers:
                     except Exception as e:
                         logger.debug("Failed to log auth parse error: %s", e)
                 else:
-                    logger.warning("Invalid authentication packet body: %s", pe)
+                    logger.warning(
+                        "Invalid authentication packet body: %s",
+                        pe,
+                        event="tacacs.auth.packet_error",
+                        service="tacacs",
+                        stage="start",
+                    )
                 response = self._create_auth_response(
                     packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
                 )
@@ -678,7 +683,13 @@ class AAAHandlers:
                     except Exception as e:
                         logger.debug("Failed to log author parse error: %s", e)
                 else:
-                    logger.warning("Invalid authorization packet body: %s", pe)
+                    logger.warning(
+                        "Invalid authorization packet body: %s",
+                        pe,
+                        event="tacacs.author.packet_error",
+                        service="tacacs",
+                        stage="request",
+                    )
                 return self._create_author_response(
                     packet, TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_ERROR
                 )
@@ -733,7 +744,13 @@ class AAAHandlers:
                     except Exception as e:
                         logger.debug("Failed to log acct parse error: %s", e)
                 else:
-                    logger.warning("Invalid accounting packet body: %s", pe)
+                    logger.warning(
+                        "Invalid accounting packet body: %s",
+                        pe,
+                        event="tacacs.acct.packet_error",
+                        service="tacacs",
+                        stage="request",
+                    )
                 return self._create_acct_response(
                     packet, TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR
                 )
