@@ -326,7 +326,7 @@ class TacacsServer:
             return True
 
         except Exception as e:
-            logger.exception(f"Failed to enable web monitoring: {e}")
+            logger.exception("Failed to enable web monitoring: %s", e)
             return False
 
     def disable_web_monitoring(self):
@@ -349,7 +349,7 @@ class TacacsServer:
         name = getattr(backend, "name", str(backend))
         logger.info(
             "Authentication backend added",
-            event="auth.backend.added",
+            event="tacacs.auth.backend.added",
             service="tacacs",
             backend=name,
         )
@@ -362,7 +362,7 @@ class TacacsServer:
                 self.handlers.auth_backends = self.auth_backends
                 logger.info(
                     "Authentication backend removed",
-                    event="auth.backend.removed",
+                    event="tacacs.auth.backend.removed",
                     service="tacacs",
                     backend=backend_name,
                 )
@@ -383,7 +383,7 @@ class TacacsServer:
 
         logger.info(
             "TACACS server listening",
-            event="service.start",
+            event="tacacs.service.start",
             service="tacacs",
             host=self.host,
             port=self.port,

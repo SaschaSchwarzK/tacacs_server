@@ -275,7 +275,7 @@ class AAAHandlers:
                 )
             except Exception as e:
                 # Could not create process pool; fall back to thread pool only
-                logger.warning(f"Process pool creation failed, using thread pool: {e}")
+                logger.warning("Process pool creation failed, using thread pool: %s", e)
                 self._process_ctx = None
                 self._process_workers = []
                 self._process_in_queues = []
@@ -385,7 +385,7 @@ class AAAHandlers:
                 }
             else:
                 logger.debug(
-                    f"Backend type '{backend_name}' not supported in process pool"
+                    "Backend type '%s' not supported in process pool", backend_name
                 )
                 return None
         except Exception as e:
@@ -394,7 +394,9 @@ class AAAHandlers:
                 backend_name = getattr(backend, "name", "unknown")
             except Exception:
                 backend_name = "unknown"
-            logger.debug(f"Failed to serialize backend config for {backend_name}: {e}")
+            logger.debug(
+                "Failed to serialize backend config for %s: %s", backend_name, e
+            )
             return None
 
     def on_backend_added(self, backend: AuthenticationBackend) -> None:
@@ -643,7 +645,7 @@ class AAAHandlers:
             else:
                 return self._handle_auth_continue(packet, user, data)
         except Exception as e:
-            logger.error(f"Authentication error: {e}")
+            logger.error("Authentication error: %s", e)
             response = self._create_auth_response(
                 packet,
                 TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR,
@@ -700,7 +702,7 @@ class AAAHandlers:
                 packet, user, authen_service, priv_lvl, args, device
             )
         except Exception as e:
-            logger.error(f"Authorization error: {e}")
+            logger.error("Authorization error: %s", e)
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_ERROR,
@@ -766,7 +768,7 @@ class AAAHandlers:
                 device,
             )
         except Exception as e:
-            logger.error(f"Accounting error: {e}")
+            logger.error("Accounting error: %s", e)
             return self._create_acct_response(
                 packet,
                 TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR,
@@ -1018,7 +1020,7 @@ class AAAHandlers:
                     )
                     break
             except Exception as e:
-                logger.error(f"Error getting attributes from {backend.name}: {e}")
+                logger.error("Error getting attributes from %s: %s", backend.name, e)
                 continue
         if not user_attrs:
             # If no attributes and no explicit command requested, allow minimal service
@@ -1702,7 +1704,7 @@ class AAAHandlers:
                             self._process_workers[wi] = new_p
                             self._process_in_queues[wi] = new_in_q
                         except Exception as e:
-                            logger.debug(f"Failed to restart worker: {e}")
+                            logger.debug("Failed to restart worker: %s", e)
                             # Fall back to thread pool for this request
                             raise Exception("Worker restart failed")
 

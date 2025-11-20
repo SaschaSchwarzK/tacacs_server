@@ -433,7 +433,9 @@ class ClientHandler:
         elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT:
             return self._handle_accounting(packet, connection_device)
         else:
-            logger.error(f"Unknown packet type: {packet.packet_type}")
+            logger.error(
+                "Unknown packet type: %s", getattr(packet, "packet_type", None)
+            )
             return None
 
     def _handle_authentication(self, packet, device_record, conn_logger):

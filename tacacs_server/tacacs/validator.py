@@ -69,7 +69,7 @@ class PacketValidator:
             except Exception as e:
                 logger.debug("Failed to log invalid major version: %s", e)
         else:
-            logger.warning(f"Invalid major version: {got_version}")
+            logger.warning("Invalid major version: %s", got_version)
 
     def _log_invalid_type(self, session_id: int, packet_type: int):
         if _HAS_JSON:
@@ -86,7 +86,7 @@ class PacketValidator:
             except Exception as e:
                 logger.debug("Failed to log invalid packet type: %s", e)
         else:
-            logger.warning(f"Invalid packet type: {packet_type}")
+            logger.warning("Invalid packet type: %s", packet_type)
 
     def _log_invalid_sequence(self, session_id: int, seq_no: int):
         if _HAS_JSON:
@@ -104,4 +104,4 @@ class PacketValidator:
             except Exception as e:
                 logger.debug("Failed to log invalid sequence number: %s", e)
         else:
-            logger.warning(f"Invalid sequence number for request: {seq_no}")
+            logger.warning("Invalid sequence number for request: %s", seq_no)
