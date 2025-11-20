@@ -10,8 +10,11 @@ from typing import Any
 from werkzeug.utils import secure_filename
 
 from tacacs_server.backup.path_policy import validate_allowed_root
+from tacacs_server.utils.logger import get_logger
 
 from .base import BackupDestination, BackupMetadata
+
+_logger = get_logger(__name__)
 
 
 def _sanitize_for_filesystem(user_input: str) -> str:
@@ -200,9 +203,12 @@ class LocalBackupDestination(BackupDestination):
             shutil.copy2(src, dst)
             return True
         except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).debug("Failed to download backup: %s", e)
+            _logger.debug(
+                "Failed to download backup",
+                error=str(e),
+                remote_path=str(remote_path),
+                destination=str(dst),
+            )
             return False
 
     def list_backups(self, prefix: str | None = None) -> list[BackupMetadata]:
@@ -262,9 +268,11 @@ class LocalBackupDestination(BackupDestination):
                 pass  # Manifest doesn't exist
             return True
         except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).debug("Failed to delete backup: %s", e)
+            _logger.debug(
+                "Failed to delete backup",
+                error=str(e),
+                remote_path=str(remote_path),
+            )
             return False
 
     def get_backup_info(self, remote_path: str) -> BackupMetadata | None:

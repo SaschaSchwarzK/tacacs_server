@@ -50,7 +50,11 @@ def _execute_job_static(
 ) -> None:
     sch = _SCHEDULERS.get(reg_id)
     if not sch:
-        _log.warning("Scheduler registry missing entry for %s", reg_id)
+        _log.warning(
+            "Scheduler registry missing entry",
+            registry_id=reg_id,
+            job_id=job_id,
+        )
         return
     sch._execute_job_impl(job_id, destination_id, execution_id)
 
@@ -97,7 +101,11 @@ class BackupScheduler:
                     if isinstance(data, dict):
                         return data
         except Exception as exc:
-            _log.warning("Failed to load scheduler metadata: %s", exc)
+            _log.warning(
+                "Failed to load scheduler metadata",
+                error=str(exc),
+                meta_path=self._meta_path,
+            )
         return {"jobs": {}}
 
     def _save_metadata(self) -> None:
@@ -106,7 +114,11 @@ class BackupScheduler:
                 with open(self._meta_path, "w", encoding="utf-8") as fh:
                     json.dump(self._metadata, fh, indent=2, sort_keys=True)
         except Exception as exc:
-            _log.warning("Failed to persist scheduler metadata: %s", exc)
+            _log.warning(
+                "Failed to persist scheduler metadata",
+                error=str(exc),
+                meta_path=self._meta_path,
+            )
 
     # --- lifecycle ---
     def start(self) -> None:
@@ -123,22 +135,30 @@ class BackupScheduler:
                 replace_existing=True,
                 max_instances=1,
             )
-            try:
-                _log.info("Scheduled daily retention policy enforcement at 04:00")
-            except Exception as exc:
-                _log.warning("Failed to log retention schedule information: %s", exc)
+            _log.info(
+                "Scheduled daily retention policy enforcement",
+                event="retention_schedule_initialized",
+                schedule="0 4 * * *",
+            )
         except Exception as exc:
-            _log.warning("Failed to schedule daily retention enforcement job: %s", exc)
+            _log.warning(
+                "Failed to schedule daily retention enforcement job",
+                error=str(exc),
+            )
 
     def stop(self) -> None:
         try:
             self.scheduler.shutdown(wait=False)
         except Exception as exc:
-            _log.warning("Failed to shut down scheduler: %s", exc)
+            _log.warning("Failed to shut down scheduler", error=str(exc))
         try:
             _SCHEDULERS.pop(self._registry_id, None)
         except Exception as exc:
-            _log.warning("Failed to remove scheduler registry entry: %s", exc)
+            _log.warning(
+                "Failed to remove scheduler registry entry",
+                error=str(exc),
+                registry_id=self._registry_id,
+            )
 
     # --- job management ---
     def add_job(
@@ -278,6 +298,7 @@ class BackupScheduler:
     # --- retention enforcement ---
     def _run_retention_enforcement(self) -> None:
         """Run retention policy enforcement for all enabled destinations."""
+        _log.info("Starting retention enforcement", event="retention_enforcement_start")
         try:
             destinations = self.backup_service.execution_store.list_destinations(
                 enabled_only=True
@@ -310,30 +331,27 @@ class BackupScheduler:
                     deleted_count = destination.apply_retention_policy(
                         retention_rule=rule
                     )
-                    try:
-                        _log.info(
-                            json.dumps(
-                                {
-                                    "event": "retention_enforcement_completed",
-                                    "destination_id": dest.get("id"),
-                                    "destination_name": dest.get("name"),
-                                    "deleted_count": deleted_count,
-                                }
-                            )
-                        )
-                    except Exception as exc:
-                        _log.warning(
-                            "Failed to log retention completion for %s: %s",
-                            dest.get("id"),
-                            exc,
-                        )
+                    _log.info(
+                        "Retention enforcement completed",
+                        event="retention_enforcement_completed",
+                        destination_id=dest.get("id"),
+                        destination_name=dest.get("name"),
+                        deleted_count=deleted_count,
+                    )
                 except Exception as e:
                     _log.error(
-                        f"Retention enforcement failed for {dest.get('name')}: {e}"
+                        "Retention enforcement failed for destination",
+                        error=str(e),
+                        destination_id=dest.get("id"),
+                        destination_name=dest.get("name"),
                     )
                     continue
         except Exception as e:  # pragma: no cover - logging path
-            _log.exception("Global retention enforcement failed: %s", e)
+            _log.exception("Global retention enforcement failed", error=str(e))
+        finally:
+            _log.info(
+                "Retention enforcement finished", event="retention_enforcement_end"
+            )
 
     # --- execution handler ---
     def _execute_job_impl(
@@ -343,6 +361,13 @@ class BackupScheduler:
         start = _utc_now()
         ok = False
         err = None
+        _log.info(
+            "Executing scheduled backup job",
+            event="backup_job_started",
+            job_id=job_id,
+            destination_id=destination_id,
+            execution_id=exec_id,
+        )
         try:
             self._executions[exec_id] = {
                 "job_id": job_id,
@@ -356,6 +381,14 @@ class BackupScheduler:
             ok = True
         except Exception as e:
             err = f"{e}\n{traceback.format_exc()}"
+            _log.warning(
+                "Scheduled backup job failed",
+                event="backup_job_failed",
+                job_id=job_id,
+                destination_id=destination_id,
+                execution_id=exec_id,
+                error=str(e),
+            )
         finally:
             end = _utc_now()
             info = self._executions.get(exec_id, {})
@@ -390,3 +423,12 @@ class BackupScheduler:
                     jm["failure_count"] = 0
                 self._metadata["jobs"][job_id] = jm
                 self._save_metadata()
+            _log.info(
+                "Scheduled backup job finished",
+                event="backup_job_finished",
+                job_id=job_id,
+                destination_id=destination_id,
+                execution_id=exec_id,
+                status="success" if ok else "failed",
+                duration_seconds=(end - start).total_seconds(),
+            )
