@@ -183,7 +183,7 @@ class OktaAuthBackend(AuthenticationBackend):
             try:
                 self._session.trust_env = False
             except Exception as set_trust_exc:
-                logger.debug(f"Failed to set trust_env: {set_trust_exc}")
+                logger.debug("Failed to set trust_env: %s", set_trust_exc)
         adapter = HTTPAdapter(pool_connections=pool_maxsize, pool_maxsize=pool_maxsize)
         if _Retry is not None:
             retry = _Retry(
@@ -551,7 +551,7 @@ class OktaAuthBackend(AuthenticationBackend):
 
                 okta_token_latency.observe(max(0.0, time.time() - a_start))
             except Exception as lat_met_exc:
-                logger.debug(f"Failed to record latency metric: {lat_met_exc}")
+                logger.debug("Failed to record latency metric: %s", lat_met_exc)
             if resp.status_code not in (200, 201):
                 # Elevate to warning so it appears in container logs
                 body_preview = (
@@ -588,7 +588,7 @@ class OktaAuthBackend(AuthenticationBackend):
                                 verify_href = f["_links"]["verify"]["href"]
                                 break
                         except Exception as top_exc:
-                            logger.debug(f"Failed to find TOTP factor: {top_exc}")
+                            logger.debug("Failed to find TOTP factor: %s", top_exc)
                             continue
                     if not verify_href:
                         logger.debug("No TOTP factor available for OTP verification")
@@ -961,7 +961,7 @@ class OktaAuthBackend(AuthenticationBackend):
                             str(g).lower() for g in raw_groups if isinstance(g, str)
                         ]
             except Exception as cache_exc:
-                logger.debug(f"Failed to extract groups from cache: {cache_exc}")
+                logger.debug("Failed to extract groups from cache: %s", cache_exc)
             return []
 
         groups = _extract_from_cache(username)

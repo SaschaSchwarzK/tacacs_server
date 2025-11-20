@@ -411,9 +411,16 @@ class LocalUserService:
                     self.store.set_user_password(
                         username, password=None, password_hash=new_hash
                     )
-                    logger.info(f"Migrated password hash for user {username} to bcrypt")
+                    logger.info(
+                        "Migrated password hash for user %s to bcrypt",
+                        username,
+                    )
                 except Exception as e:
-                    logger.error(f"Failed to migrate password for user {username}: {e}")
+                    logger.error(
+                        "Failed to migrate password for user %s: %s",
+                        username,
+                        e,
+                    )
             return True
         # If bcrypt/legacy verification failed but plaintext is present, fall back
         try:

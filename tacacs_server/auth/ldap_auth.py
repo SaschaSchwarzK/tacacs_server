@@ -106,7 +106,7 @@ class LDAPAuthBackend(AuthenticationBackend):
                 # Use service account to search for user
                 user_dn = self._find_user_dn(username)
                 if not user_dn:
-                    logger.debug(f"User {username} not found in LDAP directory")
+                    logger.debug("User %s not found in LDAP directory", username)
                     self._release_connection(conn)
                     return False
             else:
@@ -157,17 +157,25 @@ class LDAPAuthBackend(AuthenticationBackend):
                 except Exception:
                     ok = False
             if ok:
-                logger.info(f"LDAP authentication successful for {username}")
+                logger.info("LDAP authentication successful for %s", username)
                 return True
             else:
-                logger.info(f"LDAP authentication failed for {username}")
+                logger.info("LDAP authentication failed for %s", username)
                 return False
 
         except ldap3.core.exceptions.LDAPException as e:
-            logger.error(f"LDAP authentication error for {username}: {e}")
+            logger.error(
+                "LDAP authentication error for %s: %s",
+                username,
+                e,
+            )
             return False
         except Exception as e:
-            logger.error(f"Unexpected LDAP error for {username}: {e}")
+            logger.error(
+                "Unexpected LDAP error for %s: %s",
+                username,
+                e,
+            )
             return False
 
     def get_user_attributes(self, username: str) -> dict[str, Any]:
@@ -194,7 +202,11 @@ class LDAPAuthBackend(AuthenticationBackend):
             }
 
         except Exception as e:
-            logger.error(f"Error getting LDAP attributes for {username}: {e}")
+            logger.error(
+                "Error getting LDAP attributes for %s: %s",
+                username,
+                e,
+            )
             return {}
 
     def _find_user_dn(self, username: str) -> str | None:
@@ -255,10 +267,18 @@ class LDAPAuthBackend(AuthenticationBackend):
                         # brief delay before retrying
                         _t.sleep(0.2)
                         continue
-                    logger.error(f"Error finding user DN for {username}: {e}")
+                    logger.error(
+                        "Error finding user DN for %s: %s",
+                        username,
+                        e,
+                    )
                     break
         except Exception as e:
-            logger.error(f"Error finding user DN for {username}: {e}")
+            logger.error(
+                "Error finding user DN for %s: %s",
+                username,
+                e,
+            )
 
         return None
 
@@ -312,7 +332,11 @@ class LDAPAuthBackend(AuthenticationBackend):
                 return user_info
 
         except Exception as e:
-            logger.error(f"Error getting LDAP user info for {username}: {e}")
+            logger.error(
+                "Error getting LDAP user info for %s: %s",
+                username,
+                e,
+            )
 
         return None
 
