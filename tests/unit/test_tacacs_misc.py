@@ -9,18 +9,10 @@ statistics tracking, and validation logic.
 
 import socket
 import struct
-import sys
-from pathlib import Path
-from types import ModuleType
 
 import pytest
 
-# Avoid importing tacacs_server.tacacs.__init__ (which pulls in requests/okta)
-REPO_ROOT = Path(__file__).resolve().parents[2]
-tacacs_pkg = ModuleType("tacacs_server.tacacs")
-tacacs_pkg.__path__ = [str(REPO_ROOT / "tacacs_server" / "tacacs")]
-sys.modules.setdefault("tacacs_server.tacacs", tacacs_pkg)
-
+import tests.unit.tacacs_stubs as tacacs_stubs
 from tacacs_server.tacacs import validator as validator_module
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_FLAGS,
@@ -39,6 +31,8 @@ from tacacs_server.tacacs.structures import (
     parse_author_request,
 )
 from tacacs_server.tacacs.validator import PacketValidator
+
+_STUB_MODULE = tacacs_stubs
 
 
 class DummySocket:
