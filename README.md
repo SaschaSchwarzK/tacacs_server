@@ -1,6 +1,6 @@
 # TACACS+ Server
 
-[![Quality Checks](https://github.com/SaschaSchwarzK/tacacs_server/actions/workflows/quality_checks.yml/badge.svg)](https://github.com/SaschaSchwarzK/tacacs_server/actions/workflows/quality_checks.yml)
+[![Quality Checks](https://github.com/SaschaSchwarzK/tacacs_server/actions/workflows/enhanced_quality_checks.yml/badge.svg)](https://github.com/SaschaSchwarzK/tacacs_server/actions/workflows/enhanced_quality_checks.yml)
 
 A modern, enterprise-grade TACACS+/RADIUS appliance implemented in Python. Designed for network administrators who need reliable AAA services with comprehensive management capabilities, real-time monitoring, and enterprise integrations.
 
