@@ -10,7 +10,7 @@ import aiosqlite
 
 from tacacs_server.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.accounting.async_database", component="accounting")
 
 
 class AsyncDatabaseLogger:
@@ -27,14 +27,22 @@ class AsyncDatabaseLogger:
         self.running = True
         await self._initialize_schema()
         self.writer_task = asyncio.create_task(self._writer_worker())
-        logger.info("Async database logger started")
+        logger.info(
+            "Async database logger started",
+            event="accounting.async.started",
+            db_path=self.db_path,
+        )
 
     async def stop(self):
         """Stop async writer"""
         self.running = False
         if self.writer_task:
             await self.writer_task
-        logger.info("Async database logger stopped")
+        logger.info(
+            "Async database logger stopped",
+            event="accounting.async.stopped",
+            db_path=self.db_path,
+        )
 
     async def _initialize_schema(self):
         """Initialize database schema"""
@@ -72,7 +80,11 @@ class AsyncDatabaseLogger:
             await self.write_queue.put(record)
             return True
         except asyncio.QueueFull:
-            logger.warning("Accounting queue full, dropping record")
+            logger.warning(
+                "Accounting queue full, dropping record",
+                event="accounting.async.queue_full",
+                db_path=self.db_path,
+            )
             return False
 
     async def _writer_worker(self):
@@ -108,7 +120,11 @@ class AsyncDatabaseLogger:
                     batch = []
                     last_flush = asyncio.get_event_loop().time()
             except Exception as e:
-                logger.error(f"Error in writer worker: {e}")
+                logger.error(
+                    "Error in async writer worker",
+                    event="accounting.async.writer_error",
+                    error=str(e),
+                )
 
         # Flush remaining records
         if batch:
@@ -150,10 +166,19 @@ class AsyncDatabaseLogger:
                 await db.execute(query, values)
                 await db.commit()
 
-                logger.debug(f"Flushed {len(batch)} accounting records to database")
+                logger.debug(
+                    "Flushed accounting records to database",
+                    event="accounting.async.flush",
+                    count=len(batch),
+                )
 
         except Exception as e:
-            logger.error(f"Error flushing batch to database: {e}")
+            logger.error(
+                "Error flushing batch to database",
+                event="accounting.async.flush_failed",
+                error=str(e),
+                batch_size=len(batch),
+            )
 
     async def get_statistics(self, days: int = 30) -> dict[str, Any]:
         """Get accounting statistics"""
@@ -162,29 +187,40 @@ class AsyncDatabaseLogger:
 
             # Total records (prefer pre-computed stats, fall back to raw count)
             try:
-                cursor = await db.execute(f"""
+                cursor = await db.execute(
+                    """
                     SELECT COALESCE(SUM(total_records), 0) AS count
                     FROM mv_daily_stats
-                    WHERE stat_date > date('now', '-{days} days')
-                """)
+                    WHERE stat_date > date('now', ?)
+                """,
+                    (f"-{days} days",),
+                )
                 row = await cursor.fetchone()
                 total_records = row["count"] if row else 0
             except Exception as exc:
                 logger.warning(
-                    "Failed to read mv_daily_stats (%s), counting logs directly", exc
+                    "Failed to read mv_daily_stats, counting logs directly",
+                    event="accounting.async.mv_unavailable",
+                    error=str(exc),
                 )
-                cursor = await db.execute(f"""
+                cursor = await db.execute(
+                    """
                     SELECT COUNT(*) as count FROM accounting_logs 
-                    WHERE timestamp > datetime('now', '-{days} days')
-                """)
+                    WHERE timestamp > datetime('now', ?)
+                """,
+                    (f"-{days} days",),
+                )
                 row = await cursor.fetchone()
                 total_records = row["count"] if row else 0
 
             # Unique users
-            cursor = await db.execute(f"""
+            cursor = await db.execute(
+                """
                 SELECT COUNT(DISTINCT username) as count FROM accounting_logs 
-                WHERE timestamp > datetime('now', '-{days} days')
-            """)
+                WHERE timestamp > datetime('now', ?)
+            """,
+                (f"-{days} days",),
+            )
             row = await cursor.fetchone()
             unique_users = row["count"] if row else 0
 

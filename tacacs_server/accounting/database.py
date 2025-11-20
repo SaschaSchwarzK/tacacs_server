@@ -2,6 +2,7 @@
 Simple SQLite accounting database logger for TACACS+ server.
 """
 
+import json
 import logging
 import os
 import queue
@@ -9,16 +10,17 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from contextvars import Token
 from datetime import UTC, datetime, timedelta
 from logging.handlers import SysLogHandler
 from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.maintenance import get_db_manager
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.accounting.database", component="accounting")
 
 # Track which database paths we have already announced as initialized to
 # avoid duplicate informational logs when components re-bind or re-create
@@ -134,17 +136,26 @@ class DatabaseLogger:
                 get_db_manager().register(self, self.close)
             except Exception as exc:
                 logger.warning(
-                    "Failed to register accounting DB with maintenance manager: %s", exc
+                    "Failed to register accounting DB with maintenance manager",
+                    event="accounting.db.register_failed",
+                    error=str(exc),
                 )
 
         except Exception as e:
-            logger.exception("Failed to initialize database: %s", e)
+            logger.exception(
+                "Failed to initialize accounting database",
+                event="accounting.db.init_failed",
+                error=str(e),
+                db_path=str(self.db_path),
+            )
             if self.conn:
                 try:
                     self.conn.close()
                 except Exception as close_exc:
                     logger.warning(
-                        "Accounting DB close during init cleanup failed: %s", close_exc
+                        "Accounting DB close during init cleanup failed",
+                        event="accounting.db.close_cleanup_failed",
+                        error=str(close_exc),
                     )
             self.conn = None
             self.pool = None
@@ -170,7 +181,11 @@ class DatabaseLogger:
                 self._syslog.addHandler(handler)
                 self._syslog.setLevel(logging.INFO)
         except Exception as exc:
-            logger.warning("Failed to configure accounting syslog: %s", exc)
+            logger.warning(
+                "Failed to configure accounting syslog",
+                event="accounting.syslog.configure_failed",
+                error=str(exc),
+            )
             self._syslog = None
 
     def _now_utc_iso(self) -> str:
@@ -198,15 +213,19 @@ class DatabaseLogger:
         if not self._stats_cache:
             return
         if not timestamp_str:
-            logger.debug("Statistics cache cleared (no timestamp provided)")
+            logger.debug(
+                "Statistics cache cleared (no timestamp provided)",
+                event="accounting.stats.cache_cleared",
+            )
             self._invalidate_stats_cache()
             return
         try:
             ts = datetime.fromisoformat(timestamp_str)
         except ValueError:
             logger.debug(
-                "Statistics cache cleared due to unparsable timestamp: %s",
-                timestamp_str,
+                "Statistics cache cleared due to unparsable timestamp",
+                event="accounting.stats.cache_cleared",
+                timestamp=timestamp_str,
             )
             self._invalidate_stats_cache()
             return
@@ -220,7 +239,11 @@ class DatabaseLogger:
                 self._stats_cache.pop(days, None)
                 trimmed_any = True
         if trimmed_any:
-            logger.debug("Statistics cache pruned for timestamp %s", timestamp_str)
+            logger.debug(
+                "Statistics cache pruned for timestamp",
+                event="accounting.stats.cache_pruned",
+                timestamp=timestamp_str,
+            )
 
     def _get_cached_stats(self, days: int) -> dict[str, Any] | None:
         entry = self._stats_cache.get(days)
@@ -507,17 +530,30 @@ class DatabaseLogger:
                 resolved = str(self.db_path)
             if resolved not in _ANNOUNCED_DB_PATHS:
                 _ANNOUNCED_DB_PATHS.add(resolved)
-                logger.info("Database initialized: %s", self.db_path)
+                logger.info(
+                    "Accounting database initialized",
+                    event="accounting.db.initialized",
+                    db_path=str(self.db_path),
+                )
             else:
                 logger.debug(
-                    "Database already initialized (suppressing duplicate): %s",
-                    self.db_path,
+                    "Accounting database already initialized (suppressing duplicate)",
+                    event="accounting.db.initialized_duplicate",
+                    db_path=str(self.db_path),
                 )
         except sqlite3.OperationalError as e:
-            logger.error("SQLite operational error during schema init: %s", e)
+            logger.error(
+                "SQLite operational error during schema init",
+                event="accounting.db.schema_operational_error",
+                error=str(e),
+            )
             raise
         except Exception as e:
-            logger.exception("Unexpected error initializing DB schema: %s", e)
+            logger.exception(
+                "Unexpected error initializing accounting DB schema",
+                event="accounting.db.schema_error",
+                error=str(e),
+            )
             raise
 
     def log_accounting(self, record) -> bool:
@@ -530,15 +566,33 @@ class DatabaseLogger:
             # Fallback to original single connection method
             return self.log_accounting_original(record)
 
+        token: Token | None = None
         try:
             status = getattr(record, "status", None)
-            with self.pool.get_connection() as conn:
-                # Prepare data for insertion
-                data = record.to_dict()
-                timestamp_value = data.get("timestamp") or self._now_utc_iso()
-                data["timestamp"] = timestamp_value
-                data["is_recent"] = self._compute_is_recent(timestamp_value)
+            try:
+                base_data = record.to_dict()
+            except Exception:
+                token = bind_context(
+                    session_id=getattr(record, "session_id", None),
+                    username=getattr(record, "username", None),
+                )
+                logger.exception(
+                    "Invalid accounting record payload",
+                    event="accounting.record.invalid",
+                )
+                return False
+            timestamp_value = base_data.get("timestamp") or self._now_utc_iso()
+            base_data["timestamp"] = timestamp_value
+            base_data["is_recent"] = self._compute_is_recent(timestamp_value)
+            token = bind_context(
+                session_id=getattr(record, "session_id", None),
+                username=getattr(record, "username", None),
+                client_ip=base_data.get("client_ip"),
+                service=base_data.get("service"),
+                status=status,
+            )
 
+            with self.pool.get_connection() as conn:
                 # Build safe query with validated columns
                 valid_columns = {
                     "timestamp",
@@ -564,7 +618,7 @@ class DatabaseLogger:
                 }
 
                 # Filter to only valid columns
-                safe_data = {k: v for k, v in data.items() if k in valid_columns}
+                safe_data = {k: v for k, v in base_data.items() if k in valid_columns}
                 columns = list(safe_data.keys())
                 placeholders = ["?" for _ in columns]
                 values = list(safe_data.values())
@@ -578,22 +632,37 @@ class DatabaseLogger:
                 # Connection is automatically committed by the context manager
 
                 logger.info(
-                    f"Accounting logged: {record.username}@{record.session_id} - "
-                    f"{record.command} [{record.status}]"
+                    "Accounting record logged",
+                    event="accounting.record.logged",
+                    command=getattr(record, "command", None),
+                    client_ip=base_data.get("client_ip"),
+                    port=base_data.get("port"),
                 )
                 # Emit syslog audit line if configured
                 try:
                     syslog = self._syslog
                     if syslog is not None:
-                        msg = (
-                            f"user={data.get('username')} session={data.get('session_id')} "
-                            f"status={data.get('status')} service={data.get('service', '')} "
-                            f"cmd={data.get('command', '')} ip={data.get('client_ip', '')} "
-                            f"bytes_in={int(data.get('bytes_in', 0))} bytes_out={int(data.get('bytes_out', 0))}"
+                        syslog.info(
+                            json.dumps(
+                                {
+                                    "event": "accounting.record.syslog",
+                                    "username": base_data.get("username"),
+                                    "session": base_data.get("session_id"),
+                                    "status": base_data.get("status"),
+                                    "service": base_data.get("service", ""),
+                                    "command": base_data.get("command", ""),
+                                    "client_ip": base_data.get("client_ip", ""),
+                                    "bytes_in": int(base_data.get("bytes_in", 0)),
+                                    "bytes_out": int(base_data.get("bytes_out", 0)),
+                                }
+                            )
                         )
-                        syslog.info(msg)
                 except Exception as syslog_exc:
-                    logger.warning("Accounting syslog emit failed: %s", syslog_exc)
+                    logger.warning(
+                        "Accounting syslog emit failed",
+                        event="accounting.syslog.emit_failed",
+                        error=str(syslog_exc),
+                    )
 
             # Update active sessions once the write transaction has closed
             if status == "START":
@@ -607,8 +676,18 @@ class DatabaseLogger:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to log accounting record with pool: {e}")
+            logger.error(
+                "Failed to log accounting record with pool",
+                event="accounting.record.log_failed",
+                error=str(e),
+                session_id=getattr(record, "session_id", None),
+                username=getattr(record, "username", None),
+                status=getattr(record, "status", None),
+            )
             return False
+        finally:
+            if token is not None:
+                clear_context(token)
 
     # Helper methods for session management with pool
     def _start_session_with_pool(self, record):
@@ -636,7 +715,13 @@ class DatabaseLogger:
                     ),
                 )
         except Exception as e:
-            logger.error(f"Failed to start session tracking with pool: {e}")
+            logger.error(
+                "Failed to start session tracking with pool",
+                event="accounting.session.start_failed",
+                error=str(e),
+                session_id=getattr(record, "session_id", None),
+                username=getattr(record, "username", None),
+            )
 
     def _update_session_with_pool(self, record):
         """Update active session using pool"""
@@ -658,7 +743,13 @@ class DatabaseLogger:
                     ),
                 )
         except Exception as e:
-            logger.error(f"Failed to update session with pool: {e}")
+            logger.error(
+                "Failed to update session with pool",
+                event="accounting.session.update_failed",
+                error=str(e),
+                session_id=getattr(record, "session_id", None),
+                username=getattr(record, "username", None),
+            )
 
     def _stop_session_with_pool(self, record):
         """Stop tracking an active session using pool"""
@@ -671,7 +762,13 @@ class DatabaseLogger:
                     (record.session_id,),
                 )
         except Exception as e:
-            logger.error(f"Failed to stop session tracking with pool: {e}")
+            logger.error(
+                "Failed to stop session tracking with pool",
+                event="accounting.session.stop_failed",
+                error=str(e),
+                session_id=getattr(record, "session_id", None),
+                username=getattr(record, "username", None),
+            )
 
     # Add cleanup method to close pool when logger is destroyed
     def close(self):
@@ -683,7 +780,12 @@ class DatabaseLogger:
             try:
                 self.conn.close()
             except Exception as exc:
-                logger.warning("Accounting DB close failed: %s", exc)
+                logger.warning(
+                    "Accounting DB close failed",
+                    event="accounting.db.close_failed",
+                    error=str(exc),
+                    db_path=str(self.db_path),
+                )
             self.conn = None
 
     def reload(self) -> None:
@@ -692,7 +794,11 @@ class DatabaseLogger:
         try:
             self.close()
         except Exception as exc:
-            logger.warning("Failed to update accounting stats: %s", exc)
+            logger.warning(
+                "Failed to close accounting DB before reload",
+                event="accounting.db.reload_close_failed",
+                error=str(exc),
+            )
         try:
             db_file = Path(self.db_path).resolve()
             if not db_file.parent.exists():
@@ -719,7 +825,12 @@ class DatabaseLogger:
                 pool_size = 200
             self.pool = DatabasePool(str(db_file), pool_size=pool_size)
         except Exception as exc:
-            logger.exception("Accounting DB reload failed: %s", exc)
+            logger.exception(
+                "Accounting DB reload failed",
+                event="accounting.db.reload_failed",
+                error=str(exc),
+                db_path=str(self.db_path),
+            )
 
     def __del__(self):
         """Ensure cleanup on object destruction"""
@@ -746,13 +857,19 @@ class DatabaseLogger:
     def log_accounting_original(self, record: dict[str, Any]) -> bool:
         """Original log_accounting method as fallback"""
         if not self.conn:
-            logger.error("Database connection not available")
+            logger.error(
+                "Database connection not available",
+                event="accounting.db.unavailable",
+            )
             return False
 
         try:
             data = record.to_dict() if hasattr(record, "to_dict") else dict(record)
         except Exception:
-            logger.exception("Invalid accounting record payload")
+            logger.exception(
+                "Invalid accounting record payload",
+                event="accounting.record.invalid",
+            )
             return False
 
         try:
@@ -819,20 +936,35 @@ class DatabaseLogger:
             try:
                 syslog = self._syslog
                 if syslog is not None:
-                    msg = (
-                        f"user={data.get('username')} session={data.get('session_id')} "
-                        f"status={data.get('acct_type', data.get('status'))} service={data.get('service', '')} "
-                        f"cmd={data.get('command', '')} ip={data.get('client_ip', '')} "
-                        f"bytes_in={int(data.get('bytes_in', 0))} bytes_out={int(data.get('bytes_out', 0))}"
+                    syslog.info(
+                        json.dumps(
+                            {
+                                "event": "accounting.record.syslog",
+                                "username": data.get("username"),
+                                "session": data.get("session_id"),
+                                "status": data.get("acct_type", data.get("status")),
+                                "service": data.get("service", ""),
+                                "command": data.get("command", ""),
+                                "client_ip": data.get("client_ip", ""),
+                                "bytes_in": int(data.get("bytes_in", 0)),
+                                "bytes_out": int(data.get("bytes_out", 0)),
+                            }
+                        )
                     )
-                    syslog.info(msg)
             except Exception as syslog_exc:
-                logger.warning("Accounting syslog emit failed: %s", syslog_exc)
+                logger.warning(
+                    "Accounting syslog emit failed",
+                    event="accounting.syslog.emit_failed",
+                    error=str(syslog_exc),
+                )
             self._invalidate_stats_cache_for_timestamp(timestamp_value)
             return True
         except Exception:
             self.conn.rollback()
-            logger.exception("Failed to write accounting record")
+            logger.exception(
+                "Failed to write accounting record",
+                event="accounting.record.write_failed",
+            )
             return False
 
     def get_statistics(self, days: int = 30) -> dict[str, Any]:
@@ -876,7 +1008,9 @@ class DatabaseLogger:
                         }
                 except sqlite3.Error as exc:
                     logger.warning(
-                        "Materialized view unavailable (%s), using live query", exc
+                        "Materialized view unavailable, using live query",
+                        event="accounting.stats.mv_unavailable",
+                        error=str(exc),
                     )
 
             # Fallback to live query with optimized index usage
@@ -908,7 +1042,12 @@ class DatabaseLogger:
             self._set_cached_stats(days, result)
             return dict(result)
         except Exception as exc:
-            logger.error(f"Failed to gather statistics: {exc}")
+            logger.error(
+                "Failed to gather statistics",
+                event="accounting.stats.error",
+                error=str(exc),
+                period_days=days,
+            )
             return {"period_days": days, "total_records": 0, "unique_users": 0}
 
     def get_recent_records(
@@ -946,7 +1085,13 @@ class DatabaseLogger:
                     cursor = conn.execute(query, (since.isoformat(), limit))
                     return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logger.error("Failed to get recent records: %s", e)
+            logger.error(
+                "Failed to get recent records",
+                event="accounting.records.fetch_failed",
+                error=str(e),
+                since=since.isoformat(),
+                limit=limit,
+            )
             return []
 
     def get_hourly_stats(self, hours: int = 24) -> list[dict[str, Any]]:
@@ -984,7 +1129,12 @@ class DatabaseLogger:
                     cursor = conn.execute(query, (f"-{hours} hours",))
                     return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logger.error("Failed to get hourly stats: %s", e)
+            logger.error(
+                "Failed to get hourly stats",
+                event="accounting.stats.hourly_failed",
+                error=str(e),
+                hours=hours,
+            )
             return []
 
     def get_active_sessions(self) -> list[dict[str, Any]]:
@@ -1023,13 +1173,12 @@ class DatabaseLogger:
                     attributes = {}
                     if row[4]:
                         try:
-                            import json
-
                             attributes = json.loads(row[4])
                         except (json.JSONDecodeError, TypeError) as attr_exc:
                             logger.debug(
-                                "Failed to decode active session attributes JSON: %s",
-                                attr_exc,
+                                "Failed to decode active session attributes JSON",
+                                event="accounting.sessions.decode_failed",
+                                error=str(attr_exc),
                             )
                             attributes = {}
 
@@ -1050,7 +1199,11 @@ class DatabaseLogger:
                 return sessions
 
         except Exception as e:
-            logger.error(f"Error getting active sessions: {e}")
+            logger.error(
+                "Failed to get active sessions",
+                event="accounting.sessions.active_failed",
+                error=str(e),
+            )
             return []
 
     def get_total_sessions(self, period_days: int = 30) -> int:
@@ -1085,7 +1238,12 @@ class DatabaseLogger:
                 return result[0] if result else 0
 
         except Exception as e:
-            logger.error(f"Error getting total sessions: {e}")
+            logger.error(
+                "Failed to get total sessions",
+                event="accounting.sessions.total_failed",
+                error=str(e),
+                period_days=period_days,
+            )
             return 0
 
     def get_session_duration_stats(self, period_days: int = 30) -> dict[str, float]:
@@ -1143,7 +1301,12 @@ class DatabaseLogger:
                 }
 
         except Exception as e:
-            logger.error(f"Error getting session duration stats: {e}")
+            logger.error(
+                "Failed to get session duration stats",
+                event="accounting.sessions.duration_failed",
+                error=str(e),
+                period_days=period_days,
+            )
             return {
                 "avg_duration_seconds": 0.0,
                 "min_duration_seconds": 0.0,
@@ -1190,12 +1353,12 @@ class DatabaseLogger:
                     attributes = {}
                     if row[7]:
                         try:
-                            import json
-
                             attributes = json.loads(row[7])
                         except (json.JSONDecodeError, TypeError) as attr_exc:
                             logger.debug(
-                                "Failed to decode session attributes JSON: %s", attr_exc
+                                "Failed to decode session attributes JSON",
+                                event="accounting.sessions.decode_failed",
+                                error=str(attr_exc),
                             )
 
                     duration = None
@@ -1221,7 +1384,12 @@ class DatabaseLogger:
                 return None
 
         except Exception as e:
-            logger.error(f"Error getting session by ID: {e}")
+            logger.error(
+                "Failed to get session by ID",
+                event="accounting.sessions.lookup_failed",
+                error=str(e),
+                session_id=session_id,
+            )
             return None
 
     def get_user_session_history(
@@ -1268,13 +1436,12 @@ class DatabaseLogger:
                     attributes = {}
                     if row[7]:
                         try:
-                            import json
-
                             attributes = json.loads(row[7])
                         except (json.JSONDecodeError, TypeError) as attr_exc:
                             logger.debug(
-                                "Failed to decode user session attributes JSON: %s",
-                                attr_exc,
+                                "Failed to decode user session attributes JSON",
+                                event="accounting.sessions.decode_failed",
+                                error=str(attr_exc),
                             )
 
                     duration = None
@@ -1302,5 +1469,11 @@ class DatabaseLogger:
                 return sessions
 
         except Exception as e:
-            logger.error(f"Error getting user session history: {e}")
+            logger.error(
+                "Failed to get user session history",
+                event="accounting.sessions.history_failed",
+                error=str(e),
+                username=username,
+                limit=limit,
+            )
             return []
