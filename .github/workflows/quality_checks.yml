@@ -98,6 +98,10 @@ jobs:
           # Use project .bandit config to exclude tests and venv/site-packages
           poetry run bandit -r . --configfile bandit.yml
 
+      - name: Enable Poetry export plugin
+        run: |
+          poetry self add poetry-plugin-export
+
       - name: pip-audit (vuln scan)
         run: |
           poetry export -f requirements.txt --without-hashes -o requirements.txt
