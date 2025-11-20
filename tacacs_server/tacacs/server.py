@@ -98,6 +98,7 @@ class TacacsServer:
         self._load_threading_config()
 
         # Start rate limiter cleanup thread
+        self._cleanup_stop_event = threading.Event()
         self._cleanup_thread = threading.Thread(
             target=self._rate_limiter_cleanup_loop,
             daemon=True,
@@ -107,14 +108,14 @@ class TacacsServer:
 
     def _rate_limiter_cleanup_loop(self):
         """Periodically clean old rate limiter entries"""
-        import time
 
         from tacacs_server.utils.rate_limiter import get_rate_limiter
 
         logger = get_logger(__name__)
         while self.running:
+            if self._cleanup_stop_event.wait(600):
+                break
             try:
-                time.sleep(600)  # Every 10 minutes
                 limiter = get_rate_limiter()
                 removed = limiter.cleanup_old_entries(max_age_seconds=3600)
                 if removed > 0:
@@ -611,6 +612,7 @@ class TacacsServer:
         # Signal cleanup thread to stop
         if self._cleanup_thread and self._cleanup_thread.is_alive():
             try:
+                self._cleanup_stop_event.set()
                 self._cleanup_thread.join(timeout=2.0)
                 logger.debug("Rate limiter cleanup thread stopped")
             except Exception as e:
