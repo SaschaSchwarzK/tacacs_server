@@ -12,7 +12,7 @@ from typing import Any
 
 from .logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.audit_logger", component="audit")
 
 
 class AuditLogger:
@@ -92,20 +92,23 @@ class AuditLogger:
 
             # Also log to structured logger
             logger.info(
-                "audit_action",
-                extra={
-                    "user_id": user_id,
-                    "action": action,
-                    "resource_type": resource_type,
-                    "resource_id": resource_id,
-                    "success": success,
-                    "client_ip": client_ip,
-                },
+                "Audit action recorded",
+                event="audit.action.recorded",
+                user_id=user_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                success=success,
+                client_ip=client_ip,
             )
 
             return True
         except Exception as e:
-            logger.error(f"Failed to log audit action: {e}")
+            logger.error(
+                "Failed to log audit action",
+                event="audit.action.error",
+                error=str(e),
+            )
             return False
 
     def get_audit_log(
@@ -152,7 +155,11 @@ class AuditLogger:
 
                 return entries
         except Exception as e:
-            logger.error(f"Failed to get audit log: {e}")
+            logger.error(
+                "Failed to get audit log",
+                event="audit.query.error",
+                error=str(e),
+            )
             return []
 
     def get_audit_summary(self, hours: int = 24) -> dict:
@@ -189,7 +196,11 @@ class AuditLogger:
                     }
                 return {}
         except Exception as e:
-            logger.error(f"Failed to get audit summary: {e}")
+            logger.error(
+                "Failed to get audit summary",
+                event="audit.summary.error",
+                error=str(e),
+            )
             return {}
 
     def cleanup_old_entries(self, retention_days: int = 90) -> int:
@@ -208,11 +219,20 @@ class AuditLogger:
 
                 deleted_count = cursor.rowcount
                 if deleted_count > 0:
-                    logger.info(f"Cleaned up {deleted_count} old audit entries")
+                    logger.info(
+                        "Cleaned up old audit entries",
+                        event="audit.cleanup.completed",
+                        deleted_count=deleted_count,
+                        retention_days=retention_days,
+                    )
 
                 return deleted_count
         except Exception as e:
-            logger.error(f"Failed to cleanup old audit entries: {e}")
+            logger.error(
+                "Failed to cleanup old audit entries",
+                event="audit.cleanup.error",
+                error=str(e),
+            )
             return 0
 
 

@@ -31,7 +31,15 @@ def log_request(
     payload = _build_context(protocol, username, client, group)
     if extra:
         payload["details"] = extra
-    _logger.debug("Authentication request", extra=payload)
+    _logger.debug(
+        "Authentication request",
+        event="auth.request",
+        protocol=payload["protocol"],
+        username=payload["username"],
+        client=payload["client"],
+        group=payload["group"],
+        details=payload.get("details"),
+    )
 
 
 def log_success(
@@ -41,7 +49,14 @@ def log_success(
     group: str | None = None,
 ) -> None:
     payload = _build_context(protocol, username, client, group)
-    _logger.info("Authentication success", extra=payload)
+    _logger.info(
+        "Authentication success",
+        event="auth.success",
+        protocol=payload["protocol"],
+        username=payload["username"],
+        client=payload["client"],
+        group=payload["group"],
+    )
 
 
 def log_failure(
@@ -54,4 +69,12 @@ def log_failure(
     payload = _build_context(protocol, username, client, group)
     if reason:
         payload["reason"] = reason
-    _logger.warning("Authentication failure", extra=payload)
+    _logger.warning(
+        "Authentication failure",
+        event="auth.failure",
+        protocol=payload["protocol"],
+        username=payload["username"],
+        client=payload["client"],
+        group=payload["group"],
+        reason=payload.get("reason"),
+    )

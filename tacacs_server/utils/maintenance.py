@@ -15,7 +15,7 @@ from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.maintenance", component="maintenance")
 
 
 class _DBConnectionManager:
@@ -50,23 +50,33 @@ class _DBConnectionManager:
         with self._lock:
             self._in_maintenance = True
         regs = list(self._registrations)
+        logger.info("Entering maintenance mode", event="maintenance.enter")
         for _, close_fn, _ in regs:
             try:
                 close_fn()
             except Exception as exc:
-                logger.debug("Close during maintenance failed: %s", exc)
+                logger.warning(
+                    "Close during maintenance failed",
+                    event="maintenance.close_failed",
+                    error=str(exc),
+                )
 
     def exit_maintenance(self) -> None:
         with self._lock:
             self._in_maintenance = False
             regs = list(self._registrations)
+        logger.info("Exiting maintenance mode", event="maintenance.exit")
         for _, _, reload_fn in regs:
             if reload_fn is None:
                 continue
             try:
                 reload_fn()
             except Exception as exc:
-                logger.debug("Reload after maintenance failed: %s", exc)
+                logger.warning(
+                    "Reload after maintenance failed",
+                    event="maintenance.reload_failed",
+                    error=str(exc),
+                )
 
     def is_in_maintenance(self) -> bool:
         with self._lock:
@@ -90,13 +100,25 @@ def restart_services() -> None:
                 try:
                     srv.stop()
                 except Exception as exc:
-                    logger.warning("TACACS stop failed during maintenance: %s", exc)
+                    logger.warning(
+                        "TACACS stop failed during maintenance",
+                        event="maintenance.tacacs.stop_failed",
+                        error=str(exc),
+                    )
                 try:
                     srv.start()
                 except Exception as exc:
-                    logger.warning("TACACS restart failed during maintenance: %s", exc)
+                    logger.warning(
+                        "TACACS restart failed during maintenance",
+                        event="maintenance.tacacs.restart_failed",
+                        error=str(exc),
+                    )
         except Exception as exc:
-            logger.warning("Failed to rotate TACACS server during maintenance: %s", exc)
+            logger.warning(
+                "Failed to rotate TACACS server during maintenance",
+                event="maintenance.tacacs.rotate_failed",
+                error=str(exc),
+            )
 
         try:
             from tacacs_server.web.web import get_radius_server
@@ -106,13 +128,25 @@ def restart_services() -> None:
                 try:
                     r.stop()
                 except Exception as exc:
-                    logger.warning("RADIUS stop failed during maintenance: %s", exc)
+                    logger.warning(
+                        "RADIUS stop failed during maintenance",
+                        event="maintenance.radius.stop_failed",
+                        error=str(exc),
+                    )
                 try:
                     r.start()
                 except Exception as exc:
-                    logger.warning("RADIUS restart failed during maintenance: %s", exc)
+                    logger.warning(
+                        "RADIUS restart failed during maintenance",
+                        event="maintenance.radius.restart_failed",
+                        error=str(exc),
+                    )
         except Exception as exc:
-            logger.warning("Failed to rotate RADIUS server during maintenance: %s", exc)
+            logger.warning(
+                "Failed to rotate RADIUS server during maintenance",
+                event="maintenance.radius.rotate_failed",
+                error=str(exc),
+            )
 
         try:
             from tacacs_server.backup.service import get_backup_service
@@ -123,9 +157,17 @@ def restart_services() -> None:
                 try:
                     sch.start()
                 except Exception as exc:
-                    logger.warning("Backup scheduler restart failed: %s", exc)
+                    logger.warning(
+                        "Backup scheduler restart failed",
+                        event="maintenance.backup.scheduler_restart_failed",
+                        error=str(exc),
+                    )
         except Exception as exc:
-            logger.warning("Failed to restart backup scheduler: %s", exc)
+            logger.warning(
+                "Failed to restart backup scheduler",
+                event="maintenance.backup.scheduler_failed",
+                error=str(exc),
+            )
 
         try:
             from tacacs_server.web.web import (
@@ -143,22 +185,40 @@ def restart_services() -> None:
                 try:
                     ds.store.reload()
                 except Exception as exc:
-                    logger.warning("Device store reload failed: %s", exc)
+                    logger.warning(
+                        "Device store reload failed",
+                        event="maintenance.device.reload_failed",
+                        error=str(exc),
+                    )
             us = _get_user_svc()
             if us and hasattr(us, "store") and hasattr(us.store, "reload"):
                 try:
                     us.store.reload()
                 except Exception as exc:
-                    logger.warning("User store reload failed: %s", exc)
+                    logger.warning(
+                        "User store reload failed",
+                        event="maintenance.user.reload_failed",
+                        error=str(exc),
+                    )
             gs = _get_group_svc()
             if gs and hasattr(gs, "store") and hasattr(gs.store, "reload"):
                 try:
                     gs.store.reload()
                 except Exception as exc:
-                    logger.warning("Group store reload failed: %s", exc)
+                    logger.warning(
+                        "Group store reload failed",
+                        event="maintenance.group.reload_failed",
+                        error=str(exc),
+                    )
         except Exception as exc:
             logger.warning(
-                "Failed to refresh service stores after maintenance: %s", exc
+                "Failed to refresh service stores after maintenance",
+                event="maintenance.store.refresh_failed",
+                error=str(exc),
             )
     except Exception as exc:
-        logger.warning("Maintenance restart hook failed: %s", exc)
+        logger.warning(
+            "Maintenance restart hook failed",
+            event="maintenance.restart_hook_failed",
+            error=str(exc),
+        )
