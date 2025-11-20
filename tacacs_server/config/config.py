@@ -84,10 +84,18 @@ class TacacsConfig:
             self.config_store: ConfigStore | None = ConfigStore(
                 "data/config_overrides.db"
             )
-            logger.info("Configuration store initialized successfully")
+            logger.debug(
+                "Configuration store initialized successfully",
+                event="tacacs.config.store.initialized",
+                service="tacacs",
+            )
         except Exception as e:
             logger.error(
-                "Failed to initialize configuration store: %s", e, exc_info=True
+                "Failed to initialize configuration store",
+                event="tacacs.config.store.error",
+                service="tacacs",
+                error=str(e),
+                exc_info=True,
             )
             self.config_store = None
 
@@ -125,7 +133,19 @@ class TacacsConfig:
                 try:
                     self.save_config()
                 except Exception as e:
-                    logger.error("Failed to save initial config: %s", e)
+                    logger.error(
+                        "Failed to save initial config",
+                        event="tacacs.config.save.error",
+                        service="tacacs",
+                        error=str(e),
+                    )
+
+        logger.info(
+            "Configuration loaded successfully",
+            event="tacacs.config.loaded",
+            service="tacacs",
+            source=self.config_source,
+        )
 
     def save_config(self):
         """Save configuration to file."""
@@ -531,7 +551,12 @@ class TacacsConfig:
                     import shutil
 
                     shutil.copy2(self.config_file, backup_file)
-                    logger.info(f"Configuration backup created: {backup_file}")
+                    logger.info(
+                        "Configuration backup created: %s",
+                        backup_file,
+                        event="tacacs.config.backup.created",
+                        service="tacacs",
+                    )
             except Exception as e:
                 issues.append(f"Failed to create config backup: {e}")
                 return False, issues

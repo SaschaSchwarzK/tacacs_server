@@ -77,11 +77,20 @@ def validate_config(config: configparser.ConfigParser) -> list[str]:
         issues.extend(_validate_security_config(config))
 
     except ValueError as exc:
-        logger.error("✗ Configuration validation failed: %s", exc)
+        logger.error(
+            "✗ Configuration validation failed: %s",
+            exc,
+            event="tacacs.config.validation.failed",
+            service="tacacs",
+        )
         issues.append(str(exc))
 
     if not issues:
-        logger.info("✓ Configuration validation passed")
+        logger.info(
+            "✓ Configuration validation passed",
+            event="tacacs.config.validation.passed",
+            service="tacacs",
+        )
 
     return issues
 

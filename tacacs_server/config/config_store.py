@@ -96,7 +96,12 @@ class ConfigStore:
         try:
             get_db_manager().register(self, self.close)
         except Exception as reg_exc:
-            logger.debug(f"Failed to register config store for maintenance: {reg_exc}")
+            logger.debug(
+                "Failed to register config store for maintenance: %s",
+                reg_exc,
+                event="tacacs.config.store.register_failed",
+                service="tacacs",
+            )
 
     def _ensure_schema(self) -> None:
         """Create database tables if they don't exist."""
@@ -129,7 +134,11 @@ class ConfigStore:
             self.engine.dispose()
         except Exception:  # noqa: BLE001
             # Ignore but do not hide completely; disposal failures are rare
-            logger.exception("ConfigStore engine.dispose failed")
+            logger.error(
+                "ConfigStore engine.dispose failed",
+                event="tacacs.config.store.dispose_error",
+                service="tacacs",
+            )
 
     def reload(self) -> None:
         """Re-open engine and optional sqlite cursor after maintenance."""
@@ -138,13 +147,23 @@ class ConfigStore:
             try:
                 self.engine.dispose()
             except Exception as dispose_exc:
-                logger.debug(f"ConfigStore engine.dispose failed: {dispose_exc}")
+                logger.debug(
+                    "ConfigStore engine.dispose failed: %s",
+                    dispose_exc,
+                    event="tacacs.config.store.dispose_error",
+                    service="tacacs",
+                )
             # Recreate the optional sqlite compatibility cursor if applicable
             if self._conn is not None:
                 try:
                     self._conn.close()
                 except Exception as close_exc:
-                    logger.debug(f"ConfigStore sqlite close failed: {close_exc}")
+                    logger.debug(
+                        "ConfigStore sqlite close failed: %s",
+                        close_exc,
+                        event="tacacs.config.store.sqlite_close_failed",
+                        service="tacacs",
+                    )
                 try:
                     # Recover original path from engine URL
                     url = str(self.engine.url)
@@ -157,17 +176,32 @@ class ConfigStore:
                     else:
                         self._conn = None
                 except Exception as conn_exc:
-                    logger.debug(f"ConfigStore sqlite connect failed: {conn_exc}")
+                    logger.debug(
+                        "ConfigStore sqlite connect failed: %s",
+                        conn_exc,
+                        event="tacacs.config.store.sqlite_connect_failed",
+                        service="tacacs",
+                    )
                     self._conn = None
             # Ensure schema is present
             self._ensure_schema()
         except Exception as reload_exc:
-            logger.debug(f"ConfigStore reload failed: {reload_exc}")
+            logger.debug(
+                "ConfigStore reload failed: %s",
+                reload_exc,
+                event="tacacs.config.store.reload_error",
+                service="tacacs",
+            )
         try:
             if self._conn is not None:
                 self._conn.close()
         except Exception as close_exc:
-            logger.debug(f"ConfigStore sqlite close failed: {close_exc}")
+            logger.debug(
+                "ConfigStore sqlite close failed: %s",
+                close_exc,
+                event="tacacs.config.store.sqlite_close_failed",
+                service="tacacs",
+            )
 
     # --- Session Management ---
     def _get_session(self) -> DBSession:
@@ -623,8 +657,18 @@ class ConfigStore:
                 try:
                     session.rollback()
                 except Exception as rollback_exc:
-                    logger.debug(f"ConfigStore rollback failed: {rollback_exc}")
-                logger.debug(f"ConfigStore commit failed: {commit_exc}")
+                    logger.debug(
+                        "ConfigStore rollback failed: %s",
+                        rollback_exc,
+                        event="tacacs.config.store.rollback_failed",
+                        service="tacacs",
+                    )
+                logger.debug(
+                    "ConfigStore commit failed: %s",
+                    commit_exc,
+                    event="tacacs.config.store.commit_failed",
+                    service="tacacs",
+                )
 
     # --- Version Management ---
     def create_version(
@@ -681,7 +725,12 @@ class ConfigStore:
                     full_config=config_dict,
                 )
             except Exception as history_exc:
-                logger.debug(f"ConfigStore history recording failed: {history_exc}")
+                logger.debug(
+                    "ConfigStore history recording failed: %s",
+                    history_exc,
+                    event="tacacs.config.store.history_failed",
+                    service="tacacs",
+                )
             session.commit()
 
             return {
