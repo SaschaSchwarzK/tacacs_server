@@ -131,6 +131,12 @@ def get_auth_config() -> AuthConfig | None:
 async def require_admin_session(request: Request):
     """Require valid admin session (for web UI)"""
     if not _session_manager:
+        if "text/html" in request.headers.get("accept", ""):
+            # Redirect browsers to login page even if auth is not yet configured
+            raise HTTPException(
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                headers={"Location": "/admin/login"},
+            )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication not configured",
