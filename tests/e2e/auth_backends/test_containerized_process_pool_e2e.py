@@ -110,14 +110,14 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         raise RuntimeError(f"Failed to read config from {config_path}")
 
     # Update backends and process pool
-    enable_okta_flag = os.getenv("OKTA_E2E=1", "0") == "1"
+    enable_okta_flag = os.getenv("OKTA_E2E", "0") == "1"
     okta_org = os.getenv("OKTA_ORG_URL")
     okta_token = os.getenv("OKTA_API_TOKEN")
     enable_okta = enable_okta_flag and bool(okta_org) and bool(okta_token)
     if not enable_okta:
         reasons: list[str] = []
         if not enable_okta_flag:
-            reasons.append("OKTA_E2E=1 not set")
+            reasons.append("OKTA_E2E is not set to 1")
         if not okta_org:
             reasons.append("OKTA_ORG_URL missing")
         if not okta_token:
