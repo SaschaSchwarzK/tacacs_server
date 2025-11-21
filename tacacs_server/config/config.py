@@ -741,6 +741,9 @@ def setup_logging(config: TacacsConfig):
         console_handler = logging.StreamHandler()
         handlers.append(console_handler)
 
+    # Track whether we'll switch from console-only to file+console
+    will_add_file = bool(log_file)
+
     # Add file handler
     if log_file:
         try:
@@ -757,6 +760,12 @@ def setup_logging(config: TacacsConfig):
             logger.exception("Failed to create file log handler for %s", log_file)
 
     configure_logging(level=log_level, handlers=handlers)
+
+    if will_add_file and add_console:
+        # Emitted only to console (last console-only message) to signal switch
+        logging.getLogger(__name__).info(
+            "Logging now also writing to file: %s", log_file
+        )
 
     logger.info(
         "Logging configured: level=%s, file=%s",
