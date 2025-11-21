@@ -338,6 +338,37 @@ class AAAHandlers:
             for task_id, _ in sorted_tasks[:to_remove]:
                 self._pending_tasks.pop(task_id, None)
 
+    def _ensure_process_workers_alive(self) -> bool:
+        """Best-effort check to ensure process workers are alive."""
+        if not self._process_workers or not self._process_ctx:
+            return False
+        alive = True
+        for idx, p in enumerate(list(self._process_workers)):
+            if p is None or not p.is_alive():
+                alive = False
+                # Attempt restart
+                try:
+                    new_in_q = self._process_ctx.Queue(maxsize=100)
+                    new_p = self._process_ctx.Process(
+                        target=_backend_worker_main,
+                        args=(new_in_q, self._process_out_queue),
+                        daemon=True,
+                    )
+                    new_p.start()
+                    self._process_workers[idx] = new_p
+                    self._process_in_queues[idx] = new_in_q
+                except Exception as exc:
+                    logger.debug("Failed to restart process worker: %s", exc)
+                    self._process_workers[idx] = None
+        # Drop any failed slots to avoid using them
+        self._process_workers = [p for p in self._process_workers if p]
+        self._process_in_queues = [
+            q
+            for q, p in zip(self._process_in_queues, self._process_workers)
+            if p
+        ]
+        return alive
+
     def _serialize_backend_config(
         self, backend: AuthenticationBackend
     ) -> dict[str, Any] | None:
@@ -1609,6 +1640,9 @@ class AAAHandlers:
             and getattr(self, "_process_out_queue", None)
             and len(self._process_workers) > 0
         ):
+            if not self._ensure_process_workers_alive():
+                logger.debug("Process pool unhealthy; falling back to thread pool")
+                return False, False, "process_pool_unhealthy"
             try:
                 # Find matching backend config from our serialized configs
                 backend_config = None
@@ -1693,6 +1727,8 @@ class AAAHandlers:
                                     time.time(),
                                 )
                     except Exception:
+                        with self._process_lock:
+                            self._cleanup_pending_tasks()
                         # Check timeout
                         if (
                             effective_timeout
@@ -1720,6 +1756,8 @@ class AAAHandlers:
 
         try:
             ok = bool(future.result(timeout=effective_timeout))
+            with self._process_lock:
+                self._cleanup_pending_tasks()
             return ok, False, None
         except FuturesTimeoutError:
             try:

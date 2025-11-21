@@ -215,7 +215,9 @@ class TacacsServer:
 
     def _load_network_config(self):
         """Load network configuration from environment"""
-        self.listen_backlog = int(os.getenv("TACACS_LISTEN_BACKLOG", "128"))
+        raw_backlog = int(os.getenv("TACACS_LISTEN_BACKLOG", "128"))
+        # Clamp to sane bounds to avoid OS-dependent behavior
+        self.listen_backlog = max(1, min(1024, raw_backlog))
         self.client_timeout = float(os.getenv("TACACS_CLIENT_TIMEOUT", "15"))
         self.enable_ipv6 = os.getenv("TACACS_IPV6_ENABLED", "false").lower() == "true"
         self.tcp_keepalive = (
@@ -611,6 +613,9 @@ class TacacsServer:
 
         logger.info("Stopping TACACS server")
         self.running = False
+        stop_evt = getattr(self, "_cleanup_stop_event", None)
+        if stop_evt is not None:
+            stop_evt.set()
 
         if self.server_socket:
             try:

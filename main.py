@@ -47,6 +47,8 @@ class TacacsServerManager:
             utils_set_config(self.config)
         except Exception as exc:
             logger.warning("Failed to mirror config to utils_config: %s", exc)
+            # Fail fast so downstream modules don't operate with inconsistent config.
+            raise
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
         from tacacs_server.devices.service import DeviceService as _DSe
