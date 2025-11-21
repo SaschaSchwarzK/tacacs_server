@@ -214,7 +214,12 @@ class BackupEncryption:
             return True
 
         except Exception as e:  # pragma: no cover - defensive logging path
-            logger.error(f"Decryption failed: {e}")
+            logger.error(
+                "Decryption failed",
+                error=str(e),
+                input_path=input_path,
+                output_path=output_path,
+            )
             return False
 
     @staticmethod

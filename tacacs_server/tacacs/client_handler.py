@@ -3,13 +3,6 @@
 import logging
 import socket
 
-try:
-    import json as _json
-
-    _HAS_JSON = True
-except Exception:
-    _HAS_JSON = False
-
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_ACCT_STATUS,
     TAC_PLUS_AUTHEN_STATUS,
@@ -19,7 +12,7 @@ from tacacs_server.tacacs.constants import (
     TAC_PLUS_PACKET_TYPE,
 )
 from tacacs_server.tacacs.packet import TacacsPacket
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.rate_limiter import get_rate_limiter
 
 from .network import NetworkHandler
@@ -63,6 +56,11 @@ class ClientHandler:
 
     def handle(self, client_socket: socket.socket, address: tuple[str, int]):
         """Handle client connection"""
+        ctx_token = bind_context(
+            client_ip=address[0],
+            client_port=address[1],
+            service="tacacs",
+        )
         conn_logger = self._create_logger(address)
         session_ids: set[int] = set()
         client_ip = address[0]
@@ -120,6 +118,7 @@ class ClientHandler:
         except Exception as e:
             conn_logger.error("Client handling error %s: %s", address, e)
         finally:
+            clear_context(ctx_token)
             NetworkHandler.safe_close_socket(client_socket)
             self.session_manager.cleanup_sessions(session_ids, self.handlers)
             # Note: conn_limiter.release() and stats.update_active_connections(-1)
@@ -181,12 +180,16 @@ class ClientHandler:
                     self.proxy_handler, "validate_sources", False
                 ):
                     conn_logger.debug(
-                        "Invalid PROXY v2 header and reject_invalid set; closing"
+                        "Invalid PROXY v2 header, rejecting connection",
+                        event="tacacs.proxy.invalid_header",
+                        proxy_enabled=self.proxy_reject_invalid,
                     )
                     return None, client_ip, proxy_ip
                 else:
                     conn_logger.debug(
-                        "Invalid PROXY v2 header, reading fresh TACACS header"
+                        "Invalid PROXY v2 header, reading fresh TACACS header",
+                        event="tacacs.proxy.invalid_header",
+                        proxy_enabled=self.proxy_reject_invalid,
                     )
                     recv_data = NetworkHandler.recv_exact(client_socket, 12)
                     first_header_data = recv_data if recv_data is not None else b""
@@ -200,10 +203,18 @@ class ClientHandler:
                 self.proxy_handler, "validate_sources", False
             ):
                 conn_logger.debug(
-                    "PROXY parse error and reject_invalid set; closing: %s", e
+                    "PROXY parse error and reject_invalid set; closing",
+                    event="tacacs.proxy.parse_error",
+                    error=str(e),
+                    proxy_enabled=self.proxy_reject_invalid,
                 )
                 return None, client_ip, proxy_ip
-            conn_logger.debug("PROXY parse error: %s; proceeding as direct", e)
+            conn_logger.debug(
+                "PROXY parse error; proceeding as direct",
+                event="tacacs.proxy.parse_error",
+                error=str(e),
+                proxy_enabled=self.proxy_reject_invalid,
+            )
             recv_data = NetworkHandler.recv_exact(client_socket, 12)
             first_header_data = recv_data if recv_data is not None else b""
 
@@ -237,9 +248,10 @@ class ClientHandler:
         try:
             if proxy_ip is not None:
                 conn_logger.debug(
-                    "Resolving device for proxied connection: client_ip=%s, proxy_ip=%s",
-                    client_ip,
-                    proxy_ip,
+                    "Resolving device for proxied connection",
+                    event="tacacs.device.resolve",
+                    client_ip=client_ip,
+                    proxy_ip=proxy_ip,
                 )
                 device = self.device_store.find_device_for_identity(client_ip, proxy_ip)
             else:
@@ -247,9 +259,10 @@ class ClientHandler:
 
             if device:
                 conn_logger.debug(
-                    "Device resolved: %s (group: %s)",
-                    device.name,
-                    device.group.name if device.group else "none",
+                    "Device resolved",
+                    event="tacacs.device.resolved",
+                    device_name=device.name,
+                    device_group=device.group.name if device.group else None,
                 )
                 return device
 
@@ -362,22 +375,13 @@ class ClientHandler:
                 header_data, max_length=self.validator.max_packet_length
             )
         except Exception as e:
-            if _HAS_JSON:
-                try:
-                    conn_logger.warning(
-                        _json.dumps(
-                            {
-                                "event": "packet_header_error",
-                                "client_ip": address[0],
-                                "reason": str(e),
-                                "length": len(header_data),
-                            }
-                        )
-                    )
-                except Exception as log_exc:
-                    logger.debug("Failed to log packet header error: %s", log_exc)
-            else:
-                conn_logger.warning("Invalid packet from %s: %s", address, e)
+            conn_logger.warning(
+                "Invalid packet header",
+                event="tacacs.packet.header_error",
+                client_ip=address[0],
+                reason=str(e),
+                packet_length=len(header_data),
+            )
             return None
 
     def _enrich_logger(self, conn_logger, session_id: int):
@@ -424,16 +428,23 @@ class ClientHandler:
 
     def _process_and_respond(self, packet, address, connection_device, conn_logger):
         """Process packet and generate response"""
-        logger.debug("Processing packet from %s: %s", address, packet)
+        conn_logger.debug(
+            "Processing packet",
+            event="tacacs.packet.processing",
+            client_address=address,
+            packet_type=getattr(packet, "packet_type", None),
+        )
 
         if packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN:
             return self._handle_authentication(packet, connection_device, conn_logger)
         elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHOR:
-            return self._handle_authorization(packet, connection_device)
+            return self._handle_authorization(packet, connection_device, conn_logger)
         elif packet.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT:
-            return self._handle_accounting(packet, connection_device)
+            return self._handle_accounting(packet, connection_device, conn_logger)
         else:
-            logger.error(f"Unknown packet type: {packet.packet_type}")
+            logger.error(
+                "Unknown packet type: %s", getattr(packet, "packet_type", None)
+            )
             return None
 
     def _handle_authentication(self, packet, device_record, conn_logger):
@@ -479,8 +490,10 @@ class ClientHandler:
         except Exception:
             return None
 
-    def _handle_authorization(self, packet, device_record):
+    def _handle_authorization(self, packet, device_record, conn_logger=None):
         """Handle authorization request"""
+        if conn_logger is None:
+            conn_logger = logger
         self.stats.increment("author_requests")
         response = self.handlers.handle_authorization(packet, device_record)
 
@@ -492,14 +505,26 @@ class ClientHandler:
             ]:
                 self.stats.increment("author_success")
                 self._record_command_metric("granted")
+                conn_logger.debug(
+                    "Authorization granted",
+                    event="tacacs.author.granted",
+                    device=device_record.name if device_record else None,
+                )
             elif status == TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL:
                 self.stats.increment("author_failures")
                 self._record_command_metric("denied")
+                conn_logger.warning(
+                    "Authorization denied",
+                    event="tacacs.author.denied",
+                    device=device_record.name if device_record else None,
+                )
 
         return response
 
-    def _handle_accounting(self, packet, device_record):
+    def _handle_accounting(self, packet, device_record, conn_logger=None):
         """Handle accounting request"""
+        if conn_logger is None:
+            conn_logger = logger
         self.stats.increment("acct_requests")
         response = self.handlers.handle_accounting(packet, device_record)
 
@@ -510,8 +535,18 @@ class ClientHandler:
                 _, _, status = struct.unpack("!HHH", response.body[:6])
                 if status == TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_SUCCESS:
                     self.stats.increment("acct_success")
+                    conn_logger.debug(
+                        "Accounting accepted",
+                        event="tacacs.accounting.accepted",
+                        device=device_record.name if device_record else None,
+                    )
                 else:
                     self.stats.increment("acct_failures")
+                    conn_logger.warning(
+                        "Accounting rejected",
+                        event="tacacs.accounting.rejected",
+                        device=device_record.name if device_record else None,
+                    )
             except Exception as ste_stat_exc:
                 logger.debug("Failed to parse accounting status: %s", ste_stat_exc)
 

@@ -18,7 +18,9 @@ from tacacs_server.web.web import (
     get_config as monitoring_get_config,
 )
 
-logger = get_logger(__name__)
+logger = get_logger(
+    "tacacs_server.authorization.command_authorization", component="authorization"
+)
 
 
 class ActionType(Enum):
@@ -229,7 +231,11 @@ class CommandAuthorizationEngine:
                 if s == "wildcard":
                     return CommandMatchType.WILDCARD
             except Exception as exc:
-                logger.warning("Command rule match_type parsing failed: %s", exc)
+                logger.warning(
+                    "Command rule match_type parsing failed",
+                    event="command_auth.rule.match_type_parse_failed",
+                    error=str(exc),
+                )
             return CommandMatchType.EXACT
 
         for rule_config in config:
@@ -247,7 +253,12 @@ class CommandAuthorizationEngine:
                     attrs=rule_config.get("attrs"),
                 )
             except Exception as exc:
-                logger.warning("Skipping invalid command authorization rule: %s", exc)
+                logger.warning(
+                    "Skipping invalid command authorization rule",
+                    event="command_auth.rule.parse_failed",
+                    error=str(exc),
+                    rule=rule_config,
+                )
                 continue
 
     def export_config(self) -> list[dict]:
@@ -483,19 +494,22 @@ class CommandRuleCreate(BaseModel):
 
 async def _admin_guard_dep(request: Request):
     # Enforce cookie-based admin session; do not consume body
-    import logging
-
     from tacacs_server.utils import config_utils
 
     try:
-        logging.getLogger("tacacs.command_auth").info(
-            "command_auth.admin_guard: path=%s method=%s has_cookie=%s",
-            getattr(request.url, "path", ""),
-            getattr(request, "method", ""),
-            bool(request.cookies.get("admin_session")),
+        logger.debug(
+            "Admin guard check",
+            event="command_auth.admin_guard",
+            path=getattr(request.url, "path", ""),
+            method=getattr(request, "method", ""),
+            has_cookie=bool(request.cookies.get("admin_session")),
         )
     except Exception as exc:
-        logger.warning("Admin guard logging failed: %s", exc)
+        logger.debug(
+            "Admin guard logging failed",
+            event="command_auth.admin_guard_log_failed",
+            error=str(exc),
+        )
 
     token = request.cookies.get("admin_session")
     if not token:
@@ -572,7 +586,11 @@ async def update_settings(settings: CommandAuthSettings):
     try:
         action = ActionType(settings.default_action)
     except Exception as exc:
-        logger.warning("Invalid default_action provided: %s", exc)
+        logger.warning(
+            "Invalid default_action provided",
+            event="command_auth.settings.invalid_default_action",
+            error=str(exc),
+        )
         raise HTTPException(status_code=400, detail="Invalid default_action")
     engine.default_action = action
     # Persist
@@ -583,7 +601,11 @@ async def update_settings(settings: CommandAuthSettings):
                 default_action=settings.default_action
             )
     except Exception as exc:
-        logger.warning("Failed to persist command auth settings: %s", exc)
+        logger.warning(
+            "Failed to persist command auth settings",
+            event="command_auth.settings.persist_failed",
+            error=str(exc),
+        )
     return CommandAuthSettings(default_action=settings.default_action)
 
 
@@ -612,7 +634,11 @@ async def create_command_rule(rule: CommandRuleCreate):
             cfg.update_command_authorization_config(rules=engine.export_config())
     except Exception as exc:
         # Non-fatal: keep runtime updated even if persistence fails
-        logger.warning("Failed to persist new command auth rule: %s", exc)
+        logger.warning(
+            "Failed to persist new command auth rule",
+            event="command_auth.rule.persist_failed",
+            error=str(exc),
+        )
 
     return {"rule_id": new_rule.id, "message": "Rule created"}
 
@@ -632,7 +658,11 @@ async def delete_command_rule(rule_id: int):
             if cfg is not None:
                 cfg.update_command_authorization_config(rules=engine.export_config())
         except Exception as exc:
-            logger.warning("Failed to persist command auth rule deletion: %s", exc)
+            logger.warning(
+                "Failed to persist command auth rule deletion",
+                event="command_auth.rule_delete.persist_failed",
+                error=str(exc),
+            )
         return {"message": "Rule deleted"}
     else:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -679,7 +709,12 @@ async def apply_rule_template(template_name: str):
         if cfg is not None:
             cfg.update_command_authorization_config(rules=engine.export_config())
     except Exception as exc:
-        logger.warning("Failed to persist applied template %s: %s", template_name, exc)
+        logger.warning(
+            "Failed to persist applied command template",
+            event="command_auth.template.persist_failed",
+            template=template_name,
+            error=str(exc),
+        )
 
     return {"message": f"Applied template: {template_name}", "rules_count": len(rules)}
 

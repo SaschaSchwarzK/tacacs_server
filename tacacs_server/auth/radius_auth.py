@@ -39,9 +39,10 @@ import hashlib
 import secrets
 import socket
 import struct
+import uuid
 from typing import Any
 
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.simple_cache import TTLCache
 
 from .base import AuthenticationBackend
@@ -102,8 +103,12 @@ class RADIUSAuthBackend(AuthenticationBackend):
         if not self.radius_secret:
             raise ValueError("RADIUS shared secret must be specified (radius_secret)")
 
-        logger.info(
-            f"Initialized RADIUS backend: server={self.radius_server}:{self.radius_port}"
+        logger.debug(
+            "Initialized RADIUS backend: %s:%d",
+            self.radius_server,
+            self.radius_port,
+            event="radius.backend.initialized",
+            service="radius",
         )
 
         # In-memory cache for groups per user. This avoids fragile setattr/getattr
@@ -172,7 +177,10 @@ class RADIUSAuthBackend(AuthenticationBackend):
             nas_ip_bytes = socket.inet_aton(self.radius_nas_ip)
             attributes += self._add_attribute(self.NAS_IP_ADDRESS, nas_ip_bytes)
         except OSError:
-            logger.warning(f"Invalid NAS IP: {self.radius_nas_ip}")
+            logger.warning(
+                "Invalid NAS IP: %s",
+                self.radius_nas_ip,
+            )
 
         # NAS-Port attribute
         attributes += self._add_attribute(self.NAS_PORT, struct.pack("!I", 0))  # Port 0
@@ -300,60 +308,91 @@ class RADIUSAuthBackend(AuthenticationBackend):
         authenticator = self._create_authenticator()
         request, identifier = self._create_request(username, password, authenticator)
 
-        # Send request with retries
-        for attempt in range(self.radius_retries):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                    sock.settimeout(self.radius_timeout)
-                    sock.sendto(request, (self.radius_server, self.radius_port))
+        ctx = bind_context(
+            connection_id=str(uuid.uuid4()),
+            radius_server=self.radius_server,
+            service="radius",
+            username=username,
+        )
 
-                    response, _ = sock.recvfrom(4096)
+        try:
+            for attempt in range(self.radius_retries):
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                        sock.settimeout(self.radius_timeout)
+                        sock.sendto(request, (self.radius_server, self.radius_port))
+                        response, _ = sock.recvfrom(4096)
 
-                if len(response) < 20:
-                    logger.warning("RADIUS response too short")
-                    continue
+                    if len(response) < 20:
+                        logger.debug(
+                            "RADIUS response too short (%d bytes)",
+                            len(response),
+                            event="radius.response.short",
+                            service="radius",
+                        )
+                        continue
 
-                code = response[0]
-                resp_id = response[1]
+                    code = response[0]
+                    resp_id = response[1]
 
-                if resp_id != identifier:
-                    logger.debug(
-                        "RADIUS response ID mismatch (got %d expected %d)",
-                        resp_id,
-                        identifier,
+                    if resp_id != identifier:
+                        logger.debug(
+                            "RADIUS response ID mismatch (got %d expected %d)",
+                            resp_id,
+                            identifier,
+                            event="radius.response.id_mismatch",
+                            service="radius",
+                        )
+                        continue
+
+                    if not self._verify_response(response, authenticator):
+                        logger.warning(
+                            "RADIUS authenticator verification failed",
+                            event="radius.auth.verification_failed",
+                            service="radius",
+                        )
+                        continue
+
+                    if code == self.ACCESS_ACCEPT:
+                        attributes = self._parse_attributes(response[20:])
+                        groups = self._extract_groups(attributes)
+                        self._cached_groups.set(username, groups)
+                        logger.info(
+                            "RADIUS authentication successful",
+                            event="radius.auth.success",
+                            service="radius",
+                            username=username,
+                            groups=groups,
+                        )
+                        return True, groups
+
+                    if code == self.ACCESS_REJECT:
+                        logger.warning(
+                            "RADIUS authentication rejected",
+                            event="radius.auth.failed",
+                            service="radius",
+                            username=username,
+                        )
+                        return False, []
+                except TimeoutError:
+                    logger.warning(
+                        "RADIUS timeout",
+                        event="radius.auth.timeout",
+                        service="radius",
+                        attempt=attempt + 1,
+                        retries=self.radius_retries,
                     )
                     continue
-
-                if not self._verify_response(response, authenticator):
-                    logger.warning("RADIUS authenticator verification failed")
-                    continue
-
-                if code == self.ACCESS_ACCEPT:
-                    # Parse attributes to extract groups
-                    attributes = self._parse_attributes(response[20:])
-                    groups = self._extract_groups(attributes)
-
-                    # Cache groups for this user (TTL-bound)
-                    self._cached_groups.set(username, groups)
-
-                    logger.info(
-                        f"RADIUS authentication successful for {username}, groups: {groups}"
+                except Exception as e:
+                    logger.error(
+                        "RADIUS communication error",
+                        event="radius.auth.communication_error",
+                        service="radius",
+                        error=str(e),
                     )
-                    return True, groups
-
-                elif code == self.ACCESS_REJECT:
-                    logger.info(f"RADIUS authentication rejected for {username}")
-                    return False, []
-
-            except TimeoutError:
-                logger.warning(
-                    f"RADIUS timeout (attempt {attempt + 1}/{self.radius_retries})"
-                )
-                continue
-            except Exception as e:
-                logger.error(f"RADIUS communication error: {e}")
-                continue
-
+                    continue
+        finally:
+            clear_context(ctx)
         return False, []
 
     def is_available(self) -> bool:

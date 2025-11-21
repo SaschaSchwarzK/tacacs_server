@@ -10,7 +10,7 @@ from typing import Any
 from .exceptions import ValidationError
 from .logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.sql_security", component="sql_security")
 
 
 class SQLSecurityError(Exception):
@@ -323,9 +323,13 @@ class SecureDatabase:
                 cursor.execute(query)
             return cursor
         except sqlite3.Error as e:
-            logger.error(f"Database query error: {e}")
-            logger.error(f"Query: {query}")
-            logger.error(f"Params: {params}")
+            logger.error(
+                "Database query error",
+                event="sql.query.error",
+                error=str(e),
+                query=query,
+                params=params,
+            )
             raise SQLSecurityError(f"Database operation failed: {e}") from e
 
     def select(

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.metrics_history", component="metrics")
 
 
 class MetricsHistory:
@@ -89,7 +89,11 @@ class MetricsHistory:
                 )
             return True
         except Exception as e:
-            logger.error(f"Failed to record metrics snapshot: {e}")
+            logger.error(
+                "Failed to record metrics snapshot",
+                event="metrics.snapshot.error",
+                error=str(e),
+            )
             return False
 
     def get_historical_data(self, hours: int = 24) -> list[dict]:
@@ -110,7 +114,11 @@ class MetricsHistory:
 
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to get historical data: {e}")
+            logger.error(
+                "Failed to get historical data",
+                event="metrics.history.error",
+                error=str(e),
+            )
             return []
 
     def get_summary_stats(self, hours: int = 24) -> dict:
@@ -149,7 +157,11 @@ class MetricsHistory:
                     }
                 return {}
         except Exception as e:
-            logger.error(f"Failed to get summary stats: {e}")
+            logger.error(
+                "Failed to get summary stats",
+                event="metrics.summary.error",
+                error=str(e),
+            )
             return {}
 
     def cleanup_old_data(self, retention_days: int = 30) -> int:
@@ -168,11 +180,20 @@ class MetricsHistory:
 
                 deleted_count = cursor.rowcount
                 if deleted_count > 0:
-                    logger.info(f"Cleaned up {deleted_count} old metrics records")
+                    logger.info(
+                        "Cleaned up old metrics records",
+                        event="metrics.cleanup.completed",
+                        deleted_count=deleted_count,
+                        retention_days=retention_days,
+                    )
 
                 return deleted_count
         except Exception as e:
-            logger.error(f"Failed to cleanup old data: {e}")
+            logger.error(
+                "Failed to cleanup old metrics data",
+                event="metrics.cleanup.error",
+                error=str(e),
+            )
             return 0
 
 

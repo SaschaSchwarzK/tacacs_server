@@ -4,11 +4,12 @@ import importlib
 import os
 import re
 import ssl
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.retry import retry
 
 from .base import BackupDestination, BackupMetadata
@@ -78,10 +79,18 @@ class FTPBackupDestination(BackupDestination):
         if not self.use_tls:
             # Allow plain FTP for backward compatibility and tests, but warn loudly
             _logger.warning(
-                "FTP destination configured without TLS (use_tls=false) — insecure"
+                "FTP destination configured without TLS",
+                host=self.host,
+                port=self.port,
+                passive=self.passive,
             )
         if self.use_tls and not self.verify_ssl:
-            _logger.warning("FTPS certificate verification disabled (verify_ssl=false)")
+            _logger.warning(
+                "FTPS certificate verification disabled",
+                host=self.host,
+                port=self.port,
+                verify_ssl=self.verify_ssl,
+            )
 
     @staticmethod
     def _normalize_remote_path(path: str) -> str:
@@ -144,7 +153,10 @@ class FTPBackupDestination(BackupDestination):
                     ctx.check_hostname = False
                     ctx.verify_mode = ssl.CERT_NONE
                     _logger.warning(
-                        "FTPS verify_ssl disabled — not recommended for production"
+                        "FTPS verify_ssl disabled — not recommended for production",
+                        host=self.host,
+                        port=self.port,
+                        verify_ssl=self.verify_ssl,
                     )
                 client.context = ctx
             except Exception:
@@ -156,11 +168,31 @@ class FTPBackupDestination(BackupDestination):
 
     @contextmanager
     def _connect(self):
+        ctx_token = None
         ftp = None
         try:
+            ctx_token = bind_context(
+                destination="ftp",
+                host=self.host,
+                port=self.port,
+                tls_enabled=self.use_tls,
+                passive=self.passive,
+            )
             ftp = self._make_ftps()
             ftp.connect(self.host, self.port, timeout=self.timeout)
-            ftp.login(self.username, self.password)
+            ftplib = importlib.import_module("ftplib")  # nosec B402 - dynamic import
+            try:
+                ftp.login(self.username, self.password)
+            except ftplib.error_perm as exc:
+                _logger.warning(
+                    "FTP authentication failed",
+                    event="ftp_auth_failed",
+                    host=self.host,
+                    port=self.port,
+                    username=self.username,
+                    error=str(exc),
+                )
+                raise
             ftp.set_pasv(self.passive)
             if self.use_tls and hasattr(ftp, "prot_p"):
                 ftp.prot_p()  # secure data channel
@@ -177,8 +209,18 @@ class FTPBackupDestination(BackupDestination):
                     try:
                         ftp.close()
                     except Exception as close_exc:
-                        _logger.warning("FTP close failed: %s", close_exc)
-                _logger.warning("FTP quit failed: %s", exc)
+                        _logger.warning(
+                            "FTP close failed",
+                            error=str(close_exc),
+                            host=self.host,
+                            port=self.port,
+                        )
+                _logger.warning(
+                    "FTP quit failed", error=str(exc), host=self.host, port=self.port
+                )
+            finally:
+                if ctx_token:
+                    clear_context(ctx_token)
 
     def _ensure_remote_dirs(self, ftp, remote_dir: str) -> None:
         parts = self._normalize_remote_path(remote_dir).strip("/").split("/")
@@ -188,7 +230,12 @@ class FTPBackupDestination(BackupDestination):
             try:
                 ftp.mkd(cur)
             except Exception as exc:
-                _logger.warning("FTP ensure dir failed (%s): %s", cur, exc)
+                _logger.warning(
+                    "FTP ensure dir failed",
+                    error=str(exc),
+                    path=cur,
+                    host=self.host,
+                )
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
@@ -201,10 +248,30 @@ class FTPBackupDestination(BackupDestination):
                 data = BytesIO(b"ok")
                 ftp.storbinary(f"STOR {test_name}", data)
                 ftp.delete(test_name)
+            _logger.info(
+                "FTP connection verified",
+                event="ftp_connection_verified",
+                host=self.host,
+                port=self.port,
+            )
             return True, "Connected successfully"
         except (TimeoutError, EOFError) as exc:
+            _logger.warning(
+                "FTP connection timed out",
+                event="ftp_connection_timeout",
+                host=self.host,
+                port=self.port,
+                error=str(exc),
+            )
             return False, f"Connection timeout: {exc}"
         except Exception as exc:
+            _logger.warning(
+                "FTP connection check failed",
+                event="ftp_connection_failed",
+                host=self.host,
+                port=self.port,
+                error=str(exc),
+            )
             return False, str(exc)
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
@@ -223,6 +290,8 @@ class FTPBackupDestination(BackupDestination):
             src = self._safe_local_path(local_file_path)
         else:
             src = str(src_path)
+        start_time = time.time()
+        local_size = os.path.getsize(src)
         with self._connect() as ftp, open(str(src), "rb") as f:
             # ensure directory exists
             dir_part = "/".join(rp.strip("/").split("/")[:-1])
@@ -240,8 +309,8 @@ class FTPBackupDestination(BackupDestination):
                     pass
                 raise RuntimeError(f"Upload failed: {exc}")
         # Verify size
+        duration = time.time() - start_time
         try:
-            local_size = os.path.getsize(src)
             with self._connect() as ftp:
                 size = ftp.size(rp)
             if size is not None and int(size) != int(local_size):
@@ -250,7 +319,23 @@ class FTPBackupDestination(BackupDestination):
                 )
         except Exception as exc:
             # Non-critical verification
-            _logger.warning("ftp_upload_verify_failed", error=str(exc))
+            _logger.warning(
+                "FTP upload verification failed",
+                event="ftp_upload_verify_failed",
+                remote_path=rp,
+                host=self.host,
+                port=self.port,
+                error=str(exc),
+            )
+        _logger.info(
+            "FTP upload completed",
+            event="ftp_upload_completed",
+            remote_path=rp,
+            size_bytes=local_size,
+            duration_seconds=duration,
+            host=self.host,
+            port=self.port,
+        )
         return rp
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
@@ -268,10 +353,23 @@ class FTPBackupDestination(BackupDestination):
             _P(dst_p).parent.mkdir(parents=True, exist_ok=True)
             with self._connect() as ftp, open(str(dst_p), "wb") as f:
                 ftp.retrbinary(f"RETR {rp}", f.write, blocksize=8192)
+            _logger.info(
+                "FTP download completed",
+                event="ftp_download_completed",
+                remote_path=remote_path,
+                local_path=str(dst_p),
+                host=self.host,
+                port=self.port,
+            )
             return True
         except Exception as exc:
             _logger.error(
-                "ftp_download_failed", error=str(exc), remote_path=remote_path
+                "FTP download failed",
+                event="ftp_download_failed",
+                error=str(exc),
+                remote_path=remote_path,
+                host=self.host,
+                port=self.port,
             )
             return False
 
@@ -334,7 +432,13 @@ class FTPBackupDestination(BackupDestination):
                         )
                     )
         except Exception as exc:
-            _logger.error("ftp_list_failed", error=str(exc))
+            _logger.error(
+                "FTP list failed",
+                event="ftp_list_failed",
+                error=str(exc),
+                host=self.host,
+                base_path=self.base_path,
+            )
             return []
         if prefix:
             items = [i for i in items if prefix in i.path]
@@ -350,11 +454,20 @@ class FTPBackupDestination(BackupDestination):
                 try:
                     ftp.delete(rp + ".manifest.json")
                 except Exception as exc:
-                    _logger.warning("FTP manifest cleanup failed for %s: %s", rp, exc)
+                    _logger.warning(
+                        "FTP manifest cleanup failed",
+                        error=str(exc),
+                        remote_path=rp,
+                        host=self.host,
+                    )
             return True
         except Exception as exc:
             _logger.warning(
-                "ftp_delete_failed", error=str(exc), remote_path=remote_path
+                "FTP delete failed",
+                event="ftp_delete_failed",
+                error=str(exc),
+                remote_path=remote_path,
+                host=self.host,
             )
             return False
 
@@ -403,7 +516,11 @@ class FTPBackupDestination(BackupDestination):
                     )
         except Exception as exc:
             _logger.error(
-                "ftp_get_info_failed", error=str(exc), remote_path=remote_path
+                "FTP get info failed",
+                event="ftp_get_info_failed",
+                error=str(exc),
+                remote_path=remote_path,
+                host=self.host,
             )
             return None
         return None

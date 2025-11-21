@@ -13,7 +13,7 @@ from .logger import get_logger
 from .metrics_history import get_metrics_history
 from .rate_limiter import get_rate_limiter
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.background_tasks", component="background")
 
 
 class BackgroundTaskManager:
@@ -36,7 +36,12 @@ class BackgroundTaskManager:
         self.running = True
         self.task_thread = threading.Thread(target=self._run_tasks, daemon=True)
         self.task_thread.start()
-        logger.info("Background task manager started")
+        logger.info(
+            "Background task manager started",
+            event="background.start",
+            interval_metrics=self.metrics_interval,
+            interval_cleanup=self.cleanup_interval,
+        )
 
     def stop(self) -> None:
         """Stop background tasks"""
@@ -46,7 +51,7 @@ class BackgroundTaskManager:
         self.running = False
         if self.task_thread:
             self.task_thread.join(timeout=5)
-        logger.info("Background task manager stopped")
+        logger.info("Background task manager stopped", event="background.stop")
 
     def _run_tasks(self) -> None:
         """Main task loop"""
@@ -68,7 +73,11 @@ class BackgroundTaskManager:
                 time.sleep(10)
 
             except Exception as e:
-                logger.error(f"Background task error: {e}")
+                logger.error(
+                    "Background task error",
+                    event="background.error",
+                    error=str(e),
+                )
                 time.sleep(30)  # Wait longer on error
 
     def _record_metrics(self) -> None:
@@ -101,7 +110,11 @@ class BackgroundTaskManager:
             history.record_snapshot(metrics_data)
 
         except Exception as e:
-            logger.debug(f"Failed to record metrics: {e}")
+            logger.warning(
+                "Failed to record metrics snapshot",
+                event="background.metrics.error",
+                error=str(e),
+            )
 
     def _cleanup_old_data(self) -> None:
         """Clean up old data from various stores"""
@@ -120,12 +133,18 @@ class BackgroundTaskManager:
 
             if deleted_metrics > 0 or deleted_audit > 0:
                 logger.info(
-                    f"Cleanup completed: {deleted_metrics} metrics, "
-                    f"{deleted_audit} audit entries removed"
+                    "Background cleanup completed",
+                    event="background.cleanup.completed",
+                    metrics_deleted=deleted_metrics,
+                    audit_deleted=deleted_audit,
                 )
 
         except Exception as e:
-            logger.error(f"Cleanup task error: {e}")
+            logger.error(
+                "Cleanup task error",
+                event="background.cleanup.error",
+                error=str(e),
+            )
 
 
 # Global task manager instance

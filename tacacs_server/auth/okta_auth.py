@@ -18,6 +18,7 @@ import random
 import secrets
 import threading
 import time
+import uuid
 from hashlib import sha256
 from typing import Any
 from typing import Any as _Any
@@ -25,7 +26,7 @@ from typing import Any as _Any
 import requests
 from requests.adapters import HTTPAdapter
 
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.metrics import (
     okta_group_cache_hits,
     okta_group_cache_misses,
@@ -183,7 +184,7 @@ class OktaAuthBackend(AuthenticationBackend):
             try:
                 self._session.trust_env = False
             except Exception as set_trust_exc:
-                logger.debug(f"Failed to set trust_env: {set_trust_exc}")
+                logger.debug("Failed to set trust_env: %s", set_trust_exc)
         adapter = HTTPAdapter(pool_connections=pool_maxsize, pool_maxsize=pool_maxsize)
         if _Retry is not None:
             retry = _Retry(
@@ -551,7 +552,7 @@ class OktaAuthBackend(AuthenticationBackend):
 
                 okta_token_latency.observe(max(0.0, time.time() - a_start))
             except Exception as lat_met_exc:
-                logger.debug(f"Failed to record latency metric: {lat_met_exc}")
+                logger.debug("Failed to record latency metric: %s", lat_met_exc)
             if resp.status_code not in (200, 201):
                 # Elevate to warning so it appears in container logs
                 body_preview = (
@@ -588,7 +589,7 @@ class OktaAuthBackend(AuthenticationBackend):
                                 verify_href = f["_links"]["verify"]["href"]
                                 break
                         except Exception as top_exc:
-                            logger.debug(f"Failed to find TOTP factor: {top_exc}")
+                            logger.debug("Failed to find TOTP factor: %s", top_exc)
                             continue
                     if not verify_href:
                         logger.debug("No TOTP factor available for OTP verification")
@@ -715,109 +716,119 @@ class OktaAuthBackend(AuthenticationBackend):
         considered successful only if the user is a member of at least one of the
         allowed Okta groups.
         """
-        # Circuit breaker with cooldown reset
-        now_i = int(time.time())
-        if self._cb_open_until and now_i >= self._cb_open_until:
-            self._cb_open_until = 0
-            self._cb_consecutive_failures = 0
-            try:
-                from tacacs_server.utils.metrics import okta_circuit_reset_total
+        ctx = bind_context(
+            correlation_id=str(uuid.uuid4()),
+            service="okta",
+        )
+        try:
+            # Circuit breaker with cooldown reset
+            now_i = int(time.time())
+            if self._cb_open_until and now_i >= self._cb_open_until:
+                self._cb_open_until = 0
+                self._cb_consecutive_failures = 0
+                try:
+                    from tacacs_server.utils.metrics import okta_circuit_reset_total
 
-                okta_circuit_reset_total.inc()
-            except Exception:
-                logger.debug("Okta circuit breaker reset failed")
-        if self._cb_open_until and now_i < self._cb_open_until:
-            logger.warning(
-                "Okta circuit breaker open; denying authentication for stability"
-            )
-            try:
-                from tacacs_server.utils.metrics import okta_circuit_open
-
-                okta_circuit_open.set(1)
-            except Exception:
-                logger.debug("Okta circuit breaker open failed")
-            return False
-        else:
-            try:
-                from tacacs_server.utils.metrics import okta_circuit_open
-
-                okta_circuit_open.set(0)
-            except Exception:
-                logger.debug("Okta circuit breaker open failed")
-
-        # AuthN is the only supported flow
-        use_authn = True
-
-        key = self._cache_key(username, password)
-        cached = self._cache_get(key)
-        if cached is not None:
-            logger.debug("Okta cache hit for %s -> %s", username, cached)
-            return cached
-
-        success, expiry_ts, attrs = self._call_authn_endpoint(username, password)
-        if not success:
-            # cache negative result shortly
-            fail_ttl = int(kwargs.get("fail_ttl", 5))
-            self._cache_set(key, False, int(time.time()) + fail_ttl, {})
-            self._cb_consecutive_failures += 1
-            if self._cb_consecutive_failures >= self._cb_fail_threshold:
-                self._cb_open_until = int(time.time()) + self._cb_cooldown
+                    okta_circuit_reset_total.inc()
+                except Exception:
+                    logger.debug("Okta circuit breaker reset failed")
+            if self._cb_open_until and now_i < self._cb_open_until:
                 logger.warning(
-                    "Okta circuit breaker opening: failures=%s cooldown=%ss",
-                    self._cb_consecutive_failures,
-                    self._cb_cooldown,
+                    "Okta circuit breaker open; denying authentication for stability"
                 )
                 try:
-                    from tacacs_server.utils.metrics import okta_circuit_open_total
+                    from tacacs_server.utils.metrics import okta_circuit_open
 
-                    okta_circuit_open_total.inc()
+                    okta_circuit_open.set(1)
                 except Exception:
-                    logger.debug("Okta circuit breaker opening failed")
-            return False
-
-        priv = 0
-        if use_authn:
-            okta_user_id = attrs.get("okta_user_id")
-            if (self.api_token or self.require_group_for_auth) and okta_user_id:
-                priv = self._get_privilege_for_userid(str(okta_user_id), username)
+                    logger.debug("Okta circuit breaker open failed")
+                return False
+            else:
                 try:
-                    logger.info(
-                        "Okta group check: user=%s priv=%s",
-                        username,
-                        priv,
-                    )
+                    from tacacs_server.utils.metrics import okta_circuit_open
+
+                    okta_circuit_open.set(0)
                 except Exception:
-                    logger.debug("Okta group check failed")
+                    logger.debug("Okta circuit breaker open failed")
 
-        # If require_group_for_auth true and no privilege, fail
-        if self.require_group_for_auth and priv == 0:
-            logger.warning(
-                "Okta authentication valid but user lacks required Okta groups for mapping: %s",
+            # AuthN is the only supported flow
+            use_authn = True
+
+            key = self._cache_key(username, password)
+            cached = self._cache_get(key)
+            if cached is not None:
+                logger.debug("Okta cache hit for %s -> %s", username, cached)
+                return cached
+
+            success, expiry_ts, attrs = self._call_authn_endpoint(username, password)
+            if not success:
+                # cache negative result shortly
+                fail_ttl = int(kwargs.get("fail_ttl", 5))
+                self._cache_set(key, False, int(time.time()) + fail_ttl, {})
+                self._cb_consecutive_failures += 1
+                if self._cb_consecutive_failures >= self._cb_fail_threshold:
+                    self._cb_open_until = int(time.time()) + self._cb_cooldown
+                    logger.warning(
+                        "Okta circuit breaker opening: failures=%s cooldown=%ss",
+                        self._cb_consecutive_failures,
+                        self._cb_cooldown,
+                    )
+                    try:
+                        from tacacs_server.utils.metrics import okta_circuit_open_total
+
+                        okta_circuit_open_total.inc()
+                    except Exception:
+                        logger.debug("Okta circuit breaker opening failed")
+                return False
+
+            priv = 0
+            if use_authn:
+                okta_user_id = attrs.get("okta_user_id")
+                if (self.api_token or self.require_group_for_auth) and okta_user_id:
+                    priv = self._get_privilege_for_userid(str(okta_user_id), username)
+                    try:
+                        logger.info(
+                            "Okta group check: user=%s priv=%s",
+                            username,
+                            priv,
+                        )
+                    except Exception:
+                        logger.debug("Okta group check failed")
+
+            # If require_group_for_auth true and no privilege, fail
+            if self.require_group_for_auth and priv == 0:
+                logger.warning(
+                    "Okta authentication valid but user lacks required Okta groups for mapping: %s",
+                    username,
+                )
+                self._cache_set(
+                    key,
+                    False,
+                    expiry_ts or (int(time.time()) + self.cache_default_ttl),
+                    attrs,
+                )
+                return False
+
+            # Cache based on expiry_ts; include minimal safe token metadata for tests
+            safe_attrs = {"privilege": priv}
+            if attrs.get("okta_user_id"):
+                safe_attrs["okta_user_id"] = attrs["okta_user_id"]
+            self._cache_set(key, True, expiry_ts, safe_attrs)
+            with self._lock:
+                self._attr_cache[username] = dict(safe_attrs)
+            logger.info(
+                "Okta authentication success for %s (cached until %s) priv=%s",
                 username,
+                expiry_ts,
+                priv,
             )
-            self._cache_set(
-                key,
-                False,
-                expiry_ts or (int(time.time()) + self.cache_default_ttl),
-                attrs,
-            )
-            return False
-
-        # Cache based on expiry_ts; include minimal safe token metadata for tests
-        safe_attrs = {"privilege": priv}
-        if attrs.get("okta_user_id"):
-            safe_attrs["okta_user_id"] = attrs["okta_user_id"]
-        self._cache_set(key, True, expiry_ts, safe_attrs)
-        with self._lock:
-            self._attr_cache[username] = dict(safe_attrs)
-        logger.info(
-            "Okta authentication success for %s (cached until %s) priv=%s",
-            username,
-            expiry_ts,
-            priv,
-        )
-        self._cb_consecutive_failures = 0
-        return True
+            self._cb_consecutive_failures = 0
+            return True
+        finally:
+            try:
+                clear_context(ctx)
+            except Exception:
+                pass
 
     def _get_privilege_for_userid(self, okta_user_id: str, username: str) -> int:
         """
@@ -961,7 +972,7 @@ class OktaAuthBackend(AuthenticationBackend):
                             str(g).lower() for g in raw_groups if isinstance(g, str)
                         ]
             except Exception as cache_exc:
-                logger.debug(f"Failed to extract groups from cache: {cache_exc}")
+                logger.debug("Failed to extract groups from cache: %s", cache_exc)
             return []
 
         groups = _extract_from_cache(username)

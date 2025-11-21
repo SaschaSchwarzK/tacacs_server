@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -134,23 +133,30 @@ class BackupDestination(ABC):
                         bt = bt.replace(tzinfo=UTC)
                     age_days = (datetime.now(UTC) - bt).days
                 except Exception as exc:
-                    self._logger.debug("Failed to compute age for %s: %s", b.path, exc)
+                    self._logger.debug(
+                        "Failed to compute backup age",
+                        error=str(exc),
+                        path=b.path,
+                    )
                 try:
                     self._logger.info(
-                        json.dumps(
-                            {
-                                "event": "backup_deleted_by_retention",
-                                "path": b.path,
-                                "age_days": age_days,
-                            }
-                        )
+                        "Backup deleted by retention",
+                        event="backup_deleted_by_retention",
+                        path=b.path,
+                        age_days=age_days,
                     )
                 except Exception as exc:
-                    self._logger.debug(
-                        "Failed to log deletion event for %s: %s", b.path, exc
+                    self._logger.warning(
+                        "Failed to log retention deletion event",
+                        error=str(exc),
+                        path=b.path,
                     )
             except Exception as e:
-                self._logger.error(f"Failed to delete backup {b.path}: {e}")
+                self._logger.error(
+                    "Failed to delete backup during retention",
+                    error=str(e),
+                    path=b.path,
+                )
         return deleted_count
 
     # ------------------------------
