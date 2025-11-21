@@ -433,6 +433,7 @@ class TacacsServer:
         # Log bind attempt explicitly for easier diagnostics in CI logs
         logger.info(
             "Attempting to bind TACACS+ socket",
+            event="tacacs.socket.bind_attempt",
             bind_host=bind_host,
             bind_port=self.port,
         )
@@ -449,6 +450,7 @@ class TacacsServer:
                 err_str = str(e)
             logger.error(
                 "Failed to bind TACACS+ socket",
+                event="tacacs.socket.bind_failed",
                 host=bind_host,
                 port=self.port,
                 errno=err_no,
@@ -461,6 +463,7 @@ class TacacsServer:
             self.server_socket.listen(self.listen_backlog)
             logger.info(
                 "TACACS+ socket bound and listening",
+                event="tacacs.socket.bound",
                 bind_host=bind_host,
                 bind_port=self.port,
                 backlog=self.listen_backlog,
@@ -468,6 +471,7 @@ class TacacsServer:
         except OSError as e:
             logger.error(
                 "Failed to listen on TACACS+ socket",
+                event="tacacs.socket.listen_failed",
                 host=bind_host,
                 port=self.port,
                 error=str(e),
@@ -742,6 +746,11 @@ class TacacsServer:
         try:
             ok = getattr(self.db_logger, "ping", lambda: False)()
             if not ok:
+                logger.warning(
+                    "Database health check failed",
+                    event="tacacs.database.unhealthy",
+                    error="ping failed",
+                )
                 return {
                     "status": "unhealthy",
                     "records_today": 0,
@@ -754,10 +763,20 @@ class TacacsServer:
             except Exception:
                 recs = 0
 
+            logger.debug(
+                "Database health check passed",
+                event="tacacs.database.healthy",
+                records_today=int(recs) if recs else 0,
+            )
+
             return {"status": "healthy", "records_today": int(recs) if recs else 0}
 
         except Exception as e:
-            logger.error("Database health check failed: %s", e)
+            logger.error(
+                "Database health check failed",
+                event="tacacs.database.health_error",
+                error=str(e),
+            )
             return {
                 "status": "unhealthy",
                 "records_today": 0,

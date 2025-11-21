@@ -639,29 +639,18 @@ class DatabaseLogger:
                     port=base_data.get("port"),
                 )
                 # Emit syslog audit line if configured
-                try:
-                    syslog = self._syslog
-                    if syslog is not None:
-                        syslog.info(
-                            json.dumps(
-                                {
-                                    "event": "accounting.record.syslog",
-                                    "username": base_data.get("username"),
-                                    "session": base_data.get("session_id"),
-                                    "status": base_data.get("status"),
-                                    "service": base_data.get("service", ""),
-                                    "command": base_data.get("command", ""),
-                                    "client_ip": base_data.get("client_ip", ""),
-                                    "bytes_in": int(base_data.get("bytes_in", 0)),
-                                    "bytes_out": int(base_data.get("bytes_out", 0)),
-                                }
-                            )
-                        )
-                except Exception as syslog_exc:
-                    logger.warning(
-                        "Accounting syslog emit failed",
-                        event="accounting.syslog.emit_failed",
-                        error=str(syslog_exc),
+                syslog = self._syslog
+                if syslog is not None:
+                    syslog.info(
+                        "event=accounting.record.syslog username=%s session=%s status=%s service=%s command=%s client_ip=%s bytes_in=%s bytes_out=%s",
+                        base_data.get("username"),
+                        base_data.get("session_id"),
+                        base_data.get("status"),
+                        base_data.get("service", ""),
+                        base_data.get("command", ""),
+                        base_data.get("client_ip", ""),
+                        int(base_data.get("bytes_in", 0)),
+                        int(base_data.get("bytes_out", 0)),
                     )
 
             # Update active sessions once the write transaction has closed
@@ -933,29 +922,18 @@ class DatabaseLogger:
 
             self.conn.commit()
             # Syslog mirror for audit trail (fallback path)
-            try:
-                syslog = self._syslog
-                if syslog is not None:
-                    syslog.info(
-                        json.dumps(
-                            {
-                                "event": "accounting.record.syslog",
-                                "username": data.get("username"),
-                                "session": data.get("session_id"),
-                                "status": data.get("acct_type", data.get("status")),
-                                "service": data.get("service", ""),
-                                "command": data.get("command", ""),
-                                "client_ip": data.get("client_ip", ""),
-                                "bytes_in": int(data.get("bytes_in", 0)),
-                                "bytes_out": int(data.get("bytes_out", 0)),
-                            }
-                        )
-                    )
-            except Exception as syslog_exc:
-                logger.warning(
-                    "Accounting syslog emit failed",
-                    event="accounting.syslog.emit_failed",
-                    error=str(syslog_exc),
+            syslog = self._syslog
+            if syslog is not None:
+                syslog.info(
+                    "event=accounting.record.syslog username=%s session=%s status=%s service=%s command=%s client_ip=%s bytes_in=%s bytes_out=%s",
+                    data.get("username"),
+                    data.get("session_id"),
+                    data.get("acct_type", data.get("status")),
+                    data.get("service", ""),
+                    data.get("command", ""),
+                    data.get("client_ip", ""),
+                    int(data.get("bytes_in", 0)),
+                    int(data.get("bytes_out", 0)),
                 )
             self._invalidate_stats_cache_for_timestamp(timestamp_value)
             return True

@@ -555,9 +555,12 @@ def _assert_worker_handled_since(
     suffix = (
         current[len(before_logs) :] if len(current) >= len(before_logs) else current
     )
-    needle = f"process_pool.handled backend={backend_label}"
-    assert needle in suffix, (
-        f"Expected worker-handled marker '{needle}' not found in new log output for {backend_label}"
+    # New structured logs include the event field rather than embedded text.
+    event_token = '"event": "process_pool.handled"'
+    backend_token = f'"backend": "{backend_label}"'
+    assert event_token in suffix and backend_token in suffix, (
+        f"Expected worker-handled marker for {backend_label} not found "
+        "in new log output (missing event/backend tokens)"
     )
 
 

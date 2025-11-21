@@ -5,11 +5,12 @@ LDAP Authentication Backend
 import os
 import threading
 import time as _t
+import uuid
 from queue import Empty, Queue
 from typing import Any
 
 from tacacs_server.utils.exceptions import ValidationError
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.metrics import ldap_pool_borrows, ldap_pool_reconnects
 from tacacs_server.utils.validation import InputValidator
 
@@ -92,6 +93,10 @@ class LDAPAuthBackend(AuthenticationBackend):
             logger.error("LDAP authentication unavailable - ldap3 module not installed")
             return False
 
+        ctx = bind_context(
+            correlation_id=str(uuid.uuid4()),
+            service="ldap",
+        )
         try:
             # Validate inputs to prevent LDAP injection
             username = InputValidator.validate_username(username)
@@ -177,6 +182,11 @@ class LDAPAuthBackend(AuthenticationBackend):
                 e,
             )
             return False
+        finally:
+            try:
+                clear_context(ctx)
+            except Exception:
+                pass
 
     def get_user_attributes(self, username: str) -> dict[str, Any]:
         """Get user attributes from LDAP"""
