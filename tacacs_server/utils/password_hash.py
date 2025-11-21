@@ -7,14 +7,18 @@ import secrets
 
 from .logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.password_hash", component="auth")
 
 try:
     import bcrypt
 
     BCRYPT_AVAILABLE = True
 except ImportError:
-    logger.warning("bcrypt module not available. Install with: pip install bcrypt")
+    logger.warning(
+        "bcrypt module not available",
+        event="password_hash.bcrypt_missing",
+        action="pip install bcrypt",
+    )
     BCRYPT_AVAILABLE = False
 
 
@@ -71,7 +75,10 @@ class PasswordHasher:
             True if password matches hash, False otherwise
         """
         if not BCRYPT_AVAILABLE:
-            logger.error("bcrypt module not available for password verification")
+            logger.error(
+                "bcrypt module not available for password verification",
+                event="password_hash.bcrypt_missing",
+            )
             return False
 
         try:
@@ -89,7 +96,11 @@ class PasswordHasher:
             return bcrypt.checkpw(password_bytes, hashed_bytes)
 
         except Exception as e:
-            logger.error(f"Password verification error: {e}")
+            logger.error(
+                "Password verification error",
+                event="password_hash.verify_error",
+                error=str(e),
+            )
             return False
 
     @classmethod
@@ -178,7 +189,10 @@ class LegacyPasswordMigrator:
         try:
             return PasswordHasher.hash_password(password)
         except RuntimeError:
-            logger.error("Cannot migrate password: bcrypt not available")
+            logger.error(
+                "Cannot migrate password: bcrypt not available",
+                event="password_hash.migrate_failed",
+            )
             return None
 
 
@@ -199,7 +213,8 @@ def verify_password(password: str, hashed: str) -> bool:
     # Fall back to legacy SHA-256 verification
     if LegacyPasswordMigrator.is_legacy_hash(hashed):
         logger.warning(
-            "Using legacy SHA-256 password verification - consider migrating to bcrypt"
+            "Using legacy SHA-256 password verification - consider migrating to bcrypt",
+            event="password_hash.legacy_verification",
         )
         # Legacy SHA-256 support for backward compatibility only
         import warnings
@@ -208,7 +223,11 @@ def verify_password(password: str, hashed: str) -> bool:
             warnings.simplefilter("ignore", DeprecationWarning)
             return LegacyPasswordMigrator.verify_legacy_password(password, hashed)
 
-    logger.error(f"Unknown password hash format: {hashed[:20]}...")
+    logger.warning(
+        "Unknown password hash format",
+        event="password_hash.unknown_format",
+        prefix=hashed[:20],
+    )
     return False
 
 

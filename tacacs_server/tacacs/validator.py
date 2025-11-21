@@ -1,12 +1,5 @@
 """Packet validation logic"""
 
-try:
-    import json as _json
-
-    _HAS_JSON = True
-except Exception:
-    _HAS_JSON = False
-
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_MAJOR_VER,
     TAC_PLUS_PACKET_TYPE,
@@ -54,54 +47,27 @@ class PacketValidator:
         return length <= self.max_packet_length
 
     def _log_invalid_version(self, session_id: int, got_version: int):
-        if _HAS_JSON:
-            try:
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "invalid_major_version",
-                            "session": f"0x{session_id:08x}",
-                            "got": got_version,
-                            "expected": TAC_PLUS_MAJOR_VER,
-                        }
-                    )
-                )
-            except Exception as e:
-                logger.debug("Failed to log invalid major version: %s", e)
-        else:
-            logger.warning(f"Invalid major version: {got_version}")
+        logger.warning(
+            "Invalid major version",
+            event="tacacs.packet.invalid_major_version",
+            session=f"0x{session_id:08x}",
+            got=got_version,
+            expected=TAC_PLUS_MAJOR_VER,
+        )
 
     def _log_invalid_type(self, session_id: int, packet_type: int):
-        if _HAS_JSON:
-            try:
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "invalid_packet_type",
-                            "session": f"0x{session_id:08x}",
-                            "type": packet_type,
-                        }
-                    )
-                )
-            except Exception as e:
-                logger.debug("Failed to log invalid packet type: %s", e)
-        else:
-            logger.warning(f"Invalid packet type: {packet_type}")
+        logger.warning(
+            "Invalid packet type",
+            event="tacacs.packet.invalid_type",
+            session=f"0x{session_id:08x}",
+            packet_type=packet_type,
+        )
 
     def _log_invalid_sequence(self, session_id: int, seq_no: int):
-        if _HAS_JSON:
-            try:
-                logger.warning(
-                    _json.dumps(
-                        {
-                            "event": "invalid_sequence_number",
-                            "session": f"0x{session_id:08x}",
-                            "got": seq_no,
-                            "require": "odd>=1",
-                        }
-                    )
-                )
-            except Exception as e:
-                logger.debug("Failed to log invalid sequence number: %s", e)
-        else:
-            logger.warning(f"Invalid sequence number for request: {seq_no}")
+        logger.warning(
+            "Invalid sequence number for request",
+            event="tacacs.packet.invalid_sequence",
+            session=f"0x{session_id:08x}",
+            got=seq_no,
+            require="odd>=1",
+        )

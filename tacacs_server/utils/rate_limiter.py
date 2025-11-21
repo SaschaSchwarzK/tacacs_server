@@ -11,7 +11,7 @@ import time
 
 from tacacs_server.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.rate_limiter", component="rate_limiting")
 
 
 class ConnectionLimiter:
@@ -21,7 +21,11 @@ class ConnectionLimiter:
         self._ip_conn_lock = threading.RLock()
         self._ip_connections: dict[str, int] = {}
         self.max_per_ip = max_per_ip
-        logger.info("ConnectionLimiter initialized with max_per_ip=%s", max_per_ip)
+        logger.debug(
+            "ConnectionLimiter initialized",
+            event="rate_limit.connection_limiter_init",
+            max_per_ip=max_per_ip,
+        )
 
     def acquire(self, ip: str) -> bool:
         """Try to acquire connection slot for IP"""
@@ -29,19 +33,20 @@ class ConnectionLimiter:
             current = self._ip_connections.get(ip, 0)
             if current >= self.max_per_ip:
                 logger.warning(
-                    "Per-IP connection cap exceeded for %s (count=%s/%s, limit=%s)",
-                    ip,
-                    current,
-                    self.max_per_ip,
-                    self.max_per_ip,
+                    "Per-IP connection cap exceeded",
+                    event="rate_limit.connection_cap_exceeded",
+                    client_ip=ip,
+                    count=current,
+                    max_per_ip=self.max_per_ip,
                 )
                 return False
             self._ip_connections[ip] = current + 1
             logger.debug(
-                "Connection acquired for %s (count=%s/%s)",
-                ip,
-                current + 1,
-                self.max_per_ip,
+                "Connection acquired",
+                event="rate_limit.connection_acquired",
+                client_ip=ip,
+                count=current + 1,
+                max_per_ip=self.max_per_ip,
             )
             return True
 
@@ -51,10 +56,20 @@ class ConnectionLimiter:
             current = max(0, self._ip_connections.get(ip, 1) - 1)
             if current == 0:
                 self._ip_connections.pop(ip, None)
-                logger.debug("Connection released for %s (count=0)", ip)
+                logger.debug(
+                    "Connection released",
+                    event="rate_limit.connection_released",
+                    client_ip=ip,
+                    count=0,
+                )
             else:
                 self._ip_connections[ip] = current
-                logger.debug("Connection released for %s (count=%s)", ip, current)
+                logger.debug(
+                    "Connection released",
+                    event="rate_limit.connection_released",
+                    client_ip=ip,
+                    count=current,
+                )
 
     def get_count(self, ip: str) -> int:
         """Get current connection count for IP"""

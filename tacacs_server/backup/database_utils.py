@@ -25,7 +25,11 @@ def export_database(source_path: str, dest_path: str) -> None:
         with sqlite3.connect(source_path, timeout=30.0) as conn:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except Exception as exc:
-        logger.warning("WAL checkpoint failed before backup: %s", exc)
+        logger.warning(
+            "WAL checkpoint failed before backup",
+            error=str(exc),
+            source_path=source_path,
+        )
 
     # Attempt backup API with simple retry loop to tolerate transient locks
     last_err: Exception | None = None
@@ -44,7 +48,11 @@ def export_database(source_path: str, dest_path: str) -> None:
                     src.execute("PRAGMA busy_timeout = 30000")
                     dst.execute("PRAGMA busy_timeout = 30000")
                 except Exception as exc:
-                    logger.debug("Failed to set busy timeout during backup: %s", exc)
+                    logger.debug(
+                        "Failed to set busy timeout during backup",
+                        error=str(exc),
+                        source_path=source_path,
+                    )
                 src.backup(dst)
             last_err = None
             break
@@ -103,7 +111,12 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
         try:
             shutil.copy2(dest_path, backup_path)
         except Exception as exc:
-            logger.warning("Failed to backup existing DB before import: %s", exc)
+            logger.warning(
+                "Failed to backup existing DB before import",
+                error=str(exc),
+                dest_path=dest_path,
+                backup_path=backup_path,
+            )
 
     # Remove any leftover SQLite WAL/SHM sidecar files to avoid recovery from
     # stale journals after import (which could resurrect pre-restore state).
@@ -112,7 +125,11 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
             if os.path.exists(sidecar):
                 os.remove(sidecar)
         except Exception as exc:
-            logger.debug("Sidecar cleanup failed during import: %s", exc)
+            logger.debug(
+                "Sidecar cleanup failed during import",
+                error=str(exc),
+                sidecar=sidecar,
+            )
 
     # Try atomic replace with retries for locked databases
     tmp = dest_path + ".import.tmp"
@@ -146,7 +163,9 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
                     os.remove(tmp)
                 except Exception as cleanup_exc:
                     logger.warning(
-                        "Temporary import file cleanup failed: %s", cleanup_exc
+                        "Temporary import file cleanup failed",
+                        error=str(cleanup_exc),
+                        temp_path=tmp,
                     )
 
             if attempt >= max_attempts - 1:
@@ -166,7 +185,11 @@ def import_database(source_path: str, dest_path: str, verify: bool = True) -> No
                 # Removing sidecars after a full replace is safe; SQLite creates fresh ones as needed
                 os.remove(sidecar)
         except Exception as exc:
-            logger.warning("Sidecar cleanup after import failed: %s", exc)
+            logger.warning(
+                "Sidecar cleanup after import failed",
+                error=str(exc),
+                sidecar=sidecar,
+            )
 
     if verify:
         ok, msg = verify_database_integrity(dest_path)
@@ -199,7 +222,9 @@ def verify_database_integrity(db_path: str) -> tuple[bool, str]:
                 if fk_errors:
                     return False, f"Foreign key violations: {len(fk_errors)}"
             except Exception as exc:
-                logger.debug("Foreign key check not supported: %s", exc)
+                logger.debug(
+                    "Foreign key check not supported", error=str(exc), db_path=db_path
+                )
 
             # Read all tables (ensure basic readability)
             cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -213,7 +238,7 @@ def verify_database_integrity(db_path: str) -> tuple[bool, str]:
 
         return True, "Database verified successfully"
     except Exception as e:  # pragma: no cover - error path
-        logger.warning("Database verification failed: %s", e)
+        logger.warning("Database verification failed", error=str(e), db_path=db_path)
         return False, f"Verification failed: {str(e)}"
 
 

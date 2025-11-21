@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.retry import retry
 
 from .base import BackupDestination, BackupMetadata
@@ -24,6 +24,13 @@ class AzureBlobBackupDestination(BackupDestination):
         self.blob_service_client: Any | None = None
         self.container_client: Any | None = None
         self.validate_config()
+
+    def _bind_scope(self):
+        return bind_context(
+            destination="azure",
+            account=self.config.get("account_name"),
+            container=self.config.get("container_name"),
+        )
 
     # --- configuration / validation ---
     def validate_config(self) -> None:
@@ -143,7 +150,11 @@ class AzureBlobBackupDestination(BackupDestination):
                 "encrypted": str(manifest.get("encrypted", False)).lower(),
             }
         except Exception as exc:
-            _logger.debug("azure_build_metadata_failed", error=str(exc))
+            _logger.debug(
+                "Failed to build Azure blob metadata",
+                event="azure_build_metadata_failed",
+                error=str(exc),
+            )
             return {}
         return metadata
 
@@ -161,7 +172,11 @@ class AzureBlobBackupDestination(BackupDestination):
                 "encrypted": str(manifest.get("encrypted", False)).lower(),
             }
         except Exception as exc:
-            _logger.debug("azure_build_tags_failed", error=str(exc))
+            _logger.debug(
+                "Failed to build Azure blob tags",
+                event="azure_build_tags_failed",
+                error=str(exc),
+            )
             tags = {}
 
         # Add custom tags from configuration
@@ -174,7 +189,10 @@ class AzureBlobBackupDestination(BackupDestination):
 
         # Ensure we don't exceed 10 tags
         if len(tags) > 10:
-            _logger.warning("Too many blob tags, truncating to 10")
+            _logger.warning(
+                "Too many blob tags, truncating to 10",
+                event="azure_tags_truncated",
+            )
             tags = dict(list(tags.items())[:10])
 
         return tags
@@ -182,10 +200,13 @@ class AzureBlobBackupDestination(BackupDestination):
     # --- API methods ---
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def test_connection(self) -> tuple[bool, str]:
+        ctx = self._bind_scope()
         try:
             # Initialize and ensure container exists
             self._ensure_clients()
             assert self.container_client is not None
+            container_name = str(self.config.get("container_name"))
+            account_name = str(self.config.get("account_name") or "")
 
             try:
                 if not self.container_client.exists():
@@ -200,11 +221,21 @@ class AzureBlobBackupDestination(BackupDestination):
                             raise
             except Exception as exc:
                 # Fallback to best-effort create ignoring conflicts
-                _logger.warning("Container existence check failed: %s", exc)
+                _logger.warning(
+                    "Azure container existence check failed",
+                    error=str(exc),
+                    container=container_name,
+                    account=account_name,
+                )
                 try:
                     self.container_client.create_container()
                 except Exception as exc2:
-                    _logger.warning("Container create retry failed: %s", exc2)
+                    _logger.warning(
+                        "Azure container creation retry failed",
+                        error=str(exc2),
+                        container=container_name,
+                        account=account_name,
+                    )
 
             # Test upload, download, delete
             test_blob = ".connect_test"
@@ -224,9 +255,17 @@ class AzureBlobBackupDestination(BackupDestination):
             blob_client.delete_blob()
             # List operation
             list(self.container_client.list_blobs(name_starts_with=""))
+            _logger.info(
+                "Azure connection verified",
+                event="azure_connection_verified",
+                container=container_name,
+                account=account_name or None,
+            )
             return True, "Connected successfully"
         except Exception as exc:
             return False, str(exc)
+        finally:
+            clear_context(ctx)
 
     # --- path helpers ---
     def _blob_name(self, remote_filename: str) -> str:
@@ -328,58 +367,88 @@ class AzureBlobBackupDestination(BackupDestination):
                 os.close(fd)
 
     def upload_backup(self, local_file_path: str, remote_filename: str) -> str:
-        self._ensure_clients()
-        assert self.container_client is not None
-        blob_name = self._blob_name(remote_filename)
-        blob_client = self.container_client.get_blob_client(blob_name)
+        ctx = self._bind_scope()
+        try:
+            self._ensure_clients()
+            assert self.container_client is not None
+            blob_name = self._blob_name(remote_filename)
+            blob_client = self.container_client.get_blob_client(blob_name)
 
-        # Basic retry with exponential backoff for transient errors
-        max_attempts = 3
-        delay = 1.0
-        for attempt in range(1, max_attempts + 1):
-            try:
-                from tacacs_server.backup.path_policy import safe_input_file
+            # Basic retry with exponential backoff for transient errors
+            max_attempts = 3
+            delay = 1.0
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    from tacacs_server.backup.path_policy import safe_input_file
 
-                src_path = safe_input_file(local_file_path)
-                with open(str(src_path), "rb") as data:
-                    blob_client.upload_blob(
-                        data,
-                        overwrite=True,
-                        max_concurrency=int(self.config.get("max_concurrency", 4)),
-                        timeout=int(self.config.get("timeout", 300)),
+                    src_path = safe_input_file(local_file_path)
+                    with open(str(src_path), "rb") as data:
+                        blob_client.upload_blob(
+                            data,
+                            overwrite=True,
+                            max_concurrency=int(self.config.get("max_concurrency", 4)),
+                            timeout=int(self.config.get("timeout", 300)),
+                        )
+                    break
+                except Exception as exc:
+                    if attempt >= max_attempts:
+                        raise RuntimeError(f"Azure upload failed: {exc}")
+                    _logger.warning(
+                        "Azure upload retry",
+                        event="azure_upload_retry",
+                        attempt=attempt,
+                        remote_path=blob_name,
+                        error=str(exc),
                     )
-                break
+                    time.sleep(delay)
+                    delay *= 2
+
+            # Optional metadata and tags (best-effort; no extra context available here)
+            try:
+                # We propagate any provided metadata keys from config if present
+                meta_cfg = self.config.get("default_metadata") or {}
+                if isinstance(meta_cfg, dict) and meta_cfg:
+                    blob_client.set_blob_metadata(
+                        {str(k): str(v) for k, v in meta_cfg.items()}
+                    )
             except Exception as exc:
-                if attempt >= max_attempts:
-                    raise RuntimeError(f"Azure upload failed: {exc}")
-                _logger.warning("azure_upload_retry", attempt=attempt, error=str(exc))
-                time.sleep(delay)
-                delay *= 2
-
-        # Optional metadata and tags (best-effort; no extra context available here)
-        try:
-            # We propagate any provided metadata keys from config if present
-            meta_cfg = self.config.get("default_metadata") or {}
-            if isinstance(meta_cfg, dict) and meta_cfg:
-                blob_client.set_blob_metadata(
-                    {str(k): str(v) for k, v in meta_cfg.items()}
+                # Non-critical: metadata is best-effort
+                _logger.debug(
+                    "Failed to set Azure blob metadata",
+                    event="azure_set_metadata_failed",
+                    error=str(exc),
+                    remote_path=blob_name,
                 )
-        except Exception as exc:
-            # Non-critical: metadata is best-effort
-            _logger.debug("azure_set_metadata_failed", error=str(exc))
-        try:
-            tags_cfg = self.config.get("default_tags") or {}
-            if isinstance(tags_cfg, dict) and tags_cfg:
-                blob_client.set_blob_tags({str(k): str(v) for k, v in tags_cfg.items()})
-        except Exception as exc:
-            # Non-critical: tags are best-effort
-            _logger.debug("azure_set_tags_failed", error=str(exc))
+            try:
+                tags_cfg = self.config.get("default_tags") or {}
+                if isinstance(tags_cfg, dict) and tags_cfg:
+                    blob_client.set_blob_tags(
+                        {str(k): str(v) for k, v in tags_cfg.items()}
+                    )
+            except Exception as exc:
+                # Non-critical: tags are best-effort
+                _logger.debug(
+                    "Failed to set Azure blob tags",
+                    event="azure_set_tags_failed",
+                    error=str(exc),
+                    remote_path=blob_name,
+                )
 
-        url = getattr(blob_client, "url", None)
-        return str(url) if url is not None else f"/{blob_name}"
+            url = getattr(blob_client, "url", None)
+            final_url = str(url) if url is not None else f"/{blob_name}"
+            _logger.info(
+                "Azure upload completed",
+                event="azure_upload_completed",
+                remote_path=blob_name,
+                url=final_url,
+            )
+            return final_url
+        finally:
+            clear_context(ctx)
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def download_backup(self, remote_path: str, local_file_path: str) -> bool:
+        ctx = self._bind_scope()
         try:
             self._ensure_clients()
             assert self.container_client is not None
@@ -419,15 +488,30 @@ class AzureBlobBackupDestination(BackupDestination):
                 else int(props.size)
             )
             size_local = os.path.getsize(str(dst_path))
-            return int(size_remote) == int(size_local)
+            ok = int(size_remote) == int(size_local)
+            if ok:
+                _logger.info(
+                    "Azure download completed",
+                    event="azure_download_completed",
+                    remote_path=remote_path,
+                    local_path=str(dst_path),
+                    size_bytes=size_local,
+                )
+            return ok
         except Exception as exc:
             _logger.error(
-                "azure_download_failed", error=str(exc), remote_path=remote_path
+                "Azure download failed",
+                event="azure_download_failed",
+                error=str(exc),
+                remote_path=remote_path,
             )
             return False
+        finally:
+            clear_context(ctx)
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def list_backups(self, prefix: str | None = None) -> list[BackupMetadata]:
+        ctx = self._bind_scope()
         items: list[BackupMetadata] = []
         try:
             self._ensure_clients()
@@ -465,12 +549,16 @@ class AzureBlobBackupDestination(BackupDestination):
                     )
                 )
         except Exception as exc:
-            _logger.error("azure_list_failed", error=str(exc))
-            return []
+            _logger.error(
+                "Azure list failed", event="azure_list_failed", error=str(exc)
+            )
+        finally:
+            clear_context(ctx)
         return sorted(items, key=lambda m: m.timestamp, reverse=True)
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
     def delete_backup(self, remote_path: str) -> bool:
+        ctx = self._bind_scope()
         try:
             self._ensure_clients()
             assert self.container_client is not None
@@ -484,15 +572,25 @@ class AzureBlobBackupDestination(BackupDestination):
                 man = f"{blob_name}.manifest.json"
                 self.container_client.get_blob_client(man).delete_blob()
             except Exception as exc:
-                _logger.warning("Failed to delete manifest %s: %s", man, exc)
+                _logger.warning(
+                    "Failed to delete Azure manifest",
+                    error=str(exc),
+                    manifest=man,
+                )
             return True
         except Exception as exc:
             _logger.warning(
-                "azure_delete_failed", error=str(exc), remote_path=remote_path
+                "Azure delete failed",
+                event="azure_delete_failed",
+                error=str(exc),
+                remote_path=remote_path,
             )
             return False
+        finally:
+            clear_context(ctx)
 
     def get_backup_info(self, remote_path: str) -> BackupMetadata | None:
+        ctx = self._bind_scope()
         try:
             self._ensure_clients()
             assert self.container_client is not None
@@ -525,14 +623,20 @@ class AzureBlobBackupDestination(BackupDestination):
             )
         except Exception as exc:
             _logger.error(
-                "azure_get_info_failed", error=str(exc), remote_path=remote_path
+                "Azure get info failed",
+                event="azure_get_info_failed",
+                error=str(exc),
+                remote_path=remote_path,
             )
             return None
+        finally:
+            clear_context(ctx)
 
     # Advanced: move older backups to Cool tier and then fall back to base delete policy
     def apply_retention_policy(
         self, retention_days: int | None = None, retention_rule: Any | None = None
     ) -> int:
+        ctx = self._bind_scope()
         moved = 0
         try:
             self._ensure_clients()
@@ -549,15 +653,23 @@ class AzureBlobBackupDestination(BackupDestination):
                             moved += 1
                         except Exception as exc:
                             _logger.warning(
-                                "Failed to tier blob %s: %s", meta.path, exc
+                                "Failed to tier Azure blob",
+                                error=str(exc),
+                                remote_path=meta.path,
                             )
                 except Exception:
                     continue
         except Exception as exc:
-            _logger.debug("azure_apply_retention_tiering_failed", error=str(exc))
+            _logger.debug(
+                "Azure retention tiering failed",
+                event="azure_apply_retention_tiering_failed",
+                error=str(exc),
+            )
         # Perform base deletion for items older than retention_days
         try:
             deleted = super().apply_retention_policy(retention_days, retention_rule)
         except Exception:
             deleted = 0
+        finally:
+            clear_context(ctx)
         return deleted

@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from .logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger("tacacs_server.utils.webhook", component="webhook")
 
 
 class WebhookConfig:
@@ -36,7 +36,11 @@ class WebhookConfig:
             try:
                 self.headers.update(json.loads(hdrs))
             except Exception as exc:
-                logger.warning("Failed to render webhook template: %s", exc)
+                logger.warning(
+                    "Failed to render webhook headers from env",
+                    event="webhook.headers.parse_failed",
+                    error=str(exc),
+                )
         tmpl = os.getenv("WEBHOOK_TEMPLATE")
         if tmpl:
             try:
@@ -98,7 +102,11 @@ def _render_payload(event: str, payload: dict[str, Any]) -> dict[str, Any]:
             result.setdefault("event", event)
             return result
         except Exception as exc:
-            logger.warning("Failed to notify threshold webhook: %s", exc)
+            logger.warning(
+                "Failed to render webhook template",
+                event="webhook.template.render_failed",
+                error=str(exc),
+            )
     out = dict(payload)
     out.setdefault("event", event)
     return out
@@ -113,7 +121,12 @@ def _post(url: str, payload: dict[str, Any], timeout: float) -> None:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             resp.read(1)
     except Exception as e:
-        logger.warning("Webhook delivery failed to %s: %s", url, e)
+        logger.warning(
+            "Webhook delivery failed",
+            event="webhook.delivery_failed",
+            url=url,
+            error=str(e),
+        )
 
 
 def set_webhook_sender(

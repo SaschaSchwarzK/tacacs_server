@@ -35,16 +35,25 @@ def is_url(source: str) -> bool:
 
 def load_from_url(source: str, cache_path: str | None = None) -> str | None:
     """Load configuration from URL with optional caching."""
-    logger.debug("Attempting to load configuration from URL source")
+    logger.debug(
+        "Attempting to load configuration from URL source",
+        event="tacacs.config.loader.url_attempt",
+        service="tacacs",
+        source=source,
+    )
     try:
         max_size = 1024 * 1024  # 1MB limit
         with urlopen(source, timeout=10) as response:
             if response.length and response.length > max_size:
                 logger.warning(
-                    "Configuration from URL source exceeds max allowed size; "
-                    "skipping load"
+                    "Configuration from URL source exceeds max allowed size; skipping load",
+                    event="tacacs.config.loader.url_oversize",
+                    service="tacacs",
+                    source=source,
+                    size=response.length,
+                    max_size=max_size,
                 )
-                return None
+            return None
             content: str = response.read().decode("utf-8")
 
         # Cache if path provided
@@ -55,15 +64,20 @@ def load_from_url(source: str, cache_path: str | None = None) -> str | None:
                     f.write(content)
             except Exception as cache_wr_exc:
                 logger.debug(
-                    "ConfigStore cache write failed for configuration URL source: %s",
-                    cache_wr_exc,
+                    "ConfigStore cache write failed for configuration URL source",
+                    event="tacacs.config.loader.cache_write_failed",
+                    service="tacacs",
+                    error=str(cache_wr_exc),
                 )
 
         return content
     except Exception as exc:
         logger.warning(
-            "Failed to load configuration from URL source, will try cache fallback: %s",
-            exc,
+            "Failed to load configuration from URL source, will try cache fallback",
+            event="tacacs.config.loader.url_load_failed",
+            service="tacacs",
+            source=source,
+            error=str(exc),
         )
         # Try cache fallback if available
         if cache_path and os.path.exists(cache_path):
@@ -104,16 +118,20 @@ def apply_env_overrides(
         if not config.has_option(section, key):
             config.set(section, key, value)
             logger.debug(
-                "Applied environment override for config key '%s.%s' from '%s'",
-                section,
-                key,
-                env_var,
+                "Applied environment override for config key",
+                event="tacacs.config.loader.env_override_applied",
+                service="tacacs",
+                section=section,
+                key=key,
+                env_var=env_var,
             )
         else:
             logger.debug(
-                "Skipping environment override for '%s.%s' because config file already defines it",
-                section,
-                key,
+                "Skipping environment override because config already defines the value",
+                event="tacacs.config.loader.env_override_skipped",
+                service="tacacs",
+                section=section,
+                key=key,
             )
 
 
@@ -366,7 +384,12 @@ def load_config(
 
     # Step 2: Load from file/URL
     if is_url(source):
-        logger.info("Loading configuration from URL source")
+        logger.info(
+            "Loading configuration from URL source",
+            event="tacacs.config.loader.url_load",
+            service="tacacs",
+            source=source,
+        )
         if url_handler:
             # Use URLConfigHandler for proper caching and security
             content = url_handler.load_from_url(source, use_cache_fallback=True)
@@ -378,13 +401,19 @@ def load_config(
             config.read_string(content)
     else:
         if os.path.exists(source):
-            logger.info("Loading configuration from file source '%s'", source)
+            logger.info(
+                "Loading configuration from file source",
+                event="tacacs.config.loader.file_load",
+                service="tacacs",
+                source=source,
+            )
             config.read(source)
         else:
             logger.warning(
-                "Configuration file source '%s' does not exist; using defaults "
-                "and environment overrides only",
-                source,
+                "Configuration file source does not exist; using defaults and overrides",
+                event="tacacs.config.loader.missing_file",
+                service="tacacs",
+                source=source,
             )
 
     # Step 3: Apply environment overrides
@@ -408,12 +437,20 @@ def reload_config(
     """
     # For URL sources, check if content changed
     if is_url(source):
-        logger.debug("Checking for configuration changes from URL source")
+        logger.debug(
+            "Checking for configuration changes from URL source",
+            event="tacacs.config.loader.check_changes",
+            service="tacacs",
+            source=source,
+        )
         cache_path = os.path.join("data", "config_baseline_cache.conf")
         new_content = load_from_url(source, cache_path)
         if not new_content:
             logger.debug(
-                "No configuration content fetched from URL source; skipping reload"
+                "No configuration content fetched from URL source; skipping reload",
+                event="tacacs.config.loader.no_content",
+                service="tacacs",
+                source=source,
             )
             return False
 
@@ -425,7 +462,12 @@ def reload_config(
         if not force:
             # Simple comparison - check if sections/keys differ
             if set(temp.sections()) != set(config.sections()):
-                logger.debug("ConfigStore: Different sections, will reload")
+                logger.debug(
+                    "ConfigStore: Different sections, will reload",
+                    event="tacacs.config.loader.sections_changed",
+                    service="tacacs",
+                    source=source,
+                )
             else:
                 same = True
                 for section in temp.sections():
@@ -434,23 +476,39 @@ def reload_config(
                         break
                 if same:
                     logger.debug(
-                        "Configuration from URL source unchanged; skipping reload"
+                        "Configuration from URL source unchanged; skipping reload",
+                        event="tacacs.config.loader.unchanged",
+                        service="tacacs",
+                        source=source,
                     )
                     return False
 
         # Reload
         config.clear()
         config.read_string(new_content)
-        logger.info("Configuration reloaded from URL source")
+        logger.info(
+            "Configuration reloaded from URL source",
+            event="tacacs.config.loader.url_reloaded",
+            service="tacacs",
+            source=source,
+        )
     else:
         # For file sources, just reload
         if os.path.exists(source):
             config.clear()
             config.read(source)
-            logger.info("Configuration reloaded from file source '%s'", source)
+            logger.info(
+                "Configuration reloaded from file source",
+                event="tacacs.config.loader.file_reloaded",
+                service="tacacs",
+                source=source,
+            )
         else:
             logger.warning(
-                "Configuration file source '%s' not found; reload skipped", source
+                "Configuration file source not found; reload skipped",
+                event="tacacs.config.loader.reload_missing_file",
+                service="tacacs",
+                source=source,
             )
             return False
 

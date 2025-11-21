@@ -3,12 +3,14 @@ from __future__ import annotations
 import io
 import os
 import re
+import time
 from contextlib import contextmanager
+from contextvars import Token
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.retry import retry
 
 from .base import BackupDestination, BackupMetadata
@@ -27,6 +29,7 @@ class SFTPConnection:
         self.config = config
         self.ssh_client = None
         self.sftp_client = None
+        self._ctx_token: Token[Any] | None = None
 
     def __enter__(self):  # -> paramiko.SFTPClient
         try:
@@ -36,6 +39,13 @@ class SFTPConnection:
             paramiko_mod: _Any = importlib.import_module("paramiko")
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(f"Paramiko unavailable: {exc}")
+        self._ctx_token = bind_context(
+            destination="sftp",
+            host=self.config.get("host"),
+            port=int(self.config.get("port", 22)),
+            username=self.config.get("username"),
+            auth_method=str(self.config.get("authentication", "password")),
+        )
         ssh = paramiko_mod.SSHClient()
         known_hosts_file = self.config.get("known_hosts_file")
         host_key_verify = bool(self.config.get("host_key_verify", True))
@@ -43,7 +53,11 @@ class SFTPConnection:
             try:
                 ssh.load_host_keys(known_hosts_file)
             except Exception:
-                _logger.warning("Failed to load known_hosts file: %s", known_hosts_file)
+                _logger.warning(
+                    "Failed to load known_hosts file",
+                    host=self.config.get("host"),
+                    known_hosts_file=known_hosts_file,
+                )
         # Enforce host key verification by default
         if host_key_verify:
             # Reject unknown hosts unless explicitly disabled
@@ -129,12 +143,18 @@ class SFTPConnection:
                     .rstrip(b"=")
                     .decode("utf-8")
                 )
+                fingerprint_label = "SHA256:" + fingerprint_sha256
                 _logger.info(
-                    "SFTP private key loaded; SHA256 fingerprint: %s",
-                    f"SHA256:{fingerprint_sha256}",
+                    "SFTP private key loaded",
+                    event="sftp_private_key_loaded",
+                    fingerprint=fingerprint_label,
+                    username=self.config.get("username"),
                 )
             except Exception:
-                _logger.warning("Failed to calculate private key fingerprint")
+                _logger.warning(
+                    "Failed to calculate private key fingerprint",
+                    username=self.config.get("username"),
+                )
 
             connect_kwargs["pkey"] = pkey
             # If a password is also provided, allow password fallback after key
@@ -147,7 +167,22 @@ class SFTPConnection:
             # Avoid direct paramiko types to keep type-checkers happy without stubs
             msg = str(getattr(exc, "__class__", type(exc)).__name__)
             if "Authentication" in msg:
+                _logger.warning(
+                    "SFTP authentication failed",
+                    event="sftp_auth_failed",
+                    host=self.config.get("host"),
+                    port=self.config.get("port"),
+                    username=self.config.get("username"),
+                    error=str(exc),
+                )
                 raise RuntimeError(f"SFTP authentication failed: {exc}")
+            _logger.warning(
+                "SFTP connection error",
+                event="sftp_connection_error",
+                host=self.config.get("host"),
+                port=self.config.get("port"),
+                error=str(exc),
+            )
             raise RuntimeError(f"SFTP connection error: {exc}")
 
         self.ssh_client = ssh
@@ -157,7 +192,11 @@ class SFTPConnection:
             if transport:
                 transport.set_keepalive(30)
         except Exception as exc:
-            _logger.warning("Failed to configure SFTP keepalive: %s", exc)
+            _logger.warning(
+                "Failed to configure SFTP keepalive",
+                error=str(exc),
+                host=self.config.get("host"),
+            )
         # Open SFTP
         self.sftp_client = ssh.open_sftp()
         return self.sftp_client
@@ -167,12 +206,23 @@ class SFTPConnection:
             if self.sftp_client:
                 self.sftp_client.close()
         except Exception as exc:
-            _logger.warning("Failed to close SFTP client: %s", exc)
+            _logger.warning(
+                "Failed to close SFTP client",
+                error=str(exc),
+                host=self.config.get("host"),
+            )
         try:
             if self.ssh_client:
                 self.ssh_client.close()
         except Exception as exc:
-            _logger.warning("Failed to close SSH client: %s", exc)
+            _logger.warning(
+                "Failed to close SSH client",
+                error=str(exc),
+                host=self.config.get("host"),
+            )
+        finally:
+            if self._ctx_token:
+                clear_context(self._ctx_token)
 
 
 class SFTPBackupDestination(BackupDestination):
@@ -220,7 +270,12 @@ class SFTPBackupDestination(BackupDestination):
         if ".." in bp or "\x00" in bp:
             raise ValueError("Invalid base_path")
         if not bool(cfg.get("host_key_verify", True)):
-            _logger.warning("SFTP host_key_verify disabled — security risk")
+            _logger.warning(
+                "SFTP host_key_verify disabled",
+                host=self.host,
+                port=self.port,
+                username=self.username,
+            )
 
     @contextmanager
     def _get_sftp_client(self):
@@ -245,7 +300,12 @@ class SFTPBackupDestination(BackupDestination):
                 self._sftp_makedirs(sftp, self.base_path)
                 sftp.chdir(self.base_path)
             except Exception as exc:
-                _logger.warning("Failed to prepare base path on SFTP: %s", exc)
+                _logger.warning(
+                    "Failed to prepare base path on SFTP",
+                    error=str(exc),
+                    base_path=self.base_path,
+                    host=self.host,
+                )
             yield sftp
 
     @staticmethod
@@ -343,7 +403,9 @@ class SFTPBackupDestination(BackupDestination):
                 sftp.mkdir(cur)
             except OSError as exc:
                 _logger.debug(
-                    "Directory %s already exists or failed to create: %s", cur, exc
+                    "Directory exists or failed to create",
+                    path=cur,
+                    error=str(exc),
                 )
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
@@ -359,8 +421,23 @@ class SFTPBackupDestination(BackupDestination):
                     if f.read() != data:
                         return False, "I/O verification failed"
                 sftp.remove(test_name)
+            _logger.info(
+                "SFTP connection verified",
+                event="sftp_connection_verified",
+                host=self.host,
+                port=self.port,
+                username=self.username,
+            )
             return True, "Connected successfully"
         except Exception as exc:
+            _logger.warning(
+                "SFTP connection check failed",
+                event="sftp_connection_failed",
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                error=str(exc),
+            )
             return False, str(exc)
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
@@ -377,6 +454,7 @@ class SFTPBackupDestination(BackupDestination):
             dir_part = os.path.dirname(rp)
             self._sftp_makedirs(sftp, dir_part)
             size_local = os.path.getsize(src)
+            start_time = time.time()
 
             last = 0
 
@@ -384,7 +462,12 @@ class SFTPBackupDestination(BackupDestination):
                 nonlocal last
                 # Paramiko passes cumulative transferred
                 if transferred - last >= 8192 * 128:
-                    _logger.info("sftp_upload_progress", bytes_sent=transferred)
+                    _logger.info(
+                        "SFTP upload progress",
+                        event="sftp_upload_progress",
+                        bytes_sent=transferred,
+                        remote_path=rp,
+                    )
                     last = transferred
 
             try:
@@ -396,7 +479,9 @@ class SFTPBackupDestination(BackupDestination):
                     sftp.remove(rp)
                 except Exception as cleanup_exc:
                     _logger.warning(
-                        "Failed to cleanup partial upload %s: %s", rp, cleanup_exc
+                        "Failed to cleanup partial upload",
+                        error=str(cleanup_exc),
+                        remote_path=rp,
                     )
                 raise RuntimeError(f"Upload failed: {exc}")
             # verify size
@@ -407,7 +492,19 @@ class SFTPBackupDestination(BackupDestination):
                         f"Upload verification failed: size mismatch ({st.st_size} != {size_local})"
                     )
             except Exception as exc:
-                _logger.warning("sftp_upload_verify_failed", error=str(exc))
+                _logger.warning(
+                    "SFTP upload verification failed",
+                    event="sftp_upload_verify_failed",
+                    error=str(exc),
+                    remote_path=rp,
+                )
+        _logger.info(
+            "SFTP upload completed",
+            event="sftp_upload_completed",
+            remote_path=rp,
+            size_bytes=size_local,
+            duration_seconds=time.time() - start_time,
+        )
         return rp
 
     @retry(max_retries=2, initial_delay=1.0, backoff=2.0)
@@ -423,10 +520,19 @@ class SFTPBackupDestination(BackupDestination):
             Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
             with self._get_sftp_client() as sftp:
                 sftp.get(rp, str(dst_path))
+            _logger.info(
+                "SFTP download completed",
+                event="sftp_download_completed",
+                remote_path=remote_path,
+                local_path=str(dst_path),
+            )
             return True
         except Exception as exc:
             _logger.error(
-                "sftp_download_failed", error=str(exc), remote_path=remote_path
+                "SFTP download failed",
+                event="sftp_download_failed",
+                error=str(exc),
+                remote_path=remote_path,
             )
             return False
 
@@ -467,7 +573,7 @@ class SFTPBackupDestination(BackupDestination):
                         )
                     )
         except Exception as exc:
-            _logger.error("sftp_list_failed", error=str(exc))
+            _logger.error("SFTP list failed", event="sftp_list_failed", error=str(exc))
             return []
         if prefix:
             items = [i for i in items if prefix in i.path]
@@ -482,11 +588,18 @@ class SFTPBackupDestination(BackupDestination):
                 try:
                     sftp.remove(rp + ".manifest.json")
                 except Exception as exc:
-                    _logger.warning("Failed to delete manifest for %s: %s", rp, exc)
+                    _logger.warning(
+                        "Failed to delete manifest for SFTP backup",
+                        error=str(exc),
+                        remote_path=rp,
+                    )
             return True
         except Exception as exc:
             _logger.warning(
-                "sftp_delete_failed", error=str(exc), remote_path=remote_path
+                "SFTP delete failed",
+                event="sftp_delete_failed",
+                error=str(exc),
+                remote_path=remote_path,
             )
             return False
 
@@ -505,6 +618,9 @@ class SFTPBackupDestination(BackupDestination):
                 )
         except Exception as exc:
             _logger.error(
-                "sftp_get_info_failed", error=str(exc), remote_path=remote_path
+                "SFTP get info failed",
+                event="sftp_get_info_failed",
+                error=str(exc),
+                remote_path=remote_path,
             )
             return None

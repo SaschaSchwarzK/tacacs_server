@@ -6,6 +6,7 @@ import os
 import socket
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +14,7 @@ from tacacs_server.accounting.database import DatabaseLogger
 from tacacs_server.auth.base import AuthenticationBackend
 from tacacs_server.tacacs.constants import TAC_PLUS_DEFAULT_PORT
 from tacacs_server.tacacs.handlers import AAAHandlers
-from tacacs_server.utils.logger import get_logger
+from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.metrics import MetricsCollector
 from tacacs_server.utils.rate_limiter import ConnectionLimiter
 
@@ -50,7 +51,9 @@ class TacacsServer:
 
         if self.secret_key == "CHANGE_ME_FALLBACK":
             logger.warning(
-                "Default TACACS secret in use. Configure per-device/group secrets."
+                "Default TACACS secret in use. Configure per-device/group secrets.",
+                event="tacacs.secret.default",
+                service="tacacs",
             )
 
         # Core components
@@ -119,7 +122,9 @@ class TacacsServer:
                 limiter = get_rate_limiter()
                 removed = limiter.cleanup_old_entries(max_age_seconds=3600)
                 if removed > 0:
-                    logger.info("Rate limiter cleanup: removed %d old entries", removed)
+                    logger.debug(
+                        "Rate limiter cleanup: removed %d old entries", removed
+                    )
             except Exception as e:
                 logger.debug("Rate limiter cleanup error: %s", e)
 
@@ -137,7 +142,7 @@ class TacacsServer:
                     max_conn = security_config.get("max_connections_per_ip")
                     if max_conn is not None:
                         value = int(max_conn)
-                        logger.info(
+                        logger.debug(
                             "Using max_connections_per_ip=%s from config.get_security_config()",
                             value,
                         )
@@ -160,7 +165,7 @@ class TacacsServer:
                         max_conn = security_section.get("max_connections_per_ip")
                         if max_conn is not None:
                             value = int(max_conn)
-                            logger.info(
+                            logger.debug(
                                 "Using max_connections_per_ip=%s from config.config internals",
                                 value,
                             )
@@ -174,7 +179,7 @@ class TacacsServer:
                 max_conn = security.get("max_connections_per_ip")
                 if max_conn is not None:
                     value = int(max_conn)
-                    logger.info(
+                    logger.debug(
                         "Using max_connections_per_ip=%s from config dict", value
                     )
                     return value
@@ -183,12 +188,12 @@ class TacacsServer:
         env_value = os.getenv("TACACS_MAX_CONN_PER_IP")
         if env_value:
             value = int(env_value)
-            logger.info("Using max_connections_per_ip=%s from environment", value)
+            logger.debug("Using max_connections_per_ip=%s from environment", value)
             return value
 
         # 5. Final default
         default = 20
-        logger.info("Using max_connections_per_ip=%s (default)", default)
+        logger.debug("Using max_connections_per_ip=%s (default)", default)
         return default
 
     def set_config(self, config):
@@ -274,7 +279,7 @@ class TacacsServer:
 
             from tacacs_server.web.web_app import create_app
 
-            logger.info("Starting web monitoring on %s:%s", web_host, web_port)
+            logger.debug("Starting web monitoring on %s:%s", web_host, web_port)
 
             admin_username = os.getenv("ADMIN_USERNAME", "admin")
             admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
@@ -322,11 +327,11 @@ class TacacsServer:
             time.sleep(0.2)
 
             self.enable_monitoring = True
-            logger.info("Web monitoring enabled at http://%s:%s", web_host, web_port)
+            logger.debug("Web monitoring enabled at http://%s:%s", web_host, web_port)
             return True
 
         except Exception as e:
-            logger.exception(f"Failed to enable web monitoring: {e}")
+            logger.exception("Failed to enable web monitoring: %s", e)
             return False
 
     def disable_web_monitoring(self):
@@ -349,7 +354,7 @@ class TacacsServer:
         name = getattr(backend, "name", str(backend))
         logger.info(
             "Authentication backend added",
-            event="auth.backend.added",
+            event="tacacs.auth.backend.added",
             service="tacacs",
             backend=name,
         )
@@ -362,7 +367,7 @@ class TacacsServer:
                 self.handlers.auth_backends = self.auth_backends
                 logger.info(
                     "Authentication backend removed",
-                    event="auth.backend.removed",
+                    event="tacacs.auth.backend.removed",
                     service="tacacs",
                     backend=backend_name,
                 )
@@ -372,7 +377,11 @@ class TacacsServer:
     def start(self):
         """Start TACACS+ server"""
         if self.running:
-            logger.warning("Server is already running")
+            logger.warning(
+                "Server is already running",
+                event="tacacs.server.already_running",
+                service="tacacs",
+            )
             return
 
         if not self.auth_backends:
@@ -383,7 +392,7 @@ class TacacsServer:
 
         logger.info(
             "TACACS server listening",
-            event="service.start",
+            event="tacacs.service.start",
             service="tacacs",
             host=self.host,
             port=self.port,
@@ -424,7 +433,9 @@ class TacacsServer:
         # Log bind attempt explicitly for easier diagnostics in CI logs
         logger.info(
             "Attempting to bind TACACS+ socket",
-            extra={"bind_host": bind_host, "bind_port": self.port},
+            event="tacacs.socket.bind_attempt",
+            bind_host=bind_host,
+            bind_port=self.port,
         )
 
         try:
@@ -439,12 +450,11 @@ class TacacsServer:
                 err_str = str(e)
             logger.error(
                 "Failed to bind TACACS+ socket",
-                extra={
-                    "host": bind_host,
-                    "port": self.port,
-                    "errno": err_no,
-                    "error": err_str,
-                },
+                event="tacacs.socket.bind_failed",
+                host=bind_host,
+                port=self.port,
+                errno=err_no,
+                error=err_str,
             )
             # Re-raise to keep current control flow (manager will log and exit)
             raise
@@ -453,16 +463,18 @@ class TacacsServer:
             self.server_socket.listen(self.listen_backlog)
             logger.info(
                 "TACACS+ socket bound and listening",
-                extra={
-                    "bind_host": bind_host,
-                    "bind_port": self.port,
-                    "backlog": self.listen_backlog,
-                },
+                event="tacacs.socket.bound",
+                bind_host=bind_host,
+                bind_port=self.port,
+                backlog=self.listen_backlog,
             )
         except OSError as e:
             logger.error(
                 "Failed to listen on TACACS+ socket",
-                extra={"host": bind_host, "port": self.port, "error": str(e)},
+                event="tacacs.socket.listen_failed",
+                host=bind_host,
+                port=self.port,
+                error=str(e),
             )
             raise
 
@@ -549,6 +561,11 @@ class TacacsServer:
         self, client_socket: socket.socket, address: tuple[str, int]
     ):
         """Wrapper for client handler - ensures connection limit is released"""
+        _ctx = bind_context(
+            connection_id=str(uuid.uuid4()),
+            client_ip=address[0],
+            service="tacacs",
+        )
         try:
             proxy_handler = None
             if self.proxy_enabled and self.accept_proxy_protocol:
@@ -578,6 +595,7 @@ class TacacsServer:
             # CRITICAL: Always release connection slot and decrement active count
             self.conn_limiter.release(address[0])
             self.stats.update_active_connections(-1)
+            clear_context(_ctx)
 
             try:
                 if threading.current_thread().daemon:
@@ -636,9 +654,13 @@ class TacacsServer:
         ):
             time.sleep(0.1)
 
-        if self.stats.get_active_connections() > 0:
+        remaining = self.stats.get_active_connections()
+        if remaining > 0:
             logger.warning(
-                f"Force closing {self.stats.get_active_connections()} remaining connections"
+                "Force closing %d remaining connections",
+                remaining,
+                event="tacacs.server.force_close",
+                service="tacacs",
             )
 
         # Join threads
@@ -724,6 +746,11 @@ class TacacsServer:
         try:
             ok = getattr(self.db_logger, "ping", lambda: False)()
             if not ok:
+                logger.warning(
+                    "Database health check failed",
+                    event="tacacs.database.unhealthy",
+                    error="ping failed",
+                )
                 return {
                     "status": "unhealthy",
                     "records_today": 0,
@@ -736,10 +763,20 @@ class TacacsServer:
             except Exception:
                 recs = 0
 
+            logger.debug(
+                "Database health check passed",
+                event="tacacs.database.healthy",
+                records_today=int(recs) if recs else 0,
+            )
+
             return {"status": "healthy", "records_today": int(recs) if recs else 0}
 
         except Exception as e:
-            logger.error("Database health check failed: %s", e)
+            logger.error(
+                "Database health check failed",
+                event="tacacs.database.health_error",
+                error=str(e),
+            )
             return {
                 "status": "unhealthy",
                 "records_today": 0,

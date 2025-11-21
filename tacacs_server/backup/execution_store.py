@@ -35,14 +35,20 @@ class BackupExecutionStore:
             get_db_manager().register(self, self.close)
         except Exception as exc:
             logger.warning(
-                "Failed to register execution store for maintenance: %s", exc
+                "Failed to register execution store for maintenance",
+                error=str(exc),
+                db_path=self.db_path,
             )
 
     def close(self) -> None:
         try:
             self._conn.close()
         except Exception as exc:
-            logger.warning("BackupExecutionStore close failed: %s", exc)
+            logger.warning(
+                "BackupExecutionStore close failed",
+                error=str(exc),
+                db_path=self.db_path,
+            )
 
     def _ensure_schema(self) -> None:
         with self._conn:
@@ -100,7 +106,8 @@ class BackupExecutionStore:
                 )
             except Exception as exc:
                 logger.debug(
-                    "Retention strategy column already exists or failed to add: %s", exc
+                    "Retention strategy column already exists or failed to add",
+                    error=str(exc),
                 )
             try:
                 self._conn.execute(
@@ -108,7 +115,8 @@ class BackupExecutionStore:
                 )
             except Exception as exc:
                 logger.debug(
-                    "Retention config column already exists or failed to add: %s", exc
+                    "Retention config column already exists or failed to add",
+                    error=str(exc),
                 )
 
     # --- executions ---

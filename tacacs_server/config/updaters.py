@@ -112,7 +112,12 @@ def update_section(
         try:
             _save_config_to_file(config, config_file)
         except Exception as e:
-            logger.warning("Failed to persist config file: %s", e)
+            logger.warning(
+                "Failed to persist config file",
+                event="tacacs.config.persist.failed",
+                service="tacacs",
+                error=str(e),
+            )
 
 
 def update_command_authorization_config(
@@ -154,7 +159,12 @@ def update_command_authorization_config(
         try:
             _save_config_to_file(config, config_file)
         except Exception as e:
-            logger.warning("Failed to persist command authorization config: %s", e)
+            logger.warning(
+                "Failed to persist command authorization config",
+                event="tacacs.config.command_authorization.persist_failed",
+                service="tacacs",
+                error=str(e),
+            )
 
 
 def update_webhook_config(
@@ -206,7 +216,12 @@ def update_webhook_config(
         try:
             _save_config_to_file(config, config_file)
         except Exception as e:
-            logger.warning("Failed to persist webhook config: %s", e)
+            logger.warning(
+                "Failed to persist webhook config",
+                event="tacacs.config.webhook.persist_failed",
+                service="tacacs",
+                error=str(e),
+            )
 
 
 def _get_current_user() -> str:

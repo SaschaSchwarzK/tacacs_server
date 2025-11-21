@@ -13,7 +13,6 @@ import struct
 import pytest
 
 import tests.unit.tacacs_stubs as tacacs_stubs
-from tacacs_server.tacacs import validator as validator_module
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_FLAGS,
     TAC_PLUS_PACKET_TYPE,
@@ -346,7 +345,7 @@ def test_structures_parsing():
     assert "foo" in acct["args"]
 
 
-def test_validator_logic(monkeypatch):
+def test_validator_logic():
     """Test TACACS+ packet validation.
 
     Verifies that the packet validator correctly identifies invalid
@@ -368,7 +367,6 @@ def test_validator_logic(monkeypatch):
     pkt.seq_no = 2
     assert not val.validate_header(pkt)
 
-    monkeypatch.setattr(validator_module, "_HAS_JSON", False)
     val._log_invalid_version(1, 2)
     val._log_invalid_type(1, 2)
     val._log_invalid_sequence(1, 2)
