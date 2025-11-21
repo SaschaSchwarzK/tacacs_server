@@ -71,11 +71,15 @@ def _backend_worker_main(in_q: "mp.Queue", out_q: "mp.Queue") -> None:
     Puts results into out_q as (task_id, ok, err_msg).
     """
     # Emit a worker-only startup marker with this process PID
-    logger.info(
-        "Process pool worker started",
-        event="process_pool.worker_started",
-        pid=os.getpid(),
-    )
+    try:
+        logger.info(
+            "Process pool worker started",
+            event="process_pool.worker_started",
+            pid=os.getpid(),
+        )
+    except Exception:
+        # Ignore logging errors at interpreter shutdown
+        pass
 
     while True:
         try:

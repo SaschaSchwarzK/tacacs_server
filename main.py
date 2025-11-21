@@ -202,7 +202,10 @@ class TacacsServerManager:
             logger.warning("Failed to initialize webhook config: %s", exc)
         # Apply security-related runtime limits
         try:
-            sec_cfg = self.config.get_security_config()
+            sec_cfg = getattr(self, "_cached_security_config", None)
+            if sec_cfg is None:
+                sec_cfg = self.config.get_security_config()
+                self._cached_security_config = sec_cfg
             per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
             if per_ip_cap >= 1 and self.server:
                 # Replace connection limiter with new per-IP cap
