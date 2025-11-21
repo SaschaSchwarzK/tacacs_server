@@ -53,7 +53,7 @@ def load_from_url(source: str, cache_path: str | None = None) -> str | None:
                     size=response.length,
                     max_size=max_size,
                 )
-            return None
+                return None
             content: str = response.read().decode("utf-8")
 
         # Cache if path provided
