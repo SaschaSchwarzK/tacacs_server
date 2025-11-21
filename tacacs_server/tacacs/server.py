@@ -116,7 +116,8 @@ class TacacsServer:
 
         logger = get_logger(__name__)
         while self.running:
-            if self._cleanup_stop_event.wait(600):
+            # Wake frequently so stop() and graceful_shutdown() are responsive
+            if self._cleanup_stop_event.wait(5):
                 break
             try:
                 limiter = get_rate_limiter()

@@ -14,6 +14,8 @@ import os
 import re
 import struct
 import threading
+import json
+import atexit
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any
@@ -206,8 +208,9 @@ class AAAHandlers:
         self.privilege_check_order: str = "before"
         # Bounded worker pool for backend authentication calls; avoids
         # unbounded daemon thread creation on slow/hanging backends.
+        max_workers = int(os.getenv("TACACS_BACKEND_EXECUTOR_WORKERS", "8"))
         self._backend_executor = ThreadPoolExecutor(
-            max_workers=8, thread_name_prefix="backend-auth"
+            max_workers=max_workers, thread_name_prefix="backend-auth"
         )
         # Per-backend authentication timeout (seconds) to avoid slow backend DoS
         if backend_timeout is not None:
@@ -245,6 +248,7 @@ class AAAHandlers:
         self._pending_tasks_max_size = 1000  # Limit pending tasks
         self._last_cleanup_time = 0.0  # Track last cleanup
         self._backend_configs: list[dict[str, Any]] = []  # Always initialize
+        self._process_pool_stop_event = threading.Event()
 
         # Process pool creation with robust error handling
         if self._process_pool_size:
@@ -299,6 +303,15 @@ class AAAHandlers:
         else:
             # Process pool disabled
             self._process_pool_size = 0
+
+        # Start a lightweight heartbeat thread to monitor process pool health
+        if self._process_pool_size:
+            threading.Thread(
+                target=self._process_pool_heartbeat_loop,
+                daemon=True,
+                name="ProcessPoolHeartbeat",
+            ).start()
+            atexit.register(self._shutdown_process_pool)
 
     def set_local_user_group_service(self, service) -> None:
         self.local_user_group_service = service
@@ -364,6 +377,28 @@ class AAAHandlers:
         ]
         return alive
 
+    def _process_pool_heartbeat_loop(self) -> None:
+        """Periodically ensure process pool workers are alive."""
+        while not self._process_pool_stop_event.wait(5):
+            try:
+                self._ensure_process_workers_alive()
+            except Exception as exc:
+                logger.debug("Process pool heartbeat error: %s", exc)
+
+    def _shutdown_process_pool(self) -> None:
+        """Stop heartbeat and terminate process workers."""
+        self._process_pool_stop_event.set()
+        try:
+            for p in getattr(self, "_process_workers", []):
+                try:
+                    if p.is_alive():
+                        p.terminate()
+                        p.join(timeout=1)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
     def _serialize_backend_config(
         self, backend: AuthenticationBackend
     ) -> dict[str, Any] | None:
@@ -377,12 +412,12 @@ class AAAHandlers:
 
             if backend_name == "local":
                 db_path = getattr(backend, "db_path", "")
-                return {
+                config = {
                     "type": "local",
                     "database_url": db_path,
                 }
             elif backend_name == "ldap":
-                return {
+                config = {
                     "type": "ldap",
                     "ldap_server": getattr(backend, "ldap_server", ""),
                     "base_dn": getattr(backend, "base_dn", ""),
@@ -393,7 +428,7 @@ class AAAHandlers:
                     "timeout": getattr(backend, "timeout", 10),
                 }
             elif backend_name == "okta":
-                return {
+                config = {
                     "type": "okta",
                     "org_url": getattr(backend, "org_url", ""),
                     "api_token": getattr(backend, "api_token", ""),
@@ -412,7 +447,7 @@ class AAAHandlers:
                 radius_secret = getattr(backend, "radius_secret", b"")
                 if isinstance(radius_secret, bytes):
                     radius_secret = radius_secret.decode("utf-8", errors="ignore")
-                return {
+                config = {
                     "type": "radius",
                     "radius_server": getattr(backend, "radius_server", ""),
                     "radius_port": getattr(backend, "radius_port", 1812),
@@ -429,6 +464,9 @@ class AAAHandlers:
                     "Backend type '%s' not supported in process pool", backend_name
                 )
                 return None
+            # Validate JSON-serializable payload to avoid worker failures
+            json.dumps(config)
+            return config
         except Exception as e:
             # Ensure serialization errors don't break pool setup; log and skip
             try:
@@ -806,6 +844,12 @@ class AAAHandlers:
         device: Any | None,
     ) -> TacacsPacket:
         """Handle initial authentication request"""
+        if not user:
+            return self._create_auth_response(
+                packet,
+                TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_FAIL,
+                "Username required",
+            )
         with self._lock:
             self.session_device[packet.session_id] = device
         if authen_type == TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_PAP:
@@ -1040,6 +1084,27 @@ class AAAHandlers:
             except Exception as e:
                 logger.error("Error getting attributes from %s: %s", backend.name, e)
                 continue
+        # Sanitize attributes to avoid propagating malformed data
+        if user_attrs and not isinstance(user_attrs, dict):
+            user_attrs = None
+        elif isinstance(user_attrs, dict):
+            safe_attrs: dict[str, Any] = {}
+            for k, v in user_attrs.items():
+                if not isinstance(k, str):
+                    continue
+                if isinstance(v, (str, int, float, bool)):
+                    safe_attrs[k] = v
+                elif isinstance(v, (list, tuple)):
+                    # Preserve list/tuple of basic types (e.g., groups)
+                    filtered = []
+                    for item in v:
+                        if isinstance(item, (str, int, float, bool)):
+                            filtered.append(item)
+                    safe_attrs[k] = filtered
+                else:
+                    # Drop unsupported types to avoid surprises
+                    continue
+            user_attrs = safe_attrs
         if not user_attrs:
             # If no attributes and no explicit command requested, allow minimal service
             # This aligns with integration tests expecting PASS for service-only requests.

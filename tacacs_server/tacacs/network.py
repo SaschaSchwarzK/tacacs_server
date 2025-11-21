@@ -11,8 +11,17 @@ class NetworkHandler:
     """Handles low-level network operations"""
 
     @staticmethod
-    def recv_exact(sock: socket.socket, length: int) -> bytes | None:
-        """Receive exactly the specified number of bytes"""
+    def recv_exact(
+        sock: socket.socket, length: int, timeout: float | None = None
+    ) -> bytes | None:
+        """Receive exactly the specified number of bytes with optional timeout."""
+        old_timeout = None
+        if timeout is not None:
+            try:
+                old_timeout = sock.gettimeout()
+                sock.settimeout(timeout)
+            except Exception:
+                old_timeout = None
         data = b""
         while len(data) < length:
             try:
@@ -22,6 +31,11 @@ class NetworkHandler:
                 data += chunk
             except OSError:
                 return None
+        if timeout is not None and old_timeout is not None:
+            try:
+                sock.settimeout(old_timeout)
+            except Exception:
+                pass
         return data
 
     @staticmethod

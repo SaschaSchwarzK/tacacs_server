@@ -41,14 +41,7 @@ class TacacsServerManager:
 
     def __init__(self, config_file: str = "config/tacacs.conf"):
         self.config = TacacsConfig(config_file)
-        monitoring_set_config(self.config)
-        # Mirror into utils accessor so API modules using config_utils see it
-        try:
-            utils_set_config(self.config)
-        except Exception as exc:
-            logger.warning("Failed to mirror config to utils_config: %s", exc)
-            # Fail fast so downstream modules don't operate with inconsistent config.
-            raise
+        self._apply_global_config()
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
         from tacacs_server.devices.service import DeviceService as _DSe
@@ -79,6 +72,17 @@ class TacacsServerManager:
         self._config_refresh_thread: _th.Thread | None = None
         # Optional backup service instance (initialized in setup())
         self.backup_service: Any | None = None
+
+    def _apply_global_config(self) -> None:
+        """Atomically mirror config into all global consumers."""
+        monitoring_set_config(self.config)
+        # Mirror into utils accessor so API modules using config_utils see it
+        try:
+            utils_set_config(self.config)
+        except Exception as exc:
+            logger.warning("Failed to mirror config to utils_config: %s", exc)
+            # Fail fast so downstream modules don't operate with inconsistent config.
+            raise
 
         # Ensure instance identity and initial version
         try:
