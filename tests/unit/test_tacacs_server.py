@@ -1,4 +1,5 @@
 import logging
+import threading
 import socket
 from types import SimpleNamespace
 
@@ -124,3 +125,17 @@ def test_check_database_health_exception(monkeypatch):
     assert result["status"] == "unhealthy"
     assert result["error"] == "Database error"
     server.graceful_shutdown()
+
+
+def test_stop_signals_cleanup_thread(monkeypatch):
+    fake = FakeSocket()
+    server = _make_server(monkeypatch, fake)
+    # Replace the cleanup event with a controllable one
+    stop_event = threading.Event()
+    server._cleanup_stop_event = stop_event
+    server.running = True
+
+    server.stop()
+
+    assert stop_event.is_set()
+    assert server.running is False

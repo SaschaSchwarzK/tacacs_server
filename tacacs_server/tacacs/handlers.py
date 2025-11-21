@@ -304,21 +304,11 @@ class AAAHandlers:
         self.local_user_group_service = service
 
     def _cleanup_pending_tasks(self) -> None:
-        """Clean up old pending tasks to prevent unbounded growth.
-
-        Called periodically when adding new pending tasks.
-        Removes tasks older than _PENDING_TASK_EXPIRY_S seconds or when dict is too large.
-        """
+        """Clean up old pending tasks to prevent unbounded growth."""
         import time
 
         current_time = time.time()
-        # Only cleanup every _PENDING_TASK_CLEANUP_INTERVAL_S seconds to avoid overhead
-        if (
-            current_time - self._last_cleanup_time
-            < self._PENDING_TASK_CLEANUP_INTERVAL_S
-        ):
-            return
-
+        # Always run a quick sweep; we cap overhead with small dict sizes
         self._last_cleanup_time = current_time
 
         # Remove tasks older than _PENDING_TASK_EXPIRY_S seconds
@@ -337,6 +327,11 @@ class AAAHandlers:
             to_remove = max(1, len(sorted_tasks) // 5)
             for task_id, _ in sorted_tasks[:to_remove]:
                 self._pending_tasks.pop(task_id, None)
+
+        # Hard cap: if still above max size, drop oldest until under cap
+        while len(self._pending_tasks) > self._pending_tasks_max_size:
+            task_id, _ = min(self._pending_tasks.items(), key=lambda x: x[1][2])
+            self._pending_tasks.pop(task_id, None)
 
     def _ensure_process_workers_alive(self) -> bool:
         """Best-effort check to ensure process workers are alive."""
