@@ -1,15 +1,17 @@
 """
 Simplified Authentication Module
-Handles both admin web sessions and API token authentication
+Handles both admin web sessions (password + OpenID) and API token authentication
 """
 
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 from fastapi import HTTPException, Request, status
 
 from tacacs_server.utils.logger import get_logger
+from tacacs_server.web.openid_auth import OpenIDManager, OpenIDConfig
 
 logger = get_logger(__name__)
 
@@ -23,22 +25,30 @@ class AuthConfig:
         admin_password_hash: str,
         api_token: str | None = None,
         session_timeout_minutes: int = 60,
+        openid_config: Optional[OpenIDConfig] = None,
     ):
         self.admin_username = admin_username
         self.admin_password_hash = admin_password_hash
         self.api_token = api_token or os.getenv("API_TOKEN")
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
+        self.openid_config = openid_config
 
 
 class SessionManager:
-    """Simple in-memory session management"""
+    """In-memory session management with support for both password and OpenID auth."""
 
     def __init__(self, config: AuthConfig):
         self.config = config
-        self._sessions: dict[str, datetime] = {}
+        # Maps session_token -> (expiry, email/username)
+        # For password auth: email/username is the admin username
+        # For OpenID auth: email/username is the user's email
+        self._sessions: dict[str, tuple[datetime, str]] = {}
+        self.openid_manager: Optional[OpenIDManager] = None
+        if config.openid_config:
+            self.openid_manager = OpenIDManager(config.openid_config)
 
-    def create_session(self, username: str, password: str) -> str:
-        """Create new session after verifying credentials"""
+    def create_password_session(self, username: str, password: str) -> str:
+        """Create session after verifying password credentials"""
         if not self._verify_credentials(username, password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -46,32 +56,84 @@ class SessionManager:
             )
 
         token = secrets.token_urlsafe(32)
-        self._sessions[token] = datetime.now(UTC) + self.config.session_timeout
+        expiry = datetime.now(UTC) + self.config.session_timeout
+        self._sessions[token] = (expiry, username)
         logger.info(
-            "Admin session created",
+            "Admin session created via password",
             event="admin.session.created",
             service="web",
             component="web_auth",
-            user_ref=username,
+            user_email=username,
+            auth_method="password",
             session_id="[opaque]",
         )
         return token
 
-    def validate_session(self, token: str) -> bool:
-        """Check if session token is valid"""
-        if not token or token not in self._sessions:
-            return False
+    def create_openid_session(self, code: str) -> tuple[str, str]:
+        """Create session from OpenID authorization code. Returns (session_token, user_email)"""
+        if not self.openid_manager:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenID not configured",
+            )
 
-        expiry = self._sessions[token]
+        try:
+            openid_session_token, user_email = self.openid_manager.create_session(code)
+            # Map OpenID session token to our session store
+            expiry = datetime.now(UTC) + self.config.session_timeout
+            self._sessions[openid_session_token] = (expiry, user_email)
+            logger.info(
+                "Admin session created via OpenID",
+                event="admin.session.created",
+                service="web",
+                component="web_auth",
+                user_email=user_email,
+                auth_method="openid",
+                session_id="[opaque]",
+            )
+            return openid_session_token, user_email
+        except Exception as e:
+            logger.error(
+                "OpenID session creation failed",
+                event="admin.openid.session_error",
+                service="web",
+                component="web_auth",
+                error=str(e),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="OpenID authentication failed",
+            )
+
+    def validate_session(self, token: str) -> Optional[str]:
+        """
+        Validate session token and return user email/identifier if valid.
+        
+        Returns:
+            user email if valid, None if invalid/expired
+        """
+        if not token or token not in self._sessions:
+            return None
+
+        expiry, user_identifier = self._sessions[token]
         if datetime.now(UTC) > expiry:
             self._sessions.pop(token, None)
-            return False
+            return None
 
-        return True
+        return user_identifier
 
     def delete_session(self, token: str):
         """Remove session"""
-        self._sessions.pop(token, None)
+        if token in self._sessions:
+            _, user_identifier = self._sessions.pop(token)
+            logger.info(
+                "Admin session deleted",
+                event="admin.session.deleted",
+                service="web",
+                component="web_auth",
+                user_email=user_identifier,
+                session_id="[opaque]",
+            )
 
     def _verify_credentials(self, username: str, password: str) -> bool:
         """Verify username and password"""
@@ -100,11 +162,12 @@ def init_auth(
     admin_password_hash: str,
     api_token: str | None = None,
     session_timeout: int = 60,
+    openid_config: Optional[OpenIDConfig] = None,
 ):
     """Initialize authentication system"""
     global _auth_config, _session_manager
     _auth_config = AuthConfig(
-        admin_username, admin_password_hash, api_token, session_timeout
+        admin_username, admin_password_hash, api_token, session_timeout, openid_config
     )
     _session_manager = SessionManager(_auth_config)
     logger.info(
@@ -114,6 +177,7 @@ def init_auth(
         component="web_auth",
         admin_user=admin_username,
         api_token_configured=bool(api_token or os.getenv("API_TOKEN")),
+        openid_enabled=openid_config is not None,
     )
 
 
@@ -132,7 +196,6 @@ async def require_admin_session(request: Request):
     """Require valid admin session (for web UI)"""
     if not _session_manager:
         if "text/html" in request.headers.get("accept", ""):
-            # Redirect browsers to login page even if auth is not yet configured
             raise HTTPException(
                 status_code=status.HTTP_307_TEMPORARY_REDIRECT,
                 headers={"Location": "/admin/login"},
@@ -143,8 +206,9 @@ async def require_admin_session(request: Request):
         )
 
     token = request.cookies.get("admin_session")
-    if not token or not _session_manager.validate_session(token):
-        # Redirect to login for HTML requests
+    user_email = _session_manager.validate_session(token) if token else None
+    
+    if not user_email:
         if "text/html" in request.headers.get("accept", ""):
             raise HTTPException(
                 status_code=status.HTTP_307_TEMPORARY_REDIRECT,
