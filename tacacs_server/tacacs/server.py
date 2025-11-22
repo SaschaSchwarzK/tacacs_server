@@ -41,6 +41,7 @@ class TacacsServer:
         port: int = TAC_PLUS_DEFAULT_PORT,
         secret_key: str | None = None,
         config: Any | None = None,
+        services: Any | None = None,
     ):
         self.host = host
         self.port = port
@@ -48,6 +49,7 @@ class TacacsServer:
             "TACACS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK"
         )
         self.config = config
+        self.services = services
 
         if self.secret_key == "CHANGE_ME_FALLBACK":
             logger.warning(
@@ -65,6 +67,10 @@ class TacacsServer:
             self.db_logger,
             backend_process_pool_size=pool_size,
         )
+        try:
+            self.handlers.services = services
+        except Exception:
+            pass
         self.metrics = MetricsCollector()
 
         # Managers

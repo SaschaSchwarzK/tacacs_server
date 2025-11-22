@@ -5,13 +5,53 @@ import sys
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+from tacacs_server.config.defaults import (
+    DEFAULT_ADMIN_SESSION_TIMEOUT_MINUTES,
+    DEFAULT_ADMIN_USERNAME,
+    DEFAULT_CLIENT_TIMEOUT,
+    DEFAULT_COMMAND_RESPONSE_MODE,
+    DEFAULT_CONFIG_REFRESH_MIN_SLEEP,
+    DEFAULT_CONFIG_REFRESH_SECONDS,
+    DEFAULT_ENCRYPTION_REQUIRED,
+    DEFAULT_LISTEN_BACKLOG,
+    DEFAULT_MAX_PACKET_LENGTH,
+    DEFAULT_MONITORING_HOST,
+    DEFAULT_MONITORING_PORT,
+    DEFAULT_PER_IP_CAP,
+    DEFAULT_PRIVILEGE_ORDER,
+    DEFAULT_PROXY_ENABLED,
+    DEFAULT_PROXY_REJECT,
+    DEFAULT_PROXY_VALIDATE,
+    DEFAULT_RADIUS_RCVBUF,
+    DEFAULT_RADIUS_SOCKET_TIMEOUT,
+    DEFAULT_RADIUS_WORKERS,
+    DEFAULT_SERVER_HOST,
+    DEFAULT_SHARED_SECRET,
+    DEFAULT_TACACS_PORT,
+    DEFAULT_TCP_KEEPALIVE_IDLE,
+    DEFAULT_TCP_KEEPCNT,
+    DEFAULT_TCP_KEEPINTVL,
+    DEFAULT_THREAD_POOL_MAX,
+    DEFAULT_USE_THREAD_POOL,
+    MIN_RADIUS_RCVBUF,
+)
+# imports are only needed for type annotations;
+# loading them at runtime can trigger heavier side effects or circular imports during startup.
+if TYPE_CHECKING:
+    from tacacs_server.auth.local_user_group_service import LocalUserGroupService
+    from tacacs_server.auth.local_user_service import LocalUserService
+    from tacacs_server.devices.service import DeviceService
+    from tacacs_server.devices.store import DeviceStore
+    from tacacs_server.web.admin.auth import AdminSessionManager
 
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
 from tacacs_server.auth.local_user_group_service import LocalUserGroupService
 from tacacs_server.auth.local_user_service import LocalUserService
 from tacacs_server.config.config import TacacsConfig, setup_logging
+from tacacs_server.config.services import Services
 from tacacs_server.devices.service import DeviceService
 from tacacs_server.devices.store import DeviceStore
 from tacacs_server.tacacs.server import TacacsServer
@@ -34,17 +74,6 @@ from tacacs_server.web.web import (
 )
 
 logger = get_logger(__name__)
-
-DEFAULT_SERVER_HOST = "localhost"
-DEFAULT_TACACS_PORT = 49
-DEFAULT_ADMIN_USERNAME = "admin"
-DEFAULT_SHARED_SECRET = "tacacs123"
-DEFAULT_CONFIG_REFRESH_SECONDS = 300
-DEFAULT_CONFIG_REFRESH_MIN_SLEEP = 30
-DEFAULT_TCP_KEEPALIVE_IDLE = 60
-DEFAULT_LISTEN_BACKLOG = 128
-DEFAULT_THREAD_POOL_MAX = 100
-
 
 @contextmanager
 def safe_init(
@@ -76,23 +105,13 @@ class TacacsServerManager:
         self._apply_global_config()
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
-        from tacacs_server.devices.service import DeviceService as _DSe
-        from tacacs_server.devices.store import (
-            DeviceStore as _DS,
-        )  # local import for typing
-
-        self.device_store: _DS | None = None
-        self.device_service: _DSe | None = None
+        self.services = Services(config=self.config)
+        self.device_store: "DeviceStore" | None = None
+        self.device_service: "DeviceService" | None = None
         self.local_auth_store: LocalAuthStore | None = None
-        from tacacs_server.auth.local_user_group_service import (
-            LocalUserGroupService as _LUGS,
-        )
-        from tacacs_server.auth.local_user_service import LocalUserService as _LUS
-        from tacacs_server.web.admin.auth import AdminSessionManager as _ASM
-
-        self.local_user_service: _LUS | None = None
-        self.local_user_group_service: _LUGS | None = None
-        self.admin_session_manager: _ASM | None = None
+        self.local_user_service: "LocalUserService" | None = None
+        self.local_user_group_service: "LocalUserGroupService" | None = None
+        self.admin_session_manager: "AdminSessionManager" | None = None
         self.device_store_config: dict[str, Any] = {}
         self.running = False
         from collections.abc import Callable
@@ -141,7 +160,29 @@ class TacacsServerManager:
     def setup(self):
         """Setup server components"""
         setup_logging(self.config)
-        # Capture a configuration snapshot at startup
+
+        self._capture_startup_snapshot()
+        if not self._validate_config():
+            return False
+
+        self._initialize_server()
+        self._configure_accounting_logger()
+        self._apply_network_tuning()
+        self._init_webhook_config()
+        self._apply_security_limits()
+        self._initialize_backup()
+        self._initialize_device_store()
+        self._initialize_local_auth()
+
+        radius_config = self.config.get_radius_config()
+        self._configure_admin_auth()
+        self._configure_radius(radius_config)
+        self._attach_auth_backends(radius_config)
+        self._initialize_command_authorization()
+        self._enable_monitoring()
+        return True
+
+    def _capture_startup_snapshot(self) -> None:
         with safe_init("startup config snapshot"):
             store = getattr(self.config, "config_store", None)
             if store is not None:
@@ -151,18 +192,26 @@ class TacacsServerManager:
                     created_by="system",
                     description="Configuration at startup",
                 )
+
+    def _validate_config(self) -> bool:
         issues = self.config.validate_config()
         if issues:
             logger.error("Configuration validation failed:")
             for issue in issues:
-                logger.error(f"  - {issue}")
+                logger.error("  - %s", issue)
             return False
+        return True
+
+    def _initialize_server(self) -> None:
         server_config = self.config.get_server_config()
         self.server = TacacsServer(
             host=server_config["host"],
             port=server_config["port"],
+            config=self.config,
+            services=self.services,
         )
-        # Configure accounting database logger path from config
+
+    def _configure_accounting_logger(self) -> None:
         try:
             from tacacs_server.accounting.database import DatabaseLogger as _DBL
 
@@ -176,37 +225,55 @@ class TacacsServerManager:
         except Exception:
             # Fall back to default path if config/bind fails; server remains usable
             pass
-        # Apply extended server/network tuning
+
+    def _apply_network_tuning(self) -> None:
         with safe_init("network tuning"):
             net_cfg = self.config.get_server_network_config()
             self.server.listen_backlog = int(
                 net_cfg.get("listen_backlog", DEFAULT_LISTEN_BACKLOG)
             )
-            self.server.client_timeout = float(net_cfg.get("client_timeout", 15))
-            # Adjust validator limit instead of setting a non-existent attribute
+            self.server.client_timeout = float(
+                net_cfg.get("client_timeout", DEFAULT_CLIENT_TIMEOUT)
+            )
             if hasattr(self.server, "validator") and self.server.validator:
                 self.server.validator.max_packet_length = int(
-                    net_cfg.get("max_packet_length", 4096)
+                    net_cfg.get("max_packet_length", DEFAULT_MAX_PACKET_LENGTH)
                 )
-            self.server.enable_ipv6 = bool(net_cfg.get("ipv6_enabled", False))
+            self.server.enable_ipv6 = bool(
+                net_cfg.get("ipv6_enabled", DEFAULT_PROXY_ENABLED)
+            )
             self.server.tcp_keepalive = bool(net_cfg.get("tcp_keepalive", True))
             self.server.tcp_keepalive_idle = int(
                 net_cfg.get("tcp_keepidle", DEFAULT_TCP_KEEPALIVE_IDLE)
             )
-            self.server.tcp_keepalive_intvl = int(net_cfg.get("tcp_keepintvl", 10))
-            self.server.tcp_keepalive_cnt = int(net_cfg.get("tcp_keepcnt", 5))
+            self.server.tcp_keepalive_intvl = int(
+                net_cfg.get("tcp_keepintvl", DEFAULT_TCP_KEEPINTVL)
+            )
+            self.server.tcp_keepalive_cnt = int(
+                net_cfg.get("tcp_keepcnt", DEFAULT_TCP_KEEPCNT)
+            )
             self.server.thread_pool_max_workers = int(
                 net_cfg.get("thread_pool_max", DEFAULT_THREAD_POOL_MAX)
             )
-            self.server.use_thread_pool = bool(net_cfg.get("use_thread_pool", True))
+            self.server.use_thread_pool = bool(
+                net_cfg.get("use_thread_pool", DEFAULT_USE_THREAD_POOL)
+            )
 
-            # Proxy protocol settings from single source
             pxy = self.config.get_proxy_protocol_config()
-            self.server.proxy_enabled = bool(pxy.get("enabled", False))
-            self.server.accept_proxy_protocol = bool(pxy.get("enabled", False))
-            self.server.proxy_validate_sources = bool(pxy.get("validate_sources", True))
-            self.server.proxy_reject_invalid = bool(pxy.get("reject_invalid", True))
-        # Initialize webhook runtime config from file
+            self.server.proxy_enabled = bool(
+                pxy.get("enabled", DEFAULT_PROXY_ENABLED)
+            )
+            self.server.accept_proxy_protocol = bool(
+                pxy.get("enabled", DEFAULT_PROXY_ENABLED)
+            )
+            self.server.proxy_validate_sources = bool(
+                pxy.get("validate_sources", DEFAULT_PROXY_VALIDATE)
+            )
+            self.server.proxy_reject_invalid = bool(
+                pxy.get("reject_invalid", DEFAULT_PROXY_REJECT)
+            )
+
+    def _init_webhook_config(self) -> None:
         with safe_init("webhook config"):
             from tacacs_server.utils.webhook import set_webhook_config as _set_wh
 
@@ -219,15 +286,15 @@ class TacacsServerManager:
                 threshold_count=wh.get("threshold_count"),
                 threshold_window=wh.get("threshold_window"),
             )
-        # Apply security-related runtime limits
+
+    def _apply_security_limits(self) -> None:
         with safe_init("security runtime limits"):
             sec_cfg = getattr(self, "_cached_security_config", None)
             if sec_cfg is None:
                 sec_cfg = self.config.get_security_config()
                 self._cached_security_config = sec_cfg
-            per_ip_cap = int(sec_cfg.get("max_connections_per_ip", 20))
+            per_ip_cap = int(sec_cfg.get("max_connections_per_ip", DEFAULT_PER_IP_CAP))
             if per_ip_cap >= 1 and self.server:
-                # Replace connection limiter with new per-IP cap
                 try:
                     from tacacs_server.utils.rate_limiter import (
                         ConnectionLimiter as _ConnLimiter,
@@ -236,25 +303,24 @@ class TacacsServerManager:
                     self.server.conn_limiter = _ConnLimiter(max_per_ip=per_ip_cap)
                 except Exception:
                     pass
-            # Propagate encryption policy to TACACS server for runtime enforcement
             if self.server is not None:
                 try:
                     self.server.encryption_required = bool(
-                        sec_cfg.get("encryption_required", True)
+                        sec_cfg.get("encryption_required", DEFAULT_ENCRYPTION_REQUIRED)
                     )
                 except Exception:
                     self.server.encryption_required = True
 
-        # Initialize backup system
+    def _initialize_backup(self) -> None:
         with safe_init("backup system"):
             from tacacs_server.backup.service import initialize_backup_service
 
             backup_service = initialize_backup_service(self.config)
             self.backup_service = backup_service
+            self.services.backup_service = backup_service
 
             logger.info("Backup system initialized")
 
-            # Create initial backup if configured
             try:
                 initial_backup = self.config.config.getboolean(
                     "backup", "create_on_startup", fallback=False
@@ -274,7 +340,7 @@ class TacacsServerManager:
                 except Exception:
                     logger.warning("Startup backup creation skipped due to error")
 
-        # Initialize device inventory
+    def _initialize_device_store(self) -> None:
         with safe_init("device store setup"):
             self.device_store_config = self.config.get_device_store_config()
             net_cfg = self.config.get_server_network_config()
@@ -294,18 +360,21 @@ class TacacsServerManager:
                     default_group, description="Default device group"
                 )
             self.device_service = DeviceService(self.device_store)
+            self.services.device_store = self.device_store
+            self.services.device_service = self.device_service
             set_device_service(self.device_service)
             self._device_change_unsubscribe = self.device_service.add_change_listener(
                 self._handle_device_change
             )
-            # Expose store on server for future integrations
             if hasattr(self.server, "device_store"):
                 self.server.device_store = self.device_store
         if self.device_store is None or self.device_service is None:
             self.device_service = None
             set_device_service(None)
+        if self.device_store and not self.radius_server:
+            self._pending_radius_refresh = True
 
-        # Initialize local authentication store and services
+    def _initialize_local_auth(self) -> None:
         auth_db_path = self.config.get_local_auth_db()
 
         local_store: LocalAuthStore | None = None
@@ -316,40 +385,41 @@ class TacacsServerManager:
         if local_store is None:
             self.local_user_service = None
             self.local_user_group_service = None
+            self.services.local_user_service = None
+            self.services.local_user_group_service = None
             set_local_user_service(None)
             set_local_user_group_service(None)
             if self.server and hasattr(self.server, "handlers"):
                 self.server.handlers.set_local_user_group_service(None)
-        else:
-            with safe_init("local user service"):
-                self.local_user_service = LocalUserService(
-                    auth_db_path,
-                    store=local_store,
+            return
+
+        with safe_init("local user service"):
+            self.local_user_service = LocalUserService(
+                auth_db_path,
+                store=local_store,
+            )
+            self.services.local_user_service = self.local_user_service
+            set_local_user_service(self.local_user_service)
+        if self.local_user_service is None:
+            set_local_user_service(None)
+
+        with safe_init("local user group service"):
+            self.local_user_group_service = LocalUserGroupService(
+                auth_db_path,
+                store=local_store,
+            )
+            self.services.local_user_group_service = self.local_user_group_service
+            set_local_user_group_service(self.local_user_group_service)
+            if self.server and hasattr(self.server, "handlers"):
+                self.server.handlers.set_local_user_group_service(
+                    self.local_user_group_service
                 )
-                set_local_user_service(self.local_user_service)
-            if self.local_user_service is None:
-                set_local_user_service(None)
+        if self.local_user_group_service is None:
+            set_local_user_group_service(None)
+            if self.server and hasattr(self.server, "handlers"):
+                self.server.handlers.set_local_user_group_service(None)
 
-            with safe_init("local user group service"):
-                self.local_user_group_service = LocalUserGroupService(
-                    auth_db_path,
-                    store=local_store,
-                )
-                set_local_user_group_service(self.local_user_group_service)
-                if self.server and hasattr(self.server, "handlers"):
-                    self.server.handlers.set_local_user_group_service(
-                        self.local_user_group_service
-                    )
-            if self.local_user_group_service is None:
-                set_local_user_group_service(None)
-                if self.server and hasattr(self.server, "handlers"):
-                    self.server.handlers.set_local_user_group_service(None)
-
-        # Register pending refresh if radius server not yet initialised
-        if self.device_store and not self.radius_server:
-            self._pending_radius_refresh = True
-
-        # Configure admin authentication
+    def _configure_admin_auth(self) -> None:
         with safe_init("admin authentication"):
             admin_auth_cfg = self.config.get_admin_auth_config()
             username = admin_auth_cfg.get("username", "admin")
@@ -359,7 +429,7 @@ class TacacsServerManager:
                     username=username,
                     password_hash=password_hash,
                     session_timeout_minutes=admin_auth_cfg.get(
-                        "session_timeout_minutes", 60
+                        "session_timeout_minutes", DEFAULT_ADMIN_SESSION_TIMEOUT_MINUTES
                     ),
                 )
                 self.admin_session_manager = AdminSessionManager(auth_config)
@@ -368,14 +438,13 @@ class TacacsServerManager:
                 dependency = get_admin_auth_dependency(self.admin_session_manager)
                 set_admin_auth_dependency(dependency)
                 logger.info("Admin authentication enabled for username '%s'", username)
-                # Proactive bcrypt availability check to surface image issues early
                 with safe_init("bcrypt availability check"):
                     from typing import Any as _Any
 
                     import bcrypt
 
                     _ver: _Any = getattr(bcrypt, "__version__", None)
-                    _ = _ver  # prevent unused variable
+                    _ = _ver
             else:
                 logger.warning(
                     "Admin password hash not configured; "
@@ -386,10 +455,14 @@ class TacacsServerManager:
         if self.admin_session_manager is None:
             set_admin_session_manager(None)
             set_admin_auth_dependency(None)
-        # Setup RADIUS server if enabled
-        radius_config = self.config.get_radius_config()
-        if radius_config["enabled"]:
+        self.services.admin_session_manager = self.admin_session_manager
+
+    def _configure_radius(self, radius_config: dict[str, Any]) -> None:
+        if radius_config.get("enabled"):
             self._setup_radius_server(radius_config)
+            self.services.radius_server = self.radius_server
+
+    def _attach_auth_backends(self, radius_config: dict[str, Any]) -> None:
         auth_backends = self.config.create_auth_backends()
         for backend in auth_backends:
             if isinstance(backend, LocalAuthBackend) and self.local_user_service:
@@ -403,18 +476,15 @@ class TacacsServerManager:
         if self.radius_server and radius_config.get("share_backends", False):
             shared = len(getattr(self.radius_server, "auth_backends", []))
             logger.info("RADIUS: Sharing %d auth backends with TACACS+", shared)
-        # Always initialize command authorization engine for TACACS handlers
+
+    def _initialize_command_authorization(self) -> None:
         try:
             from tacacs_server.authorization.command_authorization import (
                 ActionType,
                 CommandAuthorizationEngine,
             )
-            from tacacs_server.web.web import (
-                set_command_authorizer as _set_authz,
-            )
-            from tacacs_server.web.web import (
-                set_command_engine as _set_engine,
-            )
+            from tacacs_server.web.web import set_command_authorizer as _set_authz
+            from tacacs_server.web.web import set_command_engine as _set_engine
 
             ca_cfg = self.config.get_command_authorization_config()
             engine = CommandAuthorizationEngine()
@@ -424,8 +494,8 @@ class TacacsServerManager:
                 if (ca_cfg.get("default_action") == "permit")
                 else ActionType.DENY
             )
-            default_mode = ca_cfg.get("response_mode", "pass_add")
-            priv_order = ca_cfg.get("privilege_check_order", "before")
+            default_mode = ca_cfg.get("response_mode", DEFAULT_COMMAND_RESPONSE_MODE)
+            priv_order = ca_cfg.get("privilege_check_order", DEFAULT_PRIVILEGE_ORDER)
 
             def authorizer(cmd: str, priv: int, groups, device_group):
                 allowed, reason, attrs, rule_mode = engine.authorize_command(
@@ -439,7 +509,6 @@ class TacacsServerManager:
 
             _set_engine(engine)
             _set_authz(authorizer)
-            # Also inject engine into TACACS handlers directly for deterministic use
             try:
                 if (
                     self.server
@@ -447,7 +516,6 @@ class TacacsServerManager:
                     and self.server.handlers
                 ):
                     self.server.handlers.command_engine = engine
-                    # Provide default response mode for handler fallback (when rule has none)
                     try:
                         self.server.handlers.command_response_mode_default = str(
                             default_mode
@@ -456,7 +524,6 @@ class TacacsServerManager:
                         logger.warning(
                             "Failed to set default command response mode: %s", exc
                         )
-                    # Pass privilege check ordering preference to handlers
                     try:
                         self.server.handlers.privilege_check_order = str(priv_order)
                     except Exception as exc:
@@ -464,17 +531,14 @@ class TacacsServerManager:
             except Exception as exc:
                 logger.warning("Failed to inject command engine into handlers: %s", exc)
         except Exception as exc:
-            # Do not fail startup if command authorization engine fails
             logger.warning("Command authorization engine init failed: %s", exc)
+        self.services.command_engine = locals().get("engine", None)
 
-        # Enable monitoring if configured (tolerate missing section)
-        # read monitoring section safely: prefer helper API, fallback to RawConfigParser
-        # items()
+    def _enable_monitoring(self) -> None:
         try:
             if hasattr(self.config, "get_monitoring_config"):
                 monitoring_config = self.config.get_monitoring_config() or {}
             else:
-                # self.config.config is a ConfigParser/RawConfigParser
                 try:
                     monitoring_config = dict(
                         getattr(self.config, "config").items("monitoring")
@@ -484,37 +548,35 @@ class TacacsServerManager:
         except Exception:
             monitoring_config = {}
 
-        if str(monitoring_config.get("enabled", "false")).lower() == "true":
-            web_host = monitoring_config.get("web_host", "127.0.0.1")
-            web_port = int(monitoring_config.get("web_port", "8080"))
-            logger.info(
-                "Monitoring configured -> attempting to enable web monitoring on %s:%s",
-                web_host,
-                web_port,
-            )
-            try:
-                # Web monitoring relies on engine already initialized above.
-                # Do not reinitialize the command engine here to avoid overwriting
-                # any runtime/test-injected rules.
-                started = False
-                if self.server:
-                    started = self.server.enable_web_monitoring(
-                        web_host, web_port, radius_server=self.radius_server
-                    )
-                if started:
-                    logger.info(
-                        "Monitoring successfully started at http://%s:%s",
-                        web_host,
-                        web_port,
-                    )
-                else:
-                    logger.error(
-                        "Monitoring failed to start "
-                        "(enable_web_monitoring returned False)"
-                    )
-            except Exception as e:
-                logger.exception("Exception while enabling monitoring: %s", e)
-        return True
+        if str(monitoring_config.get("enabled", "false")).lower() != "true":
+            return
+
+        web_host = monitoring_config.get("web_host", DEFAULT_MONITORING_HOST)
+        web_port = int(monitoring_config.get("web_port", str(DEFAULT_MONITORING_PORT)))
+        logger.info(
+            "Monitoring configured -> attempting to enable web monitoring on %s:%s",
+            web_host,
+            web_port,
+        )
+        try:
+            started = False
+            if self.server:
+                started = self.server.enable_web_monitoring(
+                    web_host, web_port, radius_server=self.radius_server
+                )
+            if started:
+                logger.info(
+                    "Monitoring successfully started at http://%s:%s",
+                    web_host,
+                    web_port,
+                )
+            else:
+                logger.error(
+                    "Monitoring failed to start "
+                    "(enable_web_monitoring returned False)"
+                )
+        except Exception as e:
+            logger.exception("Exception while enabling monitoring: %s", e)
 
     def _start_config_refresh_scheduler(self) -> None:
         """Start background thread to refresh URL-based config periodically."""
@@ -591,13 +653,13 @@ class TacacsServerManager:
             # Apply advanced tuning from config
             try:
                 self.radius_server.workers = max(
-                    1, min(64, int(radius_config.get("workers", 8)))
+                    1, min(64, int(radius_config.get("workers", DEFAULT_RADIUS_WORKERS)))
                 )
                 self.radius_server.socket_timeout = max(
-                    0.1, float(radius_config.get("socket_timeout", 1.0))
+                    0.1, float(radius_config.get("socket_timeout", DEFAULT_RADIUS_SOCKET_TIMEOUT))
                 )
                 self.radius_server.rcvbuf = max(
-                    262144, int(radius_config.get("rcvbuf", 1048576))
+                    MIN_RADIUS_RCVBUF, int(radius_config.get("rcvbuf", DEFAULT_RADIUS_RCVBUF))
                 )
             except Exception as exc:
                 logger.warning("Failed to apply RADIUS tuning config: %s", exc)
@@ -810,42 +872,11 @@ class TacacsServerManager:
         logger.info("Press Ctrl+C to stop")
 
 
-def create_test_client_script():
-    """Create test client script"""
-    template_candidates = [
-        Path(__file__).resolve().parent / "templates" / "tacacs_client.py.template"
-    ]
-
-    content = None
-    for candidate in template_candidates:
-        if candidate.exists():
-            content = candidate.read_text(encoding="utf-8")
-            break
-
-    if content is None:
-        raise FileNotFoundError("tacacs_client.py.template not found")
-
-    import os
-    import stat
-
-    os.makedirs("scripts", exist_ok=True)
-    script_path = "scripts/tacacs_client.py"
-    with open(script_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    st = os.stat(script_path)
-    os.chmod(script_path, st.st_mode | stat.S_IEXEC)
-
-
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="TACACS+ Server")
     parser.add_argument(
         "-c", "--config", default="config/tacacs.conf", help="Configuration file path"
-    )
-    parser.add_argument(
-        "--create-test-client",
-        action="store_true",
-        help="Create test client script and exit",
     )
     parser.add_argument(
         "--validate-config", action="store_true", help="Validate configuration and exit"
@@ -854,18 +885,6 @@ def main():
     args = parser.parse_args()
     for directory in ["config", "data", "logs", "tests", "scripts"]:
         Path(directory).mkdir(exist_ok=True)
-    if args.create_test_client:
-        try:
-            create_test_client_script()
-            print("Test client created: scripts/tacacs_client.py")
-            print(
-                "Usage: python scripts/tacacs_client.py [host] [port] [secret] "
-                "[username] [password]"
-            )
-        except Exception as e:
-            print(f"Error creating test client: {e}")
-            return 1
-        return 0
     if args.validate_config:
         try:
             config = TacacsConfig(args.config)
