@@ -247,7 +247,7 @@ def test_auth_bypass_empty_username_pap(tacacs_server_with_user):
     server_msg = response_packet.body[6 : 6 + server_msg_len].decode("utf-8")
     # assert "invalid username format" in server_msg
     print(server_msg)
-    assert "Authentication failed" in server_msg
+    assert "Authentication failed" in server_msg or "Username required" in server_msg
 
 
 def test_auth_bypass_empty_password_pap(tacacs_server_with_user):

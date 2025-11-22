@@ -20,8 +20,7 @@ from tacacs_server.utils.logger import get_logger
 
 from .config_store import ConfigStore
 from .config_utils import normalize_backend_name, parse_size
-from .constants import DEFAULTS
-from .defaults import populate_defaults
+from .defaults import CONFIG_DEFAULTS, populate_defaults
 from .getters import (
     get_admin_auth_config,
     get_auth_backends,
@@ -524,14 +523,14 @@ class TacacsConfig:
         """Filter update kwargs to allowed config keys for the section.
 
         - Drops context/meta keys starting with underscore (e.g. _change_reason).
-        - If section exists in DEFAULTS, only allow keys present there.
+        - If section exists in CONFIG_DEFAULTS, only allow keys present there.
         - Otherwise, allow all non-underscore keys.
         """
         # Remove context keys (e.g., _user, _change_reason, _source_ip)
         filtered = {k: v for k, v in kwargs.items() if not str(k).startswith("_")}
         # Restrict to known keys if defaults exist
-        if section in DEFAULTS:
-            allowed = set(DEFAULTS[section].keys())
+        if section in CONFIG_DEFAULTS:
+            allowed = set(CONFIG_DEFAULTS[section].keys())
             filtered = {k: v for k, v in filtered.items() if k in allowed}
         return filtered
 
@@ -741,6 +740,9 @@ def setup_logging(config: TacacsConfig):
         console_handler = logging.StreamHandler()
         handlers.append(console_handler)
 
+    # Track whether we'll switch from console-only to file+console
+    will_add_file = bool(log_file)
+
     # Add file handler
     if log_file:
         try:
@@ -757,6 +759,12 @@ def setup_logging(config: TacacsConfig):
             logger.exception("Failed to create file log handler for %s", log_file)
 
     configure_logging(level=log_level, handlers=handlers)
+
+    if will_add_file and add_console:
+        # Emitted only to console (last console-only message) to signal switch
+        logging.getLogger(__name__).info(
+            "Logging now also writing to file: %s", log_file
+        )
 
     logger.info(
         "Logging configured: level=%s, file=%s",

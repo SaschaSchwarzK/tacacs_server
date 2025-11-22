@@ -163,6 +163,62 @@ def _wait_for_port(host: str, port: int, timeout: float = 30.0) -> bool:
     return False
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _cleanup_docker_artifacts():
+    """Cleanup test Docker images/containers/volumes after the session."""
+    yield
+
+    import shutil
+    import subprocess
+
+    if shutil.which("docker") is None:
+        return
+
+    def _collect(cmd: list[str]) -> list[str]:
+        try:
+            res = subprocess.run(
+                cmd, check=False, capture_output=True, text=True, timeout=30
+            )
+            if res.returncode != 0:
+                return []
+            return [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+        except Exception:
+            return []
+
+    def _rm(kind: str, ids: list[str]) -> None:
+        if ids:
+            subprocess.run(["docker", kind, "rm", "-f", *ids], check=False)
+
+    # Containers: match ancestors, labels, and name patterns used in e2e helper scripts
+    container_ids = []
+    for ancestor in ("tiny-openldap", "tiny-ftp-sftp", "tacacs-azurite"):
+        container_ids += _collect(["docker", "ps", "-aq", "--filter", f"ancestor={ancestor}"])
+    container_ids += _collect(
+        ["docker", "ps", "-aq", "--filter", "label=org.opencontainers.image.title=freeradius-e2e"]
+    )
+    container_ids += _collect(["docker", "ps", "-aq", "--filter", "name=e2e"])
+    _rm("container", container_ids)
+
+    # Images: tagged or labeled for e2e runs (includes dynamic tags with -e2e:<uuid>)
+    image_ids = []
+    for name in ("tiny-openldap", "tiny-ftp-sftp", "tacacs-azurite", "freeradius-e2e"):
+        image_ids += _collect(["docker", "images", "-q", name])
+    image_ids += _collect(
+        ["docker", "images", "-q", "--filter", "label=org.opencontainers.image.title=freeradius-e2e"]
+    )
+    image_ids += _collect(["docker", "images", "-q", "--filter", "reference=*e2e*"])
+    _rm("image", image_ids)
+
+    # Volumes created by helper scripts
+    volume_ids = []
+    for vol in ("ldap-config", "ldap-data", "ftp-config", "ftp-data"):
+        volume_ids += _collect(
+            ["docker", "volume", "ls", "-q", "--filter", f"name={vol}"]
+        )
+    if volume_ids:
+        subprocess.run(["docker", "volume", "rm", "-f", *volume_ids], check=False)
+
+
 class ServerInstance:
     """Manages a real server instance with isolated resources"""
 
