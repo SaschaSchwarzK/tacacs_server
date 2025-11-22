@@ -2,10 +2,10 @@ import argparse
 import os
 import signal
 import sys
-import textwrap
 from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from tacacs_server.auth.local import LocalAuthBackend
 from tacacs_server.auth.local_store import LocalAuthStore
@@ -34,6 +34,38 @@ from tacacs_server.web.web import (
 )
 
 logger = get_logger(__name__)
+
+DEFAULT_SERVER_HOST = "localhost"
+DEFAULT_TACACS_PORT = 49
+DEFAULT_ADMIN_USERNAME = "admin"
+DEFAULT_SHARED_SECRET = "tacacs123"
+DEFAULT_CONFIG_REFRESH_SECONDS = 300
+DEFAULT_CONFIG_REFRESH_MIN_SLEEP = 30
+DEFAULT_TCP_KEEPALIVE_IDLE = 60
+DEFAULT_LISTEN_BACKLOG = 128
+DEFAULT_THREAD_POOL_MAX = 100
+
+
+@contextmanager
+def safe_init(
+    name: str,
+    *,
+    raise_on_fail: bool = False,
+    on_error: Callable[[Exception], None] | None = None,
+):
+    """Context manager to wrap non-critical initialization with consistent logging."""
+
+    try:
+        yield
+    except Exception as exc:
+        logger.warning("%s initialization failed: %s", name, exc)
+        if on_error:
+            try:
+                on_error(exc)
+            except Exception:
+                logger.debug("safe_init error callback failed for %s", name)
+        if raise_on_fail:
+            raise
 
 
 class TacacsServerManager:
@@ -77,51 +109,40 @@ class TacacsServerManager:
         """Atomically mirror config into all global consumers."""
         monitoring_set_config(self.config)
         # Mirror into utils accessor so API modules using config_utils see it
-        try:
+        with safe_init("config utils mirror", raise_on_fail=True):
             utils_set_config(self.config)
-        except Exception as exc:
-            logger.warning("Failed to mirror config to utils_config: %s", exc)
-            # Fail fast so downstream modules don't operate with inconsistent config.
-            raise
 
         # Ensure instance identity and initial version
-        try:
+        with safe_init("instance metadata"):
             store = getattr(self.config, "config_store", None)
-            if store is not None:
-                instance_id = store.ensure_instance_id()
-                instance_name = store.get_instance_name()
-                if not instance_name:
-                    try:
-                        import socket as _socket
-
-                        hostname = _socket.gethostname()
-                    except Exception:
-                        hostname = "node"
-                    name = (
-                        os.getenv("INSTANCE_NAME")
-                        or f"tacacs-{hostname}-{instance_id[:8]}"
-                    )
-                    store.set_instance_name(name)
-                    instance_name = name
-                logger.info(f"Instance: {instance_name} (ID: {instance_id[:8]}...)")
-                # Initial configuration snapshot
+            if store is None:
+                return
+            instance_id = store.ensure_instance_id()
+            instance_name = store.get_instance_name()
+            if not instance_name:
                 try:
-                    cfg_dict = self.config._export_full_config()
-                    store.create_version(
-                        config_dict=cfg_dict,
-                        created_by="system",
-                        description="Initial configuration snapshot",
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to create initial config version: {e}")
-        except Exception:
-            logger.debug("Instance identity/version init skipped")
+                    import socket as _socket
+
+                    hostname = _socket.gethostname()
+                except Exception:
+                    hostname = "node"
+                name = os.getenv("INSTANCE_NAME") or f"tacacs-{hostname}-{instance_id[:8]}"
+                store.set_instance_name(name)
+                instance_name = name
+            logger.info("Instance: %s (ID: %s...)", instance_name, instance_id[:8])
+            with safe_init("initial config snapshot"):
+                cfg_dict = self.config._export_full_config()
+                store.create_version(
+                    config_dict=cfg_dict,
+                    created_by="system",
+                    description="Initial configuration snapshot",
+                )
 
     def setup(self):
         """Setup server components"""
         setup_logging(self.config)
         # Capture a configuration snapshot at startup
-        try:
+        with safe_init("startup config snapshot"):
             store = getattr(self.config, "config_store", None)
             if store is not None:
                 cfg_dict = self.config._export_full_config()  # base + overrides
@@ -130,8 +151,6 @@ class TacacsServerManager:
                     created_by="system",
                     description="Configuration at startup",
                 )
-        except Exception:
-            logger.debug("Failed to create startup configuration snapshot")
         issues = self.config.validate_config()
         if issues:
             logger.error("Configuration validation failed:")
@@ -158,9 +177,11 @@ class TacacsServerManager:
             # Fall back to default path if config/bind fails; server remains usable
             pass
         # Apply extended server/network tuning
-        try:
+        with safe_init("network tuning"):
             net_cfg = self.config.get_server_network_config()
-            self.server.listen_backlog = int(net_cfg.get("listen_backlog", 128))
+            self.server.listen_backlog = int(
+                net_cfg.get("listen_backlog", DEFAULT_LISTEN_BACKLOG)
+            )
             self.server.client_timeout = float(net_cfg.get("client_timeout", 15))
             # Adjust validator limit instead of setting a non-existent attribute
             if hasattr(self.server, "validator") and self.server.validator:
@@ -169,11 +190,13 @@ class TacacsServerManager:
                 )
             self.server.enable_ipv6 = bool(net_cfg.get("ipv6_enabled", False))
             self.server.tcp_keepalive = bool(net_cfg.get("tcp_keepalive", True))
-            self.server.tcp_keepalive_idle = int(net_cfg.get("tcp_keepidle", 60))
+            self.server.tcp_keepalive_idle = int(
+                net_cfg.get("tcp_keepidle", DEFAULT_TCP_KEEPALIVE_IDLE)
+            )
             self.server.tcp_keepalive_intvl = int(net_cfg.get("tcp_keepintvl", 10))
             self.server.tcp_keepalive_cnt = int(net_cfg.get("tcp_keepcnt", 5))
             self.server.thread_pool_max_workers = int(
-                net_cfg.get("thread_pool_max", 100)
+                net_cfg.get("thread_pool_max", DEFAULT_THREAD_POOL_MAX)
             )
             self.server.use_thread_pool = bool(net_cfg.get("use_thread_pool", True))
 
@@ -183,10 +206,8 @@ class TacacsServerManager:
             self.server.accept_proxy_protocol = bool(pxy.get("enabled", False))
             self.server.proxy_validate_sources = bool(pxy.get("validate_sources", True))
             self.server.proxy_reject_invalid = bool(pxy.get("reject_invalid", True))
-        except Exception as exc:
-            logger.warning("Failed to apply proxy and proxy protocol config: %s", exc)
         # Initialize webhook runtime config from file
-        try:
+        with safe_init("webhook config"):
             from tacacs_server.utils.webhook import set_webhook_config as _set_wh
 
             wh = self.config.get_webhook_config()
@@ -198,10 +219,8 @@ class TacacsServerManager:
                 threshold_count=wh.get("threshold_count"),
                 threshold_window=wh.get("threshold_window"),
             )
-        except Exception as exc:
-            logger.warning("Failed to initialize webhook config: %s", exc)
         # Apply security-related runtime limits
-        try:
+        with safe_init("security runtime limits"):
             sec_cfg = getattr(self, "_cached_security_config", None)
             if sec_cfg is None:
                 sec_cfg = self.config.get_security_config()
@@ -225,11 +244,9 @@ class TacacsServerManager:
                     )
                 except Exception:
                     self.server.encryption_required = True
-        except Exception as exc:
-            logger.warning("Failed to apply security runtime limits: %s", exc)
 
         # Initialize backup system
-        try:
+        with safe_init("backup system"):
             from tacacs_server.backup.service import initialize_backup_service
 
             backup_service = initialize_backup_service(self.config)
@@ -256,13 +273,9 @@ class TacacsServerManager:
                         logger.info("Created startup backup")
                 except Exception:
                     logger.warning("Startup backup creation skipped due to error")
-        except Exception as e:
-            logger.error(f"Failed to initialize backup system: {e}")
-            # Don't fail startup if backup system has issues
-            self.backup_service = None
 
         # Initialize device inventory
-        try:
+        with safe_init("device store setup"):
             self.device_store_config = self.config.get_device_store_config()
             net_cfg = self.config.get_server_network_config()
             self.device_store = DeviceStore(
@@ -288,9 +301,7 @@ class TacacsServerManager:
             # Expose store on server for future integrations
             if hasattr(self.server, "device_store"):
                 self.server.device_store = self.device_store
-        except Exception as exc:
-            logger.exception("Failed to initialise device store: %s", exc)
-            self.device_store = None
+        if self.device_store is None or self.device_service is None:
             self.device_service = None
             set_device_service(None)
 
@@ -298,12 +309,9 @@ class TacacsServerManager:
         auth_db_path = self.config.get_local_auth_db()
 
         local_store: LocalAuthStore | None = None
-        try:
+        with safe_init("local auth store"):
             local_store = LocalAuthStore(auth_db_path)
             self.local_auth_store = local_store
-        except Exception as exc:
-            logger.exception("Failed to initialise local auth store: %s", exc)
-            self.local_auth_store = None
 
         if local_store is None:
             self.local_user_service = None
@@ -313,18 +321,16 @@ class TacacsServerManager:
             if self.server and hasattr(self.server, "handlers"):
                 self.server.handlers.set_local_user_group_service(None)
         else:
-            try:
+            with safe_init("local user service"):
                 self.local_user_service = LocalUserService(
                     auth_db_path,
                     store=local_store,
                 )
                 set_local_user_service(self.local_user_service)
-            except Exception as exc:
-                logger.exception("Failed to initialise local user service: %s", exc)
-                self.local_user_service = None
+            if self.local_user_service is None:
                 set_local_user_service(None)
 
-            try:
+            with safe_init("local user group service"):
                 self.local_user_group_service = LocalUserGroupService(
                     auth_db_path,
                     store=local_store,
@@ -334,11 +340,7 @@ class TacacsServerManager:
                     self.server.handlers.set_local_user_group_service(
                         self.local_user_group_service
                     )
-            except Exception as exc:
-                logger.exception(
-                    "Failed to initialise local user group service: %s", exc
-                )
-                self.local_user_group_service = None
+            if self.local_user_group_service is None:
                 set_local_user_group_service(None)
                 if self.server and hasattr(self.server, "handlers"):
                     self.server.handlers.set_local_user_group_service(None)
@@ -348,7 +350,7 @@ class TacacsServerManager:
             self._pending_radius_refresh = True
 
         # Configure admin authentication
-        try:
+        with safe_init("admin authentication"):
             admin_auth_cfg = self.config.get_admin_auth_config()
             username = admin_auth_cfg.get("username", "admin")
             password_hash = admin_auth_cfg.get("password_hash", "")
@@ -367,19 +369,13 @@ class TacacsServerManager:
                 set_admin_auth_dependency(dependency)
                 logger.info("Admin authentication enabled for username '%s'", username)
                 # Proactive bcrypt availability check to surface image issues early
-                try:
+                with safe_init("bcrypt availability check"):
                     from typing import Any as _Any
 
                     import bcrypt
 
                     _ver: _Any = getattr(bcrypt, "__version__", None)
                     _ = _ver  # prevent unused variable
-                except Exception as exc:
-                    logger.error(
-                        "Admin auth configured but bcrypt unavailable: %s. "
-                        "Ensure image has bcrypt built for this Python version.",
-                        exc,
-                    )
             else:
                 logger.warning(
                     "Admin password hash not configured; "
@@ -387,9 +383,7 @@ class TacacsServerManager:
                 )
                 set_admin_session_manager(None)
                 set_admin_auth_dependency(None)
-        except Exception as exc:
-            logger.exception("Failed to configure admin authentication: %s", exc)
-            self.admin_session_manager = None
+        if self.admin_session_manager is None:
             set_admin_session_manager(None)
             set_admin_auth_dependency(None)
         # Setup RADIUS server if enabled
@@ -545,10 +539,15 @@ class TacacsServerManager:
                         if updated:
                             logger.info("URL configuration refresh applied")
                         # Sleep for configured interval or default 5 minutes
-                        interval = int(os.getenv("CONFIG_REFRESH_SECONDS", "300"))
-                        _t.sleep(max(30, interval))
+                        interval = int(
+                            os.getenv(
+                                "CONFIG_REFRESH_SECONDS",
+                                str(DEFAULT_CONFIG_REFRESH_SECONDS),
+                            )
+                        )
+                        _t.sleep(max(DEFAULT_CONFIG_REFRESH_MIN_SLEEP, interval))
                     except Exception:
-                        _t.sleep(60)
+                        _t.sleep(DEFAULT_CONFIG_REFRESH_MIN_SLEEP * 2)
 
             th = threading.Thread(target=_worker, daemon=True)
             th.start()
@@ -813,212 +812,26 @@ class TacacsServerManager:
 
 def create_test_client_script():
     """Create test client script"""
-    test_client_code = textwrap.dedent('''\
-        #!/usr/bin/env python3
-        """Simple TACACS+ PAP client for quick end-to-end checks."""
+    template_candidates = [
+        Path(__file__).resolve().parent / "templates" / "tacacs_client.py.template"
+    ]
 
-        from __future__ import annotations
+    content = None
+    for candidate in template_candidates:
+        if candidate.exists():
+            content = candidate.read_text(encoding="utf-8")
+            break
 
-        import argparse
-        import hashlib
-        import socket
-        import struct
-        import sys
-        import time
-        from dataclasses import dataclass
-        from typing import Optional
+    if content is None:
+        raise FileNotFoundError("tacacs_client.py.template not found")
 
-
-        def md5_pad(
-            session_id: int, key: str, version: int, seq_no: int, length: int
-        ) -> bytes:
-            pad = bytearray()
-            session_id_bytes = struct.pack("!L", session_id)
-            key_bytes = key.encode("utf-8")
-            version_byte = bytes([version])
-            seq_byte = bytes([seq_no])
-
-            while len(pad) < length:
-                if not pad:
-                    md5_input = session_id_bytes + key_bytes + version_byte + seq_byte
-                else:
-                    md5_input = (
-                        session_id_bytes + key_bytes + version_byte + seq_byte + pad
-                    )
-                pad.extend(hashlib.md5(md5_input, usedforsecurity=False).digest())
-
-            return bytes(pad[:length])
-
-
-        def transform_body(
-            body: bytes, session_id: int, key: str, version: int, seq_no: int
-        ) -> bytes:
-            if not key:
-                return body
-            pad = md5_pad(session_id, key, version, seq_no, len(body))
-            return bytes(a ^ b for a, b in zip(body, pad))
-
-
-        @dataclass
-        class PapResult:
-            success: bool
-            status: int
-            server_message: Optional[str]
-            detail: str
-
-
-        def pap_authentication(
-            host: str = "localhost",
-            port: int = 49,
-            key: str = "tacacs123",
-            username: str = "admin",
-            password: str = "admin123",
-        ) -> PapResult:
-            print("\n=== TACACS+ PAP Authentication Test ===\n")
-            print(f"Target        : {host}:{port}")
-            print(f"Username      : {username}")
-            obscured = "*" * len(password) if password else "(empty)"
-            print(f"Password      : {obscured}")
-            print(f"Shared Secret : {key}\n")
-
-            sock: Optional[socket.socket] = None
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(10)
-                sock.connect((host, port))
-
-                session_id = int(time.time()) & 0xFFFFFFFF
-                user_bytes = username.encode("utf-8")
-                port_bytes = b"console"
-                rem_addr_bytes = b"127.0.0.1"
-                data_bytes = password.encode("utf-8")
-
-                body = struct.pack(
-                    "!BBBBBBBB",
-                    1,
-                    15,
-                    2,
-                    1,
-                    len(user_bytes),
-                    len(port_bytes),
-                    len(rem_addr_bytes),
-                    len(data_bytes),
-                )
-                body += user_bytes + port_bytes + rem_addr_bytes + data_bytes
-
-                version = 0xC0
-                seq_no = 1
-                encrypted_body = transform_body(body, session_id, key, version, seq_no)
-                header = struct.pack(
-                    "!BBBBLL", version, 1, seq_no, 0, session_id, len(encrypted_body)
-                )
-
-                print("Sending PAP authentication request...")
-                sock.sendall(header + encrypted_body)
-
-                response_header = sock.recv(12)
-                if len(response_header) != 12:
-                    return PapResult(False, -1, None, "invalid response header")
-
-                r_version, r_type, r_seq, _, r_session, r_length = struct.unpack(
-                    "!BBBBLL", response_header
-                )
-                print(f"Received header: type={r_type}, seq={r_seq}, length={r_length}")
-
-                response_body = sock.recv(r_length) if r_length else b""
-                if len(response_body) < r_length:
-                    return PapResult(False, -1, None, "truncated response body")
-
-                decrypted = transform_body(
-                    response_body, r_session, key, r_version, r_seq
-                )
-                if len(decrypted) < 6:
-                    return PapResult(False, -1, None, "response too short")
-
-                status, _flags, msg_len, data_len = struct.unpack(
-                    "!BBHH", decrypted[:6]
-                )
-                offset = 6
-                server_message = None
-                if msg_len:
-                    server_message = decrypted[offset:offset + msg_len].decode(
-                        "utf-8", errors="replace"
-                    )
-                    offset += msg_len
-
-                success = status == 1
-                detail = {
-                    1: "authentication accepted",
-                    2: "authentication rejected",
-                    0: "user continues",
-                }.get(status, f"status={status}")
-
-                print()
-                if success:
-                    print("Result        : ✅ Authentication accepted")
-                else:
-                    print("Result        : ❌ Authentication rejected")
-                print(f"Status Detail : {detail}")
-                if server_message:
-                    print(f"Server Message: {server_message}")
-                if data_len:
-                    attr_data = decrypted[offset:offset + data_len]
-                    print(f"Additional Data ({data_len} bytes): {attr_data.hex()}")
-
-                return PapResult(success, status, server_message, detail)
-
-            except OSError as exc:
-                print(f"✗ Network error: {exc}")
-                return PapResult(False, -1, None, "network error")
-            except Exception as exc:
-                print(f"✗ Unexpected error: {exc}")
-                return PapResult(False, -1, None, "unexpected error")
-            finally:
-                if sock is not None:
-                    try:
-                        sock.close()
-                    except Exception as exc:
-                        print(f"Warning: Failed to close PAP socket: {exc}", file=sys.stderr)
-
-
-        def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
-            parser = argparse.ArgumentParser(description="Simple TACACS+ PAP client")
-            parser.add_argument(
-                "host", nargs="?", default="localhost", 
-                help="Server host (default: localhost)"
-            )
-            parser.add_argument(
-                "port", nargs="?", type=int, default=49, 
-                help="Server port (default: 49)"
-            )
-            parser.add_argument(
-                "secret", nargs="?", default="tacacs123", help="Shared secret"
-            )
-            parser.add_argument("username", nargs="?", default="admin", help="Username")
-            parser.add_argument(
-                "password", nargs="?", default="admin123", help="Password"
-            )
-            return parser.parse_args(argv)
-
-
-        def main(argv: Optional[list[str]] = None) -> int:
-            args = parse_args(argv)
-            result = pap_authentication(
-                args.host, args.port, args.secret, args.username, args.password
-            )
-            return 0 if result.success else 1
-
-
-        if __name__ == "__main__":
-            sys.exit(main())
-    ''')
     import os
     import stat
 
     os.makedirs("scripts", exist_ok=True)
     script_path = "scripts/tacacs_client.py"
-    with open(script_path, "w") as f:
-        f.write(test_client_code)
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(content)
     st = os.stat(script_path)
     os.chmod(script_path, st.st_mode | stat.S_IEXEC)
 

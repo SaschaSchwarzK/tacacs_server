@@ -63,10 +63,24 @@ def test_syslog_forwarding_e2e(tmp_path: Path):
                 syslog_container,
                 "--network",
                 net_name,
-                "alpine",
+                "python:3.11-alpine",
                 "sh",
                 "-c",
-                "apk add --no-cache busybox-extras >/dev/null && nc -kul -p 5514 > /var/log/remote.log",
+                (
+                    "cat >/listener.py <<'PY'\n"
+                    "import socket, sys\n"
+                    "sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+                    "sock.bind(('0.0.0.0', 5514))\n"
+                    "with open('/var/log/remote.log', 'a', encoding='utf-8') as f:\n"
+                    "    f.write('listener ready\\n'); f.flush()\n"
+                    "    while True:\n"
+                    "        data, addr = sock.recvfrom(8192)\n"
+                    "        line = f\"{addr[0]}:{addr[1]} {data.decode(errors='replace')}\\n\"\n"
+                    "        f.write(line)\n"
+                    "        f.flush()\n"
+                    "PY\n"
+                    "python /listener.py"
+                ),
             ]
         )
 
@@ -137,7 +151,7 @@ def test_syslog_forwarding_e2e(tmp_path: Path):
         # Poll syslog receiver for the token
         found = False
         last_out = ""
-        for _ in range(10):
+        for _ in range(20):
             out = _run_docker(
                 ["exec", syslog_container, "cat", "/var/log/remote.log"]
             ).stdout or ""
