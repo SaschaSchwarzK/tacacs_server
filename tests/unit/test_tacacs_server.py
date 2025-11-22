@@ -1,6 +1,6 @@
 import logging
-import threading
 import socket
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +11,9 @@ from tacacs_server.tacacs.server import TacacsServer
 class FakeSocket:
     """Minimal socket stand-in for server setup tests."""
 
-    def __init__(self, should_bind_fail: bool = False, should_listen_fail: bool = False):
+    def __init__(
+        self, should_bind_fail: bool = False, should_listen_fail: bool = False
+    ):
         self.should_bind_fail = should_bind_fail
         self.should_listen_fail = should_listen_fail
         self.bound = None

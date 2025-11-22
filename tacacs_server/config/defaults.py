@@ -99,7 +99,9 @@ DEFAULT_LOG_ROTATION = True  # enable log rotation
 DEFAULT_MAX_LOG_SIZE = "10MB"  # rotation size
 DEFAULT_LOG_BACKUP_COUNT = 5  # rotated files retained
 DEFAULT_LOG_FILE = "logs/tacacs.log"  # default log file path
-DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # legacy format
+DEFAULT_LOG_FORMAT = (
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # legacy format
+)
 
 # Backup defaults
 DEFAULT_BACKUP_ENABLED = True  # enable backup subsystem

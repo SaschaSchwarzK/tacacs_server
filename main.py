@@ -3,17 +3,18 @@ import os
 import signal
 import sys
 from collections import Counter
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from tacacs_server.config.defaults import (
     DEFAULT_ADMIN_SESSION_TIMEOUT_MINUTES,
-    DEFAULT_ADMIN_USERNAME,
     DEFAULT_CLIENT_TIMEOUT,
     DEFAULT_COMMAND_RESPONSE_MODE,
     DEFAULT_CONFIG_REFRESH_MIN_SLEEP,
     DEFAULT_CONFIG_REFRESH_SECONDS,
+    DEFAULT_ENABLE_IPV6,
     DEFAULT_ENCRYPTION_REQUIRED,
     DEFAULT_LISTEN_BACKLOG,
     DEFAULT_MAX_PACKET_LENGTH,
@@ -27,9 +28,6 @@ from tacacs_server.config.defaults import (
     DEFAULT_RADIUS_RCVBUF,
     DEFAULT_RADIUS_SOCKET_TIMEOUT,
     DEFAULT_RADIUS_WORKERS,
-    DEFAULT_SERVER_HOST,
-    DEFAULT_SHARED_SECRET,
-    DEFAULT_TACACS_PORT,
     DEFAULT_TCP_KEEPALIVE_IDLE,
     DEFAULT_TCP_KEEPCNT,
     DEFAULT_TCP_KEEPINTVL,
@@ -37,6 +35,7 @@ from tacacs_server.config.defaults import (
     DEFAULT_USE_THREAD_POOL,
     MIN_RADIUS_RCVBUF,
 )
+
 # imports are only needed for type annotations;
 # loading them at runtime can trigger heavier side effects or circular imports during startup.
 if TYPE_CHECKING:
@@ -75,6 +74,7 @@ from tacacs_server.web.web import (
 
 logger = get_logger(__name__)
 
+
 @contextmanager
 def safe_init(
     name: str,
@@ -106,12 +106,12 @@ class TacacsServerManager:
         self.server: TacacsServer | None = None
         self.radius_server: Any | None = None
         self.services = Services(config=self.config)
-        self.device_store: "DeviceStore" | None = None
-        self.device_service: "DeviceService" | None = None
+        self.device_store: DeviceStore | None = None
+        self.device_service: DeviceService | None = None
         self.local_auth_store: LocalAuthStore | None = None
-        self.local_user_service: "LocalUserService" | None = None
-        self.local_user_group_service: "LocalUserGroupService" | None = None
-        self.admin_session_manager: "AdminSessionManager" | None = None
+        self.local_user_service: LocalUserService | None = None
+        self.local_user_group_service: LocalUserGroupService | None = None
+        self.admin_session_manager: AdminSessionManager | None = None
         self.device_store_config: dict[str, Any] = {}
         self.running = False
         from collections.abc import Callable
@@ -145,7 +145,9 @@ class TacacsServerManager:
                     hostname = _socket.gethostname()
                 except Exception:
                     hostname = "node"
-                name = os.getenv("INSTANCE_NAME") or f"tacacs-{hostname}-{instance_id[:8]}"
+                name = (
+                    os.getenv("INSTANCE_NAME") or f"tacacs-{hostname}-{instance_id[:8]}"
+                )
                 store.set_instance_name(name)
                 instance_name = name
             logger.info("Instance: %s (ID: %s...)", instance_name, instance_id[:8])
@@ -212,6 +214,8 @@ class TacacsServerManager:
         )
 
     def _configure_accounting_logger(self) -> None:
+        if self.server is None:
+            return
         try:
             from tacacs_server.accounting.database import DatabaseLogger as _DBL
 
@@ -227,6 +231,8 @@ class TacacsServerManager:
             pass
 
     def _apply_network_tuning(self) -> None:
+        if self.server is None:
+            return
         with safe_init("network tuning"):
             net_cfg = self.config.get_server_network_config()
             self.server.listen_backlog = int(
@@ -240,7 +246,7 @@ class TacacsServerManager:
                     net_cfg.get("max_packet_length", DEFAULT_MAX_PACKET_LENGTH)
                 )
             self.server.enable_ipv6 = bool(
-                net_cfg.get("ipv6_enabled", DEFAULT_PROXY_ENABLED)
+                net_cfg.get("ipv6_enabled", DEFAULT_ENABLE_IPV6)
             )
             self.server.tcp_keepalive = bool(net_cfg.get("tcp_keepalive", True))
             self.server.tcp_keepalive_idle = int(
@@ -260,9 +266,7 @@ class TacacsServerManager:
             )
 
             pxy = self.config.get_proxy_protocol_config()
-            self.server.proxy_enabled = bool(
-                pxy.get("enabled", DEFAULT_PROXY_ENABLED)
-            )
+            self.server.proxy_enabled = bool(pxy.get("enabled", DEFAULT_PROXY_ENABLED))
             self.server.accept_proxy_protocol = bool(
                 pxy.get("enabled", DEFAULT_PROXY_ENABLED)
             )
@@ -288,6 +292,8 @@ class TacacsServerManager:
             )
 
     def _apply_security_limits(self) -> None:
+        if self.server is None:
+            return
         with safe_init("security runtime limits"):
             sec_cfg = getattr(self, "_cached_security_config", None)
             if sec_cfg is None:
@@ -366,7 +372,7 @@ class TacacsServerManager:
             self._device_change_unsubscribe = self.device_service.add_change_listener(
                 self._handle_device_change
             )
-            if hasattr(self.server, "device_store"):
+            if self.server is not None and hasattr(self.server, "device_store"):
                 self.server.device_store = self.device_store
         if self.device_store is None or self.device_service is None:
             self.device_service = None
@@ -572,8 +578,7 @@ class TacacsServerManager:
                 )
             else:
                 logger.error(
-                    "Monitoring failed to start "
-                    "(enable_web_monitoring returned False)"
+                    "Monitoring failed to start (enable_web_monitoring returned False)"
                 )
         except Exception as e:
             logger.exception("Exception while enabling monitoring: %s", e)
@@ -653,13 +658,20 @@ class TacacsServerManager:
             # Apply advanced tuning from config
             try:
                 self.radius_server.workers = max(
-                    1, min(64, int(radius_config.get("workers", DEFAULT_RADIUS_WORKERS)))
+                    1,
+                    min(64, int(radius_config.get("workers", DEFAULT_RADIUS_WORKERS))),
                 )
                 self.radius_server.socket_timeout = max(
-                    0.1, float(radius_config.get("socket_timeout", DEFAULT_RADIUS_SOCKET_TIMEOUT))
+                    0.1,
+                    float(
+                        radius_config.get(
+                            "socket_timeout", DEFAULT_RADIUS_SOCKET_TIMEOUT
+                        )
+                    ),
                 )
                 self.radius_server.rcvbuf = max(
-                    MIN_RADIUS_RCVBUF, int(radius_config.get("rcvbuf", DEFAULT_RADIUS_RCVBUF))
+                    MIN_RADIUS_RCVBUF,
+                    int(radius_config.get("rcvbuf", DEFAULT_RADIUS_RCVBUF)),
                 )
             except Exception as exc:
                 logger.warning("Failed to apply RADIUS tuning config: %s", exc)
