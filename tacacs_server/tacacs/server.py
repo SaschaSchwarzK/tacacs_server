@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from tacacs_server.accounting.database import DatabaseLogger
 from tacacs_server.auth.base import AuthenticationBackend
-from tacacs_server.tacacs.constants import TAC_PLUS_DEFAULT_PORT
+from tacacs_server.config.defaults import DEFAULT_TACACS_PORT
 from tacacs_server.tacacs.handlers import AAAHandlers
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.metrics import MetricsCollector
@@ -38,7 +38,7 @@ class TacacsServer:
     def __init__(
         self,
         host: str = "0.0.0.0",
-        port: int = TAC_PLUS_DEFAULT_PORT,
+        port: int = DEFAULT_TACACS_PORT,
         secret_key: str | None = None,
         config: Any | None = None,
         services: Any | None = None,
