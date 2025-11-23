@@ -10,10 +10,12 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from tacacs_server.utils.config_utils import set_config as utils_set_config
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
+from tacacs_server.web.openid_auth import OpenIDConfig
 
 from . import web_admin, web_auth
 from .web import (
@@ -71,6 +73,18 @@ def create_app(
         version="1.0.0",
         docs_url="/api/docs",
         redoc_url="/api/redoc",
+    )
+    # Enable signed sessions so OpenID state can be stored safely during redirects.
+    session_secret = (
+        os.getenv("ADMIN_SESSION_SECRET")
+        or os.getenv("SESSION_SECRET")
+        or uuid.uuid4().hex
+    )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        same_site="lax",
+        https_only=False,
     )
 
     # ========================================================================
@@ -191,6 +205,52 @@ def create_app(
     admin_password_hash = admin_password_hash or os.getenv("ADMIN_PASSWORD_HASH", "")
     api_token = api_token or os.getenv("API_TOKEN")
 
+    def _build_openid_config_from_env() -> OpenIDConfig | None:
+        """Create OpenIDConfig from environment when required fields are present."""
+        issuer = os.getenv("OPENID_ISSUER_URL")
+        client_id = os.getenv("OPENID_CLIENT_ID")
+        client_secret = os.getenv("OPENID_CLIENT_SECRET")
+        redirect_uri = os.getenv("OPENID_REDIRECT_URI")
+        use_interaction_code = os.getenv("OPENID_USE_INTERACTION_CODE", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        code_verifier = os.getenv("OPENID_CODE_VERIFIER") if use_interaction_code else None
+
+        # Require client_secret unless using interaction_code (public client + PKCE)
+        if not (issuer and client_id and redirect_uri):
+            return None
+        if not client_secret and not use_interaction_code:
+            return None
+
+        scopes = os.getenv("OPENID_SCOPES", "openid profile email")
+        token_endpoint = os.getenv("OPENID_TOKEN_ENDPOINT") or None
+        userinfo_endpoint = os.getenv("OPENID_USERINFO_ENDPOINT") or None
+        try:
+            session_timeout = int(os.getenv("OPENID_SESSION_TIMEOUT_MINUTES", "60"))
+        except Exception:
+            session_timeout = 60
+        env_groups = os.getenv("OPENID_ADMIN_GROUPS", "")
+        allowed_groups = [
+            g.strip() for g in env_groups.split(",") if g.strip()
+        ] or None
+        return OpenIDConfig(
+            issuer_url=issuer,
+            client_id=client_id,
+            client_secret=client_secret or "",
+            redirect_uri=redirect_uri,
+            scopes=scopes,
+            token_endpoint=token_endpoint,
+            userinfo_endpoint=userinfo_endpoint,
+            session_timeout_minutes=session_timeout,
+            allowed_groups=allowed_groups,
+            use_interaction_code=use_interaction_code,
+            code_verifier=code_verifier,
+        )
+
+    openid_config = _build_openid_config_from_env()
+
     # If a config_service provides creds (common in tests), prefer those
     # 1) Structured config: get_admin_auth_config() -> {username, password_hash}
     if not admin_password_hash and config_service is not None:
@@ -255,6 +315,7 @@ def create_app(
             admin_password_hash=admin_password_hash,
             api_token=api_token,
             session_timeout=60,
+            openid_config=openid_config,
         )
         # Bridge session manager into global accessor for modules using config_utils
         try:

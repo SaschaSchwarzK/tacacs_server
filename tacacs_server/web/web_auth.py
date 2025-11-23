@@ -166,6 +166,12 @@ def init_auth(
 ):
     """Initialize authentication system"""
     global _auth_config, _session_manager
+    if openid_config:
+        env_groups = os.getenv("OPENID_ADMIN_GROUPS", "")
+        if env_groups and not getattr(openid_config, "allowed_groups", None):
+            openid_config.allowed_groups = [
+                g.strip() for g in env_groups.split(",") if g.strip()
+            ]
     _auth_config = AuthConfig(
         admin_username, admin_password_hash, api_token, session_timeout, openid_config
     )

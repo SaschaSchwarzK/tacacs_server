@@ -108,6 +108,7 @@ async def with_retries(
             logger.debug("Retry %s/%s for %s after error: %s", i, attempts, what, e)
             if i < attempts:
                 await asyncio.sleep(sleep_s)
+    logger.error("%s failed after %s attempts; last error: %s", what, attempts, err)
     raise RetryError(f"{what} failed after {attempts} attempts: {err}") from err
 
 
@@ -384,6 +385,36 @@ class OktaPreparer:
             else:
                 raise e
 
+    async def assign_users_to_app(self, app_id: str, user_ids: list[str]) -> None:
+        """Assign multiple users to an app via REST (idempotent)."""
+        import requests
+
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/users"
+
+        def _do_post(uid: str):
+            return requests.post(url, headers=headers, json={"id": uid}, timeout=15)
+
+        for uid in user_ids:
+            if not uid:
+                continue
+            try:
+                resp = await asyncio.to_thread(_do_post, uid)
+                if resp.status_code not in (200, 201, 204, 409):
+                    self.logger.warning(
+                        "Assign user %s to app %s failed: %s %s",
+                        uid,
+                        app_id,
+                        resp.status_code,
+                        resp.text,
+                    )
+            except Exception as e:  # noqa: BLE001
+                self.logger.warning("Assign user %s to app %s failed: %s", uid, app_id, e)
+
     async def is_user_in_group(self, user_id: str, group_id: str) -> bool:
         async def _list():
             meth = getattr(self.client, "list_user_groups", None)
@@ -444,22 +475,57 @@ class OktaPreparer:
         )
         if existing:
             client_id = None
+            client_secret = None
             creds = getattr(existing, "credentials", None)
             if creds and getattr(creds, "oauthClient", None):
                 client_id = getattr(creds.oauthClient, "client_id", None)
+                client_secret = getattr(creds.oauthClient, "client_secret", None)
+            if not client_secret:
+                cid, csec = await self.fetch_app_credentials(existing.id)
+                client_id = client_id or cid
+                client_secret = client_secret or csec
+            if not client_secret:
+                client_secret = await self.generate_app_client_secret(existing.id)
+            if not client_secret:
+                client_secret = await self.rotate_client_secret(existing.id)
             self.logger.info("App exists: %s (%s)", label, existing.id)
-            return AppInfo(id=existing.id, clientId=client_id)
+            return AppInfo(
+                id=existing.id,
+                clientId=client_id,
+                clientSecret=client_secret,
+                authMethod="client_secret" if client_secret else None,
+                appType="web",
+            )
 
         async def _create():
-            oauth_client = models.OAuthApplicationSettingsClient(
-                client_uri=client_uri,
-                logo_uri=None,
-                redirect_uris=redirect_uris,
-                response_types=response_types,
-                grant_types=grant_types,
-                application_type="web",
+            # The SDK classes differ by version; prefer OpenIdConnectApplicationSettingsClient.
+            client_cls = getattr(
+                models, "OpenIdConnectApplicationSettingsClient", None
             )
-            settings = models.OAuthApplicationSettings(oauthClient=oauth_client)
+            settings_cls = getattr(models, "OpenIdConnectApplicationSettings", None)
+            if client_cls and settings_cls:
+                oauth_client = client_cls(
+                    client_uri=client_uri,
+                    logo_uri=None,
+                    redirect_uris=redirect_uris,
+                    response_types=response_types,
+                    grant_types=grant_types,
+                    application_type="web",
+                    token_endpoint_auth_method="client_secret_post",
+                )
+                settings = settings_cls(oauthClient=oauth_client)
+            else:
+                # Fallback: construct via generic dicts if SDK classes are missing
+                settings = {
+                    "oauthClient": {
+                        "client_uri": client_uri,
+                        "redirect_uris": redirect_uris,
+                        "response_types": response_types,
+                        "grant_types": grant_types,
+                        "application_type": "web",
+                        "token_endpoint_auth_method": "client_secret_post",
+                    }
+                }
             app_obj = models.OpenIdConnectApplication(
                 label=label, signOnMode="OPENID_CONNECT", settings=settings
             )
@@ -472,11 +538,27 @@ class OktaPreparer:
             _create, logger=self.logger, what=f"create app {label}"
         )
         client_id = None
+        client_secret = None
         creds = getattr(created, "credentials", None)
         if creds and getattr(creds, "oauthClient", None):
             client_id = getattr(creds.oauthClient, "client_id", None)
+            client_secret = getattr(creds.oauthClient, "client_secret", None)
+        if not client_secret:
+            cid, csec = await self.fetch_app_credentials(created.id)
+            client_id = client_id or cid
+            client_secret = client_secret or csec
+        if not client_secret:
+            client_secret = await self.generate_app_client_secret(created.id)
+        if not client_secret:
+            client_secret = await self.rotate_client_secret(created.id)
         self.logger.info("App created: %s (%s)", label, created.id)
-        return AppInfo(id=created.id, clientId=client_id)
+        return AppInfo(
+            id=created.id,
+            clientId=client_id,
+            clientSecret=client_secret,
+            authMethod="client_secret" if client_secret else None,
+            appType="web",
+        )
 
     async def delete_app(self, app_id: str) -> None:
         # deactivate + delete to be safe
@@ -711,6 +793,48 @@ class OktaPreparer:
         creds = (data.get("credentials") or {}).get("oauthClient", {})
         return creds.get("client_id"), creds.get("client_secret")
 
+    async def rotate_client_secret(self, app_id: str) -> str | None:
+        """Rotate/generate client secret for confidential apps via REST."""
+        import requests
+
+        url = (
+            f"{self.org_url.rstrip('/')}/oauth2/v1/clients/{app_id}/lifecycle/rotateSecret"
+        )
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+        }
+
+        def _do_post():
+            return requests.post(url, headers=headers, timeout=15)
+
+        resp = await asyncio.to_thread(_do_post)
+        if resp.status_code not in (200, 201):
+            return None
+        data = resp.json() or {}
+        creds = data.get("client") or data  # rotateSecret returns {client:{client_id,client_secret}}
+        return (creds.get("client_secret") or creds.get("secret")) if isinstance(creds, dict) else None
+
+    async def generate_app_client_secret(self, app_id: str) -> str | None:
+        """Rotate/generate a new client secret for an app and return it."""
+        import requests
+
+        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/lifecycle/newSecret"
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+        }
+
+        def _do_post():
+            return requests.post(url, headers=headers, timeout=15)
+
+        resp = await asyncio.to_thread(_do_post)
+        if resp.status_code not in (200, 201):
+            return None
+        data = resp.json() or {}
+        creds = (data.get("credentials") or {}).get("oauthClient", {})
+        return creds.get("client_secret")
+
 
 # ---------- CLI ----------
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -745,6 +869,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     # Resource names / data
     p.add_argument("--group-ops", default="tacacs-ops", help="Operators group name")
     p.add_argument("--group-admin", default="tacacs-admin", help="Admins group name")
+    p.add_argument(
+        "--group-web-admin",
+        default="tacacs-web-admin",
+        help="Web admin OpenID group name",
+    )
 
     p.add_argument(
         "--op-login",
@@ -774,7 +903,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--redirect-uri",
         action="append",
         default=["https://example.local/callback"],
-        help="OIDC redirect URI (can repeat)",
+        help="OIDC redirect URI for TACACS backend (can repeat)",
+    )
+    p.add_argument(
+        "--admin-redirect-uri",
+        action="append",
+        default=["https://example.local/admin/login/openid-callback"],
+        help="OIDC redirect URI for web admin OpenID (can repeat)",
     )
     p.add_argument(
         "--client-uri", default="https://example.local", help="OIDC client URI"
@@ -851,6 +986,9 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
     # Ensure groups
     g_ops = await okta.ensure_group(args.group_ops, "Operators for TACACS tests")
     g_admin = await okta.ensure_group(args.group_admin, "Admins for TACACS tests")
+    g_web_admin = await okta.ensure_group(
+        args.group_web_admin, "Web Admin OpenID group"
+    )
 
     # Ensure users
     u_op = await okta.ensure_user_with_password(
@@ -873,15 +1011,22 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
     # Assign groups
     await okta.add_user_to_group(u_op.id, g_ops.id)
     await okta.add_user_to_group(u_ad.id, g_admin.id)
+    await okta.add_user_to_group(u_ad.id, g_web_admin.id)
 
     # Ensure OIDC app unless disabled (not required by AuthN-only backend flow)
     app = None
     if not args.no_app:
+        all_redirects = list(dict.fromkeys((args.redirect_uri or []) + (args.admin_redirect_uri or [])))
         app = await okta.ensure_oidc_web_app(
             label=args.app_label,
-            redirect_uris=args.redirect_uri,
+            redirect_uris=all_redirects,
             client_uri=args.client_uri,
         )
+        if app and app.id:
+            await okta.assign_users_to_app(
+                app.id,
+                [u_ad.id if u_ad else None, u_op.id if u_op else None],
+            )
 
     # Optionally create service app for Okta API scopes (OAuth 2.0 client_credentials)
     svc_app = None
@@ -937,7 +1082,7 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
             logger.warning("Could not fetch service app credentials: %s", e)
 
     manifest = Manifest(
-        groups={"ops": g_ops, "admin": g_admin},
+        groups={"ops": g_ops, "admin": g_admin, "web_admin": g_web_admin},
         users={"operator": u_op, "admin": u_ad},
         app=app,
         service_app=svc_app,
@@ -1073,7 +1218,7 @@ def main(argv: list[str]) -> int:
         logger.error("Interrupted.")
         return 130
     except RetryError as re:
-        logger.error(str(re))
+        logger.exception(str(re))
         return 75
     except Exception as e:  # noqa: BLE001
         logger.exception("Fatal error: %s", e)

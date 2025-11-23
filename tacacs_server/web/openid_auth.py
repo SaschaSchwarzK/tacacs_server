@@ -30,6 +30,9 @@ class OpenIDConfig:
         token_endpoint: Optional[str] = None,
         userinfo_endpoint: Optional[str] = None,
         session_timeout_minutes: int = 60,
+        allowed_groups: Optional[list[str]] = None,
+        use_interaction_code: bool = False,
+        code_verifier: Optional[str] = None,
     ):
         """
         Args:
@@ -42,16 +45,25 @@ class OpenIDConfig:
             userinfo_endpoint: Custom userinfo endpoint URL (auto-discovered if None)
             session_timeout_minutes: Session expiry in minutes
         """
-        self.issuer_url = issuer_url.rstrip("/")
+        cleaned_issuer = (issuer_url or "").strip().rstrip("/")
+        if not cleaned_issuer.startswith("http"):
+            raise ValueError(f"Invalid issuer_url: {issuer_url!r}")
+        if "…" in cleaned_issuer or cleaned_issuer.startswith("..."):
+            raise ValueError(f"issuer_url looks truncated/placeholder: {issuer_url!r}")
+        self.issuer_url = cleaned_issuer
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
         self.scopes = scopes
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
+        self.allowed_groups = allowed_groups or []
+        self.use_interaction_code = use_interaction_code
+        self.code_verifier = code_verifier
         
         # Endpoints - will be auto-discovered from .well-known/openid-configuration if not provided
         self._token_endpoint = token_endpoint
         self._userinfo_endpoint = userinfo_endpoint
+        self._authorization_endpoint: Optional[str] = None
         self._endpoints_loaded = False
 
     def _load_endpoints(self) -> None:
@@ -69,6 +81,8 @@ class OpenIDConfig:
                 self._token_endpoint = metadata.get("token_endpoint")
             if not self._userinfo_endpoint:
                 self._userinfo_endpoint = metadata.get("userinfo_endpoint")
+            if not self._authorization_endpoint:
+                self._authorization_endpoint = metadata.get("authorization_endpoint")
             
             self._endpoints_loaded = True
             logger.debug(
@@ -81,6 +95,7 @@ class OpenIDConfig:
                 "Failed to discover OpenID endpoints",
                 event="admin.openid.discovery_failed",
                 error=str(e),
+                metadata_url=f"{self.issuer_url}/.well-known/openid-configuration",
             )
             raise
 
@@ -123,14 +138,36 @@ class OpenIDManager:
 
     def get_authorization_url(self, state: str) -> str:
         """Generate authorization URL for redirect to OIDC provider."""
-        params = {
+        # Ensure endpoints are loaded so we use the discovered authorization_endpoint when available
+        try:
+            self.config._load_endpoints()
+        except Exception:
+            pass
+        params: dict[str, str] = {
             "client_id": self.config.client_id,
             "response_type": "code",
             "scope": self.config.scopes,
             "redirect_uri": self.config.redirect_uri,
             "state": state,
         }
-        return f"{self.config.issuer_url}/oauth/authorize?{urlencode(params)}"
+        # Include PKCE code_challenge when a code_verifier is supplied (public clients)
+        if self.config.code_verifier:
+            try:
+                import hashlib
+                import base64
+
+                digest = hashlib.sha256(self.config.code_verifier.encode("ascii")).digest()
+                challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+                params["code_challenge"] = challenge
+                params["code_challenge_method"] = "S256"
+            except Exception:
+                logger.warning("Failed to compute PKCE code_challenge; continuing without it")
+        # Prefer discovered authorization_endpoint; fallback to standard Okta path
+        auth_base = (
+            getattr(self.config, "_authorization_endpoint", None)
+            or f"{self.config.issuer_url}/oauth2/v1/authorize"
+        )
+        return f"{auth_base}?{urlencode(params)}"
 
     def exchange_code_for_token(self, code: str) -> dict:
         """
@@ -139,13 +176,20 @@ class OpenIDManager:
         Returns:
             dict with 'access_token', 'token_type', 'expires_in', 'id_token', etc.
         """
+        grant_type = (
+            "interaction_code" if self.config.use_interaction_code else "authorization_code"
+        )
         payload = {
-            "grant_type": "authorization_code",
+            "grant_type": grant_type,
             "code": code,
             "client_id": self.config.client_id,
-            "client_secret": self.config.client_secret,
-            "redirect_uri": self.config.redirect_uri,
         }
+        if self.config.client_secret:
+            payload["client_secret"] = self.config.client_secret
+        # For both interaction_code and auth code with PKCE, include code_verifier when provided.
+        if self.config.code_verifier:
+            payload["code_verifier"] = self.config.code_verifier
+        payload["redirect_uri"] = self.config.redirect_uri
         
         try:
             resp = requests.post(self.config.token_endpoint, data=payload, timeout=10)
@@ -209,9 +253,25 @@ class OpenIDManager:
         # Get user info
         user_info = self.get_user_info(access_token)
         email = user_info.get("email")
-        
+        user_groups_raw = user_info.get("groups") or []
+        if isinstance(user_groups_raw, str):
+            user_groups = [g.strip() for g in user_groups_raw.split(",") if g.strip()]
+        else:
+            user_groups = [str(g) for g in user_groups_raw] if user_groups_raw else []
+
         if not email:
             raise ValueError("User info missing 'email' claim")
+
+        if self.config.allowed_groups:
+            if not any(g in self.config.allowed_groups for g in user_groups):
+                logger.warning(
+                    "OpenID user not in allowed groups",
+                    event="admin.openid.group_reject",
+                    user_email=email,
+                    groups=user_groups,
+                    allowed_groups=self.config.allowed_groups,
+                )
+                raise ValueError("User not in allowed OpenID group")
         
         # Create session
         session_token = secrets.token_urlsafe(32)

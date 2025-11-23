@@ -155,6 +155,10 @@ async def login_page(request: Request):
     """Show login form"""
     auth_config = get_auth_config()
     openid_enabled = auth_config and auth_config.openid_config is not None
+    session_mgr = get_session_manager()
+    token = request.cookies.get("admin_session") if hasattr(request, "cookies") else None
+    if session_mgr and token and session_mgr.validate_session(token):
+        return RedirectResponse(url="/admin/", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
         request, "admin/login.html", {"openid_enabled": openid_enabled}
     )
@@ -168,6 +172,8 @@ async def login(
 ):
     """Process login via JSON or form submission."""
     session_mgr = get_session_manager()
+    auth_config = get_auth_config()
+    openid_enabled = bool(auth_config and auth_config.openid_config)
     initialized_during_request = False
     if not session_mgr:
         # Attempt on-the-fly initialization if credentials are provided
@@ -205,6 +211,20 @@ async def login(
             )
 
     is_json = request.headers.get("content-type", "").startswith("application/json")
+
+    # If OpenID is configured and available, disable password login
+    if openid_enabled and session_mgr and session_mgr.openid_manager:
+        if is_json:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Use OpenID login",
+            )
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": "Use OpenID login", "openid_enabled": True},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
     if is_json:
         try:
             payload = await request.json()
@@ -233,7 +253,7 @@ async def login(
         )
 
     try:
-        token = session_mgr.create_session(username, password)
+        token = session_mgr.create_password_session(username, password)
     except HTTPException:
         # Retry path:
         # 1) if we just initialised during this request
@@ -250,7 +270,7 @@ async def login(
             pass
         if needs_retry:
             try:
-                token = session_mgr.create_session(username, password)  # retry
+                token = session_mgr.create_password_session(username, password)  # retry
             except Exception:
                 if is_json:
                     raise HTTPException(
@@ -298,7 +318,7 @@ async def login(
         token,
         httponly=True,
         secure=request.url.scheme == "https",
-        samesite="strict",
+        samesite="lax",  # allow cookie to stick after cross-site redirect from IdP
         max_age=3600,  # 1 hour
         path="/",
     )
@@ -435,24 +455,30 @@ async def openid_callback(
             session_token,
             httponly=True,
             secure=request.url.scheme == "https",
-            samesite="strict",
+            samesite="lax",  # allow cookie to stick after cross-site redirect from IdP
             max_age=3600,
             path="/",
         )
         return response
 
     except Exception as e:
+        err_text = str(e) or "Authentication failed"
         logger.error(
             "OpenID session creation failed",
             event="admin.openid.session_error",
             service="web",
             component="openid",
-            error=str(e),
+            error=err_text,
+        )
+        friendly = (
+            "User not in admin group"
+            if "allowed" in err_text.lower() and "group" in err_text.lower()
+            else "Authentication failed. Please try again."
         )
         return templates.TemplateResponse(
             request,
             "admin/login.html",
-            {"error": "Authentication failed. Please try again.", "openid_enabled": True},
+            {"error": friendly, "openid_enabled": True},
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
