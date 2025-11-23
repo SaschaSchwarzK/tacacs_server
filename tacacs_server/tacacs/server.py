@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from tacacs_server.accounting.database import DatabaseLogger
 from tacacs_server.auth.base import AuthenticationBackend
-from tacacs_server.tacacs.constants import TAC_PLUS_DEFAULT_PORT
+from tacacs_server.config.defaults import DEFAULT_TACACS_PORT
 from tacacs_server.tacacs.handlers import AAAHandlers
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.metrics import MetricsCollector
@@ -38,9 +38,10 @@ class TacacsServer:
     def __init__(
         self,
         host: str = "0.0.0.0",
-        port: int = TAC_PLUS_DEFAULT_PORT,
+        port: int = DEFAULT_TACACS_PORT,
         secret_key: str | None = None,
         config: Any | None = None,
+        services: Any | None = None,
     ):
         self.host = host
         self.port = port
@@ -48,6 +49,7 @@ class TacacsServer:
             "TACACS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK"
         )
         self.config = config
+        self.services = services
 
         if self.secret_key == "CHANGE_ME_FALLBACK":
             logger.warning(
@@ -65,6 +67,10 @@ class TacacsServer:
             self.db_logger,
             backend_process_pool_size=pool_size,
         )
+        try:
+            self.handlers.services = services
+        except Exception:
+            pass
         self.metrics = MetricsCollector()
 
         # Managers
@@ -116,7 +122,8 @@ class TacacsServer:
 
         logger = get_logger(__name__)
         while self.running:
-            if self._cleanup_stop_event.wait(600):
+            # Wake frequently so stop() and graceful_shutdown() are responsive
+            if self._cleanup_stop_event.wait(5):
                 break
             try:
                 limiter = get_rate_limiter()
@@ -215,7 +222,9 @@ class TacacsServer:
 
     def _load_network_config(self):
         """Load network configuration from environment"""
-        self.listen_backlog = int(os.getenv("TACACS_LISTEN_BACKLOG", "128"))
+        raw_backlog = int(os.getenv("TACACS_LISTEN_BACKLOG", "128"))
+        # Clamp to sane bounds to avoid OS-dependent behavior
+        self.listen_backlog = max(1, min(1024, raw_backlog))
         self.client_timeout = float(os.getenv("TACACS_CLIENT_TIMEOUT", "15"))
         self.enable_ipv6 = os.getenv("TACACS_IPV6_ENABLED", "false").lower() == "true"
         self.tcp_keepalive = (
@@ -611,6 +620,9 @@ class TacacsServer:
 
         logger.info("Stopping TACACS server")
         self.running = False
+        stop_evt = getattr(self, "_cleanup_stop_event", None)
+        if stop_evt is not None:
+            stop_evt.set()
 
         if self.server_socket:
             try:
