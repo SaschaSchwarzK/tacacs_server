@@ -180,6 +180,11 @@ async def login(
     session_mgr = get_session_manager()
     auth_config = get_auth_config()
     openid_enabled = bool(auth_config and auth_config.openid_config)
+    require_openid = os.getenv("ADMIN_REQUIRE_OPENID", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     initialized_during_request = False
     if not session_mgr:
         # Attempt on-the-fly initialization if credentials are provided
@@ -218,8 +223,8 @@ async def login(
 
     is_json = request.headers.get("content-type", "").startswith("application/json")
 
-    # If OpenID is configured and available, disable password login
-    if openid_enabled and session_mgr and session_mgr.openid_manager:
+    # If OpenID is configured and available, optionally disable password login
+    if require_openid and openid_enabled and session_mgr and session_mgr.openid_manager:
         if is_json:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

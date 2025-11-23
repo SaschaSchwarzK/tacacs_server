@@ -25,9 +25,10 @@ USAGE:
       --org-url "$OKTA_ORG_URL" \
       --api-token "$OKTA_API_TOKEN" \
       --output ./okta_test_data.json \
-      --no-app --create-service-app  \
+      --create-service-app  \
       --service-auth-method private_key_jwt \
       --service-scopes "okta.users.read,okta.groups.read" \
+      --app-auth-method private_key_jwt \
       --write-backend-config "config/okta.generated.conf"
 
   # Teardown everything created from a previous run
@@ -417,6 +418,109 @@ class OktaPreparer:
                     "Assign user %s to app %s failed: %s", uid, app_id, e
                 )
 
+    async def assign_group_to_app(self, app_id: str, group_id: str) -> None:
+        """Assign a group to an app via REST."""
+        import requests
+
+        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/groups/{group_id}"
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+        def _do_put():
+            return requests.put(url, headers=headers, timeout=15)
+
+        try:
+            resp = await asyncio.to_thread(_do_put)
+            if resp.status_code in (200, 201, 204, 409):
+                self.logger.info("Assigned group %s to app %s", group_id, app_id)
+            else:
+                self.logger.warning(
+                    "Assign group %s to app %s failed: %s %s",
+                    group_id,
+                    app_id,
+                    resp.status_code,
+                    resp.text,
+                )
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(
+                "Assign group %s to app %s failed: %s", group_id, app_id, e
+            )
+
+    async def configure_groups_claim_filter(self, app_id: str) -> None:
+        """Configure Groups claim filter in OpenID Connect ID Token.
+        Sets Name=groups, Startswith=tacacs.
+        """
+        import requests
+
+        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}"
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+        # First fetch current app settings
+        def _do_get():
+            return requests.get(url, headers=headers, timeout=15)
+
+        resp = await asyncio.to_thread(_do_get)
+        if resp.status_code != 200:
+            self.logger.warning(
+                "Failed to fetch app %s for groups claim config: %s %s",
+                app_id,
+                resp.status_code,
+                resp.text,
+            )
+            return
+
+        app_data = resp.json()
+        # Ensure settings.oauthClient exists
+        if "settings" not in app_data:
+            app_data["settings"] = {}
+        if "oauthClient" not in app_data["settings"]:
+            app_data["settings"]["oauthClient"] = {}
+
+        # Add groups claim filter under idToken
+        if "idToken" not in app_data["settings"]["oauthClient"]:
+            app_data["settings"]["oauthClient"]["idToken"] = {}
+
+        app_data["settings"]["oauthClient"]["idToken"]["claims"] = [
+            {
+                "name": "groups",
+                "type": "RESOURCE",
+                "value": "groups",
+                "valueType": "GROUPS",
+                "claimFilter": {
+                    "name": "groups",
+                    "type": "STARTS_WITH",
+                    "value": "tacacs",
+                },
+            }
+        ]
+
+        # Update the app
+        def _do_put():
+            return requests.put(url, headers=headers, json=app_data, timeout=15)
+
+        try:
+            resp = await asyncio.to_thread(_do_put)
+            if resp.status_code in (200, 204):
+                self.logger.info("Configured groups claim filter for app %s", app_id)
+            else:
+                self.logger.warning(
+                    "Failed to configure groups claim filter for app %s: %s %s",
+                    app_id,
+                    resp.status_code,
+                    resp.text,
+                )
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(
+                "Configure groups claim filter for app %s failed: %s", app_id, e
+            )
+
     async def is_user_in_group(self, user_id: str, group_id: str) -> bool:
         async def _list():
             meth = getattr(self.client, "list_user_groups", None)
@@ -460,9 +564,17 @@ class OktaPreparer:
         client_uri: str | None = None,
         grant_types: list[str] | None = None,
         response_types: list[str] | None = None,
+        auth_method: str = "client_secret",
+        public_jwk: dict[str, Any] | None = None,
     ) -> AppInfo:
         grant_types = grant_types or ["authorization_code"]
         response_types = response_types or ["code"]
+        # Determine token_endpoint_auth_method based on auth_method parameter
+        token_auth_method = (
+            "private_key_jwt"
+            if auth_method == "private_key_jwt"
+            else "client_secret_post"
+        )
 
         async def _search():
             apps_iter, _, _ = await self.client.list_applications(q=label)
@@ -495,7 +607,7 @@ class OktaPreparer:
                 id=existing.id,
                 clientId=client_id,
                 clientSecret=client_secret,
-                authMethod="client_secret" if client_secret else None,
+                authMethod=auth_method,
                 appType="web",
             )
 
@@ -503,29 +615,23 @@ class OktaPreparer:
             # The SDK classes differ by version; prefer OpenIdConnectApplicationSettingsClient.
             client_cls = getattr(models, "OpenIdConnectApplicationSettingsClient", None)
             settings_cls = getattr(models, "OpenIdConnectApplicationSettings", None)
+            oauth_client_settings = {
+                "client_uri": client_uri,
+                "redirect_uris": redirect_uris,
+                "response_types": response_types,
+                "grant_types": grant_types,
+                "application_type": "web",
+                "token_endpoint_auth_method": token_auth_method,
+            }
+            if auth_method == "private_key_jwt" and public_jwk:
+                oauth_client_settings["jwks"] = {"keys": [public_jwk]}
+
             if client_cls and settings_cls:
-                oauth_client = client_cls(
-                    client_uri=client_uri,
-                    logo_uri=None,
-                    redirect_uris=redirect_uris,
-                    response_types=response_types,
-                    grant_types=grant_types,
-                    application_type="web",
-                    token_endpoint_auth_method="client_secret_post",
-                )
+                oauth_client = client_cls(**oauth_client_settings)
                 settings = settings_cls(oauthClient=oauth_client)
             else:
                 # Fallback: construct via generic dicts if SDK classes are missing
-                settings = {
-                    "oauthClient": {
-                        "client_uri": client_uri,
-                        "redirect_uris": redirect_uris,
-                        "response_types": response_types,
-                        "grant_types": grant_types,
-                        "application_type": "web",
-                        "token_endpoint_auth_method": "client_secret_post",
-                    }
-                }
+                settings = {"oauthClient": oauth_client_settings}
             app_obj = models.OpenIdConnectApplication(
                 label=label, signOnMode="OPENID_CONNECT", settings=settings
             )
@@ -556,7 +662,7 @@ class OktaPreparer:
             id=created.id,
             clientId=client_id,
             clientSecret=client_secret,
-            authMethod="client_secret" if client_secret else None,
+            authMethod=auth_method,
             appType="web",
         )
 
@@ -918,6 +1024,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument(
         "--client-uri", default="https://example.local", help="OIDC client URI"
     )
+    p.add_argument(
+        "--app-auth-method",
+        choices=["client_secret", "private_key_jwt"],
+        default="client_secret",
+        help="OIDC web app token endpoint auth method",
+    )
+    p.add_argument(
+        "--app-public-jwk-file",
+        default=None,
+        help="Path to public JWK (JSON) for web app when using private_key_jwt",
+    )
+    p.add_argument(
+        "--app-private-key-out",
+        default="okta_app_private_key.pem",
+        help="Where to write generated private key PEM for web app (private_key_jwt)",
+    )
+    p.add_argument(
+        "--app-public-jwk-out",
+        default="okta_app_public_jwk.json",
+        help="Where to write generated public JWK JSON for web app (private_key_jwt)",
+    )
     p.add_argument("--no-app", action="store_true", help="Skip creating OIDC web app")
     p.add_argument(
         "--verify-perms",
@@ -1023,12 +1150,50 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
         all_redirects = list(
             dict.fromkeys((args.redirect_uri or []) + (args.admin_redirect_uri or []))
         )
+        app_public_jwk = None
+        app_generated_kid = None
+        app_generated_priv_path = None
+        if args.app_auth_method == "private_key_jwt":
+            if args.app_public_jwk_file:
+                try:
+                    with open(args.app_public_jwk_file, encoding="utf-8") as f:
+                        app_public_jwk = json.load(f)
+                except Exception as e:  # noqa: BLE001
+                    raise SystemExit(f"Failed to read app public JWK: {e}")
+            else:
+                # Generate new RSA keypair and JWK
+                priv_pem, app_public_jwk = OktaPreparer.generate_rsa_keypair_and_jwk()
+                app_generated_kid = app_public_jwk.get("kid")
+                # Save private key and public JWK
+                try:
+                    with open(args.app_private_key_out, "w", encoding="utf-8") as f:
+                        f.write(priv_pem)
+                    with open(args.app_public_jwk_out, "w", encoding="utf-8") as f:
+                        json.dump(app_public_jwk, f, indent=2)
+                    app_generated_priv_path = args.app_private_key_out
+                    logger.info(
+                        "Generated RSA keypair for web app (kid=%s)", app_generated_kid
+                    )
+                except Exception as e:  # noqa: BLE001
+                    raise SystemExit(f"Failed to write generated app keys: {e}")
         app = await okta.ensure_oidc_web_app(
             label=args.app_label,
             redirect_uris=all_redirects,
             client_uri=args.client_uri,
+            auth_method=args.app_auth_method,
+            public_jwk=app_public_jwk,
         )
+        # Attach key metadata if generated
+        if app and app_generated_kid:
+            app.privateKeyId = app_generated_kid
+        if app and app_generated_priv_path:
+            app.privateKeyPath = app_generated_priv_path
         if app and app.id:
+            # Assign app to web_admin group
+            await okta.assign_group_to_app(app.id, g_web_admin.id)
+            # Configure Groups claim filter in OpenID Connect ID Token
+            await okta.configure_groups_claim_filter(app.id)
+            # Assign users to app
             await okta.assign_users_to_app(
                 app.id,
                 [u_ad.id if u_ad else None, u_op.id if u_op else None],
@@ -1086,6 +1251,17 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
                 svc_app.clientSecret = csec
         except Exception as e:  # noqa: BLE001
             logger.warning("Could not fetch service app credentials: %s", e)
+
+    # Ensure app client_secret is populated in manifest
+    if app and not app.clientSecret:
+        try:
+            cid, csec = await okta.fetch_app_credentials(app.id)
+            if cid:
+                app.clientId = cid
+            if csec:
+                app.clientSecret = csec
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not fetch app credentials: %s", e)
 
     manifest = Manifest(
         groups={"ops": g_ops, "admin": g_admin, "web_admin": g_web_admin},
