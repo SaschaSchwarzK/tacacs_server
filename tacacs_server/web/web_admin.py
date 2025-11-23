@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from tacacs_server.auth.local_user_group_service import UNSET
 from tacacs_server.utils.logger import get_logger
 
-from .web_auth import get_session_manager, get_auth_config, require_admin_session
+from .web_auth import get_auth_config, get_session_manager, require_admin_session
 
 logger = get_logger(__name__)
 
@@ -127,14 +127,18 @@ def _redact(data):
 
 def _log_ui(action: str, request: Request, *, details: dict | None = None) -> None:
     details = details or {}
+    method = getattr(request, "method", "").upper()
+    user_email = getattr(getattr(request, "state", object()), "user_email", None)
     try:
-        logger.info(
-            "ui:%s path=%s method=%s accept=%s ct=%s",  # concise always-on
+        log_fn = logger.debug if method == "GET" else logger.info
+        log_fn(
+            "ui:%s path=%s method=%s accept=%s ct=%s user=%s",  # concise always-on
             action,
             getattr(request.url, "path", ""),
-            getattr(request, "method", ""),
+            method,
             request.headers.get("accept", ""),
             request.headers.get("content-type", ""),
+            user_email,
         )
         logger.debug(
             "ui:%s details=%s",  # deep dive for troubleshooting
@@ -156,7 +160,9 @@ async def login_page(request: Request):
     auth_config = get_auth_config()
     openid_enabled = auth_config and auth_config.openid_config is not None
     session_mgr = get_session_manager()
-    token = request.cookies.get("admin_session") if hasattr(request, "cookies") else None
+    token = (
+        request.cookies.get("admin_session") if hasattr(request, "cookies") else None
+    )
     if session_mgr and token and session_mgr.validate_session(token):
         return RedirectResponse(url="/admin/", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
@@ -449,7 +455,9 @@ async def openid_callback(
         request.scope["user_email"] = user_email
 
         # Set session cookie and redirect
-        response = RedirectResponse(url="/admin/", status_code=status.HTTP_303_SEE_OTHER)
+        response = RedirectResponse(
+            url="/admin/", status_code=status.HTTP_303_SEE_OTHER
+        )
         response.set_cookie(
             "admin_session",
             session_token,

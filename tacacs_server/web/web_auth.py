@@ -6,12 +6,11 @@ Handles both admin web sessions (password + OpenID) and API token authentication
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 from fastapi import HTTPException, Request, status
 
 from tacacs_server.utils.logger import get_logger
-from tacacs_server.web.openid_auth import OpenIDManager, OpenIDConfig
+from tacacs_server.web.openid_auth import OpenIDConfig, OpenIDManager
 
 logger = get_logger(__name__)
 
@@ -25,7 +24,7 @@ class AuthConfig:
         admin_password_hash: str,
         api_token: str | None = None,
         session_timeout_minutes: int = 60,
-        openid_config: Optional[OpenIDConfig] = None,
+        openid_config: OpenIDConfig | None = None,
     ):
         self.admin_username = admin_username
         self.admin_password_hash = admin_password_hash
@@ -43,7 +42,7 @@ class SessionManager:
         # For password auth: email/username is the admin username
         # For OpenID auth: email/username is the user's email
         self._sessions: dict[str, tuple[datetime, str]] = {}
-        self.openid_manager: Optional[OpenIDManager] = None
+        self.openid_manager: OpenIDManager | None = None
         if config.openid_config:
             self.openid_manager = OpenIDManager(config.openid_config)
 
@@ -118,10 +117,10 @@ class SessionManager:
                 detail="OpenID authentication failed",
             )
 
-    def validate_session(self, token: str) -> Optional[str]:
+    def validate_session(self, token: str) -> str | None:
         """
         Validate session token and return user email/identifier if valid.
-        
+
         Returns:
             user email if valid, None if invalid/expired
         """
@@ -175,7 +174,7 @@ def init_auth(
     admin_password_hash: str,
     api_token: str | None = None,
     session_timeout: int = 60,
-    openid_config: Optional[OpenIDConfig] = None,
+    openid_config: OpenIDConfig | None = None,
 ):
     """Initialize authentication system"""
     global _auth_config, _session_manager
@@ -226,7 +225,7 @@ async def require_admin_session(request: Request):
 
     token = request.cookies.get("admin_session")
     user_email = _session_manager.validate_session(token) if token else None
-    
+
     if not user_email:
         if "text/html" in request.headers.get("accept", ""):
             raise HTTPException(

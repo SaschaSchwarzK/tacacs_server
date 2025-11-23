@@ -1,5 +1,6 @@
 import base64
 import configparser
+import hashlib
 import json
 import os
 import secrets
@@ -7,7 +8,6 @@ import subprocess
 import sys
 import time
 import uuid
-import hashlib
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -36,14 +36,18 @@ def _wait_http(url: str, timeout: float = 90.0) -> None:
     raise TimeoutError(f"HTTP not ready: {last_err}")
 
 
-def _okta_authn_session_token(org_url: str, username: str, password: str) -> requests.Response:
+def _okta_authn_session_token(
+    org_url: str, username: str, password: str
+) -> requests.Response:
     url = urljoin(org_url.rstrip("/") + "/", "api/v1/authn")
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     payload = {"username": username, "password": password}
     return requests.post(url, headers=headers, json=payload, timeout=20)
 
 
-def _fetch_app_credentials(org_url: str, api_token: str, app_id: str | None) -> tuple[str | None, str | None]:
+def _fetch_app_credentials(
+    org_url: str, api_token: str, app_id: str | None
+) -> tuple[str | None, str | None]:
     """Fetch client_id/client_secret for the interactive OIDC app."""
     if not app_id:
         return None, None
@@ -60,7 +64,9 @@ def _fetch_app_credentials(org_url: str, api_token: str, app_id: str | None) -> 
     return creds.get("client_id"), creds.get("client_secret")
 
 
-def _generate_client_secret(org_url: str, api_token: str, app_id: str | None) -> str | None:
+def _generate_client_secret(
+    org_url: str, api_token: str, app_id: str | None
+) -> str | None:
     """Rotate/generate a new client_secret for an Okta OIDC app."""
     if not app_id:
         return None
@@ -86,6 +92,7 @@ def _create_oidc_web_app(
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+
     # PKCE / interaction_code flow helpers
     def _pkce_pair() -> tuple[str, str]:
         verifier = secrets.token_urlsafe(32)
@@ -117,6 +124,7 @@ def _create_oidc_web_app(
             }
         },
     }
+
     def _create(payload_override=None):
         body = payload_override or payload
         return requests.post(
@@ -159,7 +167,9 @@ def _create_oidc_web_app(
         client_id = client_id or fetched_id
         client_secret = client_secret or fetched_secret or ""
     if not client_id:
-        print(f"[create_app] missing client_id even after fetch (status {resp.status_code})")
+        print(
+            f"[create_app] missing client_id even after fetch (status {resp.status_code})"
+        )
     # Return verifier so caller can feed it to the container env when using interaction_code
     return client_id, client_secret, app_id, code_verifier
 
@@ -192,7 +202,9 @@ def _delete_app(org_url: str, api_token: str, app_id: str) -> None:
         pass
 
 
-def _assign_user_to_app(org_url: str, api_token: str, app_id: str, user_id: str) -> bool:
+def _assign_user_to_app(
+    org_url: str, api_token: str, app_id: str, user_id: str
+) -> bool:
     """Assign a user to an Okta OIDC app. Returns True on success/exists."""
     if not (app_id and user_id):
         return False
@@ -245,6 +257,7 @@ def _get_interaction_code(
     state: str,
 ) -> str | None:
     """Run Okta IDX interaction_code + PKCE flow to obtain an interaction_code."""
+
     def _challenge(verifier: str) -> str:
         digest = hashlib.sha256(verifier.encode("ascii")).digest()
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
@@ -273,7 +286,11 @@ def _get_interaction_code(
         headers=headers,
         timeout=20,
     )
-    ih = (interact.json() or {}).get("interaction_handle") if interact.status_code == 200 else None
+    ih = (
+        (interact.json() or {}).get("interaction_handle")
+        if interact.status_code == 200
+        else None
+    )
     if not ih:
         print(f"[idx] interact failed: {interact.status_code} {interact.text}")
         return None
@@ -283,7 +300,11 @@ def _get_interaction_code(
         json={"interaction_handle": ih},
         timeout=20,
     )
-    sh = (introspect.json() or {}).get("stateHandle") if introspect.status_code == 200 else None
+    sh = (
+        (introspect.json() or {}).get("stateHandle")
+        if introspect.status_code == 200
+        else None
+    )
     if not sh:
         print(f"[idx] introspect failed: {introspect.status_code} {introspect.text}")
         return None
@@ -293,7 +314,11 @@ def _get_interaction_code(
         json={"identifier": username, "stateHandle": sh},
         timeout=20,
     )
-    sh2 = (identify.json() or {}).get("stateHandle") if identify.status_code == 200 else None
+    sh2 = (
+        (identify.json() or {}).get("stateHandle")
+        if identify.status_code == 200
+        else None
+    )
     if not sh2:
         print(f"[idx] identify failed: {identify.status_code} {identify.text}")
         return None
@@ -368,7 +393,11 @@ def _get_auth_code_with_session_token(
 
     # Fallback: try authorize with sessionToken param directly
     try:
-        with_token = authorize_url + ("&" if "?" in authorize_url else "?") + f"sessionToken={quote(session_token)}"
+        with_token = (
+            authorize_url
+            + ("&" if "?" in authorize_url else "?")
+            + f"sessionToken={quote(session_token)}"
+        )
         resp2 = session.get(with_token, allow_redirects=True, timeout=30)
         final_url = resp2.url or ""
         parsed = urlparse(final_url)
@@ -492,24 +521,27 @@ def test_okta_admin_openid_e2e(tmp_path, free_tcp_port):
     created_app_id: str | None = None
     created_code_verifier: str | None = None
     label = f"tacacs-admin-e2e-{uuid.uuid4().hex[:8]}"
-    client_id, client_secret, created_app_id, created_code_verifier = _create_oidc_web_app(
-        org_url, api_token, admin_redirect_uri, label
+    client_id, client_secret, created_app_id, created_code_verifier = (
+        _create_oidc_web_app(org_url, api_token, admin_redirect_uri, label)
     )
     if not client_id:
         pytest.skip("Okta OIDC app creation failed (no client_id)")
     if not client_secret:
         created_code_verifier = created_code_verifier or _generate_pkce_verifier()
     # Ensure admin (and operator for negative path) are assigned to the OIDC app
-    if admin_user.get("id"):
-        _assign_user_to_app(org_url, api_token, created_app_id or app_info.get("id"), admin_user["id"])
-    if operator_user.get("id"):
-        _assign_user_to_app(org_url, api_token, created_app_id or app_info.get("id"), operator_user["id"])
+    app_id_for_assignment = created_app_id
+    if app_id_for_assignment and admin_user.get("id"):
+        _assign_user_to_app(org_url, api_token, app_id_for_assignment, admin_user["id"])
+    if app_id_for_assignment and operator_user.get("id"):
+        _assign_user_to_app(
+            org_url, api_token, app_id_for_assignment, operator_user["id"]
+        )
 
     # Validate authn happy/unhappy path before container work
     resp_ok = _okta_authn_session_token(org_url, admin_login, admin_password)
-    assert (
-        resp_ok.status_code == 200
-    ), f"Expected 200 from Okta AuthN, got {resp_ok.status_code}: {resp_ok.text}"
+    assert resp_ok.status_code == 200, (
+        f"Expected 200 from Okta AuthN, got {resp_ok.status_code}: {resp_ok.text}"
+    )
     resp_bad = _okta_authn_session_token(org_url, admin_login, "wrong-password")
     assert resp_bad.status_code == 401, (
         f"Expected 401 for bad password, got {resp_bad.status_code}"
@@ -545,7 +577,7 @@ def test_okta_admin_openid_e2e(tmp_path, free_tcp_port):
         "-p",
         f"{free_tcp_port}:8080",
         "-e",
-        f"ADMIN_USERNAME=admin",
+        "ADMIN_USERNAME=admin",
         "-e",
         f"ADMIN_PASSWORD_HASH={admin_hash}",
         "-e",
@@ -627,9 +659,7 @@ def test_okta_admin_openid_e2e(tmp_path, free_tcp_port):
             "state": state,
             "nonce": nonce,
         }
-        authorize_url = (
-            f"{org_url.rstrip('/')}/oauth2/v1/authorize?{requests.compat.urlencode(auth_params)}"
-        )
+        authorize_url = f"{org_url.rstrip('/')}/oauth2/v1/authorize?{requests.compat.urlencode(auth_params)}"
         # Prefer interaction_code (PKCE) flow with the created app
         code = _get_interaction_code(
             org_url,
@@ -656,14 +686,16 @@ def test_okta_admin_openid_e2e(tmp_path, free_tcp_port):
         assert state_returned == state, "State mismatch from Okta /authorize"
 
         cb_resp = session.get(
-            f"{admin_redirect_uri}?code={code}&state={state}", allow_redirects=False, timeout=20
+            f"{admin_redirect_uri}?code={code}&state={state}",
+            allow_redirects=False,
+            timeout=20,
         )
         assert cb_resp.status_code in (302, 303), (
             f"Expected redirect to /admin/ after callback, got {cb_resp.status_code}"
         )
-        assert (
-            session.cookies.get("admin_session") is not None
-        ), "admin_session cookie not set after OpenID callback"
+        assert session.cookies.get("admin_session") is not None, (
+            "admin_session cookie not set after OpenID callback"
+        )
 
         home = session.get(f"{base_url}/admin/", timeout=20)
         assert home.status_code == 200, f"Admin UI not reachable: {home.status_code}"
@@ -721,9 +753,9 @@ def test_okta_admin_openid_e2e(tmp_path, free_tcp_port):
             assert op_cb.status_code == 401, (
                 f"Expected 401 when user not in web_admin group, got {op_cb.status_code}"
             )
-            assert (
-                op_session.cookies.get("admin_session") is None
-            ), "Non-admin user should not receive admin_session cookie"
+            assert op_session.cookies.get("admin_session") is None, (
+                "Non-admin user should not receive admin_session cookie"
+            )
             denied = op_session.get(
                 f"{base_url}/admin/", allow_redirects=False, timeout=20
             )

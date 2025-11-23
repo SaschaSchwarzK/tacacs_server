@@ -413,7 +413,9 @@ class OktaPreparer:
                         resp.text,
                     )
             except Exception as e:  # noqa: BLE001
-                self.logger.warning("Assign user %s to app %s failed: %s", uid, app_id, e)
+                self.logger.warning(
+                    "Assign user %s to app %s failed: %s", uid, app_id, e
+                )
 
     async def is_user_in_group(self, user_id: str, group_id: str) -> bool:
         async def _list():
@@ -499,9 +501,7 @@ class OktaPreparer:
 
         async def _create():
             # The SDK classes differ by version; prefer OpenIdConnectApplicationSettingsClient.
-            client_cls = getattr(
-                models, "OpenIdConnectApplicationSettingsClient", None
-            )
+            client_cls = getattr(models, "OpenIdConnectApplicationSettingsClient", None)
             settings_cls = getattr(models, "OpenIdConnectApplicationSettings", None)
             if client_cls and settings_cls:
                 oauth_client = client_cls(
@@ -797,9 +797,7 @@ class OktaPreparer:
         """Rotate/generate client secret for confidential apps via REST."""
         import requests
 
-        url = (
-            f"{self.org_url.rstrip('/')}/oauth2/v1/clients/{app_id}/lifecycle/rotateSecret"
-        )
+        url = f"{self.org_url.rstrip('/')}/oauth2/v1/clients/{app_id}/lifecycle/rotateSecret"
         headers = {
             "Authorization": f"SSWS {self.api_token}",
             "Accept": "application/json",
@@ -812,8 +810,14 @@ class OktaPreparer:
         if resp.status_code not in (200, 201):
             return None
         data = resp.json() or {}
-        creds = data.get("client") or data  # rotateSecret returns {client:{client_id,client_secret}}
-        return (creds.get("client_secret") or creds.get("secret")) if isinstance(creds, dict) else None
+        creds = (
+            data.get("client") or data
+        )  # rotateSecret returns {client:{client_id,client_secret}}
+        return (
+            (creds.get("client_secret") or creds.get("secret"))
+            if isinstance(creds, dict)
+            else None
+        )
 
     async def generate_app_client_secret(self, app_id: str) -> str | None:
         """Rotate/generate a new client secret for an app and return it."""
@@ -1016,7 +1020,9 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
     # Ensure OIDC app unless disabled (not required by AuthN-only backend flow)
     app = None
     if not args.no_app:
-        all_redirects = list(dict.fromkeys((args.redirect_uri or []) + (args.admin_redirect_uri or [])))
+        all_redirects = list(
+            dict.fromkeys((args.redirect_uri or []) + (args.admin_redirect_uri or []))
+        )
         app = await okta.ensure_oidc_web_app(
             label=args.app_label,
             redirect_uris=all_redirects,

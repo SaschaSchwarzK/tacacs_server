@@ -3,10 +3,9 @@ OpenID Connect (OIDC) Authentication Module
 Handles OAuth2/OIDC token exchange and user session mapping.
 """
 
-import json
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, cast
 from urllib.parse import urlencode
 
 import requests
@@ -27,12 +26,12 @@ class OpenIDConfig:
         client_secret: str,
         redirect_uri: str,
         scopes: str = "openid profile email",
-        token_endpoint: Optional[str] = None,
-        userinfo_endpoint: Optional[str] = None,
+        token_endpoint: str | None = None,
+        userinfo_endpoint: str | None = None,
         session_timeout_minutes: int = 60,
-        allowed_groups: Optional[list[str]] = None,
+        allowed_groups: list[str] | None = None,
         use_interaction_code: bool = False,
-        code_verifier: Optional[str] = None,
+        code_verifier: str | None = None,
     ):
         """
         Args:
@@ -59,31 +58,31 @@ class OpenIDConfig:
         self.allowed_groups = allowed_groups or []
         self.use_interaction_code = use_interaction_code
         self.code_verifier = code_verifier
-        
+
         # Endpoints - will be auto-discovered from .well-known/openid-configuration if not provided
         self._token_endpoint = token_endpoint
         self._userinfo_endpoint = userinfo_endpoint
-        self._authorization_endpoint: Optional[str] = None
+        self._authorization_endpoint: str | None = None
         self._endpoints_loaded = False
 
     def _load_endpoints(self) -> None:
         """Auto-discover token and userinfo endpoints from OIDC metadata."""
         if self._endpoints_loaded:
             return
-        
+
         try:
             metadata_url = f"{self.issuer_url}/.well-known/openid-configuration"
             resp = requests.get(metadata_url, timeout=5)
             resp.raise_for_status()
             metadata = resp.json()
-            
+
             if not self._token_endpoint:
                 self._token_endpoint = metadata.get("token_endpoint")
             if not self._userinfo_endpoint:
                 self._userinfo_endpoint = metadata.get("userinfo_endpoint")
             if not self._authorization_endpoint:
                 self._authorization_endpoint = metadata.get("authorization_endpoint")
-            
+
             self._endpoints_loaded = True
             logger.debug(
                 "OpenID endpoints discovered",
@@ -104,7 +103,9 @@ class OpenIDConfig:
         """Get token endpoint, auto-discovering if needed."""
         self._load_endpoints()
         if not self._token_endpoint:
-            raise RuntimeError("Token endpoint not configured and could not be auto-discovered")
+            raise RuntimeError(
+                "Token endpoint not configured and could not be auto-discovered"
+            )
         return self._token_endpoint
 
     @property
@@ -112,7 +113,9 @@ class OpenIDConfig:
         """Get userinfo endpoint, auto-discovering if needed."""
         self._load_endpoints()
         if not self._userinfo_endpoint:
-            raise RuntimeError("Userinfo endpoint not configured and could not be auto-discovered")
+            raise RuntimeError(
+                "Userinfo endpoint not configured and could not be auto-discovered"
+            )
         return self._userinfo_endpoint
 
 
@@ -153,15 +156,21 @@ class OpenIDManager:
         # Include PKCE code_challenge when a code_verifier is supplied (public clients)
         if self.config.code_verifier:
             try:
-                import hashlib
                 import base64
+                import hashlib
 
-                digest = hashlib.sha256(self.config.code_verifier.encode("ascii")).digest()
-                challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+                digest = hashlib.sha256(
+                    self.config.code_verifier.encode("ascii")
+                ).digest()
+                challenge = (
+                    base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+                )
                 params["code_challenge"] = challenge
                 params["code_challenge_method"] = "S256"
             except Exception:
-                logger.warning("Failed to compute PKCE code_challenge; continuing without it")
+                logger.warning(
+                    "Failed to compute PKCE code_challenge; continuing without it"
+                )
         # Prefer discovered authorization_endpoint; fallback to standard Okta path
         auth_base = (
             getattr(self.config, "_authorization_endpoint", None)
@@ -169,15 +178,17 @@ class OpenIDManager:
         )
         return f"{auth_base}?{urlencode(params)}"
 
-    def exchange_code_for_token(self, code: str) -> dict:
+    def exchange_code_for_token(self, code: str) -> dict[str, Any]:
         """
         Exchange authorization code for access token.
-        
+
         Returns:
             dict with 'access_token', 'token_type', 'expires_in', 'id_token', etc.
         """
         grant_type = (
-            "interaction_code" if self.config.use_interaction_code else "authorization_code"
+            "interaction_code"
+            if self.config.use_interaction_code
+            else "authorization_code"
         )
         payload = {
             "grant_type": grant_type,
@@ -190,11 +201,11 @@ class OpenIDManager:
         if self.config.code_verifier:
             payload["code_verifier"] = self.config.code_verifier
         payload["redirect_uri"] = self.config.redirect_uri
-        
+
         try:
             resp = requests.post(self.config.token_endpoint, data=payload, timeout=10)
             resp.raise_for_status()
-            token_response = resp.json()
+            token_response = cast(dict[str, Any], resp.json())
             logger.debug(
                 "OpenID token exchange successful",
                 event="admin.openid.token_exchange",
@@ -208,19 +219,21 @@ class OpenIDManager:
             )
             raise
 
-    def get_user_info(self, access_token: str) -> dict:
+    def get_user_info(self, access_token: str) -> dict[str, Any]:
         """
         Fetch user info using access token.
-        
+
         Returns:
             dict with 'sub', 'email', 'name', etc.
         """
         headers = {"Authorization": f"Bearer {access_token}"}
-        
+
         try:
-            resp = requests.get(self.config.userinfo_endpoint, headers=headers, timeout=10)
+            resp = requests.get(
+                self.config.userinfo_endpoint, headers=headers, timeout=10
+            )
             resp.raise_for_status()
-            user_info = resp.json()
+            user_info = cast(dict[str, Any], resp.json())
             logger.debug(
                 "OpenID user info retrieved",
                 event="admin.openid.userinfo",
@@ -238,18 +251,25 @@ class OpenIDManager:
     def create_session(self, code: str) -> tuple[str, str]:
         """
         Complete OIDC flow: exchange code for token, get user info, create session.
-        
+
         Args:
             code: Authorization code from OIDC provider
-            
+
         Returns:
             (session_token, user_email)
         """
         # Exchange code for access token
         token_response = self.exchange_code_for_token(code)
-        access_token = token_response.get("access_token")
-        expires_in = token_response.get("expires_in", 3600)
-        
+        access_token_raw = token_response.get("access_token")
+        if not isinstance(access_token_raw, str):
+            raise ValueError("access_token missing from OpenID token response")
+        access_token = access_token_raw
+        expires_in_raw = token_response.get("expires_in", 3600)
+        try:
+            expires_in = int(expires_in_raw)
+        except Exception:
+            expires_in = 3600
+
         # Get user info
         user_info = self.get_user_info(access_token)
         email = user_info.get("email")
@@ -284,13 +304,13 @@ class OpenIDManager:
                     allowed_groups=self.config.allowed_groups,
                 )
                 raise ValueError("User not in allowed OpenID group")
-        
+
         # Create session
         session_token = secrets.token_urlsafe(32)
         expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
         session = OpenIDSession(email, access_token, expires_at)
         self._sessions[session_token] = session
-        
+
         logger.info(
             "OpenID session created",
             event="admin.openid.session_created",
@@ -298,18 +318,18 @@ class OpenIDManager:
         )
         return session_token, email
 
-    def validate_session(self, session_token: str) -> Optional[str]:
+    def validate_session(self, session_token: str) -> str | None:
         """
         Validate session token and return user email if valid.
-        
+
         Returns:
             user email if valid, None if invalid/expired
         """
         session = self._sessions.get(session_token)
-        
+
         if not session:
             return None
-        
+
         if session.is_expired():
             self._sessions.pop(session_token, None)
             logger.debug(
@@ -318,7 +338,7 @@ class OpenIDManager:
                 user_email=session.email,
             )
             return None
-        
+
         return session.email
 
     def delete_session(self, session_token: str) -> None:
@@ -338,7 +358,7 @@ class OpenIDManager:
         ]
         for token in expired:
             self._sessions.pop(token, None)
-        
+
         if expired:
             logger.debug(
                 "Cleaned up expired OpenID sessions",

@@ -10,8 +10,8 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.middleware.sessions import SessionMiddleware
 
 from tacacs_server.utils.config_utils import set_config as utils_set_config
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
@@ -216,7 +216,9 @@ def create_app(
             "true",
             "yes",
         )
-        code_verifier = os.getenv("OPENID_CODE_VERIFIER") if use_interaction_code else None
+        code_verifier = (
+            os.getenv("OPENID_CODE_VERIFIER") if use_interaction_code else None
+        )
 
         # Require client_secret unless using interaction_code (public client + PKCE)
         if not (issuer and client_id and redirect_uri):
@@ -232,9 +234,7 @@ def create_app(
         except Exception:
             session_timeout = 60
         env_groups = os.getenv("OPENID_ADMIN_GROUPS", "")
-        allowed_groups = [
-            g.strip() for g in env_groups.split(",") if g.strip()
-        ] or None
+        allowed_groups = [g.strip() for g in env_groups.split(",") if g.strip()] or None
         return OpenIDConfig(
             issuer_url=issuer,
             client_id=client_id,
@@ -460,6 +460,7 @@ def create_app(
         # Unified request logging for Admin UI and API without consuming body
         started = None
         _ctx_token = None
+        user_email = None
         try:
             import time as _t
 
@@ -471,6 +472,20 @@ def create_app(
                 _ctx_token = bind_context(correlation_id=corr)
             except Exception:
                 _ctx_token = None
+            # Identify the authenticated admin user (if any) for downstream logging.
+            try:
+                sm = web_auth.get_session_manager()
+                token = (
+                    request.cookies.get("admin_session")
+                    if hasattr(request, "cookies")
+                    else None
+                )
+                if sm and token:
+                    user_email = sm.validate_session(token)
+                    if user_email and hasattr(request, "state"):
+                        request.state.user_email = user_email
+            except Exception:
+                user_email = None
             logger.debug(
                 "HTTP request",
                 event="http.request",
@@ -497,6 +512,23 @@ def create_app(
             import time as _t
 
             dur_ms = int(((_t.time() - started) if started else 0) * 1000)
+            # Log with user context: GETs at debug, mutations at info.
+            method = getattr(request, "method", "").upper()
+            log_payload = {
+                "event": "http.user_activity",
+                "service": "web",
+                "component": "web_app",
+                "method": method,
+                "path": str(getattr(request.url, "path", "")),
+                "status": getattr(response, "status_code", ""),
+                "duration_ms": dur_ms,
+                "user_email": user_email,
+                "correlation_id": (request.headers.get("X-Correlation-ID") or None),
+            }
+            if method == "GET":
+                logger.debug("HTTP GET (user)", extra=log_payload)
+            else:
+                logger.info("HTTP write (user)", extra=log_payload)
             logger.debug(
                 "HTTP response",
                 event="http.response",
