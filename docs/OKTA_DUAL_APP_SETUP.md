@@ -40,6 +40,7 @@ Separating them keeps human auth flows and backend API access isolated, and avoi
   ```
 - **Option A: Client secret (confidential client, default)**
   ```ini
+  OPENID_CLIENT_AUTH_METHOD=client_secret
   OPENID_CLIENT_SECRET=<admin_oidc_client_secret>
   ```
 - **Option B: Public client with PKCE / interaction_code (no client secret)**
@@ -48,6 +49,9 @@ Separating them keeps human auth flows and backend API access isolated, and avoi
   ```ini
   OPENID_CLIENT_SECRET=
   OPENID_USE_INTERACTION_CODE=1
+  OPENID_CLIENT_AUTH_METHOD=private_key_jwt
+  OPENID_CLIENT_PRIVATE_KEY=<private_key>
+  OPENID_CLIENT_PRIVATE_KEY_ID=<kid>
   OPENID_CODE_VERIFIER=<random_urlsafe_string>  # 32+ bytes urlsafe base64
   ```
 
