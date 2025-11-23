@@ -92,6 +92,19 @@ class SessionManager:
                 session_id="[opaque]",
             )
             return openid_session_token, user_email
+        except ValueError as e:
+            # Preserve validation feedback (e.g., user not in allowed groups) for the caller/UI.
+            logger.error(
+                "OpenID session creation failed",
+                event="admin.openid.session_error",
+                service="web",
+                component="web_auth",
+                error=str(e),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+            )
         except Exception as e:
             logger.error(
                 "OpenID session creation failed",

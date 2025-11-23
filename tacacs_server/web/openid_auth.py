@@ -262,6 +262,18 @@ class OpenIDManager:
         if not email:
             raise ValueError("User info missing 'email' claim")
 
+        # Emit the groups returned by the IdP to aid troubleshooting when group checks fail.
+        try:
+            logger.debug(
+                "OpenID userinfo groups received",
+                event="admin.openid.userinfo.groups",
+                user_email=email,
+                groups=user_groups,
+                allowed_groups=self.config.allowed_groups,
+            )
+        except Exception:
+            pass  # Logging failure should not break auth
+
         if self.config.allowed_groups:
             if not any(g in self.config.allowed_groups for g in user_groups):
                 logger.warning(
