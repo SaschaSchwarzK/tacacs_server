@@ -32,6 +32,9 @@ class OpenIDConfig:
         allowed_groups: list[str] | None = None,
         use_interaction_code: bool = False,
         code_verifier: str | None = None,
+        client_auth_method: str = "client_secret",
+        client_private_key: str | None = None,
+        client_private_key_id: str | None = None,
     ):
         """
         Args:
@@ -58,6 +61,9 @@ class OpenIDConfig:
         self.allowed_groups = allowed_groups or []
         self.use_interaction_code = use_interaction_code
         self.code_verifier = code_verifier
+        self.client_auth_method = (client_auth_method or "client_secret").lower()
+        self.client_private_key = client_private_key
+        self.client_private_key_id = client_private_key_id
 
         # Endpoints - will be auto-discovered from .well-known/openid-configuration if not provided
         self._token_endpoint = token_endpoint
@@ -193,10 +199,48 @@ class OpenIDManager:
         payload = {
             "grant_type": grant_type,
             "code": code,
-            "client_id": self.config.client_id,
         }
-        if self.config.client_secret:
-            payload["client_secret"] = self.config.client_secret
+        client_assertion: str | None = None
+        if self.config.client_auth_method == "private_key_jwt":
+            if not self.config.client_private_key:
+                raise ValueError("client_private_key is required for private_key_jwt")
+            try:
+                import jwt
+            except Exception as exc:  # pragma: no cover
+                raise RuntimeError(
+                    "PyJWT is required for private_key_jwt. Install with: pip install PyJWT[crypto]"
+                ) from exc
+            now = int(datetime.now(UTC).timestamp())
+            headers = {}
+            if self.config.client_private_key_id:
+                headers["kid"] = self.config.client_private_key_id
+            client_assertion_raw = jwt.encode(
+                {
+                    "iss": self.config.client_id,
+                    "sub": self.config.client_id,
+                    "aud": self.config.token_endpoint,
+                    "jti": secrets.token_urlsafe(16),
+                    "iat": now,
+                    "exp": now + 300,
+                },
+                self.config.client_private_key,
+                algorithm="RS256",
+                headers=headers or None,
+            )
+            client_assertion = (
+                client_assertion_raw.decode("utf-8")
+                if isinstance(client_assertion_raw, bytes)
+                else client_assertion_raw
+            )
+            payload["client_id"] = self.config.client_id
+            payload["client_assertion_type"] = (
+                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            )
+            payload["client_assertion"] = client_assertion
+        else:
+            payload["client_id"] = self.config.client_id
+            if self.config.client_secret:
+                payload["client_secret"] = self.config.client_secret
         # For both interaction_code and auth code with PKCE, include code_verifier when provided.
         if self.config.code_verifier:
             payload["code_verifier"] = self.config.code_verifier

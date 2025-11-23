@@ -210,6 +210,11 @@ def create_app(
         issuer = os.getenv("OPENID_ISSUER_URL")
         client_id = os.getenv("OPENID_CLIENT_ID")
         client_secret = os.getenv("OPENID_CLIENT_SECRET")
+        client_auth_method = os.getenv(
+            "OPENID_CLIENT_AUTH_METHOD", "client_secret"
+        ).lower()
+        client_private_key = os.getenv("OPENID_CLIENT_PRIVATE_KEY")
+        client_private_key_id = os.getenv("OPENID_CLIENT_PRIVATE_KEY_ID")
         redirect_uri = os.getenv("OPENID_REDIRECT_URI")
         use_interaction_code = os.getenv("OPENID_USE_INTERACTION_CODE", "").lower() in (
             "1",
@@ -220,10 +225,14 @@ def create_app(
             os.getenv("OPENID_CODE_VERIFIER") if use_interaction_code else None
         )
 
-        # Require client_secret unless using interaction_code (public client + PKCE)
         if not (issuer and client_id and redirect_uri):
             return None
-        if not client_secret and not use_interaction_code:
+        # Validate auth method requirements
+        if client_auth_method == "client_secret" and not client_secret:
+            # We need a secret unless the auth method is private_key_jwt or using interaction_code as a public client
+            if not use_interaction_code:
+                return None
+        if client_auth_method == "private_key_jwt" and not client_private_key:
             return None
 
         scopes = os.getenv("OPENID_SCOPES", "openid profile email")
@@ -247,6 +256,9 @@ def create_app(
             allowed_groups=allowed_groups,
             use_interaction_code=use_interaction_code,
             code_verifier=code_verifier,
+            client_auth_method=client_auth_method,
+            client_private_key=client_private_key,
+            client_private_key_id=client_private_key_id,
         )
 
     openid_config = _build_openid_config_from_env()
