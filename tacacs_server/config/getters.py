@@ -9,6 +9,10 @@ import json
 import os
 from typing import Any
 
+from tacacs_server.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def get_server_config(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get server configuration (excluding sensitive values)."""
@@ -114,6 +118,127 @@ def get_admin_auth_config(config: configparser.ConfigParser) -> dict[str, Any]:
         "username": section.get("username", "admin"),
         "password_hash": section.get("password_hash", ""),
         "session_timeout_minutes": int(section.get("session_timeout_minutes", 60)),
+    }
+
+
+def get_openid_config(config: configparser.ConfigParser) -> dict[str, Any]:
+    """Get OpenID configuration merged with env overrides (config takes precedence for non-secrets)."""
+
+    section = config["openid"] if "openid" in config else {}
+
+    def _pick(key: str, env_key: str, default: str = "") -> str:
+        try:
+            cfg_val = str(section.get(key, "")).strip()
+        except Exception:
+            cfg_val = ""
+        env_val = str(os.getenv(env_key, "")).strip()
+        return cfg_val or env_val or default
+
+    issuer_url = _pick("issuer_url", "OPENID_ISSUER_URL")
+    client_id = _pick("client_id", "OPENID_CLIENT_ID")
+    redirect_uri = _pick("redirect_uri", "OPENID_REDIRECT_URI")
+    scopes = _pick("scopes", "OPENID_SCOPES", "openid profile email")
+    try:
+        session_timeout_minutes = int(
+            _pick("session_timeout_minutes", "OPENID_SESSION_TIMEOUT_MINUTES", "60")
+        )
+    except Exception:
+        session_timeout_minutes = 60
+
+    client_auth_method = (
+        _pick("client_auth_method", "OPENID_CLIENT_AUTH_METHOD", "client_secret")
+        .lower()
+        .strip()
+        or "client_secret"
+    )
+    use_interaction_code = _to_bool(
+        section.get("use_interaction_code", None)
+        or os.getenv("OPENID_USE_INTERACTION_CODE")
+    )
+    code_verifier = (
+        _pick("code_verifier", "OPENID_CODE_VERIFIER", "")
+        if use_interaction_code
+        else ""
+    )
+
+    allowed_groups_raw = _pick("allowed_groups", "OPENID_ADMIN_GROUPS", "")
+    allowed_groups = [g.strip() for g in allowed_groups_raw.split(",") if g.strip()]
+
+    token_endpoint = _pick("token_endpoint", "OPENID_TOKEN_ENDPOINT", "")
+    userinfo_endpoint = _pick("userinfo_endpoint", "OPENID_USERINFO_ENDPOINT", "")
+    client_private_key_id = _pick("client_private_key_id", "OPENID_CLIENT_PRIVATE_KEY_ID", "")
+
+    # Secrets: env only by policy
+    client_secret = os.getenv("OPENID_CLIENT_SECRET", "").strip()
+    client_private_key = os.getenv("OPENID_CLIENT_PRIVATE_KEY", "").strip()
+
+    warnings: list[str] = []
+
+    # Not configured: return empty (but warn if partially filled)
+    if not (issuer_url and client_id and redirect_uri):
+        if issuer_url or client_id or redirect_uri:
+            warnings.append(
+                "OpenID: issuer_url, client_id, and redirect_uri are all required to enable OpenID"
+            )
+        for w in warnings:
+            try:
+                logger.warning(w)
+            except Exception:
+                pass
+        return {"warnings": warnings}
+
+    # Validate combinations
+    if client_auth_method == "client_secret":
+        if not client_secret:
+            warnings.append(
+                "OpenID: client_secret auth selected but OPENID_CLIENT_SECRET is missing"
+            )
+        if client_private_key:
+            warnings.append(
+                "OpenID: client_secret auth will ignore OPENID_CLIENT_PRIVATE_KEY"
+            )
+    elif client_auth_method == "private_key_jwt":
+        if not client_private_key:
+            warnings.append(
+                "OpenID: private_key_jwt auth selected but OPENID_CLIENT_PRIVATE_KEY is missing"
+            )
+        if client_secret:
+            warnings.append(
+                "OpenID: private_key_jwt auth will ignore OPENID_CLIENT_SECRET"
+            )
+    else:
+        if not use_interaction_code:
+            warnings.append(
+                f"OpenID: auth method '{client_auth_method}' requires interaction_code/PKCE"
+            )
+
+    if use_interaction_code and not code_verifier:
+        warnings.append(
+            "OpenID: interaction_code enabled but OPENID_CODE_VERIFIER is missing"
+        )
+
+    for w in warnings:
+        try:
+            logger.warning(w)
+        except Exception:
+            pass
+
+    return {
+        "issuer_url": issuer_url,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "scopes": scopes,
+        "session_timeout_minutes": session_timeout_minutes,
+        "allowed_groups": allowed_groups,
+        "use_interaction_code": use_interaction_code,
+        "code_verifier": code_verifier,
+        "client_auth_method": client_auth_method,
+        "token_endpoint": token_endpoint or None,
+        "userinfo_endpoint": userinfo_endpoint or None,
+        "client_private_key": client_private_key,
+        "client_private_key_id": client_private_key_id,
+        "warnings": warnings,
     }
 
 

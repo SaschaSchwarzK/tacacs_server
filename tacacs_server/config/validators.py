@@ -12,6 +12,7 @@ from typing import Any
 
 from tacacs_server.utils.logger import get_logger
 
+from .getters import get_openid_config
 from .schema import TacacsConfigSchema, validate_config_file
 
 logger = get_logger(__name__)
@@ -75,6 +76,7 @@ def validate_config(config: configparser.ConfigParser) -> list[str]:
         issues.extend(_validate_server_config(config))
         issues.extend(_validate_auth_config(config))
         issues.extend(_validate_security_config(config))
+        issues.extend(_validate_openid_config(config))
 
     except ValueError as exc:
         logger.error(
@@ -188,6 +190,41 @@ def _validate_security_config(config: configparser.ConfigParser) -> list[str]:
         cap = 20
     if cap < 1 or cap > 1000:
         issues.append(f"Invalid max_connections_per_ip: {cap} (must be 1-1000)")
+
+    return issues
+
+
+def _validate_openid_config(config: configparser.ConfigParser) -> list[str]:
+    """Validate OpenID Connect configuration; returns warnings/issues (non-fatal)."""
+    issues: list[str] = []
+    try:
+        cfg = get_openid_config(config) or {}
+    except Exception:
+        return issues
+
+    warnings = cfg.get("warnings", [])
+    issues.extend(warnings)
+
+    # If not configured, nothing to validate
+    if not cfg or not cfg.get("issuer_url"):
+        return issues
+
+    if cfg.get("client_auth_method") == "client_secret" and not cfg.get(
+        "client_secret"
+    ):
+        issues.append(
+            "OpenID: client_secret auth selected but OPENID_CLIENT_SECRET is missing"
+        )
+    if cfg.get("client_auth_method") == "private_key_jwt" and not cfg.get(
+        "client_private_key"
+    ):
+        issues.append(
+            "OpenID: private_key_jwt auth selected but OPENID_CLIENT_PRIVATE_KEY is missing"
+        )
+    if cfg.get("use_interaction_code") and not cfg.get("code_verifier"):
+        issues.append(
+            "OpenID: interaction_code enabled but OPENID_CODE_VERIFIER is missing"
+        )
 
     return issues
 

@@ -21,6 +21,8 @@ from .constants import (
     ENV_OKTA_CLIENT_ID,
     ENV_OKTA_DOMAIN,
     ENV_OKTA_PRIVATE_KEY,
+    ENV_OPENID_CLIENT_PRIVATE_KEY,
+    ENV_OPENID_CLIENT_SECRET,
     ENV_RADIUS_AUTH_SECRET,
 )
 
@@ -345,6 +347,38 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             config.set("okta", "private_key", okta_private_key)
         if okta_api_token:
             config.set("okta", "api_token", okta_api_token)
+
+    # OpenID section: non-secret fields can come from config or env; secrets env-only
+    openid_env_map = {
+        "issuer_url": os.environ.get("OPENID_ISSUER_URL"),
+        "client_id": os.environ.get("OPENID_CLIENT_ID"),
+        "redirect_uri": os.environ.get("OPENID_REDIRECT_URI"),
+        "scopes": os.environ.get("OPENID_SCOPES"),
+        "session_timeout_minutes": os.environ.get("OPENID_SESSION_TIMEOUT_MINUTES"),
+        "client_auth_method": os.environ.get("OPENID_CLIENT_AUTH_METHOD"),
+        "use_interaction_code": os.environ.get("OPENID_USE_INTERACTION_CODE"),
+        "code_verifier": os.environ.get("OPENID_CODE_VERIFIER"),
+        "allowed_groups": os.environ.get("OPENID_ADMIN_GROUPS"),
+        "token_endpoint": os.environ.get("OPENID_TOKEN_ENDPOINT"),
+        "userinfo_endpoint": os.environ.get("OPENID_USERINFO_ENDPOINT"),
+        "client_private_key_id": os.environ.get("OPENID_CLIENT_PRIVATE_KEY_ID"),
+    }
+    if any(val for val in openid_env_map.values()):
+        if not config.has_section("openid"):
+            config.add_section("openid")
+        for key, val in openid_env_map.items():
+            if val and not config.has_option("openid", key):
+                config.set("openid", key, val)
+
+    openid_client_secret = os.environ.get(ENV_OPENID_CLIENT_SECRET)
+    openid_client_private_key = os.environ.get(ENV_OPENID_CLIENT_PRIVATE_KEY)
+    if openid_client_secret or openid_client_private_key:
+        if not config.has_section("openid"):
+            config.add_section("openid")
+        if openid_client_secret:
+            config.set("openid", "client_secret", openid_client_secret)
+        if openid_client_private_key:
+            config.set("openid", "client_private_key", openid_client_private_key)
 
     # RADIUS auth backend secret: environment ONLY
     radius_auth_secret = os.environ.get(ENV_RADIUS_AUTH_SECRET)

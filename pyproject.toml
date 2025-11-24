@@ -64,6 +64,7 @@ types-requests = "^2.32.4.20250913"
 pyftpdlib = "^2.1.0"
 beautifulsoup4 = "^4.14.2"
 okta = "^3.0.0"
+pytest-playwright = "^0.7.2"
 
 [tool.poetry.scripts]
 tacacs-server = "tacacs_server.cli:main"

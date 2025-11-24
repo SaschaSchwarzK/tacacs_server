@@ -314,17 +314,78 @@ class OpenIDManager:
         except Exception:
             expires_in = 3600
 
-        # Get user info
-        user_info = self.get_user_info(access_token)
-        email = user_info.get("email")
-        user_groups_raw = user_info.get("groups") or []
-        if isinstance(user_groups_raw, str):
-            user_groups = [g.strip() for g in user_groups_raw.split(",") if g.strip()]
-        else:
-            user_groups = [str(g) for g in user_groups_raw] if user_groups_raw else []
+        # Prefer groups/email from ID token; fall back to userinfo if missing
+        email: str | None = None
+        user_groups: list[str] = []
+
+        id_token_raw = token_response.get("id_token")
+        if isinstance(id_token_raw, str):
+            try:
+                # Decode without verifying signature; Okta already validated it during token issuance.
+                try:
+                    import jwt as pyjwt
+
+                    claims = pyjwt.decode(
+                        id_token_raw,
+                        options={
+                            "verify_signature": False,
+                            "verify_aud": False,
+                            "verify_iss": False,
+                        },
+                    )
+                except Exception:
+                    import base64
+                    import json
+
+                    parts = id_token_raw.split(".")
+                    if len(parts) != 3:
+                        raise ValueError("Invalid ID token format")
+                    # Pad the base64url-encoded payload segment so decoding succeeds.
+                    padded = parts[1] + "=" * (-len(parts[1]) % 4)
+                    claims = json.loads(base64.urlsafe_b64decode(padded))
+                email = claims.get("email")
+                if not email and claims.get("sub"):
+                    logger.debug(
+                        "Email missing in ID token; using sub claim",
+                        event="admin.openid.idtoken_email_fallback_sub",
+                        sub=claims.get("sub"),
+                    )
+                    email = claims.get("sub")
+                groups_raw = claims.get("groups") or []
+                if isinstance(groups_raw, str):
+                    user_groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
+                else:
+                    user_groups = [str(g) for g in groups_raw] if groups_raw else []
+            except Exception as exc:
+                logger.warning(
+                    "Failed to decode ID token for groups/email",
+                    event="admin.openid.idtoken_decode_failed",
+                    error=str(exc),
+                )
+
+        # Only hit userinfo if we still need email/groups
+        need_userinfo = (not email) or (self.config.allowed_groups and not user_groups)
+        if need_userinfo:
+            if self.config.allowed_groups and not user_groups:
+                logger.debug(
+                    "Groups missing from ID token; falling back to userinfo",
+                    event="admin.openid.groups_fallback_userinfo",
+                    allowed_groups=self.config.allowed_groups,
+                )
+            user_info = self.get_user_info(access_token)
+            if not email:
+                email = user_info.get("email")
+            if self.config.allowed_groups and not user_groups:
+                user_groups_raw = user_info.get("groups") or []
+                if isinstance(user_groups_raw, str):
+                    user_groups = [
+                        g.strip() for g in user_groups_raw.split(",") if g.strip()
+                    ]
+                else:
+                    user_groups = [str(g) for g in user_groups_raw] if user_groups_raw else []
 
         if not email:
-            raise ValueError("User info missing 'email' claim")
+            raise ValueError("User email missing from OpenID claims")
 
         # Emit the groups returned by the IdP to aid troubleshooting when group checks fail.
         try:

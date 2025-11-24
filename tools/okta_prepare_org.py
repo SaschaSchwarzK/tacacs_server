@@ -450,75 +450,151 @@ class OktaPreparer:
             )
 
     async def configure_groups_claim_filter(self, app_id: str) -> None:
-        """Configure Groups claim filter in OpenID Connect ID Token.
-        Sets Name=groups, Startswith=tacacs.
-        """
+        """Ensure groups claim exists (prefers app claims, falls back to default auth server)."""
         import requests
 
-        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}"
+        claim_payload = {
+            "name": "groups",
+            "claimType": "RESOURCE",
+            "valueType": "GROUPS",
+            "value": "groups",
+            "group_filter_type": "STARTS_WITH",
+            "conditions": {"include": [{"type": "STARTS_WITH", "value": "tacacs"}]},
+            "alwaysIncludeInToken": True,
+        }
         headers = {
             "Authorization": f"SSWS {self.api_token}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
+        base = self.org_url.rstrip("/")
 
-        # First fetch current app settings
-        def _do_get():
-            return requests.get(url, headers=headers, timeout=15)
+        async def _configure_app_claim(path: str) -> tuple[bool, int | None, str | None]:
+            """Try to configure claim via a given app claim endpoint path."""
 
-        resp = await asyncio.to_thread(_do_get)
-        if resp.status_code != 200:
-            self.logger.warning(
-                "Failed to fetch app %s for groups claim config: %s %s",
-                app_id,
-                resp.status_code,
-                resp.text,
-            )
-            return
+            def _list_claims():
+                return requests.get(
+                    f"{base}{path}",
+                    headers=headers,
+                    timeout=15,
+                )
 
-        app_data = resp.json()
-        # Ensure settings.oauthClient exists
-        if "settings" not in app_data:
-            app_data["settings"] = {}
-        if "oauthClient" not in app_data["settings"]:
-            app_data["settings"]["oauthClient"] = {}
+            def _create_claim():
+                return requests.post(
+                    f"{base}{path}",
+                    headers=headers,
+                    json=claim_payload,
+                    timeout=15,
+                )
 
-        # Add groups claim filter under idToken
-        if "idToken" not in app_data["settings"]["oauthClient"]:
-            app_data["settings"]["oauthClient"]["idToken"] = {}
+            lst = await asyncio.to_thread(_list_claims)
+            status = lst.status_code
+            if status == 200:
+                claims = lst.json() or []
+                if any(
+                    isinstance(c, dict) and str(c.get("name")).lower() == "groups"
+                    for c in claims
+                ):
+                    self.logger.info("Groups claim already present on app %s", app_id)
+                    return True, status, None
+            created = await asyncio.to_thread(_create_claim)
+            status = created.status_code
+            if status in (200, 201):
+                self.logger.info("Configured groups claim for app %s", app_id)
+                return True, status, None
+            # 404/405/401/403 are common when the endpoint isn't supported or not allowed; try next.
+            if status not in (200, 201, 204, 404, 405, 401, 403):
+                self.logger.warning(
+                    "App-claim creation failed for app %s via %s (status=%s): %s",
+                    app_id,
+                    path,
+                    status,
+                    created.text,
+                )
+            return False, status, created.text
 
-        app_data["settings"]["oauthClient"]["idToken"]["claims"] = [
-            {
-                "name": "groups",
-                "type": "RESOURCE",
-                "value": "groups",
-                "valueType": "GROUPS",
-                "claimFilter": {
-                    "name": "groups",
-                    "type": "STARTS_WITH",
-                    "value": "tacacs",
-                },
-            }
+        # Try both claim endpoints (newer orgs use /federated-claims)
+        app_claim_paths = [
+            f"/api/v1/apps/{app_id}/federated-claims",
+            f"/api/v1/apps/{app_id}/claims",
         ]
+        for path in app_claim_paths:
+            try:
+                self.logger.debug("Attempting groups claim via %s", path)
+                ok, status, body = await _configure_app_claim(path)
+                if ok:
+                    return
+                if status not in (404, 405, 401, 403):
+                    # only warn for unexpected failures; common statuses are silent
+                    self.logger.warning(
+                        "Groups claim via %s not available (status=%s): %s",
+                        path,
+                        status,
+                        body,
+                    )
+            except Exception:
+                # Swallow and try the next path/fallback
+                continue
 
-        # Update the app
-        def _do_put():
-            return requests.put(url, headers=headers, json=app_data, timeout=15)
+        # Fallback for cases where /apps/{id}/claims is not supported: use default auth server
+        def _list_as_claims():
+            return requests.get(
+                f"{base}/api/v1/authorizationServers/default/claims",
+                headers=headers,
+                timeout=15,
+            )
+
+        def _create_as_claim():
+            payload = {
+                "name": "groups",
+                "claimType": "IDENTITY",
+                "valueType": "GROUPS",
+                "value": "groups",
+                "group_filter_type": "STARTS_WITH",
+                "conditions": {
+                    "scopes": ["openid", "profile", "email", "groups"],
+                    "groups": {
+                        "filterType": "STARTS_WITH",
+                        "filterValue": "tacacs",
+                    },
+                },
+                "status": "ACTIVE",
+                "alwaysIncludeInToken": True,
+            }
+            return requests.post(
+                f"{base}/api/v1/authorizationServers/default/claims",
+                headers=headers,
+                json=payload,
+                timeout=15,
+            )
 
         try:
-            resp = await asyncio.to_thread(_do_put)
-            if resp.status_code in (200, 204):
-                self.logger.info("Configured groups claim filter for app %s", app_id)
+            lst2 = await asyncio.to_thread(_list_as_claims)
+            if lst2.status_code == 200:
+                claims = lst2.json() or []
+                if any(
+                    isinstance(c, dict) and str(c.get("name")).lower() == "groups"
+                    for c in claims
+                ):
+                    self.logger.info(
+                        "Groups claim already present on default auth server"
+                    )
+                    return
+            created2 = await asyncio.to_thread(_create_as_claim)
+            if created2.status_code in (200, 201):
+                self.logger.info(
+                    "Configured groups claim on default auth server for app %s", app_id
+                )
             else:
                 self.logger.warning(
-                    "Failed to configure groups claim filter for app %s: %s %s",
+                    "Failed to configure groups claim via auth server for app %s: %s %s",
                     app_id,
-                    resp.status_code,
-                    resp.text,
+                    created2.status_code,
+                    created2.text,
                 )
         except Exception as e:  # noqa: BLE001
             self.logger.warning(
-                "Configure groups claim filter for app %s failed: %s", app_id, e
+                "Configure groups claim (fallback) for app %s failed: %s", app_id, e
             )
 
     async def is_user_in_group(self, user_id: str, group_id: str) -> bool:

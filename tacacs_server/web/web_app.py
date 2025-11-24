@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.sessions import SessionMiddleware
 
+from tacacs_server.config.getters import get_openid_config
 from tacacs_server.utils.config_utils import set_config as utils_set_config
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.web.openid_auth import OpenIDConfig
@@ -205,63 +206,54 @@ def create_app(
     admin_password_hash = admin_password_hash or os.getenv("ADMIN_PASSWORD_HASH", "")
     api_token = api_token or os.getenv("API_TOKEN")
 
-    def _build_openid_config_from_env() -> OpenIDConfig | None:
-        """Create OpenIDConfig from environment when required fields are present."""
-        issuer = os.getenv("OPENID_ISSUER_URL")
-        client_id = os.getenv("OPENID_CLIENT_ID")
-        client_secret = os.getenv("OPENID_CLIENT_SECRET")
-        client_auth_method = os.getenv(
-            "OPENID_CLIENT_AUTH_METHOD", "client_secret"
-        ).lower()
-        client_private_key = os.getenv("OPENID_CLIENT_PRIVATE_KEY")
-        client_private_key_id = os.getenv("OPENID_CLIENT_PRIVATE_KEY_ID")
-        redirect_uri = os.getenv("OPENID_REDIRECT_URI")
-        use_interaction_code = os.getenv("OPENID_USE_INTERACTION_CODE", "").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
-        code_verifier = (
-            os.getenv("OPENID_CODE_VERIFIER") if use_interaction_code else None
-        )
+    def _build_openid_config(source_config=None) -> OpenIDConfig | None:
+        """Create OpenIDConfig from config service + env (config takes precedence for non-secrets)."""
+        raw_cfg: dict | None = None
+        getter = getattr(source_config, "get_openid_config", None)
+        if callable(getter):
+            try:
+                raw_cfg = getter()
+            except Exception:
+                raw_cfg = None
 
-        if not (issuer and client_id and redirect_uri):
-            return None
-        # Validate auth method requirements
-        if client_auth_method == "client_secret" and not client_secret:
-            # We need a secret unless the auth method is private_key_jwt or using interaction_code as a public client
-            if not use_interaction_code:
-                return None
-        if client_auth_method == "private_key_jwt" and not client_private_key:
+        # Fallback to env-only parsing when no config service is provided
+        if raw_cfg is None:
+            try:
+                import configparser
+
+                tmp_cfg = configparser.ConfigParser(interpolation=None)
+                raw_cfg = get_openid_config(tmp_cfg)
+            except Exception:
+                raw_cfg = None
+
+        if not raw_cfg or not raw_cfg.get("issuer_url"):
             return None
 
-        scopes = os.getenv("OPENID_SCOPES", "openid profile email")
-        token_endpoint = os.getenv("OPENID_TOKEN_ENDPOINT") or None
-        userinfo_endpoint = os.getenv("OPENID_USERINFO_ENDPOINT") or None
+        allowed_groups = raw_cfg.get("allowed_groups") or None
         try:
-            session_timeout = int(os.getenv("OPENID_SESSION_TIMEOUT_MINUTES", "60"))
-        except Exception:
-            session_timeout = 60
-        env_groups = os.getenv("OPENID_ADMIN_GROUPS", "")
-        allowed_groups = [g.strip() for g in env_groups.split(",") if g.strip()] or None
-        return OpenIDConfig(
-            issuer_url=issuer,
-            client_id=client_id,
-            client_secret=client_secret or "",
-            redirect_uri=redirect_uri,
-            scopes=scopes,
-            token_endpoint=token_endpoint,
-            userinfo_endpoint=userinfo_endpoint,
-            session_timeout_minutes=session_timeout,
-            allowed_groups=allowed_groups,
-            use_interaction_code=use_interaction_code,
-            code_verifier=code_verifier,
-            client_auth_method=client_auth_method,
-            client_private_key=client_private_key,
-            client_private_key_id=client_private_key_id,
-        )
+            return OpenIDConfig(
+                issuer_url=raw_cfg.get("issuer_url", ""),
+                client_id=raw_cfg.get("client_id", ""),
+                client_secret=raw_cfg.get("client_secret", "") or "",
+                redirect_uri=raw_cfg.get("redirect_uri", ""),
+                scopes=raw_cfg.get("scopes", "openid profile email"),
+                token_endpoint=raw_cfg.get("token_endpoint"),
+                userinfo_endpoint=raw_cfg.get("userinfo_endpoint"),
+                session_timeout_minutes=int(
+                    raw_cfg.get("session_timeout_minutes", 60) or 60
+                ),
+                allowed_groups=allowed_groups,
+                use_interaction_code=bool(raw_cfg.get("use_interaction_code")),
+                code_verifier=raw_cfg.get("code_verifier"),
+                client_auth_method=raw_cfg.get("client_auth_method", "client_secret"),
+                client_private_key=raw_cfg.get("client_private_key"),
+                client_private_key_id=raw_cfg.get("client_private_key_id"),
+            )
+        except Exception as exc:
+            logger.warning("Failed to initialize OpenID configuration: %s", exc)
+            return None
 
-    openid_config = _build_openid_config_from_env()
+    openid_config = _build_openid_config(config_service)
 
     # If a config_service provides creds (common in tests), prefer those
     # 1) Structured config: get_admin_auth_config() -> {username, password_hash}
