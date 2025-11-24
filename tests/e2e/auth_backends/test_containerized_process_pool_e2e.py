@@ -24,16 +24,16 @@ Log sources
 from __future__ import annotations
 
 import configparser
+import json
 import os
+import secrets
 import shutil
 import socket
+import string
 import subprocess
+import textwrap
 import time
 import uuid
-import json
-import secrets
-import string
-import textwrap
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -181,7 +181,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         token_ep_default = (
             f"{okta_sec['org_url']}/oauth2/v1/token" if okta_sec["org_url"] else ""
         )
-        okta_sec["token_endpoint"] = okta_sec.get("token_endpoint", "").strip() or token_ep_default
+        okta_sec["token_endpoint"] = (
+            okta_sec.get("token_endpoint", "").strip() or token_ep_default
+        )
         auth_method = okta_sec.get("auth_method") or ""
         if not isinstance(auth_method, str):
             auth_method = str(auth_method)
@@ -372,7 +374,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             if val:
                 tacacs_cmd += ["-e", f"{env_key}={val}"]
         # If a CA bundle is provided on host, mount and point container to it
-        ca_path = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE")
+        ca_path = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get(
+            "SSL_CERT_FILE"
+        )
         if ca_path and os.path.exists(ca_path):
             tacacs_cmd += [
                 "-v",
@@ -504,7 +508,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
                 if probe_url:
                     status = _probe_url_from_container(tacacs_container, probe_url)
                     okta_probe_status = status or "no_status"
-                    print(f"INFO: Okta reachability from container: {probe_url} -> {okta_probe_status}")
+                    print(
+                        f"INFO: Okta reachability from container: {probe_url} -> {okta_probe_status}"
+                    )
             except Exception as exc:
                 okta_probe_status = f"probe_failed: {exc}"
             try:

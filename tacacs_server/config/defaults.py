@@ -283,7 +283,8 @@ CONFIG_DEFAULTS = {
         "redirect_uri": "",
         "scopes": "openid profile email",
         "session_timeout_minutes": "60",
-        "client_auth_method": "client_secret",
+        # Leave blank so env or explicit config can decide; falls back to client_secret in code
+        "client_auth_method": "",
         "use_interaction_code": "false",
         "code_verifier": "",
         "allowed_groups": "",

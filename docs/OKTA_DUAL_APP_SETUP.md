@@ -6,6 +6,17 @@ Use two separate Okta apps:
 
 Separating them keeps human auth flows and backend API access isolated, and avoids over-scoping the admin login app.
 
+## Required OpenID settings (precedence: config file → env → defaults)
+- `OPENID_ISSUER_URL` (e.g., `https://your-domain.okta.com` or `https://your-domain.okta.com/oauth2/default`)
+- `OPENID_CLIENT_ID`
+- `OPENID_REDIRECT_URI` (e.g., `http://127.0.0.1:8080/admin/login/openid-callback`)
+- `OPENID_CLIENT_AUTH_METHOD` (`client_secret` or `private_key_jwt`; defaults to client_secret if not set)
+- For `client_secret`: `OPENID_CLIENT_SECRET` (env-only)
+- For `private_key_jwt`: `OPENID_CLIENT_PRIVATE_KEY` (PEM, env-only) and `OPENID_CLIENT_PRIVATE_KEY_ID` (kid in Okta)
+- Recommended scopes: `OPENID_SCOPES="openid profile email groups"` (config file can override env)
+- Optional group gate: `OPENID_ADMIN_GROUPS=tacacs-web-admin`
+- Optional PKCE/interaction_code: `OPENID_USE_INTERACTION_CODE=1` with `OPENID_CODE_VERIFIER=<random>` (only when using that grant)
+
 ## 1) Admin Web Login App (human login)
 ![WebApp](images/okta_web_app.png)
 - Type: OIDC **Web** application. Choose the auth method you use in your deployment:

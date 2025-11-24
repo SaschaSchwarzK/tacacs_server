@@ -132,6 +132,7 @@ def get_openid_config(config: configparser.ConfigParser) -> dict[str, Any]:
         except Exception:
             cfg_val = ""
         env_val = str(os.getenv(env_key, "")).strip()
+        # Precedence: config -> env -> default (env only used when config is empty)
         return cfg_val or env_val or default
 
     issuer_url = _pick("issuer_url", "OPENID_ISSUER_URL")
@@ -166,7 +167,9 @@ def get_openid_config(config: configparser.ConfigParser) -> dict[str, Any]:
 
     token_endpoint = _pick("token_endpoint", "OPENID_TOKEN_ENDPOINT", "")
     userinfo_endpoint = _pick("userinfo_endpoint", "OPENID_USERINFO_ENDPOINT", "")
-    client_private_key_id = _pick("client_private_key_id", "OPENID_CLIENT_PRIVATE_KEY_ID", "")
+    client_private_key_id = _pick(
+        "client_private_key_id", "OPENID_CLIENT_PRIVATE_KEY_ID", ""
+    )
 
     # Secrets: env only by policy
     client_secret = os.getenv("OPENID_CLIENT_SECRET", "").strip()

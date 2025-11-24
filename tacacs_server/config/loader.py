@@ -393,10 +393,10 @@ def load_config(
 ) -> configparser.ConfigParser:
     """Load configuration with unified precedence.
 
-    Load order:
-    1. Start with defaults
-    2. Load from file/URL if exists
-    3. Apply environment variable overrides
+    Load order (per requirement):
+    1. Load from file/URL if exists
+    2. Apply environment variable overrides (only when the value is missing)
+    3. Apply defaults for anything still unset
 
     Args:
         source: Configuration file path or URL
@@ -408,15 +408,7 @@ def load_config(
     """
     config = configparser.ConfigParser(interpolation=None)
 
-    # Step 1: Apply defaults
-    if defaults:
-        for section in defaults.sections():
-            if not config.has_section(section):
-                config.add_section(section)
-            for key, value in defaults.items(section):
-                config.set(section, key, value)
-
-    # Step 2: Load from file/URL
+    # Step 1: Load from file/URL
     if is_url(source):
         logger.info(
             "Loading configuration from URL source",
@@ -450,8 +442,17 @@ def load_config(
                 source=source,
             )
 
-    # Step 3: Apply environment overrides
+    # Step 2: Apply environment overrides (only fill missing keys)
     apply_all_env_overrides(config)
+
+    # Step 3: Apply defaults for anything still unset
+    if defaults:
+        for section in defaults.sections():
+            if not config.has_section(section):
+                config.add_section(section)
+            for key, value in defaults.items(section):
+                if not config.has_option(section, key):
+                    config.set(section, key, value)
 
     return config
 

@@ -353,7 +353,9 @@ class OpenIDManager:
                     email = claims.get("sub")
                 groups_raw = claims.get("groups") or []
                 if isinstance(groups_raw, str):
-                    user_groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
+                    user_groups = [
+                        g.strip() for g in groups_raw.split(",") if g.strip()
+                    ]
                 else:
                     user_groups = [str(g) for g in groups_raw] if groups_raw else []
             except Exception as exc:
@@ -382,7 +384,9 @@ class OpenIDManager:
                         g.strip() for g in user_groups_raw.split(",") if g.strip()
                     ]
                 else:
-                    user_groups = [str(g) for g in user_groups_raw] if user_groups_raw else []
+                    user_groups = (
+                        [str(g) for g in user_groups_raw] if user_groups_raw else []
+                    )
 
         if not email:
             raise ValueError("User email missing from OpenID claims")

@@ -469,7 +469,9 @@ class OktaPreparer:
         }
         base = self.org_url.rstrip("/")
 
-        async def _configure_app_claim(path: str) -> tuple[bool, int | None, str | None]:
+        async def _configure_app_claim(
+            path: str,
+        ) -> tuple[bool, int | None, str | None]:
             """Try to configure claim via a given app claim endpoint path."""
 
             def _list_claims():

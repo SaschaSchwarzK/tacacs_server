@@ -7,9 +7,9 @@ import os
 import secrets
 import shutil
 import socket
+import string
 import subprocess
 import time
-import string
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -152,7 +152,9 @@ def _prepare_okta_manifest(
         return json.load(fh)
 
 
-def _fetch_or_rotate_client_secret(app_id: str, org_url: str, api_token: str) -> str | None:
+def _fetch_or_rotate_client_secret(
+    app_id: str, org_url: str, api_token: str
+) -> str | None:
     """Best-effort fetch/rotate client_secret for confidential apps."""
     import requests
 
@@ -165,14 +167,18 @@ def _fetch_or_rotate_client_secret(app_id: str, org_url: str, api_token: str) ->
 
     # Try GET /oauth2/v1/clients/{id}
     try:
-        r = requests.get(f"{base}/oauth2/v1/clients/{app_id}", headers=headers, timeout=15)
+        r = requests.get(
+            f"{base}/oauth2/v1/clients/{app_id}", headers=headers, timeout=15
+        )
         if r.status_code == 200:
             data = r.json() or {}
             client = data.get("client", data)
             secret = (
                 client.get("client_secret")
                 or client.get("secret")
-                or (client.get("credentials") or {}).get("oauthClient", {}).get("client_secret")
+                or (client.get("credentials") or {})
+                .get("oauthClient", {})
+                .get("client_secret")
             )
             if secret:
                 return secret
@@ -298,10 +304,15 @@ def _ensure_app_auth_method(
         oc = app_data.setdefault("settings", {}).setdefault("oauthClient", {})
         current = oc.get("token_endpoint_auth_method")
         desired = (
-            "private_key_jwt" if auth_method == "private_key_jwt" else "client_secret_post"
+            "private_key_jwt"
+            if auth_method == "private_key_jwt"
+            else "client_secret_post"
         )
         need_update = current != desired
-        if oc.get("grant_types") is not None and "authorization_code" not in oc["grant_types"]:
+        if (
+            oc.get("grant_types") is not None
+            and "authorization_code" not in oc["grant_types"]
+        ):
             oc["grant_types"] = list({*oc.get("grant_types", []), "authorization_code"})
             need_update = True
         if oc.get("response_types") is not None and "code" not in oc["response_types"]:
@@ -444,7 +455,7 @@ def _start_container_for_openid(
         run_cmd += ["-v", f"{priv_key_path}:/app/config/okta_app_private_key.pem:ro"]
         cmd = (
             f"export OPENID_CLIENT_PRIVATE_KEY_ID='{priv_key_id}'; "
-            "export OPENID_CLIENT_PRIVATE_KEY=\"$(cat /app/config/okta_app_private_key.pem)\"; "
+            'export OPENID_CLIENT_PRIVATE_KEY="$(cat /app/config/okta_app_private_key.pem)"; '
             + cmd
         )
 
@@ -466,7 +477,9 @@ def _perform_openid_login(
 ) -> requests.Session:
     """Drive a real browser OpenID login (no AuthN API)."""
     if os.getenv("OKTA_OIDC_BROWSER", "0").lower() not in ("1", "true", "yes"):
-        pytest.skip("Set OKTA_OIDC_BROWSER=1 to run browser-driven OpenID login (no AuthN API)")
+        pytest.skip(
+            "Set OKTA_OIDC_BROWSER=1 to run browser-driven OpenID login (no AuthN API)"
+        )
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:  # noqa: BLE001
@@ -646,8 +659,10 @@ def _run_openid_flow(auth_method: str, tmp_path: Path) -> None:
 
     app_info = manifest.get("app") or {}
     app_id = app_info.get("id")
-    admin_group = (manifest.get("groups") or {}).get("web_admin", {}).get(
-        "name", "tacacs-web-admin"
+    admin_group = (
+        (manifest.get("groups") or {})
+        .get("web_admin", {})
+        .get("name", "tacacs-web-admin")
     )
     allowed_group = None
     if app_id and _app_has_groups_claim(app_id, org_url, api_token):
