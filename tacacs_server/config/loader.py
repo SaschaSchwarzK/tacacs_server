@@ -21,6 +21,8 @@ from .constants import (
     ENV_OKTA_CLIENT_ID,
     ENV_OKTA_DOMAIN,
     ENV_OKTA_PRIVATE_KEY,
+    ENV_OPENID_CLIENT_PRIVATE_KEY,
+    ENV_OPENID_CLIENT_SECRET,
     ENV_RADIUS_AUTH_SECRET,
 )
 
@@ -346,6 +348,38 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
         if okta_api_token:
             config.set("okta", "api_token", okta_api_token)
 
+    # OpenID section: non-secret fields can come from config or env; secrets env-only
+    openid_env_map = {
+        "issuer_url": os.environ.get("OPENID_ISSUER_URL"),
+        "client_id": os.environ.get("OPENID_CLIENT_ID"),
+        "redirect_uri": os.environ.get("OPENID_REDIRECT_URI"),
+        "scopes": os.environ.get("OPENID_SCOPES"),
+        "session_timeout_minutes": os.environ.get("OPENID_SESSION_TIMEOUT_MINUTES"),
+        "client_auth_method": os.environ.get("OPENID_CLIENT_AUTH_METHOD"),
+        "use_interaction_code": os.environ.get("OPENID_USE_INTERACTION_CODE"),
+        "code_verifier": os.environ.get("OPENID_CODE_VERIFIER"),
+        "allowed_groups": os.environ.get("OPENID_ADMIN_GROUPS"),
+        "token_endpoint": os.environ.get("OPENID_TOKEN_ENDPOINT"),
+        "userinfo_endpoint": os.environ.get("OPENID_USERINFO_ENDPOINT"),
+        "client_private_key_id": os.environ.get("OPENID_CLIENT_PRIVATE_KEY_ID"),
+    }
+    if any(val for val in openid_env_map.values()):
+        if not config.has_section("openid"):
+            config.add_section("openid")
+        for key, val in openid_env_map.items():
+            if val and not config.has_option("openid", key):
+                config.set("openid", key, val)
+
+    openid_client_secret = os.environ.get(ENV_OPENID_CLIENT_SECRET)
+    openid_client_private_key = os.environ.get(ENV_OPENID_CLIENT_PRIVATE_KEY)
+    if openid_client_secret or openid_client_private_key:
+        if not config.has_section("openid"):
+            config.add_section("openid")
+        if openid_client_secret:
+            config.set("openid", "client_secret", openid_client_secret)
+        if openid_client_private_key:
+            config.set("openid", "client_private_key", openid_client_private_key)
+
     # RADIUS auth backend secret: environment ONLY
     radius_auth_secret = os.environ.get(ENV_RADIUS_AUTH_SECRET)
     if radius_auth_secret:
@@ -359,10 +393,10 @@ def load_config(
 ) -> configparser.ConfigParser:
     """Load configuration with unified precedence.
 
-    Load order:
-    1. Start with defaults
-    2. Load from file/URL if exists
-    3. Apply environment variable overrides
+    Load order (per requirement):
+    1. Load from file/URL if exists
+    2. Apply environment variable overrides (only when the value is missing)
+    3. Apply defaults for anything still unset
 
     Args:
         source: Configuration file path or URL
@@ -374,15 +408,7 @@ def load_config(
     """
     config = configparser.ConfigParser(interpolation=None)
 
-    # Step 1: Apply defaults
-    if defaults:
-        for section in defaults.sections():
-            if not config.has_section(section):
-                config.add_section(section)
-            for key, value in defaults.items(section):
-                config.set(section, key, value)
-
-    # Step 2: Load from file/URL
+    # Step 1: Load from file/URL
     if is_url(source):
         logger.info(
             "Loading configuration from URL source",
@@ -416,8 +442,17 @@ def load_config(
                 source=source,
             )
 
-    # Step 3: Apply environment overrides
+    # Step 2: Apply environment overrides (only fill missing keys)
     apply_all_env_overrides(config)
+
+    # Step 3: Apply defaults for anything still unset
+    if defaults:
+        for section in defaults.sections():
+            if not config.has_section(section):
+                config.add_section(section)
+            for key, value in defaults.items(section):
+                if not config.has_option(section, key):
+                    config.set(section, key, value)
 
     return config
 

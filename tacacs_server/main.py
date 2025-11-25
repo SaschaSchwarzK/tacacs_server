@@ -237,7 +237,9 @@ class TacacsServerManager:
         # Apply extended server/network tuning
         try:
             net_cfg = self.config.get_server_network_config()
-            self.server.listen_backlog = int(net_cfg.get("listen_backlog", 128))
+            self.server.listen_backlog = max(
+                1, min(1024, int(net_cfg.get("listen_backlog", 128)))
+            )
             self.server.client_timeout = float(net_cfg.get("client_timeout", 15))
             # max_packet_length is set in validator during __init__, not as server attribute
             self.server.enable_ipv6 = bool(net_cfg.get("ipv6_enabled", False))

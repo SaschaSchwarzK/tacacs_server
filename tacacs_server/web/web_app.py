@@ -11,9 +11,12 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.middleware.sessions import SessionMiddleware
 
+from tacacs_server.config.getters import get_openid_config
 from tacacs_server.utils.config_utils import set_config as utils_set_config
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
+from tacacs_server.web.openid_auth import OpenIDConfig
 
 from . import web_admin, web_auth
 from .web import (
@@ -71,6 +74,18 @@ def create_app(
         version="1.0.0",
         docs_url="/api/docs",
         redoc_url="/api/redoc",
+    )
+    # Enable signed sessions so OpenID state can be stored safely during redirects.
+    session_secret = (
+        os.getenv("ADMIN_SESSION_SECRET")
+        or os.getenv("SESSION_SECRET")
+        or uuid.uuid4().hex
+    )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        same_site="lax",
+        https_only=False,
     )
 
     # ========================================================================
@@ -191,6 +206,55 @@ def create_app(
     admin_password_hash = admin_password_hash or os.getenv("ADMIN_PASSWORD_HASH", "")
     api_token = api_token or os.getenv("API_TOKEN")
 
+    def _build_openid_config(source_config=None) -> OpenIDConfig | None:
+        """Create OpenIDConfig from config service + env (config takes precedence for non-secrets)."""
+        raw_cfg: dict | None = None
+        getter = getattr(source_config, "get_openid_config", None)
+        if callable(getter):
+            try:
+                raw_cfg = getter()
+            except Exception:
+                raw_cfg = None
+
+        # Fallback to env-only parsing when no config service is provided
+        if raw_cfg is None:
+            try:
+                import configparser
+
+                tmp_cfg = configparser.ConfigParser(interpolation=None)
+                raw_cfg = get_openid_config(tmp_cfg)
+            except Exception:
+                raw_cfg = None
+
+        if not raw_cfg or not raw_cfg.get("issuer_url"):
+            return None
+
+        allowed_groups = raw_cfg.get("allowed_groups") or None
+        try:
+            return OpenIDConfig(
+                issuer_url=raw_cfg.get("issuer_url", ""),
+                client_id=raw_cfg.get("client_id", ""),
+                client_secret=raw_cfg.get("client_secret", "") or "",
+                redirect_uri=raw_cfg.get("redirect_uri", ""),
+                scopes=raw_cfg.get("scopes", "openid profile email"),
+                token_endpoint=raw_cfg.get("token_endpoint"),
+                userinfo_endpoint=raw_cfg.get("userinfo_endpoint"),
+                session_timeout_minutes=int(
+                    raw_cfg.get("session_timeout_minutes", 60) or 60
+                ),
+                allowed_groups=allowed_groups,
+                use_interaction_code=bool(raw_cfg.get("use_interaction_code")),
+                code_verifier=raw_cfg.get("code_verifier"),
+                client_auth_method=raw_cfg.get("client_auth_method", "client_secret"),
+                client_private_key=raw_cfg.get("client_private_key"),
+                client_private_key_id=raw_cfg.get("client_private_key_id"),
+            )
+        except Exception as exc:
+            logger.warning("Failed to initialize OpenID configuration: %s", exc)
+            return None
+
+    openid_config = _build_openid_config(config_service)
+
     # If a config_service provides creds (common in tests), prefer those
     # 1) Structured config: get_admin_auth_config() -> {username, password_hash}
     if not admin_password_hash and config_service is not None:
@@ -249,12 +313,14 @@ def create_app(
             except Exception:
                 admin_password_hash = ""
 
-    if admin_password_hash:
+    # Initialize auth when either a password hash is provided OR OpenID is configured
+    if admin_password_hash or openid_config:
         web_auth.init_auth(
             admin_username=admin_username,
-            admin_password_hash=admin_password_hash,
+            admin_password_hash=admin_password_hash or "",
             api_token=api_token,
             session_timeout=60,
+            openid_config=openid_config,
         )
         # Bridge session manager into global accessor for modules using config_utils
         try:
@@ -263,7 +329,11 @@ def create_app(
             _set_admin_sm(web_auth.get_session_manager())
         except Exception:
             pass
-        logger.info("Authentication initialized (username=%s)", admin_username)
+        logger.info(
+            "Authentication initialized (username=%s, openid=%s)",
+            admin_username,
+            bool(openid_config),
+        )
     else:
         logger.warning("Admin authentication not configured - web UI will be disabled")
 
@@ -399,6 +469,7 @@ def create_app(
         # Unified request logging for Admin UI and API without consuming body
         started = None
         _ctx_token = None
+        user_email = None
         try:
             import time as _t
 
@@ -410,6 +481,20 @@ def create_app(
                 _ctx_token = bind_context(correlation_id=corr)
             except Exception:
                 _ctx_token = None
+            # Identify the authenticated admin user (if any) for downstream logging.
+            try:
+                sm = web_auth.get_session_manager()
+                token = (
+                    request.cookies.get("admin_session")
+                    if hasattr(request, "cookies")
+                    else None
+                )
+                if sm and token:
+                    user_email = sm.validate_session(token)
+                    if user_email and hasattr(request, "state"):
+                        request.state.user_email = user_email
+            except Exception:
+                user_email = None
             logger.debug(
                 "HTTP request",
                 event="http.request",
@@ -436,6 +521,23 @@ def create_app(
             import time as _t
 
             dur_ms = int(((_t.time() - started) if started else 0) * 1000)
+            # Log with user context: GETs at debug, mutations at info.
+            method = getattr(request, "method", "").upper()
+            log_payload = {
+                "event": "http.user_activity",
+                "service": "web",
+                "component": "web_app",
+                "method": method,
+                "path": str(getattr(request.url, "path", "")),
+                "status": getattr(response, "status_code", ""),
+                "duration_ms": dur_ms,
+                "user_email": user_email,
+                "correlation_id": (request.headers.get("X-Correlation-ID") or None),
+            }
+            if method == "GET":
+                logger.debug("HTTP GET (user)", extra=log_payload)
+            else:
+                logger.info("HTTP write (user)", extra=log_payload)
             logger.debug(
                 "HTTP response",
                 event="http.response",

@@ -9,13 +9,13 @@ TACACS+ AAA Request Handlers
 # As this code is supposed to run in containers, we assume Linux environments where fork() is safe.
 # But this still might affect users running on macOS hosts directly for testing.
 
+import atexit
+import json
 import multiprocessing as mp
 import os
 import re
 import struct
 import threading
-import json
-import atexit
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any
@@ -187,6 +187,8 @@ class AAAHandlers:
     _PENDING_TASK_CLEANUP_INTERVAL_S = 10.0
     _PENDING_TASK_EXPIRY_S = 30.0
 
+    services: Any | None = None  # optional DI container
+
     def __init__(
         self,
         auth_backends: list[AuthenticationBackend],
@@ -242,7 +244,7 @@ class AAAHandlers:
 
         self._process_pool_size = pool_size if pool_size and pool_size > 0 else 0
         self._process_ctx: Any = None
-        self._process_workers: list[mp.process.BaseProcess] = []
+        self._process_workers: list[mp.process.BaseProcess | None] = []
         self._process_in_queues: list[Any] = []
         self._process_out_queue: Any = None
         self._process_lock = threading.Lock()
@@ -373,11 +375,11 @@ class AAAHandlers:
                     logger.debug("Failed to restart process worker: %s", exc)
                     self._process_workers[idx] = None
         # Drop any failed slots to avoid using them
-        self._process_workers = [p for p in self._process_workers if p]
+        self._process_workers = [p for p in self._process_workers if p is not None]
         self._process_in_queues = [
             q
             for q, p in zip(self._process_in_queues, self._process_workers)
-            if p
+            if p is not None
         ]
         return alive
 
@@ -1706,7 +1708,11 @@ class AAAHandlers:
         ):
             if not self._ensure_process_workers_alive():
                 logger.debug("Process pool unhealthy; falling back to thread pool")
-                return False, False, "process_pool_unhealthy"
+                # Let the thread-pool fallback handle this request
+                # rather than failing auth outright.
+                return self._run_backend_in_thread_pool(
+                    backend, username, password, effective_timeout, **kwargs
+                )
             try:
                 # Find matching backend config from our serialized configs
                 backend_config = None
@@ -1729,11 +1735,13 @@ class AAAHandlers:
                     )
 
                     # Check if worker is alive, restart if dead
-                    if not self._process_workers[wi].is_alive():
-                        try:
-                            self._process_workers[wi].join(0.1)
-                        except Exception:
-                            pass
+                worker_proc = self._process_workers[wi]
+                if worker_proc is None or not worker_proc.is_alive():
+                    try:
+                        if worker_proc is not None:
+                            worker_proc.join(0.1)
+                    except Exception:
+                        pass
                         # Restart dead worker
                         try:
                             if self._process_ctx is None:
@@ -1810,6 +1818,19 @@ class AAAHandlers:
 
         # Fallback: run in thread pool (original behavior). We still
         # attempt to cancel the future on timeout as a best-effort.
+        return self._run_backend_in_thread_pool(
+            backend, username, password, effective_timeout, **kwargs
+        )
+
+    def _run_backend_in_thread_pool(
+        self,
+        backend: AuthenticationBackend,
+        username: str,
+        password: str,
+        effective_timeout: float | None,
+        **kwargs,
+    ) -> tuple[bool, bool, str | None]:
+        """Execute backend authenticate in thread pool with timeout handling."""
         try:
             future = self._backend_executor.submit(
                 backend.authenticate, username, password, **kwargs
@@ -1831,7 +1852,7 @@ class AAAHandlers:
             logger.warning(
                 "Auth backend %s timed out after %.2fs",
                 backend_name,
-                timeout_s,
+                effective_timeout or 0.0,
             )
             try:
                 future.cancel()

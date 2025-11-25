@@ -14,6 +14,7 @@ from .constants import (
     SECTION_LDAP,
     SECTION_LOGGING,
     SECTION_MONITORING,
+    SECTION_OPENID,
     SECTION_PROXY_PROTOCOL,
     SECTION_RADIUS,
     SECTION_RADIUS_AUTH,
@@ -99,7 +100,9 @@ DEFAULT_LOG_ROTATION = True  # enable log rotation
 DEFAULT_MAX_LOG_SIZE = "10MB"  # rotation size
 DEFAULT_LOG_BACKUP_COUNT = 5  # rotated files retained
 DEFAULT_LOG_FILE = "logs/tacacs.log"  # default log file path
-DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # legacy format
+DEFAULT_LOG_FORMAT = (
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # legacy format
+)
 
 # Backup defaults
 DEFAULT_BACKUP_ENABLED = True  # enable backup subsystem
@@ -273,5 +276,20 @@ CONFIG_DEFAULTS = {
         "port": "1812",
         "retries": "3",
         "timeout": "3",
+    },
+    SECTION_OPENID: {
+        "issuer_url": "",
+        "client_id": "",
+        "redirect_uri": "",
+        "scopes": "openid profile email",
+        "session_timeout_minutes": "60",
+        # Leave blank so env or explicit config can decide; falls back to client_secret in code
+        "client_auth_method": "",
+        "use_interaction_code": "false",
+        "code_verifier": "",
+        "allowed_groups": "",
+        "token_endpoint": "",
+        "userinfo_endpoint": "",
+        "client_private_key_id": "",
     },
 }
