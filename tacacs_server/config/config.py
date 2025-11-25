@@ -33,6 +33,7 @@ from .getters import (
     get_local_auth_db,
     get_logging_config,
     get_monitoring_config,
+    get_openid_config,
     get_proxy_protocol_config,
     get_radius_config,
     get_security_config,
@@ -183,6 +184,10 @@ class TacacsConfig:
     def get_monitoring_config(self) -> dict[str, Any]:
         """Get monitoring configuration if present."""
         return get_monitoring_config(self.config)
+
+    def get_openid_config(self) -> dict[str, Any]:
+        """Get OpenID configuration merged with environment."""
+        return get_openid_config(self.config)
 
     def get_auth_backends(self) -> list[str]:
         """Get list of enabled authentication backends."""

@@ -25,9 +25,10 @@ USAGE:
       --org-url "$OKTA_ORG_URL" \
       --api-token "$OKTA_API_TOKEN" \
       --output ./okta_test_data.json \
-      --no-app --create-service-app  \
+      --create-service-app  \
       --service-auth-method private_key_jwt \
       --service-scopes "okta.users.read,okta.groups.read" \
+      --app-auth-method private_key_jwt \
       --write-backend-config "config/okta.generated.conf"
 
   # Teardown everything created from a previous run
@@ -108,6 +109,7 @@ async def with_retries(
             logger.debug("Retry %s/%s for %s after error: %s", i, attempts, what, e)
             if i < attempts:
                 await asyncio.sleep(sleep_s)
+    logger.error("%s failed after %s attempts; last error: %s", what, attempts, err)
     raise RetryError(f"{what} failed after {attempts} attempts: {err}") from err
 
 
@@ -384,6 +386,219 @@ class OktaPreparer:
             else:
                 raise e
 
+    async def assign_users_to_app(self, app_id: str, user_ids: list[str]) -> None:
+        """Assign multiple users to an app via REST (idempotent)."""
+        import requests
+
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/users"
+
+        def _do_post(uid: str):
+            return requests.post(url, headers=headers, json={"id": uid}, timeout=15)
+
+        for uid in user_ids:
+            if not uid:
+                continue
+            try:
+                resp = await asyncio.to_thread(_do_post, uid)
+                if resp.status_code not in (200, 201, 204, 409):
+                    self.logger.warning(
+                        "Assign user %s to app %s failed: %s %s",
+                        uid,
+                        app_id,
+                        resp.status_code,
+                        resp.text,
+                    )
+            except Exception as e:  # noqa: BLE001
+                self.logger.warning(
+                    "Assign user %s to app %s failed: %s", uid, app_id, e
+                )
+
+    async def assign_group_to_app(self, app_id: str, group_id: str) -> None:
+        """Assign a group to an app via REST."""
+        import requests
+
+        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/groups/{group_id}"
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+        def _do_put():
+            return requests.put(url, headers=headers, timeout=15)
+
+        try:
+            resp = await asyncio.to_thread(_do_put)
+            if resp.status_code in (200, 201, 204, 409):
+                self.logger.info("Assigned group %s to app %s", group_id, app_id)
+            else:
+                self.logger.warning(
+                    "Assign group %s to app %s failed: %s %s",
+                    group_id,
+                    app_id,
+                    resp.status_code,
+                    resp.text,
+                )
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(
+                "Assign group %s to app %s failed: %s", group_id, app_id, e
+            )
+
+    async def configure_groups_claim_filter(self, app_id: str) -> None:
+        """Ensure groups claim exists (prefers app claims, falls back to default auth server)."""
+        import requests
+
+        claim_payload = {
+            "name": "groups",
+            "claimType": "RESOURCE",
+            "valueType": "GROUPS",
+            "value": "groups",
+            "group_filter_type": "STARTS_WITH",
+            "conditions": {"include": [{"type": "STARTS_WITH", "value": "tacacs"}]},
+            "alwaysIncludeInToken": True,
+        }
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        base = self.org_url.rstrip("/")
+
+        async def _configure_app_claim(
+            path: str,
+        ) -> tuple[bool, int | None, str | None]:
+            """Try to configure claim via a given app claim endpoint path."""
+
+            def _list_claims():
+                return requests.get(
+                    f"{base}{path}",
+                    headers=headers,
+                    timeout=15,
+                )
+
+            def _create_claim():
+                return requests.post(
+                    f"{base}{path}",
+                    headers=headers,
+                    json=claim_payload,
+                    timeout=15,
+                )
+
+            lst = await asyncio.to_thread(_list_claims)
+            status = lst.status_code
+            if status == 200:
+                claims = lst.json() or []
+                if any(
+                    isinstance(c, dict) and str(c.get("name")).lower() == "groups"
+                    for c in claims
+                ):
+                    self.logger.info("Groups claim already present on app %s", app_id)
+                    return True, status, None
+            created = await asyncio.to_thread(_create_claim)
+            status = created.status_code
+            if status in (200, 201):
+                self.logger.info("Configured groups claim for app %s", app_id)
+                return True, status, None
+            # 404/405/401/403 are common when the endpoint isn't supported or not allowed; try next.
+            if status not in (200, 201, 204, 404, 405, 401, 403):
+                self.logger.warning(
+                    "App-claim creation failed for app %s via %s (status=%s): %s",
+                    app_id,
+                    path,
+                    status,
+                    created.text,
+                )
+            return False, status, created.text
+
+        # Try both claim endpoints (newer orgs use /federated-claims)
+        app_claim_paths = [
+            f"/api/v1/apps/{app_id}/federated-claims",
+            f"/api/v1/apps/{app_id}/claims",
+        ]
+        for path in app_claim_paths:
+            try:
+                self.logger.debug("Attempting groups claim via %s", path)
+                ok, status, body = await _configure_app_claim(path)
+                if ok:
+                    return
+                if status not in (404, 405, 401, 403):
+                    # only warn for unexpected failures; common statuses are silent
+                    self.logger.warning(
+                        "Groups claim via %s not available (status=%s): %s",
+                        path,
+                        status,
+                        body,
+                    )
+            except Exception:
+                # Swallow and try the next path/fallback
+                continue
+
+        # Fallback for cases where /apps/{id}/claims is not supported: use default auth server
+        def _list_as_claims():
+            return requests.get(
+                f"{base}/api/v1/authorizationServers/default/claims",
+                headers=headers,
+                timeout=15,
+            )
+
+        def _create_as_claim():
+            payload = {
+                "name": "groups",
+                "claimType": "IDENTITY",
+                "valueType": "GROUPS",
+                "value": "groups",
+                "group_filter_type": "STARTS_WITH",
+                "conditions": {
+                    "scopes": ["openid", "profile", "email", "groups"],
+                    "groups": {
+                        "filterType": "STARTS_WITH",
+                        "filterValue": "tacacs",
+                    },
+                },
+                "status": "ACTIVE",
+                "alwaysIncludeInToken": True,
+            }
+            return requests.post(
+                f"{base}/api/v1/authorizationServers/default/claims",
+                headers=headers,
+                json=payload,
+                timeout=15,
+            )
+
+        try:
+            lst2 = await asyncio.to_thread(_list_as_claims)
+            if lst2.status_code == 200:
+                claims = lst2.json() or []
+                if any(
+                    isinstance(c, dict) and str(c.get("name")).lower() == "groups"
+                    for c in claims
+                ):
+                    self.logger.info(
+                        "Groups claim already present on default auth server"
+                    )
+                    return
+            created2 = await asyncio.to_thread(_create_as_claim)
+            if created2.status_code in (200, 201):
+                self.logger.info(
+                    "Configured groups claim on default auth server for app %s", app_id
+                )
+            else:
+                self.logger.warning(
+                    "Failed to configure groups claim via auth server for app %s: %s %s",
+                    app_id,
+                    created2.status_code,
+                    created2.text,
+                )
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(
+                "Configure groups claim (fallback) for app %s failed: %s", app_id, e
+            )
+
     async def is_user_in_group(self, user_id: str, group_id: str) -> bool:
         async def _list():
             meth = getattr(self.client, "list_user_groups", None)
@@ -427,9 +642,19 @@ class OktaPreparer:
         client_uri: str | None = None,
         grant_types: list[str] | None = None,
         response_types: list[str] | None = None,
+        auth_method: str = "client_secret",
+        public_jwk: dict[str, Any] | None = None,
     ) -> AppInfo:
+        import requests
+
         grant_types = grant_types or ["authorization_code"]
         response_types = response_types or ["code"]
+        # Determine token_endpoint_auth_method based on auth_method parameter
+        token_auth_method = (
+            "private_key_jwt"
+            if auth_method == "private_key_jwt"
+            else "client_secret_post"
+        )
 
         async def _search():
             apps_iter, _, _ = await self.client.list_applications(q=label)
@@ -444,22 +669,85 @@ class OktaPreparer:
         )
         if existing:
             client_id = None
+            client_secret = None
             creds = getattr(existing, "credentials", None)
             if creds and getattr(creds, "oauthClient", None):
                 client_id = getattr(creds.oauthClient, "client_id", None)
+                client_secret = getattr(creds.oauthClient, "client_secret", None)
+            # For client_secret auth, attempt to ensure a secret exists
+            if auth_method == "client_secret":
+                if not client_secret:
+                    cid, csec = await self.fetch_app_credentials(existing.id)
+                    client_id = client_id or cid
+                    client_secret = client_secret or csec
+                if not client_secret:
+                    client_secret = await self.generate_app_client_secret(existing.id)
+                if not client_secret:
+                    client_secret = await self.rotate_client_secret(existing.id)
+            # For private_key_jwt, ensure jwks and auth method are set via REST
+            if auth_method == "private_key_jwt" and public_jwk:
+                base = self.org_url.rstrip("/")
+                headers = {
+                    "Authorization": f"SSWS {self.api_token}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                }
+                try:
+                    # Upload/ensure the key
+                    requests.post(
+                        f"{base}/api/v1/apps/{existing.id}/credentials/keys",
+                        headers=headers,
+                        json={"keys": [public_jwk]},
+                        timeout=15,
+                    )
+                    # Patch token_endpoint_auth_method + jwks
+                    requests.post(
+                        f"{base}/api/v1/apps/{existing.id}",
+                        headers=headers,
+                        json={
+                            "settings": {
+                                "oauthClient": {
+                                    "token_endpoint_auth_method": "private_key_jwt",
+                                    "jwks": {"keys": [public_jwk]},
+                                }
+                            }
+                        },
+                        timeout=15,
+                    )
+                except Exception:
+                    self.logger.debug(
+                        "Failed to patch existing web app for private_key_jwt"
+                    )
             self.logger.info("App exists: %s (%s)", label, existing.id)
-            return AppInfo(id=existing.id, clientId=client_id)
+            return AppInfo(
+                id=existing.id,
+                clientId=client_id,
+                clientSecret=client_secret,
+                authMethod=auth_method,
+                appType="web",
+            )
 
         async def _create():
-            oauth_client = models.OAuthApplicationSettingsClient(
-                client_uri=client_uri,
-                logo_uri=None,
-                redirect_uris=redirect_uris,
-                response_types=response_types,
-                grant_types=grant_types,
-                application_type="web",
-            )
-            settings = models.OAuthApplicationSettings(oauthClient=oauth_client)
+            # The SDK classes differ by version; prefer OpenIdConnectApplicationSettingsClient.
+            client_cls = getattr(models, "OpenIdConnectApplicationSettingsClient", None)
+            settings_cls = getattr(models, "OpenIdConnectApplicationSettings", None)
+            oauth_client_settings = {
+                "client_uri": client_uri,
+                "redirect_uris": redirect_uris,
+                "response_types": response_types,
+                "grant_types": grant_types,
+                "application_type": "web",
+                "token_endpoint_auth_method": token_auth_method,
+            }
+            if auth_method == "private_key_jwt" and public_jwk:
+                oauth_client_settings["jwks"] = {"keys": [public_jwk]}
+
+            if client_cls and settings_cls:
+                oauth_client = client_cls(**oauth_client_settings)
+                settings = settings_cls(oauthClient=oauth_client)
+            else:
+                # Fallback: construct via generic dicts if SDK classes are missing
+                settings = {"oauthClient": oauth_client_settings}
             app_obj = models.OpenIdConnectApplication(
                 label=label, signOnMode="OPENID_CONNECT", settings=settings
             )
@@ -472,11 +760,27 @@ class OktaPreparer:
             _create, logger=self.logger, what=f"create app {label}"
         )
         client_id = None
+        client_secret = None
         creds = getattr(created, "credentials", None)
         if creds and getattr(creds, "oauthClient", None):
             client_id = getattr(creds.oauthClient, "client_id", None)
+            client_secret = getattr(creds.oauthClient, "client_secret", None)
+        if not client_secret:
+            cid, csec = await self.fetch_app_credentials(created.id)
+            client_id = client_id or cid
+            client_secret = client_secret or csec
+        if not client_secret:
+            client_secret = await self.generate_app_client_secret(created.id)
+        if not client_secret:
+            client_secret = await self.rotate_client_secret(created.id)
         self.logger.info("App created: %s (%s)", label, created.id)
-        return AppInfo(id=created.id, clientId=client_id)
+        return AppInfo(
+            id=created.id,
+            clientId=client_id,
+            clientSecret=client_secret,
+            authMethod=auth_method,
+            appType="web",
+        )
 
     async def delete_app(self, app_id: str) -> None:
         # deactivate + delete to be safe
@@ -711,6 +1015,52 @@ class OktaPreparer:
         creds = (data.get("credentials") or {}).get("oauthClient", {})
         return creds.get("client_id"), creds.get("client_secret")
 
+    async def rotate_client_secret(self, app_id: str) -> str | None:
+        """Rotate/generate client secret for confidential apps via REST."""
+        import requests
+
+        url = f"{self.org_url.rstrip('/')}/oauth2/v1/clients/{app_id}/lifecycle/rotateSecret"
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+        }
+
+        def _do_post():
+            return requests.post(url, headers=headers, timeout=15)
+
+        resp = await asyncio.to_thread(_do_post)
+        if resp.status_code not in (200, 201):
+            return None
+        data = resp.json() or {}
+        creds = (
+            data.get("client") or data
+        )  # rotateSecret returns {client:{client_id,client_secret}}
+        return (
+            (creds.get("client_secret") or creds.get("secret"))
+            if isinstance(creds, dict)
+            else None
+        )
+
+    async def generate_app_client_secret(self, app_id: str) -> str | None:
+        """Rotate/generate a new client secret for an app and return it."""
+        import requests
+
+        url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/lifecycle/newSecret"
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+        }
+
+        def _do_post():
+            return requests.post(url, headers=headers, timeout=15)
+
+        resp = await asyncio.to_thread(_do_post)
+        if resp.status_code not in (200, 201):
+            return None
+        data = resp.json() or {}
+        creds = (data.get("credentials") or {}).get("oauthClient", {})
+        return creds.get("client_secret")
+
 
 # ---------- CLI ----------
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -745,6 +1095,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     # Resource names / data
     p.add_argument("--group-ops", default="tacacs-ops", help="Operators group name")
     p.add_argument("--group-admin", default="tacacs-admin", help="Admins group name")
+    p.add_argument(
+        "--group-web-admin",
+        default="tacacs-web-admin",
+        help="Web admin OpenID group name",
+    )
 
     p.add_argument(
         "--op-login",
@@ -774,10 +1129,37 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--redirect-uri",
         action="append",
         default=["https://example.local/callback"],
-        help="OIDC redirect URI (can repeat)",
+        help="OIDC redirect URI for TACACS backend (can repeat)",
+    )
+    p.add_argument(
+        "--admin-redirect-uri",
+        action="append",
+        default=["https://example.local/admin/login/openid-callback"],
+        help="OIDC redirect URI for web admin OpenID (can repeat)",
     )
     p.add_argument(
         "--client-uri", default="https://example.local", help="OIDC client URI"
+    )
+    p.add_argument(
+        "--app-auth-method",
+        choices=["client_secret", "private_key_jwt"],
+        default="client_secret",
+        help="OIDC web app token endpoint auth method",
+    )
+    p.add_argument(
+        "--app-public-jwk-file",
+        default=None,
+        help="Path to public JWK (JSON) for web app when using private_key_jwt",
+    )
+    p.add_argument(
+        "--app-private-key-out",
+        default="okta_app_private_key.pem",
+        help="Where to write generated private key PEM for web app (private_key_jwt)",
+    )
+    p.add_argument(
+        "--app-public-jwk-out",
+        default="okta_app_public_jwk.json",
+        help="Where to write generated public JWK JSON for web app (private_key_jwt)",
     )
     p.add_argument("--no-app", action="store_true", help="Skip creating OIDC web app")
     p.add_argument(
@@ -851,6 +1233,9 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
     # Ensure groups
     g_ops = await okta.ensure_group(args.group_ops, "Operators for TACACS tests")
     g_admin = await okta.ensure_group(args.group_admin, "Admins for TACACS tests")
+    g_web_admin = await okta.ensure_group(
+        args.group_web_admin, "Web Admin OpenID group"
+    )
 
     # Ensure users
     u_op = await okta.ensure_user_with_password(
@@ -873,15 +1258,62 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
     # Assign groups
     await okta.add_user_to_group(u_op.id, g_ops.id)
     await okta.add_user_to_group(u_ad.id, g_admin.id)
+    await okta.add_user_to_group(u_ad.id, g_web_admin.id)
 
     # Ensure OIDC app unless disabled (not required by AuthN-only backend flow)
     app = None
     if not args.no_app:
+        all_redirects = list(
+            dict.fromkeys((args.redirect_uri or []) + (args.admin_redirect_uri or []))
+        )
+        app_public_jwk = None
+        app_generated_kid = None
+        app_generated_priv_path = None
+        if args.app_auth_method == "private_key_jwt":
+            if args.app_public_jwk_file:
+                try:
+                    with open(args.app_public_jwk_file, encoding="utf-8") as f:
+                        app_public_jwk = json.load(f)
+                except Exception as e:  # noqa: BLE001
+                    raise SystemExit(f"Failed to read app public JWK: {e}")
+            else:
+                # Generate new RSA keypair and JWK
+                priv_pem, app_public_jwk = OktaPreparer.generate_rsa_keypair_and_jwk()
+                app_generated_kid = app_public_jwk.get("kid")
+                # Save private key and public JWK
+                try:
+                    with open(args.app_private_key_out, "w", encoding="utf-8") as f:
+                        f.write(priv_pem)
+                    with open(args.app_public_jwk_out, "w", encoding="utf-8") as f:
+                        json.dump(app_public_jwk, f, indent=2)
+                    app_generated_priv_path = args.app_private_key_out
+                    logger.info(
+                        "Generated RSA keypair for web app (kid=%s)", app_generated_kid
+                    )
+                except Exception as e:  # noqa: BLE001
+                    raise SystemExit(f"Failed to write generated app keys: {e}")
         app = await okta.ensure_oidc_web_app(
             label=args.app_label,
-            redirect_uris=args.redirect_uri,
+            redirect_uris=all_redirects,
             client_uri=args.client_uri,
+            auth_method=args.app_auth_method,
+            public_jwk=app_public_jwk,
         )
+        # Attach key metadata if generated
+        if app and app_generated_kid:
+            app.privateKeyId = app_generated_kid
+        if app and app_generated_priv_path:
+            app.privateKeyPath = app_generated_priv_path
+        if app and app.id:
+            # Assign app to web_admin group
+            await okta.assign_group_to_app(app.id, g_web_admin.id)
+            # Configure Groups claim filter in OpenID Connect ID Token
+            await okta.configure_groups_claim_filter(app.id)
+            # Assign users to app
+            await okta.assign_users_to_app(
+                app.id,
+                [u_ad.id if u_ad else None, u_op.id if u_op else None],
+            )
 
     # Optionally create service app for Okta API scopes (OAuth 2.0 client_credentials)
     svc_app = None
@@ -936,8 +1368,19 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
         except Exception as e:  # noqa: BLE001
             logger.warning("Could not fetch service app credentials: %s", e)
 
+    # Ensure app client_secret is populated in manifest
+    if app and not app.clientSecret:
+        try:
+            cid, csec = await okta.fetch_app_credentials(app.id)
+            if cid:
+                app.clientId = cid
+            if csec:
+                app.clientSecret = csec
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not fetch app credentials: %s", e)
+
     manifest = Manifest(
-        groups={"ops": g_ops, "admin": g_admin},
+        groups={"ops": g_ops, "admin": g_admin, "web_admin": g_web_admin},
         users={"operator": u_op, "admin": u_ad},
         app=app,
         service_app=svc_app,
@@ -1073,7 +1516,7 @@ def main(argv: list[str]) -> int:
         logger.error("Interrupted.")
         return 130
     except RetryError as re:
-        logger.error(str(re))
+        logger.exception(str(re))
         return 75
     except Exception as e:  # noqa: BLE001
         logger.exception("Fatal error: %s", e)

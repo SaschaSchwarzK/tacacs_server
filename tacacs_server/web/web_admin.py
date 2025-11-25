@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from tacacs_server.auth.local_user_group_service import UNSET
 from tacacs_server.utils.logger import get_logger
 
-from .web_auth import get_session_manager, require_admin_session
+from .web_auth import get_auth_config, get_session_manager, require_admin_session
 
 logger = get_logger(__name__)
 
@@ -127,14 +127,18 @@ def _redact(data):
 
 def _log_ui(action: str, request: Request, *, details: dict | None = None) -> None:
     details = details or {}
+    method = getattr(request, "method", "").upper()
+    user_email = getattr(getattr(request, "state", object()), "user_email", None)
     try:
-        logger.info(
-            "ui:%s path=%s method=%s accept=%s ct=%s",  # concise always-on
+        log_fn = logger.debug if method == "GET" else logger.info
+        log_fn(
+            "ui:%s path=%s method=%s accept=%s ct=%s user=%s",  # concise always-on
             action,
             getattr(request.url, "path", ""),
-            getattr(request, "method", ""),
+            method,
             request.headers.get("accept", ""),
             request.headers.get("content-type", ""),
+            user_email,
         )
         logger.debug(
             "ui:%s details=%s",  # deep dive for troubleshooting
@@ -153,7 +157,17 @@ def _log_ui(action: str, request: Request, *, details: dict | None = None) -> No
 @router.get("/login", response_class=HTMLResponse, name="admin_login")
 async def login_page(request: Request):
     """Show login form"""
-    return templates.TemplateResponse(request, "admin/login.html", {})
+    auth_config = get_auth_config()
+    openid_enabled = auth_config and auth_config.openid_config is not None
+    session_mgr = get_session_manager()
+    token = (
+        request.cookies.get("admin_session") if hasattr(request, "cookies") else None
+    )
+    if session_mgr and token and session_mgr.validate_session(token):
+        return RedirectResponse(url="/admin/", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(
+        request, "admin/login.html", {"openid_enabled": openid_enabled}
+    )
 
 
 @router.post("/login", name="admin_login_post")
@@ -164,6 +178,13 @@ async def login(
 ):
     """Process login via JSON or form submission."""
     session_mgr = get_session_manager()
+    auth_config = get_auth_config()
+    openid_enabled = bool(auth_config and auth_config.openid_config)
+    require_openid = os.getenv("ADMIN_REQUIRE_OPENID", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     initialized_during_request = False
     if not session_mgr:
         # Attempt on-the-fly initialization if credentials are provided
@@ -201,6 +222,20 @@ async def login(
             )
 
     is_json = request.headers.get("content-type", "").startswith("application/json")
+
+    # If OpenID is configured and available, optionally disable password login
+    if require_openid and openid_enabled and session_mgr and session_mgr.openid_manager:
+        if is_json:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Use OpenID login",
+            )
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": "Use OpenID login", "openid_enabled": True},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
     if is_json:
         try:
             payload = await request.json()
@@ -229,7 +264,7 @@ async def login(
         )
 
     try:
-        token = session_mgr.create_session(username, password)
+        token = session_mgr.create_password_session(username, password)
     except HTTPException:
         # Retry path:
         # 1) if we just initialised during this request
@@ -246,7 +281,7 @@ async def login(
             pass
         if needs_retry:
             try:
-                token = session_mgr.create_session(username, password)  # retry
+                token = session_mgr.create_password_session(username, password)  # retry
             except Exception:
                 if is_json:
                     raise HTTPException(
@@ -294,7 +329,7 @@ async def login(
         token,
         httponly=True,
         secure=request.url.scheme == "https",
-        samesite="strict",
+        samesite="lax",  # allow cookie to stick after cross-site redirect from IdP
         max_age=3600,  # 1 hour
         path="/",
     )
@@ -315,6 +350,150 @@ async def logout(request: Request):
     )
     response.delete_cookie("admin_session")
     return response
+
+
+# ============================================================================
+# OpenID Connect Login / Callback Routes
+# ============================================================================
+
+
+@router.get("/login/openid-start", name="admin_openid_start")
+async def openid_start(request: Request):
+    """Initiate OpenID Connect login flow."""
+    session_mgr = get_session_manager()
+    if not session_mgr or not session_mgr.openid_manager:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenID not configured",
+        )
+
+    # Generate state for CSRF protection
+    import secrets
+
+    state = secrets.token_urlsafe(32)
+    # Store state in session (requires middleware support)
+    if hasattr(request, "session"):
+        request.session["openid_state"] = state
+
+    # Get authorization URL
+    auth_url = session_mgr.openid_manager.get_authorization_url(state)
+    logger.info(
+        "OpenID login initiated",
+        event="admin.openid.start",
+        service="web",
+        component="openid",
+        session_id="[opaque]",
+    )
+
+    # Redirect to OIDC provider
+    return RedirectResponse(url=auth_url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/login/openid-callback", name="admin_openid_callback")
+async def openid_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
+    """Handle OpenID Connect callback from provider."""
+    session_mgr = get_session_manager()
+    if not session_mgr or not session_mgr.openid_manager:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenID not configured",
+        )
+
+    # Check for errors from provider
+    if error:
+        logger.warning(
+            "OpenID provider returned error",
+            event="admin.openid.error",
+            service="web",
+            component="openid",
+            error=error,
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": f"OpenID provider error: {error}", "openid_enabled": True},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    # Validate state (CSRF protection)
+    stored_state = (
+        request.session.get("openid_state") if hasattr(request, "session") else None
+    )
+    if not state or state != stored_state:
+        logger.warning(
+            "OpenID state mismatch - possible CSRF attack",
+            event="admin.openid.csrf",
+            service="web",
+            component="openid",
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": "OpenID state validation failed", "openid_enabled": True},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    # Exchange code for token and create session
+    if not code:
+        logger.warning(
+            "OpenID callback missing authorization code",
+            event="admin.openid.no_code",
+            service="web",
+            component="openid",
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": "OpenID authorization failed", "openid_enabled": True},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    try:
+        session_token, user_email = session_mgr.create_openid_session(code)
+
+        # Inject user_email into request context for logging
+        request.scope["user_email"] = user_email
+
+        # Set session cookie and redirect
+        response = RedirectResponse(
+            url="/admin/", status_code=status.HTTP_303_SEE_OTHER
+        )
+        response.set_cookie(
+            "admin_session",
+            session_token,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",  # allow cookie to stick after cross-site redirect from IdP
+            max_age=3600,
+            path="/",
+        )
+        return response
+
+    except Exception as e:
+        err_text = str(e) or "Authentication failed"
+        logger.error(
+            "OpenID session creation failed",
+            event="admin.openid.session_error",
+            service="web",
+            component="openid",
+            error=err_text,
+        )
+        friendly = (
+            "User not in admin group"
+            if "allowed" in err_text.lower() and "group" in err_text.lower()
+            else "Authentication failed. Please try again."
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/login.html",
+            {"error": friendly, "openid_enabled": True},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
 
 # ============================================================================

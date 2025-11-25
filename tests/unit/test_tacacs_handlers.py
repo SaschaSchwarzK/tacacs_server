@@ -1,13 +1,5 @@
-import logging
-from types import SimpleNamespace
-
-import pytest
-
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_ACCT_FLAG,
-    TAC_PLUS_ACCT_STATUS,
-    TAC_PLUS_AUTHEN_STATUS,
-    TAC_PLUS_AUTHOR_STATUS,
     TAC_PLUS_PACKET_TYPE,
 )
 from tacacs_server.tacacs.handlers import AAAHandlers
@@ -40,7 +32,9 @@ def test_handle_authentication_parse_error(monkeypatch):
     from tacacs_server.utils.exceptions import ProtocolError
 
     monkeypatch.setattr(
-        handlers_module, "parse_authen_start", lambda body: (_ for _ in ()).throw(ProtocolError("bad"))
+        handlers_module,
+        "parse_authen_start",
+        lambda body: (_ for _ in ()).throw(ProtocolError("bad")),
     )
 
     response = handlers.handle_authentication(packet, None)
@@ -73,7 +67,9 @@ def test_handle_authorization_policy_denied(monkeypatch):
 
     monkeypatch.setattr(
         "tacacs_server.tacacs.handlers.evaluate_policy",
-        lambda ctx, lookup: PolicyResult(allowed=False, privilege_level=1, denial_message="denied"),
+        lambda ctx, lookup: PolicyResult(
+            allowed=False, privilege_level=1, denial_message="denied"
+        ),
     )
 
     # Prevent webhook side effects

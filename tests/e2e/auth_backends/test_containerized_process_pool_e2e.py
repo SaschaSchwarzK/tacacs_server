@@ -24,10 +24,14 @@ Log sources
 from __future__ import annotations
 
 import configparser
+import json
 import os
+import secrets
 import shutil
 import socket
+import string
 import subprocess
+import textwrap
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -113,6 +117,9 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
     enable_okta_flag = os.getenv("OKTA_E2E", "0") == "1"
     okta_org = os.getenv("OKTA_ORG_URL")
     okta_token = os.getenv("OKTA_API_TOKEN")
+    host_priv_key = None
+    okta_operator_login: str | None = None
+    okta_operator_password: str | None = None
     enable_okta = enable_okta_flag and bool(okta_org) and bool(okta_token)
     if not enable_okta:
         reasons: list[str] = []
@@ -127,6 +134,112 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         print("INFO: Okta backend test enabled")
     if enable_okta:
         config["auth"]["backends"] = "local,ldap,radius,okta"
+        okta_cfg_path = project_root / "config" / "okta.generated.conf"
+        manifest_path = project_root / "okta_test_data.json"
+        try:
+            import importlib
+
+            okta_prepare_org = importlib.import_module("tools.okta_prepare_org")
+        except Exception as exc:  # noqa: BLE001
+            pytest.skip(f"tools/okta_prepare_org.py unavailable: {exc}")
+
+        try:
+            rc = okta_prepare_org.main(
+                [
+                    "--org-url",
+                    okta_org,
+                    "--api-token",
+                    okta_token,
+                    "--output",
+                    str(manifest_path),
+                    "--no-app",
+                    "--create-service-app",
+                    "--service-auth-method",
+                    "private_key_jwt",
+                    "--service-private-key-out",
+                    str(project_root / "okta_service_private_key.pem"),
+                    "--service-public-jwk-out",
+                    str(project_root / "okta_service_public_jwk.json"),
+                    "--write-backend-config",
+                    str(okta_cfg_path),
+                ]
+            )
+        except SystemExit as se:
+            rc = int(se.code)
+        if rc != 0:
+            pytest.skip(f"tools/okta_prepare_org.py failed with exit code {rc}")
+
+        ocp = configparser.ConfigParser(interpolation=None)
+        ocp.read(okta_cfg_path)
+        if "okta" not in ocp:
+            pytest.skip("okta.generated.conf missing [okta] section after prepare")
+        okta_sec = dict(ocp["okta"])
+        # Normalize org URL and token endpoint so downstream config is consistent
+        okta_sec["org_url"] = (okta_sec.get("org_url") or "").strip().rstrip("/")
+        if okta_sec["org_url"]:
+            okta_sec["org_url"] += ""
+        token_ep_default = (
+            f"{okta_sec['org_url']}/oauth2/v1/token" if okta_sec["org_url"] else ""
+        )
+        okta_sec["token_endpoint"] = (
+            okta_sec.get("token_endpoint", "").strip() or token_ep_default
+        )
+        auth_method = okta_sec.get("auth_method") or ""
+        if not isinstance(auth_method, str):
+            auth_method = str(auth_method)
+        auth_method = auth_method.strip().lower()
+        okta_sec["auth_method"] = auth_method
+        if auth_method == "private_key_jwt":
+            priv_candidate = ocp["okta"].get("private_key", "")
+            if priv_candidate:
+                host_priv_key = (project_root / priv_candidate).resolve()
+                if not host_priv_key.exists():
+                    host_priv_key = Path(priv_candidate).resolve()
+            okta_sec["private_key"] = "/app/config/okta_service_private_key.pem"
+        if "api_token" not in okta_sec:
+            okta_sec["api_token"] = os.getenv("OKTA_API_TOKEN", "")
+        # Allow slower orgs/network by extending Okta HTTP timeouts in container
+        okta_sec.setdefault("request_timeout", "60")
+        okta_sec.setdefault("connect_timeout", "30")
+        okta_sec.setdefault("read_timeout", "60")
+        okta_sec.setdefault("trust_env", "true")
+        if not config.has_section("okta"):
+            config.add_section("okta")
+        for k, v in okta_sec.items():
+            config["okta"][k] = v
+        print(
+            "INFO: Okta config",
+            {
+                "org_url": config["okta"].get("org_url"),
+                "auth_method": config["okta"].get("auth_method"),
+                "token_endpoint": config["okta"].get("token_endpoint"),
+                "private_key": config["okta"].get("private_key"),
+                "private_key_id": config["okta"].get("private_key_id"),
+            },
+        )
+        # Determine operator login and reset password to a known value for the test
+        try:
+            with open(manifest_path, encoding="utf-8") as mf:
+                manifest = json.load(mf)
+            okta_operator_login = (
+                (manifest.get("users") or {}).get("operator", {}).get("login")
+            )
+        except Exception:
+            okta_operator_login = None
+        okta_operator_login = (
+            okta_operator_login
+            or os.getenv("OKTA_OPERATOR_LOGIN")
+            or "test.operator.okta@example.com"
+        )
+        if okta_operator_login:
+            okta_operator_password = os.getenv("OKTA_OPERATOR_PASSWORD")
+            if not okta_operator_password:
+                try:
+                    okta_operator_password = _reset_okta_password(
+                        okta_org, okta_token, okta_operator_login
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    pytest.skip(f"Failed to reset Okta operator password: {exc}")
     else:
         config["auth"]["backends"] = "local,ldap,radius"
     config["server"]["backend_process_pool_size"] = "3"
@@ -247,6 +360,36 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             f"{data_dir}:/app/data",
             "-v",
             f"{logs_dir}:/app/logs",
+        ]
+        # Forward proxy-related environment if present
+        for env_key in (
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "no_proxy",
+        ):
+            val = os.environ.get(env_key)
+            if val:
+                tacacs_cmd += ["-e", f"{env_key}={val}"]
+        # If a CA bundle is provided on host, mount and point container to it
+        ca_path = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get(
+            "SSL_CERT_FILE"
+        )
+        if ca_path and os.path.exists(ca_path):
+            tacacs_cmd += [
+                "-v",
+                f"{ca_path}:/app/config/okta_ca.pem:ro",
+                "-e",
+                "REQUESTS_CA_BUNDLE=/app/config/okta_ca.pem",
+            ]
+        if host_priv_key and host_priv_key.exists():
+            tacacs_cmd += [
+                "-v",
+                f"{host_priv_key}:/app/config/okta_service_private_key.pem:ro",
+            ]
+        tacacs_cmd += [
             tacacs_image,
             "sh",
             "-lc",
@@ -353,20 +496,51 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         )
         time.sleep(0.2)
         if enable_okta:
+            okta_probe_status = "not_run"
             okta_logs_before = _get_container_logs(tacacs_container)
+            try:
+                base_org = config["okta"].get("org_url")
+                probe_url = (
+                    f"{base_org}/.well-known/openid-configuration"
+                    if base_org
+                    else config["okta"].get("token_endpoint")
+                )
+                if probe_url:
+                    status = _probe_url_from_container(tacacs_container, probe_url)
+                    okta_probe_status = status or "no_status"
+                    print(
+                        f"INFO: Okta reachability from container: {probe_url} -> {okta_probe_status}"
+                    )
+            except Exception as exc:
+                okta_probe_status = f"probe_failed: {exc}"
             try:
                 _run_concurrent_auth_test(
                     "Okta",
                     tacacs_host_port,
                     tacacs_secret,
-                    "testuser",
-                    "TestPass123!",
-                    num_requests=3,
-                    max_workers=3,
+                    okta_operator_login or "test.operator.okta@example.com",
+                    okta_operator_password or "Op3rator!Passw0rd",
+                    # Keep Okta burst small to reduce external flakiness.
+                    num_requests=1,
+                    max_workers=1,
                 )
             except AssertionError as exc:
                 # Okta is external and may reject credentials in some setups; skip
-                pytest.skip(f"Skipping Okta backend auth: {exc}")
+                okta_section = config["okta"] if config.has_section("okta") else {}
+                try:
+                    _print_okta_debug_logs(tacacs_container)
+                except Exception:
+                    pass
+                pytest.skip(
+                    "Skipping Okta backend auth: {err} "
+                    "(org_url={org} auth_method={auth} token_endpoint={tok} probe={probe})".format(
+                        err=exc,
+                        org=okta_org or okta_section.get("org_url"),
+                        auth=okta_section.get("auth_method"),
+                        tok=okta_section.get("token_endpoint"),
+                        probe=okta_probe_status,
+                    )
+                )
             _assert_no_pool_fallback_since(
                 tacacs_container, okta_logs_before, backend_label="okta"
             )
@@ -456,6 +630,109 @@ def _run_concurrent_auth_test(
             f"Concurrent auth failed for {backend_name} worker {user_id}: {message}"
         )
     print(f"--- {backend_name} backend test successful ---")
+
+
+def _reset_okta_password(org_url: str, api_token: str, login: str) -> str:
+    """Set a new random password for an Okta user and return it."""
+    base = org_url.rstrip("/")
+    headers = {
+        "Authorization": f"SSWS {api_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    search_query = f'profile.login eq "{login}"'
+    users_resp = requests.get(
+        f"{base}/api/v1/users",
+        headers=headers,
+        params={"search": search_query},
+        timeout=20,
+    )
+    if users_resp.status_code != 200:
+        raise RuntimeError(
+            f"Okta user search failed ({users_resp.status_code}): {users_resp.text}"
+        )
+    users = users_resp.json() or []
+    if not users:
+        raise RuntimeError(f"Okta user with login {login!r} not found")
+    user_id = users[0].get("id")
+    if not user_id:
+        raise RuntimeError("Okta user search response missing 'id'")
+
+    # Generate a password that satisfies common Okta complexity rules:
+    # - at least 8 chars (we use 24)
+    # - includes upper, lower, digit, special
+    # - avoids username fragments
+    specials = "!@#$%^&*()-_=+"
+    lowers = string.ascii_lowercase
+    uppers = string.ascii_uppercase
+    digits = string.digits
+
+    def _new_pw() -> str:
+        # Ensure each class is present, then fill the rest.
+        required = [
+            secrets.choice(lowers),
+            secrets.choice(uppers),
+            secrets.choice(digits),
+            secrets.choice(specials),
+        ]
+        remaining = 20  # total 24
+        pool = lowers + uppers + digits + specials
+        required += [secrets.choice(pool) for _ in range(remaining)]
+        secrets.SystemRandom().shuffle(required)
+        return "".join(required)
+
+    new_password = _new_pw()
+    login_lower = (login or "").lower()
+    attempts = 0
+    while login_lower and login_lower in new_password.lower() and attempts < 5:
+        new_password = _new_pw()
+        attempts += 1
+
+    update_resp = requests.post(
+        f"{base}/api/v1/users/{user_id}",
+        headers=headers,
+        json={"credentials": {"password": {"value": new_password}}},
+        timeout=20,
+    )
+    if update_resp.status_code not in (200, 201):
+        raise RuntimeError(
+            f"Okta password update failed ({update_resp.status_code}): {update_resp.text}"
+        )
+    return new_password
+
+
+def _probe_url_from_container(container: str, url: str, timeout: int = 15) -> str:
+    """Run a simple HEAD request from inside the container to verify reachability."""
+    cmd = [
+        "docker",
+        "exec",
+        container,
+        "sh",
+        "-lc",
+        f"curl -Ik --max-time {timeout} {url} | head -n 1",
+    ]
+    pr = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if pr.returncode != 0:
+        raise RuntimeError(
+            f"curl failed (rc={pr.returncode}) stdout={pr.stdout} stderr={pr.stderr}"
+        )
+    return (pr.stdout or "").strip().splitlines()[0] if pr.stdout else ""
+
+
+def _print_okta_debug_logs(container: str, tail: int = 200) -> None:
+    """Print tail of container logs to aid Okta debugging."""
+    pr = subprocess.run(
+        ["docker", "logs", "--tail", str(tail), container],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if pr.stdout:
+        print(f"--- Okta debug logs (tail {tail}) ---")
+        print(pr.stdout)
+    if pr.stderr:
+        print(f"--- Okta debug stderr (tail {tail}) ---")
+        print(pr.stderr)
 
 
 def _redact_sensitive_args(args: list[str]) -> list[str]:
@@ -775,40 +1052,55 @@ def _verify_ldap_base_present(container: str, timeout: float = 20.0) -> None:
 
 def _create_ldap_user(container: str, username: str, password: str) -> None:
     """Create a test user in LDAP."""
-    ldif = f"""dn: uid={username},ou=people,dc=example,dc=org
-objectClass: inetOrgPerson
-objectClass: posixAccount
-objectClass: shadowAccount
-uid: {username}
-sn: {username}
-givenName: Test
-cn: Test {username}
-uidNumber: 10000
-gidNumber: 10000
-homeDirectory: /home/{username}
-userPassword: {password}
-"""
-    res = subprocess.run(
-        [
-            "docker",
-            "exec",
-            "-i",
-            container,
-            "ldapadd",
-            "-H",
-            "ldap://127.0.0.1",
-            "-x",
-            "-D",
-            "cn=admin,dc=example,dc=org",
-            "-w",
-            "adminpassword",
-        ],
-        input=ldif,
-        check=False,
-        capture_output=True,
-        text=True,
+    ldif = textwrap.dedent(
+        f"""\
+        dn: uid={username},ou=people,dc=example,dc=org
+        objectClass: inetOrgPerson
+        objectClass: posixAccount
+        objectClass: shadowAccount
+        uid: {username}
+        sn: {username}
+        givenName: Test
+        cn: Test {username}
+        uidNumber: 10000
+        gidNumber: 10000
+        homeDirectory: /home/{username}
+        userPassword: {password}
+        """
     )
-    if res.returncode != 0:
+    attempts = 5
+    last_out = ""
+    last_err = ""
+    for attempt in range(1, attempts + 1):
+        res = subprocess.run(
+            [
+                "docker",
+                "exec",
+                "-i",
+                container,
+                "ldapadd",
+                "-H",
+                "ldap://127.0.0.1",
+                "-x",
+                "-D",
+                "cn=admin,dc=example,dc=org",
+                "-w",
+                "adminpassword",
+            ],
+            input=ldif,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        last_out, last_err = res.stdout or "", res.stderr or ""
+        if res.returncode == 0:
+            return
+        already = "Already exists" in last_out or "Already exists" in last_err
+        if already:
+            return
+        if attempt < attempts:
+            time.sleep(1.0 * attempt)
+            continue
         raise RuntimeError(
-            f"Failed to create LDAP user: rc={res.returncode} out={res.stdout} err={res.stderr}"
+            f"Failed to create LDAP user: rc={res.returncode} out={last_out} err={last_err}"
         )

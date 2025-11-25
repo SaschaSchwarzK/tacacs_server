@@ -4,7 +4,6 @@ E2E test to verify syslog forwarding from the TACACS server container to a remot
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import time
@@ -152,9 +151,12 @@ def test_syslog_forwarding_e2e(tmp_path: Path):
         found = False
         last_out = ""
         for _ in range(20):
-            out = _run_docker(
-                ["exec", syslog_container, "cat", "/var/log/remote.log"]
-            ).stdout or ""
+            out = (
+                _run_docker(
+                    ["exec", syslog_container, "cat", "/var/log/remote.log"]
+                ).stdout
+                or ""
+            )
             last_out = out
             if token in out:
                 found = True
@@ -162,7 +164,13 @@ def test_syslog_forwarding_e2e(tmp_path: Path):
             time.sleep(1)
 
         tacacs_logs = _run_docker(
-            ["exec", tacacs_container, "sh", "-c", "cat /app/logs/tacacs.log 2>/dev/null || true"]
+            [
+                "exec",
+                tacacs_container,
+                "sh",
+                "-c",
+                "cat /app/logs/tacacs.log 2>/dev/null || true",
+            ]
         ).stdout
 
         assert found, (

@@ -147,6 +147,10 @@ jobs:
           poetry config virtualenvs.in-project true
           poetry install --with dev
 
+      - name: Install Playwright browser (chromium)
+        run: |
+          poetry run python -m playwright install chromium --with-deps
+
       - name: Prepare log dir for server
         run: |
           mkdir -p $RUNNER_TEMP/tacacs_logs

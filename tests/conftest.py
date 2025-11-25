@@ -192,9 +192,17 @@ def _cleanup_docker_artifacts():
     # Containers: match ancestors, labels, and name patterns used in e2e helper scripts
     container_ids = []
     for ancestor in ("tiny-openldap", "tiny-ftp-sftp", "tacacs-azurite"):
-        container_ids += _collect(["docker", "ps", "-aq", "--filter", f"ancestor={ancestor}"])
+        container_ids += _collect(
+            ["docker", "ps", "-aq", "--filter", f"ancestor={ancestor}"]
+        )
     container_ids += _collect(
-        ["docker", "ps", "-aq", "--filter", "label=org.opencontainers.image.title=freeradius-e2e"]
+        [
+            "docker",
+            "ps",
+            "-aq",
+            "--filter",
+            "label=org.opencontainers.image.title=freeradius-e2e",
+        ]
     )
     container_ids += _collect(["docker", "ps", "-aq", "--filter", "name=e2e"])
     _rm("container", container_ids)
@@ -204,7 +212,13 @@ def _cleanup_docker_artifacts():
     for name in ("tiny-openldap", "tiny-ftp-sftp", "tacacs-azurite", "freeradius-e2e"):
         image_ids += _collect(["docker", "images", "-q", name])
     image_ids += _collect(
-        ["docker", "images", "-q", "--filter", "label=org.opencontainers.image.title=freeradius-e2e"]
+        [
+            "docker",
+            "images",
+            "-q",
+            "--filter",
+            "label=org.opencontainers.image.title=freeradius-e2e",
+        ]
     )
     image_ids += _collect(["docker", "images", "-q", "--filter", "reference=*e2e*"])
     _rm("image", image_ids)
