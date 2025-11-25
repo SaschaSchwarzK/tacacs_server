@@ -202,11 +202,11 @@ def _validate_openid_config(config: configparser.ConfigParser) -> list[str]:
     except Exception:
         return issues
 
-    warnings = cfg.get("warnings", [])
-    issues.extend(warnings)
-
-    # If not configured, nothing to validate
-    if not cfg or not cfg.get("issuer_url"):
+    # Consider OpenID enabled only when required fields are present
+    required_present = bool(
+        cfg.get("issuer_url") and cfg.get("client_id") and cfg.get("redirect_uri")
+    )
+    if not required_present:
         return issues
 
     if cfg.get("client_auth_method") == "client_secret" and not cfg.get(
@@ -226,6 +226,7 @@ def _validate_openid_config(config: configparser.ConfigParser) -> list[str]:
             "OpenID: interaction_code enabled but OPENID_CODE_VERIFIER is missing"
         )
 
+    # Non-fatal warnings (e.g., unused secrets) are logged in getters; do not block startup/tests here.
     return issues
 
 

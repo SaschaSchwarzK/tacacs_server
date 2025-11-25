@@ -645,6 +645,8 @@ class OktaPreparer:
         auth_method: str = "client_secret",
         public_jwk: dict[str, Any] | None = None,
     ) -> AppInfo:
+        import requests
+
         grant_types = grant_types or ["authorization_code"]
         response_types = response_types or ["code"]
         # Determine token_endpoint_auth_method based on auth_method parameter
@@ -672,14 +674,50 @@ class OktaPreparer:
             if creds and getattr(creds, "oauthClient", None):
                 client_id = getattr(creds.oauthClient, "client_id", None)
                 client_secret = getattr(creds.oauthClient, "client_secret", None)
-            if not client_secret:
-                cid, csec = await self.fetch_app_credentials(existing.id)
-                client_id = client_id or cid
-                client_secret = client_secret or csec
-            if not client_secret:
-                client_secret = await self.generate_app_client_secret(existing.id)
-            if not client_secret:
-                client_secret = await self.rotate_client_secret(existing.id)
+            # For client_secret auth, attempt to ensure a secret exists
+            if auth_method == "client_secret":
+                if not client_secret:
+                    cid, csec = await self.fetch_app_credentials(existing.id)
+                    client_id = client_id or cid
+                    client_secret = client_secret or csec
+                if not client_secret:
+                    client_secret = await self.generate_app_client_secret(existing.id)
+                if not client_secret:
+                    client_secret = await self.rotate_client_secret(existing.id)
+            # For private_key_jwt, ensure jwks and auth method are set via REST
+            if auth_method == "private_key_jwt" and public_jwk:
+                base = self.org_url.rstrip("/")
+                headers = {
+                    "Authorization": f"SSWS {self.api_token}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                }
+                try:
+                    # Upload/ensure the key
+                    requests.post(
+                        f"{base}/api/v1/apps/{existing.id}/credentials/keys",
+                        headers=headers,
+                        json={"keys": [public_jwk]},
+                        timeout=15,
+                    )
+                    # Patch token_endpoint_auth_method + jwks
+                    requests.post(
+                        f"{base}/api/v1/apps/{existing.id}",
+                        headers=headers,
+                        json={
+                            "settings": {
+                                "oauthClient": {
+                                    "token_endpoint_auth_method": "private_key_jwt",
+                                    "jwks": {"keys": [public_jwk]},
+                                }
+                            }
+                        },
+                        timeout=15,
+                    )
+                except Exception:
+                    self.logger.debug(
+                        "Failed to patch existing web app for private_key_jwt"
+                    )
             self.logger.info("App exists: %s (%s)", label, existing.id)
             return AppInfo(
                 id=existing.id,
