@@ -10,6 +10,7 @@ import socket
 import string
 import subprocess
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -513,7 +514,12 @@ def _perform_openid_login(
         )
         try:
             page.wait_for_url(
-                lambda u: "authorize" in u or "okta.com" in u, timeout=15000
+                lambda u: "authorize" in u
+                or (
+                    (urllib.parse.urlparse(u).hostname or "").endswith(".okta.com")
+                    or (urllib.parse.urlparse(u).hostname or "") == "okta.com"
+                ),
+                timeout=15000,
             )
         except Exception:
             pass

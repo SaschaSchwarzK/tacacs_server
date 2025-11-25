@@ -151,6 +151,8 @@ class SessionManager:
         """Verify username and password"""
         if username != self.config.admin_username:
             return False
+        if not self.config.admin_password_hash:
+            return False
 
         try:
             import bcrypt

@@ -313,10 +313,11 @@ def create_app(
             except Exception:
                 admin_password_hash = ""
 
-    if admin_password_hash:
+    # Initialize auth when either a password hash is provided OR OpenID is configured
+    if admin_password_hash or openid_config:
         web_auth.init_auth(
             admin_username=admin_username,
-            admin_password_hash=admin_password_hash,
+            admin_password_hash=admin_password_hash or "",
             api_token=api_token,
             session_timeout=60,
             openid_config=openid_config,
@@ -328,7 +329,11 @@ def create_app(
             _set_admin_sm(web_auth.get_session_manager())
         except Exception:
             pass
-        logger.info("Authentication initialized (username=%s)", admin_username)
+        logger.info(
+            "Authentication initialized (username=%s, openid=%s)",
+            admin_username,
+            bool(openid_config),
+        )
     else:
         logger.warning("Admin authentication not configured - web UI will be disabled")
 
