@@ -754,7 +754,7 @@ class AAAHandlers:
                 if not user:
                     user = sess_info.get("username", "")
                 if cont is not None:
-                    data = cont.get("data", b"") or data
+                    data = cont.get("data", b"")
                     user_msg = cont.get("user_msg", b"")
                 else:
                     user_msg = b""
@@ -1091,8 +1091,9 @@ class AAAHandlers:
                 "Password: ",
             )
         elif session_info["step"] == "password":
-            payload = data if data else user_msg
-            password = payload.decode("utf-8", errors="replace").strip()
+            password = data.decode("utf-8", errors="replace").strip()
+            if not password:
+                password = user_msg.decode("utf-8", errors="replace").strip()
             username = session_info["username"]
             with self._lock:
                 del self.auth_sessions[session_key]
