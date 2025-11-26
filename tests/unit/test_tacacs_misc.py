@@ -26,6 +26,7 @@ from tacacs_server.tacacs.stats import StatsManager
 from tacacs_server.tacacs.structures import (
     _extract_string,
     parse_acct_request,
+    parse_authen_continue,
     parse_authen_start,
     parse_author_request,
 )
@@ -343,6 +344,19 @@ def test_structures_parsing():
     )
     acct = parse_acct_request(acct_body)
     assert "foo" in acct["args"]
+
+
+def test_parse_authen_continue_respects_lengths():
+    """Ensure AUTHEN CONTINUE parser returns user_msg/data correctly."""
+    body = struct.pack("!HHB", 9, 0, 0) + b"Cisco123!"
+    parsed = parse_authen_continue(body)
+    assert parsed["user_msg"] == b"Cisco123!"
+    assert parsed["data"] == b""
+    assert parsed["flags"] == 0
+
+    # Length mismatch should raise ProtocolError
+    with pytest.raises(Exception):
+        parse_authen_continue(b"\x00\x02\x00\x00\x00")
 
 
 def test_validator_logic():

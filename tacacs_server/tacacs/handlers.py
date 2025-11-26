@@ -42,7 +42,12 @@ from .constants import (
     TAC_PLUS_PACKET_TYPE,
 )
 from .packet import TacacsPacket
-from .structures import parse_acct_request, parse_authen_start, parse_author_request
+from .structures import (
+    parse_acct_request,
+    parse_authen_continue,
+    parse_authen_start,
+    parse_author_request,
+)
 
 logger = get_logger(__name__)
 
@@ -664,38 +669,106 @@ class AAAHandlers:
     ) -> TacacsPacket:
         """Handle authentication request with metrics"""
         try:
-            try:
-                parsed = parse_authen_start(packet.body)
-            except ProtocolError as pe:
-                logger.warning(
-                    "Invalid authentication packet body",
-                    event="tacacs.auth.packet_error",
-                    service="tacacs",
-                    stage="start",
-                    session=f"0x{packet.session_id:08x}",
-                    seq=packet.seq_no,
-                    reason=str(pe),
-                    length=len(packet.body or b""),
+            parsed = {}
+            cont = None
+            if packet.seq_no == 1:
+                try:
+                    parsed = parse_authen_start(packet.body)
+                except ProtocolError as pe:
+                    logger.warning(
+                        "Invalid authentication packet body",
+                        event="tacacs.auth.packet_error",
+                        service="tacacs",
+                        stage="start",
+                        session=f"0x{packet.session_id:08x}",
+                        seq=packet.seq_no,
+                        reason=str(pe),
+                        length=len(packet.body or b""),
+                    )
+                    response = self._create_auth_response(
+                        packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
+                    )
+                    self.cleanup_session(packet.session_id)
+                    return response
+            else:
+                try:
+                    cont = parse_authen_continue(packet.body)
+                except ProtocolError as pe:
+                    # Compatibility fallback: some tests/clients reuse START layout for CONTINUE
+                    logger.debug(
+                        "Failed to parse authen_continue, falling back to start parser: %s",
+                        pe,
+                    )
+                    parsed = parse_authen_start(packet.body)
+                except Exception:
+                    logger.error("Authentication parsing failed (unexpected error)")
+                    response = self._create_auth_response(
+                        packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
+                    )
+                    self.cleanup_session(packet.session_id)
+                    return response
+
+            # Map parsed fields (START) when present
+            action = int(parsed.get("action", 0))
+            priv_lvl = int(parsed.get("priv_lvl", 0))
+            authen_type = int(parsed.get("authen_type", 0))
+            user = parsed.get("user", "")
+            port = parsed.get("port", "")
+            rem_addr = parsed.get("rem_addr", "")
+            data = parsed.get("data", b"")
+
+            # For CONTINUE packets, prefer the session username and user_msg/data from parse_authen_continue.
+            # Non-ASCII auth types (e.g., PAP) are single-step; treat later packets as restart attempts.
+            if packet.seq_no != 1:
+                with self._lock:
+                    sess_info = self.auth_sessions.get(packet.session_id, {})
+                # Reuse stored authen_type/action when CONTINUE omitted them
+                if authen_type == 0:
+                    authen_type = int(sess_info.get("authen_type", 0))
+                if action == 0:
+                    action = int(sess_info.get("action", 0))
+
+                if authen_type != TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII:
+                    safe_user = self._safe_user(user)
+                    logger.debug(
+                        "TACACS auth restart: user=%s, type=%s, action=%s, seq=%s, session=%s",
+                        safe_user,
+                        authen_type,
+                        action,
+                        packet.seq_no,
+                        f"0x{packet.session_id:08x}",
+                    )
+                    self._remember_username(packet.session_id, user)
+                    return self._handle_auth_start(
+                        packet,
+                        action,
+                        authen_type,
+                        user,
+                        port,
+                        rem_addr,
+                        data,
+                        priv_lvl,
+                        device,
+                    )
+
+                if not user:
+                    user = sess_info.get("username", "")
+                if cont is not None:
+                    data = cont.get("data", b"") or data
+                    user_msg = cont.get("user_msg", b"")
+                else:
+                    user_msg = b""
+                safe_user = self._safe_user(user)
+                logger.debug(
+                    "TACACS auth request: user=%s, type=%s, action=%s, seq=%s, session=%s",
+                    safe_user,
+                    authen_type,
+                    action,
+                    packet.seq_no,
+                    f"0x{packet.session_id:08x}",
                 )
-                response = self._create_auth_response(
-                    packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
-                )
-                self.cleanup_session(packet.session_id)
-                return response
-            except Exception:
-                logger.error("Authentication parsing failed (unexpected error)")
-                response = self._create_auth_response(
-                    packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
-                )
-                self.cleanup_session(packet.session_id)
-                return response
-            action = parsed["action"]
-            priv_lvl = parsed["priv_lvl"]
-            authen_type = parsed["authen_type"]
-            user = parsed["user"]
-            port = parsed["port"]
-            rem_addr = parsed["rem_addr"]
-            data = parsed["data"]
+                return self._handle_auth_continue(packet, user, data, user_msg)
+
             safe_user = self._safe_user(user)
             logger.debug(
                 "TACACS auth request: user=%s, type=%s, action=%s, seq=%s, session=%s",
@@ -706,20 +779,17 @@ class AAAHandlers:
                 f"0x{packet.session_id:08x}",
             )
             self._remember_username(packet.session_id, user)
-            if packet.seq_no == 1:
-                return self._handle_auth_start(
-                    packet,
-                    action,
-                    authen_type,
-                    user,
-                    port,
-                    rem_addr,
-                    data,
-                    priv_lvl,
-                    device,
-                )
-            else:
-                return self._handle_auth_continue(packet, user, data)
+            return self._handle_auth_start(
+                packet,
+                action,
+                authen_type,
+                user,
+                port,
+                rem_addr,
+                data,
+                priv_lvl,
+                device,
+            )
         except Exception as e:
             logger.error("Authentication error: %s", e)
             response = self._create_auth_response(
@@ -850,15 +920,15 @@ class AAAHandlers:
         device: Any | None,
     ) -> TacacsPacket:
         """Handle initial authentication request"""
-        if not user:
-            return self._create_auth_response(
-                packet,
-                TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_FAIL,
-                "Username required",
-            )
         with self._lock:
             self.session_device[packet.session_id] = device
         if authen_type == TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_PAP:
+            if not user:
+                return self._create_auth_response(
+                    packet,
+                    TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_FAIL,
+                    "Username required",
+                )
             password = data.decode("utf-8", errors="replace")
             # Use remote address as client identity for rate limiting
             client_ip = rem_addr or None
@@ -943,7 +1013,11 @@ class AAAHandlers:
             session_key = packet.session_id
             if not user:
                 with self._lock:
-                    self.auth_sessions[session_key] = {"step": "username"}
+                    self.auth_sessions[session_key] = {
+                        "step": "username",
+                        "authen_type": authen_type,
+                        "action": action,
+                    }
                 return self._create_auth_response(
                     packet,
                     TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_GETUSER,
@@ -954,6 +1028,8 @@ class AAAHandlers:
                     self.auth_sessions[session_key] = {
                         "step": "password",
                         "username": user,
+                        "authen_type": authen_type,
+                        "action": action,
                     }
                 return self._create_auth_response(
                     packet,
@@ -992,7 +1068,7 @@ class AAAHandlers:
             return response
 
     def _handle_auth_continue(
-        self, packet: TacacsPacket, user: str, data: bytes
+        self, packet: TacacsPacket, user: str, data: bytes, user_msg: bytes = b""
     ) -> TacacsPacket:
         """Handle authentication continuation"""
         session_key = packet.session_id
@@ -1015,7 +1091,8 @@ class AAAHandlers:
                 "Password: ",
             )
         elif session_info["step"] == "password":
-            password = data.decode("utf-8", errors="replace").strip()
+            payload = data if data else user_msg
+            password = payload.decode("utf-8", errors="replace").strip()
             username = session_info["username"]
             with self._lock:
                 del self.auth_sessions[session_key]

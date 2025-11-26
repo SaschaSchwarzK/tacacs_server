@@ -5,7 +5,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, TypeVar
 
 from tacacs_server.utils.logger import get_logger
 
@@ -15,7 +15,7 @@ V = TypeVar("V")
 _logger = get_logger("tacacs_server.utils.simple_cache", component="cache")
 
 
-class TTLCache(Generic[K, V]):
+class TTLCache[K, V]:
     """Simple in-memory TTL cache with basic hit/miss counters.
 
     - Thread-safe via a single RLock
@@ -132,7 +132,7 @@ def time_cache(
     return _decorator
 
 
-class LRUDict(OrderedDict, Generic[K, V]):
+class LRUDict[K, V](OrderedDict[K, V]):
     """A lightweight LRU dict with optional max size.
 
     - Evicts the least-recently-used item when `maxsize` is exceeded.
@@ -168,7 +168,7 @@ class LRUDict(OrderedDict, Generic[K, V]):
                 pass
 
     def __getitem__(self, key: K) -> V:
-        value = cast(V, super().__getitem__(key))
+        value: V = super().__getitem__(key)
         try:
             self.move_to_end(key, last=True)
         except Exception as exc:

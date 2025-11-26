@@ -1,5 +1,9 @@
+import struct
+
 from tacacs_server.tacacs.constants import (
     TAC_PLUS_ACCT_FLAG,
+    TAC_PLUS_AUTHEN_STATUS,
+    TAC_PLUS_AUTHEN_TYPE,
     TAC_PLUS_PACKET_TYPE,
 )
 from tacacs_server.tacacs.handlers import AAAHandlers
@@ -162,3 +166,61 @@ def test_authenticate_user_rate_limited(monkeypatch):
     allowed = handlers._authenticate_user("user", "pass", client_ip="1.1.1.1")
 
     assert allowed[0] is False
+
+
+def test_ascii_flow_prompts_for_missing_username_and_password(monkeypatch):
+    """ASCII auth should prompt for username then password when both are missing."""
+    handlers = make_handlers()
+
+    # Force auth success when a password is provided
+    monkeypatch.setattr(
+        handlers, "_authenticate_user", lambda *a, **k: (True, "backend=fake")
+    )
+    monkeypatch.setattr(
+        handlers, "_enforce_device_group_policy", lambda *a, **k: (True, None)
+    )
+
+    # START: no username/password (ulen=0, dlen=0) -> expect GETUSER
+    start_body = struct.pack(
+        "!BBBBBBBB",
+        1,  # action login
+        1,  # priv_lvl
+        TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII,
+        1,  # service login
+        0,  # ulen
+        0,  # plen
+        0,  # rlen
+        0,  # dlen
+    )
+    start_pkt = TacacsPacket(
+        packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
+        seq_no=1,
+        session_id=0xAA01,
+        body=start_body,
+    )
+    resp1 = handlers.handle_authentication(start_pkt, None)
+    assert resp1.body[0] == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_GETUSER
+
+    # CONTINUE seq=2: provide username in data field (user_msg_len=0, data_len>0) -> expect GETPASS
+    username = b"routeruser"
+    cont_user_body = struct.pack("!HHB", 0, len(username), 0) + username
+    cont_user_pkt = TacacsPacket(
+        packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
+        seq_no=2,
+        session_id=0xAA01,
+        body=cont_user_body,
+    )
+    resp2 = handlers.handle_authentication(cont_user_pkt, None)
+    assert resp2.body[0] == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_GETPASS
+
+    # CONTINUE seq=3: provide password in user_msg (user_msg_len>0, data_len=0) -> expect PASS
+    password = b"Sup3rSecret!"
+    cont_pass_body = struct.pack("!HHB", len(password), 0, 0) + password
+    cont_pass_pkt = TacacsPacket(
+        packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
+        seq_no=3,
+        session_id=0xAA01,
+        body=cont_pass_body,
+    )
+    resp3 = handlers.handle_authentication(cont_pass_pkt, None)
+    assert resp3.body[0] == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_PASS
