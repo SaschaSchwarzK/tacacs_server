@@ -18,6 +18,7 @@ from tacacs_server.tacacs.constants import (
     TAC_PLUS_PACKET_TYPE,
     TAC_PLUS_VERSION,
 )
+from tacacs_server.utils.exceptions import ProtocolError
 from tacacs_server.tacacs.network import NetworkHandler
 from tacacs_server.tacacs.packet import TacacsPacket
 from tacacs_server.tacacs.proxy import ProxyHandler, ProxyProtocolV2Parser
@@ -355,7 +356,7 @@ def test_parse_authen_continue_respects_lengths():
     assert parsed["flags"] == 0
 
     # Length mismatch should raise ProtocolError
-    with pytest.raises(Exception):
+    with pytest.raises(ProtocolError):
         parse_authen_continue(b"\x00\x02\x00\x00\x00")
 
 
