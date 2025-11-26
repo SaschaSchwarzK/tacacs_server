@@ -50,6 +50,29 @@ def parse_authen_start(body: bytes) -> dict[str, Any]:
     }
 
 
+def parse_authen_continue(body: bytes) -> dict[str, Any]:
+    """Parse TACACS+ authentication CONTINUE payload.
+
+    Returns dict with keys: user_msg, data, flags.
+    """
+    if len(body) < 5:
+        raise ProtocolError(f"authen_continue too short: got={len(body)} min=5")
+
+    user_msg_len, data_len, flags = struct.unpack("!HHB", body[:5])
+    offset = 5
+    expected_len = offset + user_msg_len + data_len
+    if expected_len > len(body):
+        raise ProtocolError(
+            f"authen_continue length mismatch: expected={expected_len} got={len(body)}"
+        )
+
+    user_msg = body[offset : offset + user_msg_len] if user_msg_len else b""
+    offset += user_msg_len
+    data = body[offset : offset + data_len] if data_len else b""
+
+    return {"user_msg": user_msg, "data": data, "flags": flags}
+
+
 def parse_author_request(body: bytes) -> dict[str, Any]:
     """Parse TACACS+ authorization REQUEST payload.
 
