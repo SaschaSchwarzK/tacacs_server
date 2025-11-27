@@ -28,6 +28,9 @@ def install_security_headers(app: FastAPI) -> None:
     - X-Frame-Options: DENY
     - Referrer-Policy: no-referrer
     - Content-Security-Policy: configurable via CSP_POLICY env, defaults relaxed
+    - Cache-Control/Pragma: no-store (avoid caching sensitive admin/API content)
+    - Permissions-Policy: deny active sensors by default
+    - COOP/COEP/CORP: tighten isolation to mitigate Spectre-type attacks
     - Strict-Transport-Security: only when HTTPS or X-Forwarded-Proto=https
     """
 
@@ -44,6 +47,15 @@ def install_security_headers(app: FastAPI) -> None:
         resp.headers.setdefault("Referrer-Policy", "no-referrer")
         resp.headers.setdefault("Content-Security-Policy", csp_policy)
         resp.headers.setdefault("X-XSS-Protection", "1; mode=block")
+        resp.headers.setdefault("Cache-Control", "no-store")
+        resp.headers.setdefault("Pragma", "no-cache")
+        resp.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        resp.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+        resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
 
         # HSTS for HTTPS or when forwarded as HTTPS
         fwd = request.headers.get("x-forwarded-proto", "").lower()
