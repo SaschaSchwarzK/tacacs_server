@@ -61,7 +61,6 @@ class MockOktaBackend(AuthenticationBackend):
     def __init__(self, cfg: dict):
         super().__init__("okta")
         self.org_url = cfg.get("org_url", "")
-        self.api_token = cfg.get("api_token", "")
         self.client_id = cfg.get("client_id", "")
         self.client_secret = cfg.get("client_secret", "")
         self.private_key = cfg.get("private_key", "")
@@ -113,7 +112,12 @@ def test_all_backend_types_serialization():
         timeout=10,
     )
     okta_backend = MockOktaBackend(
-        {"org_url": "https://test.okta.com", "api_token": "test_token"}
+        {
+            "org_url": "https://test.okta.com",
+            "client_id": "cid",
+            "client_secret": "csecret",
+            "auth_method": "client_secret",
+        }
     )
     radius_backend = MockRadiusBackend(
         {
@@ -148,7 +152,6 @@ def test_all_backend_types_serialization():
     assert okta_config is not None
     assert okta_config["type"] == "okta"
     assert okta_config["org_url"] == "https://test.okta.com"
-    assert okta_config["api_token"] == "test_token"
 
     radius_config = handler._serialize_backend_config(radius_backend)
     assert radius_config is not None

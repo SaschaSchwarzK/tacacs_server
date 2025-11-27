@@ -101,7 +101,14 @@ export OKTA_CLIENT_SECRET="your-secret-here"
 ```ini
 [okta]
 org_url = https://your-domain.okta.com
-api_token = ${OKTA_API_TOKEN}
+# OAuth client credentials (choose client_secret or private_key_jwt)
+# auth_method = client_secret
+# client_id = ${OKTA_CLIENT_ID}
+# client_secret = ${OKTA_CLIENT_SECRET}
+# auth_method = private_key_jwt
+# client_id = ${OKTA_CLIENT_ID}
+# private_key = /path/to/private_key.pem
+# private_key_id = <kid>
 verify_tls = true
 mfa_enabled = true
 ```

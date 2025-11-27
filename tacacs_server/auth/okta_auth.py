@@ -2,7 +2,7 @@
 Okta authentication backend with in-memory caching.
 
 Uses the Okta Authentication API (AuthN). Group lookups use the Okta
-Management API when an `api_token` is configured.
+Management API uses OAuth client credentials (client_secret or private_key_jwt).
 
 Supports multiple authentication methods for Management API:
 - SSWS API Token (legacy, being deprecated)
@@ -71,8 +71,6 @@ class OktaAuthBackend(AuthenticationBackend):
       org_url                - base Okta url, e.g. https://dev-xxxx.okta.com (required)
 
       # Management API Authentication (choose one):
-      api_token              - Okta Management API token (SSWS) - legacy, being deprecated (optional)
-
       # OAuth 2.0 Client Credentials (recommended):
       client_id              - OAuth 2.0 client ID (optional)
       client_secret          - OAuth 2.0 client secret (optional, use with client_secret auth)
@@ -109,17 +107,12 @@ class OktaAuthBackend(AuthenticationBackend):
             cfg.get("token_endpoint") or f"{self.org_url.rstrip('/')}/oauth2/v1/token"
         )
 
-        # Legacy SSWS token
-        self.api_token = cfg.get("api_token") or cfg.get("OKTA_API_TOKEN")
-
         # Auto-detect authentication method if not specified
         if not self.auth_method:
             if self.private_key and self.private_key_id:
                 self.auth_method = "private_key_jwt"
             elif self.client_secret:
                 self.auth_method = "client_secret"
-            elif self.api_token:
-                self.auth_method = "ssws"
             else:
                 self.auth_method = "none"
 
@@ -224,22 +217,19 @@ class OktaAuthBackend(AuthenticationBackend):
         self._retries_429_total = 0
 
         # Strict group mode: require Management API credentials when
-        # require_group_for_auth=true. Accept either legacy SSWS token or
-        # OAuth client credentials (private_key_jwt or client_secret).
+        # require_group_for_auth=true. Accept OAuth client credentials
+        # (private_key_jwt or client_secret).
         self._strict_group_mode = bool(cfg.get("strict_group_mode", False))
         self._use_basic_auth_flag = False
         if self.require_group_for_auth and self._strict_group_mode:
             if not self._has_management_api_credentials():
                 raise ValueError(
                     "Okta configuration invalid: require_group_for_auth=true and strict_group_mode=true, "
-                    "but no Management API credentials configured (SSWS api_token or OAuth client credentials)"
+                    "but no Management API OAuth client credentials configured"
                 )
 
     def _has_management_api_credentials(self) -> bool:
-        """Return True if Management API auth is configured (SSWS or OAuth)."""
-        # SSWS token
-        if bool(self.api_token):
-            return True
+        """Return True if Management API auth is configured via OAuth."""
         # OAuth client credentials (either method is acceptable)
         if self.auth_method == "private_key_jwt":
             return bool(self.client_id and self.private_key and self.private_key_id)
@@ -270,11 +260,6 @@ class OktaAuthBackend(AuthenticationBackend):
             if not self.client_secret:
                 raise ValueError(
                     "client_secret is required for client_secret authentication"
-                )
-        elif self.auth_method == "ssws":
-            if not self.api_token:
-                logger.warning(
-                    "SSWS authentication method selected but no api_token provided"
                 )
 
     def _cache_key(self, username: str, password: str) -> str:
@@ -438,8 +423,6 @@ class OktaAuthBackend(AuthenticationBackend):
                 logger.warning(
                     "Failed to get OAuth token, Management API calls may fail"
                 )
-        elif self.auth_method == "ssws" and self.api_token:
-            headers["Authorization"] = f"SSWS {self.api_token}"
         else:
             logger.warning("No authentication method configured for Management API")
 
@@ -784,7 +767,7 @@ class OktaAuthBackend(AuthenticationBackend):
             priv = 0
             if use_authn:
                 okta_user_id = attrs.get("okta_user_id")
-                if (self.api_token or self.require_group_for_auth) and okta_user_id:
+                if self.require_group_for_auth and okta_user_id:
                     priv = self._get_privilege_for_userid(str(okta_user_id), username)
                     try:
                         logger.info(
@@ -835,12 +818,9 @@ class OktaAuthBackend(AuthenticationBackend):
         Use Okta Management API to fetch groups for a given user id and map to privilege.
         """
         try:
-            if not self.api_token and self.auth_method not in (
-                "private_key_jwt",
-                "client_secret",
-            ):
+            if self.auth_method not in ("private_key_jwt", "client_secret"):
                 logger.warning(
-                    "Okta groups lookup disabled: no authentication method configured (require_group_for_auth=%s)",
+                    "Okta groups lookup disabled: no management auth configured (require_group_for_auth=%s)",
                     self.require_group_for_auth,
                 )
                 try:

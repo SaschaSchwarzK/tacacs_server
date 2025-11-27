@@ -61,7 +61,6 @@ def test_tacacs_via_two_proxies(tmp_path: Path) -> None:
         cfg.read(base_cfg_path)
         if not cfg.has_section("server"):
             cfg.add_section("server")
-        cfg.set("server", "accept_proxy_protocol", "true")
         cfg.set("server", "log_level", "DEBUG")
         if not cfg.has_section("proxy_protocol"):
             cfg.add_section("proxy_protocol")

@@ -442,7 +442,6 @@ class AAAHandlers:
                 config = {
                     "type": "okta",
                     "org_url": getattr(backend, "org_url", ""),
-                    "api_token": getattr(backend, "api_token", ""),
                     "client_id": getattr(backend, "client_id", ""),
                     "client_secret": getattr(backend, "client_secret", ""),
                     "private_key": getattr(backend, "private_key", ""),
@@ -699,7 +698,24 @@ class AAAHandlers:
                         "Failed to parse authen_continue, falling back to start parser: %s",
                         pe,
                     )
-                    parsed = parse_authen_start(packet.body)
+                    try:
+                        parsed = parse_authen_start(packet.body)
+                    except ProtocolError as pe_fallback:
+                        logger.warning(
+                            "Invalid authentication packet body (fallback failed)",
+                            event="tacacs.auth.packet_error",
+                            service="tacacs",
+                            stage="continue",
+                            session=f"0x{packet.session_id:08x}",
+                            seq=packet.seq_no,
+                            reason=f"primary: {pe}, fallback: {pe_fallback}",
+                            length=len(packet.body or b""),
+                        )
+                        response = self._create_auth_response(
+                            packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
+                        )
+                        self.cleanup_session(packet.session_id)
+                        return response
                 except Exception:
                     logger.error("Authentication parsing failed (unexpected error)")
                     response = self._create_auth_response(

@@ -236,8 +236,8 @@ class TacacsServer:
 
     def _load_proxy_config(self):
         """Load proxy configuration"""
-        self.proxy_enabled = True
-        self.accept_proxy_protocol = True
+        self.proxy_enabled = False
+        self.accept_proxy_protocol = False
         self.proxy_validate_sources = False
         self.proxy_reject_invalid = True
         self.encryption_required = True

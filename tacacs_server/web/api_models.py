@@ -832,7 +832,9 @@ class LDAPBackendStats(BaseModel):
 class OktaBackendStats(BaseModel):
     """Okta backend specific statistics"""
 
-    domain: str = Field(..., description="Okta domain", example="example.okta.com")
+    org_url: str = Field(
+        ..., description="Okta org URL", example="https://example.okta.com"
+    )
     api_status: str = Field(..., description="API connection status", example="healthy")
     rate_limit_remaining: int | None = Field(
         None, description="API rate limit remaining", example=1000

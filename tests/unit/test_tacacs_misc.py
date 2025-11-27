@@ -31,6 +31,7 @@ from tacacs_server.tacacs.structures import (
     parse_author_request,
 )
 from tacacs_server.tacacs.validator import PacketValidator
+from tacacs_server.utils.exceptions import ProtocolError
 
 _STUB_MODULE = tacacs_stubs
 
@@ -355,7 +356,7 @@ def test_parse_authen_continue_respects_lengths():
     assert parsed["flags"] == 0
 
     # Length mismatch should raise ProtocolError
-    with pytest.raises(Exception):
+    with pytest.raises(ProtocolError):
         parse_authen_continue(b"\x00\x02\x00\x00\x00")
 
 

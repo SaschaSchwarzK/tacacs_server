@@ -88,7 +88,12 @@ def test_process_pool_with_real_backend_configs():
             from tacacs_server.auth.okta_auth import OktaAuthBackend
 
             okta_backend = OktaAuthBackend(
-                {"org_url": "https://test.okta.com", "api_token": "fake_token"}
+                {
+                    "org_url": "https://test.okta.com",
+                    "client_id": "cid",
+                    "client_secret": "csecret",
+                    "auth_method": "client_secret",
+                }
             )
             backends.append(okta_backend)
 
