@@ -26,7 +26,6 @@ def test_all_backends_use_process_pool():
     okta_backend = Mock()
     okta_backend.name = "okta"
     okta_backend.org_url = "https://test.okta.com"
-    okta_backend.api_token = "test_token"
     okta_backend.client_id = "test_client"
     okta_backend.client_secret = "test_secret"
     okta_backend.private_key = ""
@@ -62,7 +61,6 @@ def test_all_backends_use_process_pool():
             assert "base_dn" in config
         elif backend.name == "okta":
             assert "org_url" in config
-            assert "api_token" in config
         elif backend.name == "radius":
             assert "radius_server" in config
             assert "radius_secret" in config
@@ -118,7 +116,6 @@ def test_backend_serialization_completeness():
     okta_backend = Mock()
     okta_backend.name = "okta"
     okta_backend.org_url = "https://dev-123.okta.com"
-    okta_backend.api_token = "api_token_123"
     okta_backend.client_id = "client_123"
     okta_backend.client_secret = "secret_123"
     okta_backend.private_key = "-----BEGIN PRIVATE KEY-----"
@@ -131,7 +128,6 @@ def test_backend_serialization_completeness():
     expected_okta = {
         "type": "okta",
         "org_url": "https://dev-123.okta.com",
-        "api_token": "api_token_123",
         "client_id": "client_123",
         "client_secret": "secret_123",
         "private_key": "-----BEGIN PRIVATE KEY-----",

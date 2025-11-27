@@ -230,7 +230,10 @@ All configuration is done through the **configuration file**. The following envi
 ```bash
 ADMIN_PASSWORD_HASH=<bcrypt-hash>      # Admin web UI password
 LDAP_BIND_PASSWORD=<password>          # LDAP bind password
-OKTA_API_TOKEN=<token>                 # Okta API token
+OKTA_CLIENT_ID=<client id>             # Okta OAuth client ID
+OKTA_CLIENT_SECRET=<client secret>     # Okta OAuth client secret (if using client_secret)
+OKTA_PRIVATE_KEY=<pem path or value>   # Okta private key (if using private_key_jwt)
+OKTA_PRIVATE_KEY_ID=<kid>              # Key ID for private_key_jwt
 RADIUS_AUTH_SECRET=<secret>            # RADIUS auth backend secret
 BACKUP_ENCRYPTION_PASSPHRASE=<key>    # Backup encryption key
 AZURE_STORAGE_CONNECTION_STRING=<conn> # Azure backup connection
@@ -1014,7 +1017,7 @@ logs/                        # Log files
 #### **Authentication**
 - `ADMIN_USERNAME` - Admin console username (default: `admin`)
 - `ADMIN_PASSWORD` - Admin console password (for testing only, use hashed password in production)
-- `OKTA_API_TOKEN` - API token for Okta integration
+- `OKTA_CLIENT_ID` / `OKTA_CLIENT_SECRET` / `OKTA_PRIVATE_KEY` / `OKTA_PRIVATE_KEY_ID` - Okta OAuth client credentials (client_secret or private_key_jwt)
 - `OKTA_ORG` - Okta organization URL (e.g., `https://your-org.okta.com`)
 - `OKTA_USERNAME` - Username for Okta testing
 - `OKTA_PASSWORD` - Password for Okta testing

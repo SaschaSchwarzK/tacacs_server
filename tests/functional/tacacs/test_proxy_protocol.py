@@ -302,7 +302,6 @@ def test_proxy_v2_detect_and_authenticates_through_proxy(server_factory):
             # Enable proxy protocol and validation
             "proxy_protocol": {
                 "enabled": "true",
-                "accept_proxy_protocol": "true",
                 # Require matching configured proxy
                 "validate_sources": "true",
             },
@@ -385,7 +384,6 @@ def test_proxy_v2_rejects_unknown_proxy_when_validation_enabled(server_factory):
             "server": {"proxy_enabled": "true"},
             "proxy_protocol": {
                 "enabled": "true",
-                "accept_proxy_protocol": "true",
                 "validate_sources": "true",
             },
         },
@@ -467,7 +465,6 @@ def test_proxy_v2_invalid_header_logged_and_ignored(server_factory):
             # Enable proxy handling but don't validate sources to allow fallback
             "proxy_protocol": {
                 "enabled": "true",
-                "accept_proxy_protocol": "true",
                 "validate_sources": "false",
             },
         },
@@ -527,11 +524,8 @@ def test_proxy_v2_ignored_when_disabled(server_factory):
     - TACACS+ authentication should fail due to invalid data
     - No crashes or unexpected behavior should occur
 
-    Edge Cases/Notes:
-    - Tests backward compatibility when PROXY protocol is disabled
-    - Verifies proper handling of unexpected PROXY headers
     """
-    """If accept_proxy_protocol is disabled, prefix should be ignored and direct auth should succeed."""
+    """If PROXY protocol is disabled, prefix should be ignored and direct auth should succeed."""
     server = server_factory(
         config={
             "log_level": "DEBUG",
@@ -539,8 +533,7 @@ def test_proxy_v2_ignored_when_disabled(server_factory):
             "server": {"proxy_enabled": "false"},
             # Explicitly disable accepting PROXY headers
             "proxy_protocol": {
-                "enabled": "true",
-                "accept_proxy_protocol": "false",
+                "enabled": "false",
             },
         },
         enable_tacacs=True,
@@ -581,7 +574,6 @@ def test_proxy_v2_single_send_stream_works(server_factory):
             "server": {"proxy_enabled": "true"},
             "proxy_protocol": {
                 "enabled": "true",
-                "accept_proxy_protocol": "true",
                 "validate_sources": "true",
             },
         },
@@ -676,7 +668,6 @@ def test_proxy_v2_single_send_lenient_invalid_header_works(server_factory):
             "server": {"proxy_enabled": "true"},
             "proxy_protocol": {
                 "enabled": "true",
-                "accept_proxy_protocol": "true",
                 "validate_sources": "false",
             },
         },

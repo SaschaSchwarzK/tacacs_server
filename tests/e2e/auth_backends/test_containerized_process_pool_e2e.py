@@ -116,19 +116,16 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
     # Update backends and process pool
     enable_okta_flag = os.getenv("OKTA_E2E", "0") == "1"
     okta_org = os.getenv("OKTA_ORG_URL")
-    okta_token = os.getenv("OKTA_API_TOKEN")
     host_priv_key = None
     okta_operator_login: str | None = None
     okta_operator_password: str | None = None
-    enable_okta = enable_okta_flag and bool(okta_org) and bool(okta_token)
+    enable_okta = enable_okta_flag and bool(okta_org)
     if not enable_okta:
         reasons: list[str] = []
         if not enable_okta_flag:
             reasons.append("OKTA_E2E is not set to 1")
         if not okta_org:
             reasons.append("OKTA_ORG_URL missing")
-        if not okta_token:
-            reasons.append("OKTA_API_TOKEN missing")
         print(f"WARNING: Okta backend test excluded ({'; '.join(reasons)})")
     else:
         print("INFO: Okta backend test enabled")
@@ -149,7 +146,7 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
                     "--org-url",
                     okta_org,
                     "--api-token",
-                    okta_token,
+                    os.getenv("OKTA_API_TOKEN", ""),
                     "--output",
                     str(manifest_path),
                     "--no-app",
@@ -196,8 +193,6 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
                 if not host_priv_key.exists():
                     host_priv_key = Path(priv_candidate).resolve()
             okta_sec["private_key"] = "/app/config/okta_service_private_key.pem"
-        if "api_token" not in okta_sec:
-            okta_sec["api_token"] = os.getenv("OKTA_API_TOKEN", "")
         # Allow slower orgs/network by extending Okta HTTP timeouts in container
         okta_sec.setdefault("request_timeout", "60")
         okta_sec.setdefault("connect_timeout", "30")
@@ -236,7 +231,7 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             if not okta_operator_password:
                 try:
                     okta_operator_password = _reset_okta_password(
-                        okta_org, okta_token, okta_operator_login
+                        okta_org, os.getenv("OKTA_API_TOKEN", ""), okta_operator_login
                     )
                 except Exception as exc:  # noqa: BLE001
                     pytest.skip(f"Failed to reset Okta operator password: {exc}")
@@ -258,7 +253,6 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
         if not config.has_section("okta"):
             config.add_section("okta")
         config["okta"]["org_url"] = os.getenv("OKTA_ORG_URL", "")
-        config["okta"]["api_token"] = os.getenv("OKTA_API_TOKEN", "")
 
     with tmp_config.open("w", encoding="utf-8") as fh:
         config.write(fh)
@@ -352,8 +346,6 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             f"RADIUS_AUTH_SECRET={radius_secret}",
             "-e",
             f"OKTA_ORG_URL={os.getenv('OKTA_ORG_URL', 'https://dev-test.okta.com')}",
-            "-e",
-            f"OKTA_API_TOKEN={os.getenv('OKTA_API_TOKEN', 'test_token')}",
             "-v",
             f"{tmp_config}:/app/config/tacacs.container.ini:ro",
             "-v",

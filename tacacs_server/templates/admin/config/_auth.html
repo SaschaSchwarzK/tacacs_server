@@ -132,17 +132,10 @@
     <div class="subsection-header">Okta Backend</div>
     <form id="okta-form" onsubmit="return false;" class="form-grid">
       <div class="form-field">
-        <label for="okta_domain">Domain</label>
+        <label for="okta_org_url">Org URL</label>
         <div class="input-wrapper">
-          <input type="text" id="okta_domain" name="domain" value="{{ (configuration.get('okta') or {}).get('domain','') }}" />
-          <span class="field-hint">Okta domain</span>
-        </div>
-      </div>
-      <div class="form-field">
-        <label for="okta_api_token">API Token</label>
-        <div class="input-wrapper">
-          <input type="password" id="okta_api_token" name="api_token" value="{{ (configuration.get('okta') or {}).get('api_token','') }}" />
-          <span class="field-hint">API token</span>
+          <input type="text" id="okta_org_url" name="org_url" value="{{ (configuration.get('okta') or {}).get('org_url','') }}" />
+          <span class="field-hint">Full Okta org URL (e.g., https://your-org.okta.com)</span>
         </div>
       </div>
       <div class="form-field">
@@ -150,6 +143,17 @@
         <div class="input-wrapper">
           <input type="number" id="okta_timeout" name="timeout" min="1" value="{{ (configuration.get('okta') or {}).get('timeout','') }}" />
           <span class="field-hint">Timeout (seconds)</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="okta_verify_tls">Verify TLS</label>
+        <div class="input-wrapper">
+          <select id="okta_verify_tls" name="verify_tls">
+            {% set verify_tls = ((configuration.get('okta') or {}).get('verify_tls','true') | string).lower() %}
+            <option value="true" {% if verify_tls=='true' %}selected{% endif %}>Yes</option>
+            <option value="false" {% if verify_tls=='false' %}selected{% endif %}>No</option>
+          </select>
+          <span class="field-hint">Verify Okta TLS certificates</span>
         </div>
       </div>
       <div class="form-field">

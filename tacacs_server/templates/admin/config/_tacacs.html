@@ -1,6 +1,13 @@
 <!-- TACACS+ Server Settings -->
 <div class="card config-section">
   <div class="section-header"><h2 class="section-title">TACACS+ Settings</h2></div>
+  <div class="form-field" style="margin-bottom:1rem;">
+    <label for="source_url">Remote Config Source</label>
+    <div class="input-wrapper">
+      <input type="text" id="source_url" name="source_url" value="{{ config.get('source_url','') }}" />
+      <span class="field-hint">HTTPS URL for remote config source <span class="badge">restart</span></span>
+    </div>
+  </div>
   
   <div class="subsection">
     <div class="subsection-header">Basic Settings</div>
@@ -24,6 +31,13 @@
         <div class="input-wrapper">
           <input type="number" id="tacacs_max_connections" name="max_connections" min="1" value="{{ server_section.get('max_connections','') }}" />
           <span class="field-hint">Maximum concurrent connections <span class="badge">restart</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="tacacs_instance_name">Instance Name</label>
+        <div class="input-wrapper">
+          <input type="text" id="tacacs_instance_name" name="instance_name" value="{{ server_section.get('instance_name','') }}" />
+          <span class="field-hint">Optional identifier for this instance <span class="badge">restart</span></span>
         </div>
       </div>
       <div class="form-field">

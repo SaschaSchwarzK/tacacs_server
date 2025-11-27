@@ -22,7 +22,9 @@ backends = local, okta
 
 [okta]
 org_url = https://company.okta.com
-api_token = ${OKTA_API_TOKEN}      # required for group lookups
+auth_method = client_secret
+client_id = ${OKTA_CLIENT_ID}
+client_secret = ${OKTA_CLIENT_SECRET}
 verify_tls = true
 
 # Optional: require membership in an allowed Okta group (from device group allow‑list)
@@ -55,12 +57,11 @@ Use the helper script to verify your Okta setup quickly. It supports two modes:
 - Config mode (server-backed): loads your `tacacs.conf`, instantiates the Okta backend, and runs auth using your exact settings and group mapping.
 
 Direct mode
-- Credentials via env only: `OKTA_API_TOKEN` for group lookups (optional).
-- Flags: `--org`, `--api-token`, `--insecure` to disable TLS verification (testing only).
+- Credentials via env only: `OKTA_CLIENT_ID`/`OKTA_CLIENT_SECRET` or `OKTA_PRIVATE_KEY`/`OKTA_PRIVATE_KEY_ID` (and `auth_method`) for group lookups.
+- Flags: `--org`, `--client-id`, `--client-secret` or `--private-key`/`--private-key-id`, `--auth-method`, `--insecure` to disable TLS verification (testing only).
 
 Examples
 - python scripts/okta_selftest.py --org https://dev-12345.okta.com --username alice
-- OKTA_API_TOKEN=ssws-... \
   python scripts/okta_selftest.py --org https://dev-12345.okta.com --api-token ssws-... \
   --username alice --insecure
 

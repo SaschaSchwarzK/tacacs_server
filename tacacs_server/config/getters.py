@@ -527,4 +527,5 @@ def get_config_summary(config: configparser.ConfigParser) -> dict[str, Any]:
         if section in config:
             summary[section] = dict(config[section])
 
+    # Redact sensitive fields
     return summary
