@@ -40,6 +40,7 @@ from .constants import (
     TAC_PLUS_AUTHEN_TYPE,
     TAC_PLUS_AUTHOR_STATUS,
     TAC_PLUS_PACKET_TYPE,
+    TAC_PLUS_FLAGS,
 )
 from .packet import TacacsPacket
 from .structures import (
@@ -744,6 +745,24 @@ class AAAHandlers:
                 if action == 0:
                     action = int(sess_info.get("action", 0))
 
+                # Fallback: if no session state exists (e.g., legacy clients with CONTINUE only),
+                # synthesize minimal session info so we can continue the ASCII flow.
+                if not sess_info and authen_type in (0, TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII):
+                    with self._lock:
+                        self.auth_sessions[packet.session_id] = {
+                            "step": "password" if user else "username",
+                            "username": user or None,
+                            "authen_type": authen_type
+                            if authen_type != 0
+                            else TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII,
+                            "action": action or 1,
+                        }
+                        sess_info = dict(self.auth_sessions[packet.session_id])
+                    if authen_type == 0:
+                        authen_type = TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII
+                    if action == 0:
+                        action = 1
+
                 if authen_type != TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII:
                     safe_user = self._safe_user(user)
                     logger.debug(
@@ -1091,11 +1110,14 @@ class AAAHandlers:
         with self._lock:
             session_info = self.auth_sessions.get(session_key)
         if not session_info:
-            return self._create_auth_response(
-                packet,
-                TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR,
-                "Invalid session",
-            )
+            # Synthesize minimal session info for clients that send CONTINUE without prior state
+            username_seed = (data or user_msg or b"").decode("utf-8", errors="replace").strip()
+            with self._lock:
+                self.auth_sessions[session_key] = {
+                    "step": "password" if username_seed else "username",
+                    "username": username_seed or None,
+                }
+                session_info = dict(self.auth_sessions[session_key])
         if session_info["step"] == "username":
             username = data.decode("utf-8", errors="replace").strip()
             session_info["username"] = username
@@ -1992,7 +2014,13 @@ class AAAHandlers:
         """Create authentication response packet"""
         server_msg_bytes = server_msg.encode("utf-8")
         data_bytes = data.encode("utf-8")
-        body = struct.pack("!BBHH", status, 0, len(server_msg_bytes), len(data_bytes))
+        # Reply flags: set NOECHO for password prompts to match device expectations.
+        reply_flags = 0
+        if status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_GETPASS:
+            reply_flags = TAC_PLUS_FLAGS.TAC_PLUS_AUTHEN_REPLY_FLAG_NOECHO
+        body = struct.pack(
+            "!BBHH", status, reply_flags, len(server_msg_bytes), len(data_bytes)
+        )
         body += server_msg_bytes + data_bytes
         return TacacsPacket(
             version=request_packet.version,

@@ -14,6 +14,7 @@ import pytest
 
 import tests.unit.tacacs_stubs as tacacs_stubs
 from tacacs_server.tacacs.constants import (
+    TAC_PLUS_AUTHEN_STATUS,
     TAC_PLUS_FLAGS,
     TAC_PLUS_PACKET_TYPE,
     TAC_PLUS_VERSION,
@@ -345,6 +346,26 @@ def test_structures_parsing():
     )
     acct = parse_acct_request(acct_body)
     assert "foo" in acct["args"]
+
+def test_auth_reply_noecho_flag():
+    """Auth reply should set NOECHO flag when prompting for password."""
+    from tacacs_server.tacacs.handlers import AAAHandlers  # local import to avoid cycles
+
+    handlers = AAAHandlers([], None)
+    req = TacacsPacket(
+        version=0xC0,
+        packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_AUTHEN,
+        seq_no=1,
+        session_id=0x12345678,
+    )
+    resp = handlers._create_auth_response(
+        req, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_GETPASS, "Password: "
+    )
+    status, flags, msg_len, data_len = struct.unpack("!BBHH", resp.body[:6])
+    assert status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_GETPASS
+    assert flags == TAC_PLUS_FLAGS.TAC_PLUS_AUTHEN_REPLY_FLAG_NOECHO
+    assert msg_len == len("Password: ")
+    assert data_len == 0
 
 
 def test_parse_authen_continue_respects_lengths():
