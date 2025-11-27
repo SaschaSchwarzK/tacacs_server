@@ -36,6 +36,7 @@ def install_security_headers(app: FastAPI) -> None:
 
     csp_policy = os.getenv("CSP_POLICY", DEFAULT_CSP)
     hsts_max_age = os.getenv("HSTS_MAX_AGE", "31536000")
+    _coep_exempt_paths = {"/docs", "/redoc", "/rapidoc", "/openapi.json", "/openapi.yaml", "/api/docs", "/api/redoc"}
 
     @app.middleware("http")
     async def _security_headers(request, call_next):
@@ -53,9 +54,10 @@ def install_security_headers(app: FastAPI) -> None:
             "Permissions-Policy",
             "camera=(), microphone=(), geolocation=(), payment=()",
         )
-        resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
-        resp.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
-        resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        if request.url.path not in _coep_exempt_paths:
+            resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+            resp.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+            resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
 
         # HSTS for HTTPS or when forwarded as HTTPS
         fwd = request.headers.get("x-forwarded-proto", "").lower()
