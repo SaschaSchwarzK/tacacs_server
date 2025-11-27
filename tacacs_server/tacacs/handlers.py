@@ -1992,7 +1992,13 @@ class AAAHandlers:
         """Create authentication response packet"""
         server_msg_bytes = server_msg.encode("utf-8")
         data_bytes = data.encode("utf-8")
-        body = struct.pack("!BBHH", status, 0, len(server_msg_bytes), len(data_bytes))
+        # Reply flags: set NOECHO for password prompts to match device expectations.
+        reply_flags = 0
+        if status == TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_GETPASS:
+            reply_flags = 1  # TAC_PLUS_AUTHEN_REPLY_FLAG_NOECHO
+        body = struct.pack(
+            "!BBHH", status, reply_flags, len(server_msg_bytes), len(data_bytes)
+        )
         body += server_msg_bytes + data_bytes
         return TacacsPacket(
             version=request_packet.version,
