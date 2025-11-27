@@ -21,7 +21,7 @@ try:
     from typing import ParamSpec
 except Exception:  # pragma: no cover
     # Python <3.10
-    from typing_extensions import ParamSpec
+    from typing import ParamSpec
 
 
 P = ParamSpec("P")
