@@ -12,7 +12,11 @@ logger = get_logger(__name__)
 
 DEFAULT_CSP = (
     "default-src 'self'; "
-    # Allow inline scripts for the admin UI templates (modals, buttons).
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'; "
+    # Allow inline scripts/styles for the admin UI templates (modals, buttons).
     # For stricter environments, override via CSP_POLICY env and use nonces.
     "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; "
@@ -28,11 +32,15 @@ def install_security_headers(app: FastAPI) -> None:
     - X-Frame-Options: DENY
     - Referrer-Policy: no-referrer
     - Content-Security-Policy: configurable via CSP_POLICY env, defaults relaxed
+    - Cache-Control/Pragma: no-store (avoid caching sensitive admin/API content)
+    - Permissions-Policy: deny active sensors by default
+    - COOP/COEP/CORP: tighten isolation to mitigate Spectre-type attacks
     - Strict-Transport-Security: only when HTTPS or X-Forwarded-Proto=https
     """
 
     csp_policy = os.getenv("CSP_POLICY", DEFAULT_CSP)
     hsts_max_age = os.getenv("HSTS_MAX_AGE", "31536000")
+    _coep_exempt_paths = {"/docs", "/redoc", "/rapidoc", "/openapi.json", "/openapi.yaml", "/api/docs", "/api/redoc"}
 
     @app.middleware("http")
     async def _security_headers(request, call_next):
@@ -44,6 +52,16 @@ def install_security_headers(app: FastAPI) -> None:
         resp.headers.setdefault("Referrer-Policy", "no-referrer")
         resp.headers.setdefault("Content-Security-Policy", csp_policy)
         resp.headers.setdefault("X-XSS-Protection", "1; mode=block")
+        resp.headers.setdefault("Cache-Control", "no-store")
+        resp.headers.setdefault("Pragma", "no-cache")
+        resp.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        if request.url.path not in _coep_exempt_paths:
+            resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+            resp.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+            resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
 
         # HSTS for HTTPS or when forwarded as HTTPS
         fwd = request.headers.get("x-forwarded-proto", "").lower()
