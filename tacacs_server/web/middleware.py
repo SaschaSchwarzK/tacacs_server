@@ -12,7 +12,11 @@ logger = get_logger(__name__)
 
 DEFAULT_CSP = (
     "default-src 'self'; "
-    # Allow inline scripts for the admin UI templates (modals, buttons).
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'; "
+    # Allow inline scripts/styles for the admin UI templates (modals, buttons).
     # For stricter environments, override via CSP_POLICY env and use nonces.
     "script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; "
