@@ -625,7 +625,7 @@ Key environment variables
 | `ADMIN_PASSWORD_HASH` | Bcrypt admin password hash | Populates `[admin].password_hash`; preferred for production |
 | `ADMIN_PASSWORD` | Plaintext admin password | Hashed at startup only when `ADMIN_PASSWORD_HASH` is not set; development convenience only |
 | `LDAP_BIND_PASSWORD` | LDAP bind password | Injected into `[ldap].bind_password` |
-| `OKTA_DOMAIN` / `OKTA_CLIENT_ID` / `OKTA_CLIENT_SECRET` / `OKTA_PRIVATE_KEY` / `OKTA_PRIVATE_KEY_ID` | Okta integration secrets | Populate `[okta]` fields via the loader |
+| `OKTA_CLIENT_ID` / `OKTA_CLIENT_SECRET` / `OKTA_PRIVATE_KEY` / `OKTA_PRIVATE_KEY_ID` | Okta integration secrets | Populate `[okta]` fields via the loader |
 | `BACKUP_ENCRYPTION_PASSPHRASE` | Backup encryption passphrase | Injected into `[backup].encryption_passphrase` |
 | `RADIUS_AUTH_SECRET` | RADIUS auth backend shared secret | Injected into `[radius_auth].radius_secret` |
 | `API_TOKEN` | Admin/API bearer token for `/api/*` | Used by the web API middleware/`require_admin_or_api` |

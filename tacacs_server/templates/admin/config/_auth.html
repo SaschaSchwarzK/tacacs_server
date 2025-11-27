@@ -134,7 +134,7 @@
       <div class="form-field">
         <label for="okta_org_url">Org URL</label>
         <div class="input-wrapper">
-          <input type="text" id="okta_org_url" name="org_url" value="{{ (configuration.get('okta') or {}).get('org_url','') or (configuration.get('okta') or {}).get('domain','') }}" />
+          <input type="text" id="okta_org_url" name="org_url" value="{{ (configuration.get('okta') or {}).get('org_url','') }}" />
           <span class="field-hint">Full Okta org URL (e.g., https://your-org.okta.com)</span>
         </div>
       </div>

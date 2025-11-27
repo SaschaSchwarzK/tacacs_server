@@ -18,8 +18,9 @@ from .constants import (
     ENV_BACKUP_ENCRYPTION_PASSPHRASE,
     ENV_LDAP_BIND_PASSWORD,
     ENV_OKTA_CLIENT_ID,
-    ENV_OKTA_DOMAIN,
+    ENV_OKTA_CLIENT_SECRET,
     ENV_OKTA_PRIVATE_KEY,
+    ENV_OKTA_PRIVATE_KEY_ID,
     ENV_OPENID_CLIENT_PRIVATE_KEY,
     ENV_OPENID_CLIENT_SECRET,
     ENV_RADIUS_AUTH_SECRET,
@@ -356,22 +357,21 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
         config.set("backup", "encryption_passphrase", backup_passphrase)
 
     # Okta section: secrets ONLY from environment
-    okta_domain = os.environ.get(ENV_OKTA_DOMAIN)
     okta_client_id = os.environ.get(ENV_OKTA_CLIENT_ID)
+    okta_client_secret = os.environ.get(ENV_OKTA_CLIENT_SECRET)
     okta_private_key = os.environ.get(ENV_OKTA_PRIVATE_KEY)
-    if any([okta_domain, okta_client_id, okta_private_key]):
+    okta_private_key_id = os.environ.get(ENV_OKTA_PRIVATE_KEY_ID)
+    if any([okta_client_id, okta_client_secret, okta_private_key, okta_private_key_id]):
         if not config.has_section("okta"):
             config.add_section("okta")
-        if okta_domain:
-            # Maintain compatibility with legacy 'domain' and schema 'org_url'
-            if not config.has_option("okta", "org_url"):
-                config.set("okta", "org_url", okta_domain)
-            if not config.has_option("okta", "domain"):
-                config.set("okta", "domain", okta_domain)
         if okta_client_id and not config.has_option("okta", "client_id"):
             config.set("okta", "client_id", okta_client_id)
+        if okta_client_secret and not config.has_option("okta", "client_secret"):
+            config.set("okta", "client_secret", okta_client_secret)
         if okta_private_key and not config.has_option("okta", "private_key"):
             config.set("okta", "private_key", okta_private_key)
+        if okta_private_key_id and not config.has_option("okta", "private_key_id"):
+            config.set("okta", "private_key_id", okta_private_key_id)
 
     # OpenID section: non-secret fields can come from config or env; secrets env-only
     openid_env_map = {
