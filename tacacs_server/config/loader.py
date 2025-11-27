@@ -17,13 +17,13 @@ from .constants import (
     ENV_ADMIN_PASSWORD_HASH,
     ENV_BACKUP_ENCRYPTION_PASSPHRASE,
     ENV_LDAP_BIND_PASSWORD,
-    ENV_OKTA_API_TOKEN,
     ENV_OKTA_CLIENT_ID,
     ENV_OKTA_DOMAIN,
     ENV_OKTA_PRIVATE_KEY,
     ENV_OPENID_CLIENT_PRIVATE_KEY,
     ENV_OPENID_CLIENT_SECRET,
     ENV_RADIUS_AUTH_SECRET,
+    ENV_TACACS_SOURCE_URL,
 )
 
 logger = get_logger(__name__)
@@ -137,6 +137,24 @@ def apply_env_overrides(
             )
 
 
+def apply_env_override_default(
+    config: configparser.ConfigParser, key: str, env_var: str
+) -> None:
+    """Apply environment override to the DEFAULT section."""
+    value = os.environ.get(env_var)
+    if value is not None:
+        if key not in config.defaults():
+            config[config.default_section][key] = value
+            logger.debug(
+                "Applied environment override for default key",
+                event="tacacs.config.loader.env_override_applied",
+                service="tacacs",
+                section="DEFAULT",
+                key=key,
+                env_var=env_var,
+            )
+
+
 def apply_env_overrides_section(
     config: configparser.ConfigParser, section: str, keys: list[str] | None = None
 ) -> None:
@@ -188,6 +206,7 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             "tcp_keepcnt",
             "thread_pool_max",
             "use_thread_pool",
+            "instance_name",
         ],
         "auth": [
             "backends",
@@ -296,6 +315,12 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             "radius_nas_ip",
             "radius_nas_identifier",
         ],
+        "okta": [
+            "org_url",
+            "verify_tls",
+            "timeout",
+            "default_okta_group",
+        ],
     }
 
     for section, keys in sections_keys.items():
@@ -334,19 +359,19 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
     okta_domain = os.environ.get(ENV_OKTA_DOMAIN)
     okta_client_id = os.environ.get(ENV_OKTA_CLIENT_ID)
     okta_private_key = os.environ.get(ENV_OKTA_PRIVATE_KEY)
-    okta_api_token = os.environ.get(ENV_OKTA_API_TOKEN)
-
-    if any([okta_domain, okta_client_id, okta_private_key, okta_api_token]):
+    if any([okta_domain, okta_client_id, okta_private_key]):
         if not config.has_section("okta"):
             config.add_section("okta")
         if okta_domain:
-            config.set("okta", "domain", okta_domain)
-        if okta_client_id:
+            # Maintain compatibility with legacy 'domain' and schema 'org_url'
+            if not config.has_option("okta", "org_url"):
+                config.set("okta", "org_url", okta_domain)
+            if not config.has_option("okta", "domain"):
+                config.set("okta", "domain", okta_domain)
+        if okta_client_id and not config.has_option("okta", "client_id"):
             config.set("okta", "client_id", okta_client_id)
-        if okta_private_key:
+        if okta_private_key and not config.has_option("okta", "private_key"):
             config.set("okta", "private_key", okta_private_key)
-        if okta_api_token:
-            config.set("okta", "api_token", okta_api_token)
 
     # OpenID section: non-secret fields can come from config or env; secrets env-only
     openid_env_map = {
@@ -386,6 +411,9 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
         if not config.has_section("radius_auth"):
             config.add_section("radius_auth")
         config.set("radius_auth", "radius_secret", radius_auth_secret)
+
+    # Root-level source_url override
+    apply_env_override_default(config, "source_url", ENV_TACACS_SOURCE_URL)
 
 
 def load_config(

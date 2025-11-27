@@ -197,8 +197,15 @@ group_attribute = memberOf
 # Okta organization URL
 org_url = https://company.okta.com
 
-# Optional: Okta Management API token (SSWS) for group lookups
-api_token = ${OKTA_API_TOKEN}
+# OAuth client credentials (choose one auth_method: client_secret or private_key_jwt)
+# auth_method = client_secret
+# client_id = ${OKTA_CLIENT_ID}
+# client_secret = ${OKTA_CLIENT_SECRET}
+# auth_method = private_key_jwt
+# client_id = ${OKTA_CLIENT_ID}
+# private_key = /path/to/private_key.pem
+# private_key_id = <kid>
+# token_endpoint = https://company.okta.com/oauth2/v1/token   # optional override
 
 # TLS verification (default true)
 verify_tls = true
@@ -618,7 +625,7 @@ Key environment variables
 | `ADMIN_PASSWORD_HASH` | Bcrypt admin password hash | Populates `[admin].password_hash`; preferred for production |
 | `ADMIN_PASSWORD` | Plaintext admin password | Hashed at startup only when `ADMIN_PASSWORD_HASH` is not set; development convenience only |
 | `LDAP_BIND_PASSWORD` | LDAP bind password | Injected into `[ldap].bind_password` |
-| `OKTA_DOMAIN` / `OKTA_CLIENT_ID` / `OKTA_PRIVATE_KEY` / `OKTA_API_TOKEN` | Okta integration secrets | Populate `[okta]` fields via the loader |
+| `OKTA_DOMAIN` / `OKTA_CLIENT_ID` / `OKTA_PRIVATE_KEY` | Okta integration secrets | Populate `[okta]` fields via the loader |
 | `BACKUP_ENCRYPTION_PASSPHRASE` | Backup encryption passphrase | Injected into `[backup].encryption_passphrase` |
 | `RADIUS_AUTH_SECRET` | RADIUS auth backend shared secret | Injected into `[radius_auth].radius_secret` |
 | `API_TOKEN` | Admin/API bearer token for `/api/*` | Used by the web API middleware/`require_admin_or_api` |
@@ -633,7 +640,7 @@ Examples
 bind_password = "change-me"  # overridden by LDAP_BIND_PASSWORD if present
 
 [okta]
-api_token = "placeholder"    # overridden by OKTA_API_TOKEN if present
+;client_secret = "placeholder"
 
 [admin]
 username = admin
@@ -643,7 +650,7 @@ password_hash = ""           # overridden by ADMIN_PASSWORD_HASH if present
 ```bash
 # In environment (secrets only; non-secret tuning via config file)
 export LDAP_BIND_PASSWORD="secure_ldap_password"
-export OKTA_API_TOKEN="00abc123def456..."
+export OKTA_CLIENT_SECRET="example"
 export ADMIN_PASSWORD_HASH="$2b$12$..."
 export API_TOKEN="$(openssl rand -hex 24)"
 export TACACS_CONFIG="/etc/tacacs/tacacs.conf"

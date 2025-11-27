@@ -18,7 +18,6 @@ from tacacs_server.tacacs.constants import (
     TAC_PLUS_PACKET_TYPE,
     TAC_PLUS_VERSION,
 )
-from tacacs_server.utils.exceptions import ProtocolError
 from tacacs_server.tacacs.network import NetworkHandler
 from tacacs_server.tacacs.packet import TacacsPacket
 from tacacs_server.tacacs.proxy import ProxyHandler, ProxyProtocolV2Parser
@@ -32,6 +31,7 @@ from tacacs_server.tacacs.structures import (
     parse_author_request,
 )
 from tacacs_server.tacacs.validator import PacketValidator
+from tacacs_server.utils.exceptions import ProtocolError
 
 _STUB_MODULE = tacacs_stubs
 

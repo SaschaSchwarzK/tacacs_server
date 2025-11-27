@@ -442,7 +442,6 @@ class AAAHandlers:
                 config = {
                     "type": "okta",
                     "org_url": getattr(backend, "org_url", ""),
-                    "api_token": getattr(backend, "api_token", ""),
                     "client_id": getattr(backend, "client_id", ""),
                     "client_secret": getattr(backend, "client_secret", ""),
                     "private_key": getattr(backend, "private_key", ""),

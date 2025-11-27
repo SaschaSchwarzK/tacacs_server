@@ -26,7 +26,7 @@ async function saveTacacsSettings() {
   const status = document.getElementById('tacacs-status');
   status.textContent = '';
   const server = {};
-  ['host', 'port', 'max_connections', 'socket_timeout'].forEach(key => {
+  ['host', 'port', 'max_connections', 'socket_timeout', 'instance_name'].forEach(key => {
     const el = document.getElementById('tacacs_' + key);
     if (el && el.value.trim()) server[key] = el.value;
   });
@@ -39,7 +39,12 @@ async function saveTacacsSettings() {
   }
   
   try {
-    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ server }) });
+    const payload = { server };
+    const src = document.getElementById('source_url');
+    if (src && src.value.trim()) {
+      payload.source_url = src.value.trim();
+    }
+    const resp = await fetch('/admin/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (!resp.ok) { flashStatus(status, 'Error', 'error'); return; }
     flashStatus(status, 'Saved', 'success');
     showToast('TACACS+ settings saved');
@@ -123,7 +128,7 @@ async function saveOktaSettings() {
   const status = document.getElementById('okta-status');
   status.textContent = '';
   const okta = {};
-  ['domain', 'api_token', 'timeout', 'default_okta_group'].forEach(key => {
+  ['org_url', 'timeout', 'default_okta_group', 'verify_tls'].forEach(key => {
     const el = document.getElementById('okta_' + key);
     if (el && el.value.trim()) okta[key] = el.value;
   });

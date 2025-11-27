@@ -62,8 +62,14 @@ For a complete guide on Okta integration, including MFA setup, the device-scoped
 # Your Okta organization URL
 org_url = https://company.okta.com
 
-# Okta Management API token (required for group lookups)
-api_token = ${OKTA_API_TOKEN}
+# Okta Management API OAuth credentials (choose one auth_method)
+# auth_method = client_secret
+# client_id = ${OKTA_CLIENT_ID}
+# client_secret = ${OKTA_CLIENT_SECRET}
+# auth_method = private_key_jwt
+# client_id = ${OKTA_CLIENT_ID}
+# private_key = /path/to/private_key.pem
+# private_key_id = <kid>
 
 # TLS verification (default true)
 verify_tls = true
@@ -96,7 +102,7 @@ circuit_cooldown = 30
 
 #### Basic Configuration
 
-1.  Log into the Okta Admin Console, navigate to **Security > API > Tokens**, and create a token. This is required for the server to look up a user's group memberships.
+1.  Create an OAuth service app in Okta (client_credentials) using either `client_secret` or `private_key_jwt`.
 2.  Add `okta` to the `backends` list in the `[auth]` section of your configuration.
 3.  Configure the `[okta]` section with your organization's details.
 
@@ -104,10 +110,14 @@ circuit_cooldown = 30
 [okta]
 # Your Okta organization URL
 org_url = https://company.okta.com
-
-# Okta Management API token (required for group lookups)
-api_token = ${OKTA_API_TOKEN}
-
+# Choose one auth_method: client_secret or private_key_jwt
+auth_method = client_secret
+client_id = ${OKTA_CLIENT_ID}
+client_secret = ${OKTA_CLIENT_SECRET}
+# auth_method = private_key_jwt
+# client_id = ${OKTA_CLIENT_ID}
+# private_key = /path/to/private_key.pem
+# private_key_id = <kid>
 # Optional: Require membership in at least one Okta group for authentication to succeed.
 # Device- and backend-specific group allow-lists are enforced in AAAHandlers based on
 # local user groups linked via okta_group / ldap_group / radius_group.
