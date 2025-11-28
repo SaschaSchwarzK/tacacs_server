@@ -59,7 +59,7 @@ COPY config/tacacs.container.ini /app/config/tacacs.container.ini
 
 USER app
 
-# Expose ports for both ACA (8049/8080) and ACI (1812/udp, 1813/udp)
+# Expose ports for both Azure ACA (8049/8080) and Azure ACI (8049/tcp, 1812/udp, 1813/udp)
 EXPOSE 8049/tcp 8080/tcp 1812/udp 1813/udp
 
 # Healthcheck against liveness endpoint
