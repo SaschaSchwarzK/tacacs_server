@@ -39,8 +39,8 @@ from .constants import (
     TAC_PLUS_AUTHEN_STATUS,
     TAC_PLUS_AUTHEN_TYPE,
     TAC_PLUS_AUTHOR_STATUS,
-    TAC_PLUS_PACKET_TYPE,
     TAC_PLUS_FLAGS,
+    TAC_PLUS_PACKET_TYPE,
 )
 from .packet import TacacsPacket
 from .structures import (
@@ -747,7 +747,10 @@ class AAAHandlers:
 
                 # Fallback: if no session state exists (e.g., legacy clients with CONTINUE only),
                 # synthesize minimal session info so we can continue the ASCII flow.
-                if not sess_info and authen_type in (0, TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII):
+                if not sess_info and authen_type in (
+                    0,
+                    TAC_PLUS_AUTHEN_TYPE.TAC_PLUS_AUTHEN_TYPE_ASCII,
+                ):
                     with self._lock:
                         self.auth_sessions[packet.session_id] = {
                             "step": "password" if user else "username",
@@ -1111,7 +1114,9 @@ class AAAHandlers:
             session_info = self.auth_sessions.get(session_key)
         if not session_info:
             # Synthesize minimal session info for clients that send CONTINUE without prior state
-            username_seed = (data or user_msg or b"").decode("utf-8", errors="replace").strip()
+            username_seed = (
+                (data or user_msg or b"").decode("utf-8", errors="replace").strip()
+            )
             with self._lock:
                 self.auth_sessions[session_key] = {
                     "step": "password" if username_seed else "username",

@@ -54,7 +54,6 @@ class TAC_PLUS_AUTHEN_STATUS(IntEnum):
     TAC_PLUS_AUTHEN_STATUS_ERROR = 7
 
 
-
 class TAC_PLUS_AUTHEN_SVC(IntEnum):
     """Authentication services"""
 
