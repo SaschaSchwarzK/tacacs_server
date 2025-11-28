@@ -347,9 +347,12 @@ def test_structures_parsing():
     acct = parse_acct_request(acct_body)
     assert "foo" in acct["args"]
 
+
 def test_auth_reply_noecho_flag():
     """Auth reply should set NOECHO flag when prompting for password."""
-    from tacacs_server.tacacs.handlers import AAAHandlers  # local import to avoid cycles
+    from tacacs_server.tacacs.handlers import (
+        AAAHandlers,
+    )  # local import to avoid cycles
 
     handlers = AAAHandlers([], None)
     req = TacacsPacket(

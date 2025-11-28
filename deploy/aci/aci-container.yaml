@@ -19,7 +19,7 @@ properties:
             secureValue: ${ADMIN_PASSWORD_HASH}
         command: ["tini","--","tacacs-server","--config","/app/config/tacacs.aci.ini"]
         ports:
-          - port: 49
+          - port: 8049
             protocol: TCP
           - port: 1812
             protocol: UDP
@@ -34,7 +34,7 @@ properties:
   ipAddress:
     type: Public
     ports:
-      - port: 49
+      - port: 8049
         protocol: TCP
       - port: 1812
         protocol: UDP

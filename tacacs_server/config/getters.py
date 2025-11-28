@@ -445,15 +445,36 @@ def get_proxy_protocol_config(config: configparser.ConfigParser) -> dict[str, An
     }
 
     try:
+        env_enabled = os.getenv("TACACS_PROXY_PROTOCOL_ENABLED")
+        env_validate = os.getenv("TACACS_PROXY_PROTOCOL_VALIDATE_SOURCES")
+        env_reject = os.getenv("TACACS_PROXY_PROTOCOL_REJECT_INVALID")
+        env_overrides: dict[str, Any] = {}
+        if env_enabled is not None:
+            env_overrides["enabled"] = _to_bool(env_enabled)
+        if env_validate is not None:
+            env_overrides["validate_sources"] = _to_bool(env_validate)
+        if env_reject is not None:
+            env_overrides["reject_invalid"] = _to_bool(env_reject)
+
         if not config.has_section("proxy_protocol"):
-            return defaults
+            return {
+                "enabled": env_overrides.get("enabled", defaults["enabled"]),
+                "validate_sources": env_overrides.get(
+                    "validate_sources", defaults["validate_sources"]
+                ),
+                "reject_invalid": env_overrides.get(
+                    "reject_invalid", defaults["reject_invalid"]
+                ),
+            }
 
         sec = dict(config.items("proxy_protocol"))
-        return {
-            "enabled": _to_bool(sec.get("enabled", False)),
-            "validate_sources": _to_bool(sec.get("validate_sources", True)),
-            "reject_invalid": _to_bool(sec.get("reject_invalid", True)),
-        }
+        final_config = {}
+        for key, default_val in defaults.items():
+            if key in sec:
+                final_config[key] = _to_bool(sec.get(key, default_val))
+            else:
+                final_config[key] = env_overrides.get(key, default_val)
+        return final_config
     except Exception:
         return defaults
 
@@ -501,6 +522,7 @@ def get_radius_config(config: configparser.ConfigParser) -> dict[str, Any]:
     }
 
 
+# This function is used to get the configuration summary with secrets redacted for display in the UI.
 def get_config_summary(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get configuration summary for display."""
     summary = {
@@ -528,4 +550,18 @@ def get_config_summary(config: configparser.ConfigParser) -> dict[str, Any]:
             summary[section] = dict(config[section])
 
     # Redact sensitive fields
+    SENSITIVE_KEYS = {
+        "password",
+        "secret",
+        "token",
+        "passphrase",
+        "api_key",
+        "bind_password",
+        "client_secret",
+        "private_key",
+    }
+    for section in summary:
+        for key in summary[section]:
+            if any(sensitive in key.lower() for sensitive in SENSITIVE_KEYS):
+                summary[section][key] = "***REDACTED***"
     return summary

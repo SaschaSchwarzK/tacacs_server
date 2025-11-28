@@ -46,10 +46,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       tini curl libffi8 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user and runtime dirs
-RUN useradd -r -m app \
+# Create non-root user (uid 1000) and runtime dirs
+RUN useradd -r -u 1000 -m app \
  && mkdir -p /app/data /app/logs /app/config \
- && chown -R app:app /app
+ && chown -R 1000:1000 /app
 
 # Copy venv from builder
 COPY --from=build /opt/venv /opt/venv
@@ -59,8 +59,8 @@ COPY config/tacacs.container.ini /app/config/tacacs.container.ini
 
 USER app
 
-# Expose ports for both ACA (5049/8080) and ACI (49, 1812/udp, 1813/udp)
-EXPOSE 5049/tcp 8080/tcp 49/tcp 1812/udp 1813/udp
+# Expose ports for both Azure ACA (8049/8080) and Azure ACI (8049/tcp, 1812/udp, 1813/udp)
+EXPOSE 8049/tcp 8080/tcp 1812/udp 1813/udp
 
 # Healthcheck against liveness endpoint
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -fsS http://127.0.0.1:8080/health || exit 1

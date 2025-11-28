@@ -29,6 +29,7 @@ class AccountingRecord:
     nas_port_type: str | None = None
     task_id: str | None = None
     timezone: str | None = None
+    cause: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values"""
