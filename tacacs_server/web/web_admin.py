@@ -30,8 +30,6 @@ router = APIRouter(prefix="/admin", include_in_schema=False)
 @router.get("", include_in_schema=False, name="admin_root_empty")
 async def admin_root_redirect_empty():
     """Redirect empty /admin to /admin/"""
-    from fastapi.responses import RedirectResponse
-
     return RedirectResponse(
         url="/admin/", status_code=status.HTTP_307_TEMPORARY_REDIRECT
     )
