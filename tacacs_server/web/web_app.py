@@ -40,6 +40,17 @@ from .web import (
 
 logger = get_logger(__name__)
 
+# Unprotected API paths (no auth required)
+UNAUTH_API_PATHS = {
+    "/api/health",
+    "/api/status",
+    "/api/docs",
+    "/api/redoc",
+    "/api/rapidoc",
+    "/openapi.json",
+    "/openapi.yaml",
+}
+
 
 def create_app(
     admin_username: str = "admin",
@@ -561,7 +572,14 @@ def create_app(
         # Content Security Policy: relax for documentation UIs that load assets from CDNs
         p = getattr(request.url, "path", "")
 
-        is_docs = p in ("/api/docs", "/api/redoc", "/docs", "/redoc", "/rapidoc")
+        is_docs = p in (
+            "/api/docs",
+            "/api/redoc",
+            "/docs",
+            "/redoc",
+            "/rapidoc",
+            "/api/rapidoc",
+        )
         if is_docs:
             # Relax CSP for documentation UIs to allow required CDN assets. Avoid
             # 'unsafe-eval' by default to reduce XSS risk. Some Swagger/Redoc
@@ -582,7 +600,12 @@ def create_app(
                 + script_src
                 + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
                 + "img-src 'self' data: https:; connect-src 'self' data:; "
-                + "font-src 'self' data: https:;"
+                + "font-src 'self' data: https:; "
+                + "media-src 'none'; "
+                + "frame-src 'none'; "
+                + "object-src 'none'; "
+                + "base-uri 'self'; "
+                + "form-action 'self';"
             )
         else:
             # Strict CSP for admin UI and API
@@ -592,7 +615,12 @@ def create_app(
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data:; "
                 "connect-src 'self' ws: wss:; "
-                "font-src 'self';"
+                "font-src 'self'; "
+                "media-src 'none'; "
+                "frame-src 'none'; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self';"
             )
 
         # HSTS for HTTPS
@@ -961,6 +989,18 @@ def create_app(
             return PlainTextResponse(content=data, media_type=CONTENT_TYPE_LATEST)
         except Exception:
             return JSONResponse({"detail": "Metrics unavailable"}, status_code=500)
+
+    @app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+    async def robots():
+        """Robots.txt for search engine crawlers."""
+        return PlainTextResponse(
+            "User-agent: *\n"
+            "Disallow: /admin/\n"
+            "Disallow: /api/admin/\n"
+            "Allow: /api/docs\n"
+            "Allow: /api/health\n"
+            "Allow: /api/status\n"
+        )
 
     # No deprecated/compat routes are exposed; consolidated API only.
 
