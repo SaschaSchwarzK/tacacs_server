@@ -9,7 +9,7 @@ services:
       - .env
     ports:
       - "8080:8080"   # Web admin/API
-      - "5049:5049"   # TACACS+ (dev profile)
+      - "8049:8049"   # TACACS+ (dev profile)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -46,7 +46,7 @@ services:
         "python",
         "scripts/generate_load.py",
         "--host","tacacs",
-        "--port","5049",
+        "--port","8049",
         "--users","apitestuser:ApiTestPass1!",
         "--duration","60",
         "--concurrency","8",

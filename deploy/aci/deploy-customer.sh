@@ -121,7 +121,7 @@ echo ""
 echo "[5/7] Uploading initial config..."
 cat > /tmp/${CUSTOMER_ID}-config.ini <<EOF
 [server]
-port = 49
+port = 8049
 host = 0.0.0.0
 
 [web]
@@ -179,7 +179,7 @@ az container create \
   --name "tacacs-${CUSTOMER_ID}" \
   --image $IMAGE \
   --assign-identity $IDENTITY_ID \
-  --ports 49 1812 1813 8443 \
+  --ports 8049 1812 1813 8443 \
   --cpu 2 \
   --memory 4 \
   --restart-policy Always \
@@ -215,7 +215,7 @@ echo "Container Name:   tacacs-${CUSTOMER_ID}"
 echo "Public IP:        ${CONTAINER_IP}"
 echo ""
 echo "Services:"
-echo "  TACACS:         ${CONTAINER_IP}:49"
+echo "  TACACS:         ${CONTAINER_IP}:8049"
 echo "  RADIUS Auth:    ${CONTAINER_IP}:1812"
 echo "  RADIUS Acct:    ${CONTAINER_IP}:1813"
 echo "  Web Admin:      https://${CONTAINER_IP}:8443"
