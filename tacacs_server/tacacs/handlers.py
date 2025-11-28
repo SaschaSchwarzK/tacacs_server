@@ -1472,6 +1472,8 @@ class AAAHandlers:
             status = "STOP"
         elif flags & TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_WATCHDOG:
             status = "UPDATE"
+        elif flags & TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_MORE:
+            status = "UPDATE"
         else:
             status = "UNKNOWN"
         record = AccountingRecord(
