@@ -215,7 +215,8 @@ def get_auth_config() -> AuthConfig | None:
 async def require_admin_session(request: Request):
     """Require valid admin session (for web UI)"""
     if not _session_manager:
-        if "text/html" in request.headers.get("accept", ""):
+        accept = (request.headers.get("accept", "") or "").lower()
+        if ("text/html" in accept) or ("*/*" in accept) or request.method == "GET":
             raise HTTPException(
                 status_code=status.HTTP_307_TEMPORARY_REDIRECT,
                 headers={"Location": "/admin/login"},
@@ -229,7 +230,8 @@ async def require_admin_session(request: Request):
     user_email = _session_manager.validate_session(token) if token else None
 
     if not user_email:
-        if "text/html" in request.headers.get("accept", ""):
+        accept = (request.headers.get("accept", "") or "").lower()
+        if ("text/html" in accept) or ("*/*" in accept) or request.method == "GET":
             raise HTTPException(
                 status_code=status.HTTP_307_TEMPORARY_REDIRECT,
                 headers={"Location": "/admin/login"},

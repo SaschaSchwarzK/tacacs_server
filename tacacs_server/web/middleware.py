@@ -48,6 +48,9 @@ def install_security_headers(app: FastAPI) -> None:
         "/openapi.yaml",
         "/api/docs",
         "/api/redoc",
+        "/admin/login",
+        "/admin/openid/login",
+        "/api/admin/login",
     }
 
     @app.middleware("http")
