@@ -207,6 +207,8 @@ class AAAHandlers:
         self.db_logger = db_logger
         # Shared session state; protect with a re-entrant lock
         self._lock = threading.RLock()
+        self._acct_session_ids: set[int] = set()
+        self._acct_session_lock = threading.RLock()
         self.auth_sessions: dict[int, dict[str, Any]] = {}
         self.rate_limiter = AuthRateLimiter()
         self.rate_limit_enabled: bool = True
@@ -1466,11 +1468,29 @@ class AAAHandlers:
         device: Any | None,
     ) -> TacacsPacket:
         """Process accounting request"""
+        # Warn on session_id reuse (informational only)
+        try:
+            with self._acct_session_lock:
+                if packet.session_id in self._acct_session_ids:
+                    logger.warning(
+                        "Accounting session_id reused",
+                        event="acct.session.reuse",
+                        session=f"0x{packet.session_id:08x}",
+                        user=user,
+                        client_ip=rem_addr,
+                    )
+                else:
+                    self._acct_session_ids.add(packet.session_id)
+        except Exception:
+            pass
+
         if flags & TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_START:
             status = "START"
         elif flags & TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_STOP:
             status = "STOP"
         elif flags & TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_WATCHDOG:
+            status = "UPDATE"
+        elif flags & TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_MORE:
             status = "UPDATE"
         else:
             status = "UNKNOWN"
@@ -1493,6 +1513,7 @@ class AAAHandlers:
             nas_port_type=args.get("nas-port-type"),
             task_id=args.get("task_id"),
             timezone=args.get("timezone"),
+            cause=args.get("cause") or args.get("acct_terminate_cause"),
         )
         if self.db_logger.log_accounting(record):
             response = self._create_acct_response(

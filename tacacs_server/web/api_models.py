@@ -977,6 +977,9 @@ class AccountingRecord(BaseModel):
     details: dict[str, Any] | None = Field(
         None, description="Additional details", example={"privilege_level": 15}
     )
+    cause: str | None = Field(
+        None, description="Stop/update cause (if provided)", example="IDLE-TIMEOUT"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
