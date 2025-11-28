@@ -1481,8 +1481,17 @@ class AAAHandlers:
                     )
                 else:
                     self._acct_session_ids.add(packet.session_id)
-        except Exception:
-            pass
+        except Exception as e:
+            _structured_log(
+                logger.warning,
+                {
+                    "event": "acct.session.reuse_check_failed",
+                    "error": str(e),
+                    "session": f"0x{getattr(packet, 'session_id', 0):08x}",
+                    "user": user,
+                    "client_ip": rem_addr,
+                },
+            )
 
         if flags & TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_START:
             status = "START"

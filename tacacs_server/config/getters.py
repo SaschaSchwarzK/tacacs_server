@@ -468,21 +468,13 @@ def get_proxy_protocol_config(config: configparser.ConfigParser) -> dict[str, An
             }
 
         sec = dict(config.items("proxy_protocol"))
-        return {
-            "enabled": _to_bool(sec.get("enabled", defaults["enabled"]))
-            if "enabled" in sec
-            else env_overrides.get("enabled", defaults["enabled"]),
-            "validate_sources": _to_bool(
-                sec.get("validate_sources", defaults["validate_sources"])
-            )
-            if "validate_sources" in sec
-            else env_overrides.get("validate_sources", defaults["validate_sources"]),
-            "reject_invalid": _to_bool(
-                sec.get("reject_invalid", defaults["reject_invalid"])
-            )
-            if "reject_invalid" in sec
-            else env_overrides.get("reject_invalid", defaults["reject_invalid"]),
-        }
+        final_config = {}
+        for key, default_val in defaults.items():
+            if key in sec:
+                final_config[key] = _to_bool(sec.get(key, default_val))
+            else:
+                final_config[key] = env_overrides.get(key, default_val)
+        return final_config
     except Exception:
         return defaults
 
