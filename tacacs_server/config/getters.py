@@ -529,6 +529,7 @@ def get_radius_config(config: configparser.ConfigParser) -> dict[str, Any]:
         "rcvbuf": int(config.get("radius", "rcvbuf", fallback="1048576")),
     }
 
+
 # This function is used to get the configuration summary with secrets redacted for display in the UI.
 def get_config_summary(config: configparser.ConfigParser) -> dict[str, Any]:
     """Get configuration summary for display."""
@@ -557,7 +558,16 @@ def get_config_summary(config: configparser.ConfigParser) -> dict[str, Any]:
             summary[section] = dict(config[section])
 
     # Redact sensitive fields
-    SENSITIVE_KEYS = {"password", "secret", "token", "passphrase", "api_key", "bind_password", "client_secret", "private_key"}
+    SENSITIVE_KEYS = {
+        "password",
+        "secret",
+        "token",
+        "passphrase",
+        "api_key",
+        "bind_password",
+        "client_secret",
+        "private_key",
+    }
     for section in summary:
         for key in summary[section]:
             if any(sensitive in key.lower() for sensitive in SENSITIVE_KEYS):

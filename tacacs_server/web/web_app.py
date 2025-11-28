@@ -40,6 +40,7 @@ from .web import (
 
 logger = get_logger(__name__)
 
+
 def create_app(
     admin_username: str = "admin",
     admin_password_hash: str = "",

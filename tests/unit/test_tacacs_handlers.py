@@ -208,6 +208,36 @@ def test_accounting_more_flag_records_update(monkeypatch):
     # DB record should be logged with UPDATE status
     assert db_logger.records, "Accounting record not logged"
     assert db_logger.records[0].status == "UPDATE"
+    assert db_logger.records[0].cause is None
+
+
+def test_accounting_cause_is_recorded():
+    """Ensure accounting cause arg is captured."""
+    db_logger = CaptureDBLogger()
+    handlers = AAAHandlers([], db_logger)
+    packet = TacacsPacket(
+        packet_type=TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT,
+        seq_no=1,
+        session_id=0x0BADF00D,
+        flags=0,
+        body=b"",
+    )
+    resp = handlers._process_accounting(
+        packet=packet,
+        user="acctuser",
+        port="ttyS0",
+        rem_addr="127.0.0.1",
+        flags=TAC_PLUS_ACCT_FLAG.TAC_PLUS_ACCT_FLAG_STOP,
+        service=0,
+        priv_lvl=1,
+        args={"service": "shell", "cmd": "show version", "cause": "IDLE-TIMEOUT"},
+        device=None,
+    )
+    assert resp.packet_type == TAC_PLUS_PACKET_TYPE.TAC_PLUS_ACCT
+    server_msg_len, data_len, status = struct.unpack("!HHH", resp.body[:6])
+    assert status == TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_SUCCESS
+    assert db_logger.records, "Accounting record not logged"
+    assert db_logger.records[0].cause == "IDLE-TIMEOUT"
 
 
 def test_ascii_flow_prompts_for_missing_username_and_password(monkeypatch):
