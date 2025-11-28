@@ -40,18 +40,6 @@ from .web import (
 
 logger = get_logger(__name__)
 
-# Unprotected API paths (no auth required)
-UNAUTH_API_PATHS = {
-    "/api/health",
-    "/api/status",
-    "/api/docs",
-    "/api/redoc",
-    "/api/rapidoc",
-    "/openapi.json",
-    "/openapi.yaml",
-}
-
-
 def create_app(
     admin_username: str = "admin",
     admin_password_hash: str = "",
