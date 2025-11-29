@@ -542,8 +542,8 @@ class AAAHandlers:
                 name = getattr(backend, "name", None)
                 if isinstance(name, str) and name:
                     self._backends_by_name[name] = backend
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to cache backend by name: %s", e)
         except Exception as e:
             logger.debug("Failed to register backend with process pool: %s", e)
 
@@ -736,13 +736,14 @@ class AAAHandlers:
             has_device = session_id in self.session_device
             has_user = session_id in self.session_usernames
 
-        # Remove entries after releasing the lock to minimize contention
-        if has_device:
-            self.session_device.pop(session_id, None)
-        if has_user:
-            self.session_usernames.pop(session_id, None)
-        for key in auth_keys_to_remove:
-            self.auth_sessions.pop(key, None)
+        # Re-acquire lock to safely remove session entries.
+        with self._lock:
+            if has_device:
+                self.session_device.pop(session_id, None)
+            if has_user:
+                self.session_usernames.pop(session_id, None)
+            for key in auth_keys_to_remove:
+                self.auth_sessions.pop(key, None)
 
     def _log_auth_result(
         self,
