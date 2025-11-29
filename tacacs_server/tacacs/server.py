@@ -98,6 +98,8 @@ class TacacsServer:
         self.enable_monitoring = False
 
         # Network settings
+        self._bind_host_for_listen = self.host
+        self._socket_family = socket.AF_INET
         self._load_network_config()
 
         # Proxy settings
@@ -114,6 +116,90 @@ class TacacsServer:
             name="RateLimiterCleanup",
         )
         self._cleanup_thread.start()
+
+    def _shutdown_server_socket(self):
+        """Shutdown and close server socket safely"""
+        if not self.server_socket:
+            return
+        try:
+            self.server_socket.shutdown(socket.SHUT_RDWR)
+        except (OSError, AttributeError) as e:
+            logger.debug("Server socket shutdown failed: %s", e)
+        try:
+            self.server_socket.close()
+        except (OSError, AttributeError) as e:
+            logger.debug("Server socket close failed: %s", e)
+
+    def _log_socket_error(self, message: str, event: str, exc: Exception, **fields):
+        """Log socket-related errors with consistent structured fields"""
+        err_no = getattr(exc, "errno", None)
+        err_str = getattr(exc, "strerror", None)
+        logger.error(
+            message,
+            event=event,
+            errno=err_no,
+            error=err_str if err_str is not None else str(exc),
+            **fields,
+        )
+
+    def _try_config_method(self, method_name: str) -> int | None:
+        """Attempt to read max_connections_per_ip via config method"""
+        if not (self.config and hasattr(self.config, method_name)):
+            return None
+        try:
+            security_config = getattr(self.config, method_name)() or {}
+            max_conn = security_config.get("max_connections_per_ip")
+            if max_conn is None:
+                return None
+            value = int(max_conn)
+            logger.debug(
+                "Using max_connections_per_ip=%s from config.%s()",
+                value,
+                method_name,
+            )
+            return value
+        except Exception as e:
+            logger.debug("Failed to get security config via %s: %s", method_name, e)
+            return None
+
+    def _try_config_internal_security(self) -> int | None:
+        """Attempt to read max_connections_per_ip via config.config internals"""
+        if not (self.config and hasattr(self.config, "config")):
+            return None
+        try:
+            cfg = self.config.config
+            has_security = hasattr(cfg, "get") or (
+                hasattr(cfg, "__getitem__") and "security" in cfg
+            )
+            if not has_security:
+                return None
+            security_section = (
+                cfg.get("security", {}) if hasattr(cfg, "get") else cfg["security"]
+            )
+            max_conn = security_section.get("max_connections_per_ip")
+            if max_conn is None:
+                return None
+            value = int(max_conn)
+            logger.debug(
+                "Using max_connections_per_ip=%s from config.config internals",
+                value,
+            )
+            return value
+        except Exception as e:
+            logger.debug("Failed to read from config.config: %s", e)
+            return None
+
+    def _try_config_dict_security(self) -> int | None:
+        """Attempt to read max_connections_per_ip via plain dict config"""
+        if not (self.config and isinstance(self.config, dict)):
+            return None
+        security = self.config.get("security", {})
+        max_conn = security.get("max_connections_per_ip")
+        if max_conn is None:
+            return None
+        value = int(max_conn)
+        logger.debug("Using max_connections_per_ip=%s from config dict", value)
+        return value
 
     def _rate_limiter_cleanup_loop(self):
         """Periodically clean old rate limiter entries"""
@@ -140,56 +226,20 @@ class TacacsServer:
 
         Priority: config object methods > config dict > config object internals > env variable > default
         """
-        if self.config:
-            # 1. Try config object methods first (from ConfigLoader / TacacsConfig)
-            #    This is the PRIMARY method for production use
-            if hasattr(self.config, "get_security_config"):
-                try:
-                    security_config = self.config.get_security_config() or {}
-                    max_conn = security_config.get("max_connections_per_ip")
-                    if max_conn is not None:
-                        value = int(max_conn)
-                        logger.debug(
-                            "Using max_connections_per_ip=%s from config.get_security_config()",
-                            value,
-                        )
-                        return value
-                except Exception as e:
-                    logger.debug("Failed to get security config: %s", e)
+        # 1. Try config object methods first (primary source)
+        method_value = self._try_config_method("get_security_config")
+        if method_value is not None:
+            return method_value
 
-            # 2. Try nested config.config dict (configparser internals)
-            if hasattr(self.config, "config"):
-                try:
-                    cfg = self.config.config
-                    if hasattr(cfg, "get") or (
-                        hasattr(cfg, "__getitem__") and "security" in cfg
-                    ):
-                        security_section = (
-                            cfg.get("security", {})
-                            if hasattr(cfg, "get")
-                            else cfg["security"]
-                        )
-                        max_conn = security_section.get("max_connections_per_ip")
-                        if max_conn is not None:
-                            value = int(max_conn)
-                            logger.debug(
-                                "Using max_connections_per_ip=%s from config.config internals",
-                                value,
-                            )
-                            return value
-                except Exception as e:
-                    logger.debug("Failed to read from config.config: %s", e)
+        # 2. Try nested config.config dict (configparser internals)
+        internal_value = self._try_config_internal_security()
+        if internal_value is not None:
+            return internal_value
 
-            # 3. Try dict format (from tests/programmatic init with plain dict)
-            if isinstance(self.config, dict):
-                security = self.config.get("security", {})
-                max_conn = security.get("max_connections_per_ip")
-                if max_conn is not None:
-                    value = int(max_conn)
-                    logger.debug(
-                        "Using max_connections_per_ip=%s from config dict", value
-                    )
-                    return value
+        # 3. Try dict format (tests/programmatic init)
+        dict_value = self._try_config_dict_security()
+        if dict_value is not None:
+            return dict_value
 
         # 4. Fall back to environment variable
         env_value = os.getenv("TACACS_MAX_CONN_PER_IP")
@@ -233,6 +283,10 @@ class TacacsServer:
         self.tcp_keepalive_idle = int(os.getenv("TACACS_TCP_KEEPIDLE", "60"))
         self.tcp_keepalive_intvl = int(os.getenv("TACACS_TCP_KEEPINTVL", "10"))
         self.tcp_keepalive_cnt = int(os.getenv("TACACS_TCP_KEEPCNT", "5"))
+        self._socket_family = socket.AF_INET6 if self.enable_ipv6 else socket.AF_INET
+        self._bind_host_for_listen = (
+            "::" if self.enable_ipv6 and self.host in ("0.0.0.0", "::") else self.host
+        )
 
     def _load_proxy_config(self):
         """Load proxy configuration"""
@@ -419,7 +473,7 @@ class TacacsServer:
         """Setup and bind server socket"""
         # Create socket (IPv6 dual-stack if enabled)
         if self.enable_ipv6:
-            self.server_socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            self.server_socket = socket.socket(self._socket_family, socket.SOCK_STREAM)
             try:
                 self.server_socket.setsockopt(
                     socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0
@@ -427,7 +481,7 @@ class TacacsServer:
             except OSError as e:
                 logger.debug("IPv6 dual-stack not supported: %s", e)
         else:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket = socket.socket(self._socket_family, socket.SOCK_STREAM)
 
         # Allow quick reuse after previous test shutdowns
         try:
@@ -435,9 +489,7 @@ class TacacsServer:
         except Exception as set_soc_exc:
             logger.debug("Failed to set socket options: %s", set_soc_exc)
 
-        bind_host = self.host
-        if self.enable_ipv6 and bind_host in ("0.0.0.0", "::"):
-            bind_host = "::"
+        bind_host = self._bind_host_for_listen
 
         # Log bind attempt explicitly for easier diagnostics in CI logs
         logger.info(
@@ -450,20 +502,12 @@ class TacacsServer:
         try:
             self.server_socket.bind((bind_host, self.port))
         except OSError as e:
-            # Surface a precise error so test harness tails are actionable
-            try:
-                err_no = getattr(e, "errno", None)
-                err_str = getattr(e, "strerror", str(e))
-            except Exception:
-                err_no = None
-                err_str = str(e)
-            logger.error(
+            self._log_socket_error(
                 "Failed to bind TACACS+ socket",
                 event="tacacs.socket.bind_failed",
+                exc=e,
                 host=bind_host,
                 port=self.port,
-                errno=err_no,
-                error=err_str,
             )
             # Re-raise to keep current control flow (manager will log and exit)
             raise
@@ -478,12 +522,12 @@ class TacacsServer:
                 backlog=self.listen_backlog,
             )
         except OSError as e:
-            logger.error(
+            self._log_socket_error(
                 "Failed to listen on TACACS+ socket",
                 event="tacacs.socket.listen_failed",
+                exc=e,
                 host=bind_host,
                 port=self.port,
-                error=str(e),
             )
             raise
 
@@ -624,15 +668,7 @@ class TacacsServer:
         if stop_evt is not None:
             stop_evt.set()
 
-        if self.server_socket:
-            try:
-                self.server_socket.shutdown(socket.SHUT_RDWR)
-            except (OSError, AttributeError) as e:
-                logger.debug("Server socket shutdown failed: %s", e)
-            try:
-                self.server_socket.close()
-            except (OSError, AttributeError) as e:
-                logger.debug("Server socket close failed: %s", e)
+        self._shutdown_server_socket()
 
     def graceful_shutdown(self, timeout_seconds=30):
         """Gracefully shutdown server"""
@@ -648,15 +684,7 @@ class TacacsServer:
             except Exception as e:
                 logger.debug("Cleanup thread join failed: %s", e)
 
-        if self.server_socket:
-            try:
-                self.server_socket.shutdown(socket.SHUT_RDWR)
-            except (OSError, AttributeError) as e:
-                logger.debug("Server socket shutdown failed: %s", e)
-            try:
-                self.server_socket.close()
-            except (OSError, AttributeError) as e:
-                logger.debug("Server socket close failed: %s", e)
+        self._shutdown_server_socket()
 
         # Wait for active connections
         start_time = time.time()

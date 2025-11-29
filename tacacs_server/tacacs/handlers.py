@@ -18,7 +18,7 @@ import struct
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from tacacs_server.auth.base import AuthenticationBackend
 
@@ -51,6 +51,12 @@ from .structures import (
 )
 
 logger = get_logger(__name__)
+
+
+class DeviceContext(TypedDict):
+    device: str | None
+    group: str | None
+    allowed_groups: list[Any]
 
 
 def _structured_log(log_fn, payload: dict[str, Any]):
@@ -204,6 +210,14 @@ class AAAHandlers:
         backend_process_pool_size: int | None = None,
     ):
         self.auth_backends = auth_backends
+        self._backends_by_name: dict[str, AuthenticationBackend] = {}
+        for _backend in auth_backends:
+            try:
+                name = getattr(_backend, "name", None)
+                if isinstance(name, str) and name:
+                    self._backends_by_name[name] = _backend
+            except Exception:
+                continue
         self.db_logger = db_logger
         # Shared session state; protect with a re-entrant lock
         self._lock = threading.RLock()
@@ -524,6 +538,12 @@ class AAAHandlers:
                 # On any error computing keys, fall back to appending
                 pass
             self._backend_configs.append(cfg)
+            try:
+                name = getattr(backend, "name", None)
+                if isinstance(name, str) and name:
+                    self._backends_by_name[name] = backend
+            except Exception as e:
+                logger.debug("Failed to cache backend by name: %s", e)
         except Exception as e:
             logger.debug("Failed to register backend with process pool: %s", e)
 
@@ -574,18 +594,134 @@ class AAAHandlers:
     def _safe_user(user: str | None) -> str:
         return user if user else "<unknown>"
 
+    def _safe_decode(self, data: bytes | None, default: str = "") -> str:
+        if not data:
+            return default
+        return data.decode("utf-8", errors="replace").strip()
+
+    @staticmethod
+    def _fmt_session_id(session_id: int) -> str:
+        return f"0x{session_id:08x}"
+
+    def _get_device_context(self, device: Any | None) -> DeviceContext:
+        """Cache device/group attributes extraction."""
+        group = getattr(device, "group", None) if device else None
+        return {
+            "device": getattr(device, "name", None) if device else None,
+            "group": getattr(group, "name", None) if group else None,
+            "allowed_groups": getattr(group, "allowed_user_groups", [])
+            if group
+            else [],
+        }
+
+    def _get_backend_group_field(self, backend_name: str | None) -> str | None:
+        """Map backend name to its group field."""
+        mapping = {
+            "okta": "okta_group",
+            "ldap": "ldap_group",
+            "radius": "radius_group",
+            "local": "name",
+        }
+        return mapping.get(backend_name.lower() if backend_name else "")
+
+    @staticmethod
+    def _extract_backend_name(detail: str | None) -> str | None:
+        if not detail or "backend=" not in detail:
+            return None
+        try:
+            return detail.split("backend=", 1)[1].split()[0]
+        except (IndexError, AttributeError):
+            return None
+
+    def _notify_auth_failure(
+        self, username: str | None, client_ip: str | None, detail: str | None
+    ) -> None:
+        """Send webhook/monitoring events for authentication/authorization failures."""
+        try:
+            from ..utils.webhook import notify, record_event
+
+            notify(
+                "auth_failure",
+                {
+                    "username": username,
+                    "client_ip": client_ip,
+                    "detail": detail,
+                },
+            )
+            record_event("auth_failure", username or (client_ip or "unknown"))
+        except Exception as e:
+            logger.debug("Webhook notification failed: %s", e)
+
     def _remember_username(self, session_id: int, username: str | None) -> None:
         if username:
             with self._lock:
                 self.session_usernames[session_id] = username
 
+    def _check_privilege(
+        self,
+        required_priv: int,
+        user_priv: int,
+        user: str | None,
+        command: str | None,
+        device: Any | None,
+    ) -> tuple[bool, str | None]:
+        """Check privilege and return (allowed, message)."""
+        device_ctx = self._get_device_context(device)
+        payload = {
+            "event": "privilege_check",
+            "user": user,
+            "command": command,
+            "device": device_ctx["device"],
+            "device_group": device_ctx["group"],
+            "required_priv": required_priv,
+            "user_priv": user_priv,
+        }
+        if required_priv > user_priv:
+            _structured_log(logger.debug, {**payload, "result": "deny"})
+            return (
+                False,
+                f"Insufficient privilege (required: {required_priv}, user: {user_priv})",
+            )
+        _structured_log(logger.debug, {**payload, "result": "allow"})
+        return True, None
+
+    def _sanitize_user_attrs(self, attrs: Any) -> dict[str, Any]:
+        """Recursively filter to safe types only."""
+        if not isinstance(attrs, dict):
+            return {}
+        safe: dict[str, Any] = {}
+        for k, v in attrs.items():
+            if not isinstance(k, str):
+                continue
+            if isinstance(v, (str, int, float, bool)):
+                safe[k] = v
+            elif isinstance(v, (list, tuple)):
+                filtered = [x for x in v if isinstance(x, (str, int, float, bool))]
+                safe[k] = filtered
+        return safe
+
+    def _log_packet_error(
+        self, event: str, stage: str, packet: TacacsPacket, reason: object
+    ) -> None:
+        _structured_log(
+            logger.warning,
+            {
+                "event": f"tacacs.{event}.packet_error",
+                "message": f"Invalid {event} packet body",
+                "service": "tacacs",
+                "stage": stage,
+                "session": self._fmt_session_id(packet.session_id),
+                "seq": packet.seq_no,
+                "reason": str(reason),
+                "length": len(packet.body or b""),
+            },
+        )
+
     def cleanup_session(self, session_id: int) -> None:
         """Remove cached state associated with a TACACS session."""
         with self._lock:
-            # First, determine all keys to remove without mutating dicts mid-iteration
             simple_key = session_id
             prefix = f"{session_id}_"
-            # Collect auth session keys: both simple and composite
             auth_keys_to_remove = []
             if simple_key in self.auth_sessions:
                 auth_keys_to_remove.append(simple_key)
@@ -596,11 +732,16 @@ class AAAHandlers:
                     elif not isinstance(key, str) and str(key).startswith(prefix):
                         auth_keys_to_remove.append(key)
                 except (TypeError, AttributeError):
-                    continue  # Skip malformed keys
+                    continue
+            has_device = session_id in self.session_device
+            has_user = session_id in self.session_usernames
 
-            # Now perform removals
-            self.session_device.pop(session_id, None)
-            self.session_usernames.pop(session_id, None)
+        # Re-acquire lock to safely remove session entries.
+        with self._lock:
+            if has_device:
+                self.session_device.pop(session_id, None)
+            if has_user:
+                self.session_usernames.pop(session_id, None)
             for key in auth_keys_to_remove:
                 self.auth_sessions.pop(key, None)
 
@@ -616,17 +757,13 @@ class AAAHandlers:
             cached_user = self.session_usernames.get(session_id)
         resolved_user = username if username else cached_user
         safe_user = self._safe_user(resolved_user)
-        device_name = getattr(device, "name", None)
-        group_name = getattr(getattr(device, "group", None), "name", None)
+        device_ctx = self._get_device_context(device)
+        device_name = device_ctx["device"]
+        group_name = device_ctx["group"]
         context = group_name or device_name or "unknown"
-        sess_hex = f"0x{session_id:08x}"
+        sess_hex = self._fmt_session_id(session_id)
         # Structured log aligned with logging spec; avoid manual JSON
-        backend_name = None
-        try:
-            if detail and "backend=" in detail:
-                backend_name = detail.split("backend=", 1)[1].split()[0]
-        except (IndexError, AttributeError):
-            backend_name = None  # Failed to parse backend name from detail
+        backend_name = self._extract_backend_name(detail)
         try:
             log_kwargs = dict(
                 event="auth.success" if success else "auth.failure",
@@ -677,16 +814,7 @@ class AAAHandlers:
                 try:
                     parsed = parse_authen_start(packet.body)
                 except ProtocolError as pe:
-                    logger.warning(
-                        "Invalid authentication packet body",
-                        event="tacacs.auth.packet_error",
-                        service="tacacs",
-                        stage="start",
-                        session=f"0x{packet.session_id:08x}",
-                        seq=packet.seq_no,
-                        reason=str(pe),
-                        length=len(packet.body or b""),
-                    )
+                    self._log_packet_error("auth", "start", packet, pe)
                     response = self._create_auth_response(
                         packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
                     )
@@ -704,15 +832,11 @@ class AAAHandlers:
                     try:
                         parsed = parse_authen_start(packet.body)
                     except ProtocolError as pe_fallback:
-                        logger.warning(
-                            "Invalid authentication packet body (fallback failed)",
-                            event="tacacs.auth.packet_error",
-                            service="tacacs",
-                            stage="continue",
-                            session=f"0x{packet.session_id:08x}",
-                            seq=packet.seq_no,
-                            reason=f"primary: {pe}, fallback: {pe_fallback}",
-                            length=len(packet.body or b""),
+                        self._log_packet_error(
+                            "auth",
+                            "continue",
+                            packet,
+                            f"primary: {pe}, fallback: {pe_fallback}",
                         )
                         response = self._create_auth_response(
                             packet, TAC_PLUS_AUTHEN_STATUS.TAC_PLUS_AUTHEN_STATUS_ERROR
@@ -776,7 +900,7 @@ class AAAHandlers:
                         authen_type,
                         action,
                         packet.seq_no,
-                        f"0x{packet.session_id:08x}",
+                        self._fmt_session_id(packet.session_id),
                     )
                     self._remember_username(packet.session_id, user)
                     return self._handle_auth_start(
@@ -805,7 +929,7 @@ class AAAHandlers:
                     authen_type,
                     action,
                     packet.seq_no,
-                    f"0x{packet.session_id:08x}",
+                    self._fmt_session_id(packet.session_id),
                 )
                 return self._handle_auth_continue(packet, user, data, user_msg)
 
@@ -816,7 +940,7 @@ class AAAHandlers:
                 authen_type,
                 action,
                 packet.seq_no,
-                f"0x{packet.session_id:08x}",
+                self._fmt_session_id(packet.session_id),
             )
             self._remember_username(packet.session_id, user)
             return self._handle_auth_start(
@@ -848,16 +972,7 @@ class AAAHandlers:
             try:
                 a = parse_author_request(packet.body)
             except ProtocolError as pe:
-                logger.warning(
-                    "Invalid authorization packet body",
-                    event="tacacs.author.packet_error",
-                    service="tacacs",
-                    stage="request",
-                    session=f"0x{packet.session_id:08x}",
-                    seq=packet.seq_no,
-                    reason=str(pe),
-                    length=len(packet.body or b""),
-                )
+                self._log_packet_error("author", "request", packet, pe)
                 return self._create_author_response(
                     packet, TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_ERROR
                 )
@@ -875,7 +990,7 @@ class AAAHandlers:
                 self._safe_user(user),
                 authen_service,
                 self._redact_args(args),
-                f"0x{packet.session_id:08x}",
+                self._fmt_session_id(packet.session_id),
             )
             return self._process_authorization(
                 packet, user, authen_service, priv_lvl, args, device
@@ -896,16 +1011,7 @@ class AAAHandlers:
             try:
                 r = parse_acct_request(packet.body)
             except ProtocolError as pe:
-                logger.warning(
-                    "Invalid accounting packet body",
-                    event="tacacs.acct.packet_error",
-                    service="tacacs",
-                    stage="request",
-                    session=f"0x{packet.session_id:08x}",
-                    seq=packet.seq_no,
-                    reason=str(pe),
-                    length=len(packet.body or b""),
-                )
+                self._log_packet_error("acct", "request", packet, pe)
                 return self._create_acct_response(
                     packet, TAC_PLUS_ACCT_STATUS.TAC_PLUS_ACCT_STATUS_ERROR
                 )
@@ -926,7 +1032,7 @@ class AAAHandlers:
                 self._safe_user(user),
                 flags,
                 self._redact_args(args),
-                f"0x{packet.session_id:08x}",
+                self._fmt_session_id(packet.session_id),
             )
             return self._process_accounting(
                 packet,
@@ -1019,12 +1125,7 @@ class AAAHandlers:
                 except Exception as e:
                     logger.debug("Failed to retry authentication after reload: %s", e)
             if authenticated:
-                backend_name = None
-                try:
-                    if detail and "backend=" in detail:
-                        backend_name = detail.split("backend=", 1)[1].split()[0]
-                except (IndexError, AttributeError):
-                    backend_name = None
+                backend_name = self._extract_backend_name(detail)
                 allowed, reason = self._enforce_device_group_policy(
                     backend_name, user, device
                 )
@@ -1116,9 +1217,7 @@ class AAAHandlers:
             session_info = self.auth_sessions.get(session_key)
         if not session_info:
             # Synthesize minimal session info for clients that send CONTINUE without prior state
-            username_seed = (
-                (data or user_msg or b"").decode("utf-8", errors="replace").strip()
-            )
+            username_seed = self._safe_decode(data or user_msg)
             with self._lock:
                 self.auth_sessions[session_key] = {
                     "step": "password" if username_seed else "username",
@@ -1126,7 +1225,7 @@ class AAAHandlers:
                 }
                 session_info = dict(self.auth_sessions[session_key])
         if session_info["step"] == "username":
-            username = data.decode("utf-8", errors="replace").strip()
+            username = self._safe_decode(data)
             session_info["username"] = username
             session_info["step"] = "password"
             self._remember_username(packet.session_id, username)
@@ -1136,25 +1235,19 @@ class AAAHandlers:
                 "Password: ",
             )
         elif session_info["step"] == "password":
-            password = data.decode("utf-8", errors="replace").strip()
+            password = self._safe_decode(data)
             if not password:
-                password = user_msg.decode("utf-8", errors="replace").strip()
+                password = self._safe_decode(user_msg)
             username = session_info["username"]
             with self._lock:
                 del self.auth_sessions[session_key]
-            with self._lock:
                 device = self.session_device.get(packet.session_id)
             client_ip = getattr(device, "ip", None)
             authenticated, detail = self._authenticate_user(
                 username, password, client_ip=client_ip
             )
             if authenticated:
-                backend_name = None
-                try:
-                    if detail and "backend=" in detail:
-                        backend_name = detail.split("backend=", 1)[1].split()[0]
-                except (IndexError, AttributeError):
-                    backend_name = None
+                backend_name = self._extract_backend_name(detail)
                 allowed, reason = self._enforce_device_group_policy(
                     backend_name, username, device
                 )
@@ -1201,6 +1294,9 @@ class AAAHandlers:
         device: Any | None,
     ) -> TacacsPacket:
         """Process authorization request"""
+        device_ctx = self._get_device_context(
+            device or self.session_device.get(packet.session_id)
+        )
         user_attrs = None
         for backend in self.auth_backends:
             try:
@@ -1214,27 +1310,8 @@ class AAAHandlers:
                 logger.error("Error getting attributes from %s: %s", backend.name, e)
                 continue
         # Sanitize attributes to avoid propagating malformed data
-        if user_attrs and not isinstance(user_attrs, dict):
-            user_attrs = None
-        elif isinstance(user_attrs, dict):
-            safe_attrs: dict[str, Any] = {}
-            for k, v in user_attrs.items():
-                if not isinstance(k, str):
-                    continue
-                if isinstance(v, (str, int, float, bool)):
-                    safe_attrs[k] = v
-                elif isinstance(v, (list, tuple)):
-                    # Preserve list/tuple of basic types (e.g., groups)
-                    filtered = []
-                    for item in v:
-                        if isinstance(item, (str, int, float, bool)):
-                            filtered.append(item)
-                    safe_attrs[k] = filtered
-                else:
-                    # Drop unsupported types to avoid surprises
-                    continue
-            user_attrs = safe_attrs
-        if not user_attrs:
+        user_attrs = self._sanitize_user_attrs(user_attrs)
+        if not user_attrs or not any(user_attrs.values()):
             # If no attributes and no explicit command requested, allow minimal service
             # This aligns with integration tests expecting PASS for service-only requests.
             has_cmd = bool(args.get("cmd"))
@@ -1253,28 +1330,17 @@ class AAAHandlers:
                 logger.warning,
                 {
                     "event": "authorization_denied",
-                    "session": f"0x{packet.session_id:08x}",
+                    "session": self._fmt_session_id(packet.session_id),
                     "user": user,
                     "reason": "no_attrs",
                     "command": args.get("cmd"),
-                    "device_group": getattr(
-                        getattr(device, "group", None), "name", None
-                    ),
+                    "device_group": device_ctx["group"],
                 },
             )
             try:
-                from ..utils.webhook import notify
-
-                notify(
-                    "authorization_failure",
-                    {
-                        "username": user,
-                        "client_ip": getattr(device, "ip", None),
-                        "reason": "no_attrs",
-                    },
-                )
-            except Exception as e:
-                logger.debug("Failed to send webhook notification: %s", e)
+                self._notify_auth_failure(user, getattr(device, "ip", None), "no_attrs")
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -1287,48 +1353,31 @@ class AAAHandlers:
                     logger.warning,
                     {
                         "event": "authorization_denied",
-                        "session": f"0x{packet.session_id:08x}",
+                        "session": self._fmt_session_id(packet.session_id),
                         "user": user,
                         "reason": "disabled",
                         "command": args.get("cmd"),
-                        "device_group": getattr(
-                            getattr(device, "group", None), "name", None
-                        ),
+                        "device_group": device_ctx["group"],
                     },
                 )
             except Exception as e:
                 logger.debug("Failed to log authorization denial: %s", e)
             try:
-                from ..utils.webhook import notify
-
-                notify(
-                    "authorization_failure",
-                    {
-                        "username": user,
-                        "client_ip": getattr(device, "ip", None),
-                        "reason": "disabled",
-                    },
-                )
-            except Exception as e:
-                logger.debug("Failed to send webhook notification: %s", e)
+                self._notify_auth_failure(user, getattr(device, "ip", None), "disabled")
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
                 "User account is disabled",
             )
 
-        device_record = device or self.session_device.get(packet.session_id)
-        device_group = getattr(device_record, "group", None) if device_record else None
-        if device_group:
-            allowed_groups = getattr(device_group, "allowed_user_groups", [])
-            device_group_name = getattr(device_group, "name", None)
-        else:
-            allowed_groups = []
-            device_group_name = None
+        allowed_groups = device_ctx["allowed_groups"] or []
+        device_group_name = device_ctx["group"]
 
         context = PolicyContext(
             device_group_name=device_group_name,
-            allowed_user_groups=allowed_groups,
+            allowed_user_groups=allowed_groups or [],
             user_groups=user_attrs.get("groups", []) or [],
             fallback_privilege=user_attrs.get("privilege_level", 1),
         )
@@ -1348,30 +1397,23 @@ class AAAHandlers:
                 logger.warning,
                 {
                     "event": "authorization_denied",
-                    "session": f"0x{packet.session_id:08x}",
+                    "session": self._fmt_session_id(packet.session_id),
                     "user": user,
                     "reason": result.denial_message or "policy_denied",
                     "command": args.get("cmd"),
                     "required_priv": priv_lvl,
                     "user_priv": user_priv,
-                    "device_group": getattr(
-                        getattr(device, "group", None), "name", None
-                    ),
+                    "device_group": device_group_name,
                 },
             )
             try:
-                from ..utils.webhook import notify
-
-                notify(
-                    "authorization_failure",
-                    {
-                        "username": user,
-                        "client_ip": getattr(device, "ip", None),
-                        "reason": result.denial_message or "policy_denied",
-                    },
+                self._notify_auth_failure(
+                    user,
+                    getattr(device, "ip", None),
+                    result.denial_message or "policy_denied",
                 )
-            except Exception as e:
-                logger.debug("Failed to send webhook notification: %s", e)
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
@@ -1383,42 +1425,38 @@ class AAAHandlers:
         # command request for the purposes of minimal authorization flows.
         command = args.get("cmd", "")
         # Privilege level enforcement order can be configured. Default: 'before'.
+        allowed_priv, denial_msg = self._check_privilege(
+            priv_lvl, user_priv, user, command, device
+        )
         _priv_order = getattr(self, "privilege_check_order", "before")
-        if _priv_order == "before" and (priv_lvl > user_priv):
+        if _priv_order == "before" and not allowed_priv:
             self.cleanup_session(packet.session_id)
             _structured_log(
                 logger.warning,
                 {
                     "event": "authorization_denied",
-                    "session": f"0x{packet.session_id:08x}",
+                    "session": self._fmt_session_id(packet.session_id),
                     "user": user,
                     "reason": "insufficient_privilege",
                     "command": args.get("cmd"),
                     "required_priv": priv_lvl,
                     "user_priv": user_priv,
-                    "device_group": getattr(
-                        getattr(device, "group", None), "name", None
-                    ),
+                    "device_group": device_group_name,
                 },
             )
             try:
-                from ..utils.webhook import notify
-
-                notify(
-                    "authorization_failure",
-                    {
-                        "username": user,
-                        "client_ip": getattr(device, "ip", None),
-                        "reason": "insufficient_privilege",
-                    },
+                self._notify_auth_failure(
+                    user,
+                    getattr(device, "ip", None),
+                    "insufficient_privilege",
                 )
-            except Exception as e:
-                logger.debug("Failed to send webhook notification: %s", e)
+            except Exception:
+                pass
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
-                f"Insufficient privilege level (required: {priv_lvl}, "
-                f"user: {user_priv})",
+                denial_msg
+                or f"Insufficient privilege (required: {priv_lvl}, user: {user_priv})",
             )
         # Command authorization evaluation (engine/external/defaults)
         if command:
@@ -1440,12 +1478,12 @@ class AAAHandlers:
             {
                 "event": "authorization_granted",
                 "mode": "pass_add",
-                "session": f"0x{packet.session_id:08x}",
+                "session": self._fmt_session_id(packet.session_id),
                 "user": user,
                 "command": args.get("cmd"),
                 "user_priv": user_priv,
                 "required_priv": priv_lvl,
-                "device_group": getattr(getattr(device, "group", None), "name", None),
+                "device_group": device_group_name,
             },
         )
         return self._create_author_response(
@@ -1475,7 +1513,7 @@ class AAAHandlers:
                     logger.warning(
                         "Accounting session_id reused",
                         event="acct.session.reuse",
-                        session=f"0x{packet.session_id:08x}",
+                        session=self._fmt_session_id(packet.session_id),
                         user=user,
                         client_ip=rem_addr,
                     )
@@ -1487,7 +1525,7 @@ class AAAHandlers:
                 {
                     "event": "acct.session.reuse_check_failed",
                     "error": str(e),
-                    "session": f"0x{getattr(packet, 'session_id', 0):08x}",
+                    "session": self._fmt_session_id(getattr(packet, "session_id", 0)),
                     "user": user,
                     "client_ip": rem_addr,
                 },
@@ -1534,7 +1572,7 @@ class AAAHandlers:
                 logger.info,
                 {
                     "event": "acct_record",
-                    "session": f"0x{packet.session_id:08x}",
+                    "session": self._fmt_session_id(packet.session_id),
                     "user": user or self._safe_user(None),
                     "status": status,
                     "service": record.service,
@@ -1561,7 +1599,7 @@ class AAAHandlers:
                 logger.warning,
                 {
                     "event": "acct_record_error",
-                    "session": f"0x{packet.session_id:08x}",
+                    "session": self._fmt_session_id(packet.session_id),
                     "user": user or self._safe_user(None),
                     "status": status,
                     "service": record.service,
@@ -1584,12 +1622,22 @@ class AAAHandlers:
     def _get_backend_by_name(
         self, backend_name: str | None
     ) -> AuthenticationBackend | None:
+        """Retrieve backend by name using cached map; fall back to a scan if missing.
+
+        The cache is populated during __init__ and on_backend_added; any backend not
+        yet cached is resolved by iterating auth_backends once and then memoized.
+        """
         if not backend_name:
             return None
-        for backend in self.auth_backends:
+        backend = self._backends_by_name.get(backend_name)
+        if backend:
+            return backend
+        # Fallback to search in case of late-added backends without on_backend_added
+        for backend_candidate in self.auth_backends:
             try:
-                if getattr(backend, "name", None) == backend_name:
-                    return backend
+                if getattr(backend_candidate, "name", None) == backend_name:
+                    self._backends_by_name[backend_name] = backend_candidate
+                    return backend_candidate
             except Exception:
                 continue
         return None
@@ -1605,17 +1653,16 @@ class AAAHandlers:
         """
         if device is None:
             return True, None
+        device_ctx = self._get_device_context(device)
         backend = self._get_backend_by_name(backend_name)
         if backend is None:
             return True, None
 
-        device_group = getattr(device, "group", None)
-        if not device_group:
+        device_group_name = device_ctx["group"]
+        if not device_group_name:
             return True, None
         try:
-            allowed_group_names = list(
-                getattr(device_group, "allowed_user_groups", []) or []
-            )
+            allowed_group_names = list(device_ctx["allowed_groups"] or [])
         except Exception:
             allowed_group_names = []
         if not allowed_group_names:
@@ -1629,19 +1676,11 @@ class AAAHandlers:
                 except Exception:
                     continue
                 backend_name_norm = str(getattr(backend, "name", "")).lower()
-                target_value: str | None = None
-                if backend_name_norm == "okta":
-                    target_value = getattr(record, "okta_group", None)
-                elif backend_name_norm == "ldap":
-                    target_value = getattr(record, "ldap_group", None)
-                elif backend_name_norm == "radius":
-                    # For RADIUS, match against explicit radius_group if set,
-                    # otherwise fall back to the local group name.
-                    target_value = getattr(record, "radius_group", None)
-                    if target_value is None:
-                        target_value = getattr(record, "name", None)
-                elif backend_name_norm == "local":
-                    # For local backend, match directly on local group name.
+                target_field = self._get_backend_group_field(backend_name_norm)
+                target_value: str | None = (
+                    getattr(record, target_field, None) if target_field else None
+                )
+                if backend_name_norm == "radius" and target_value is None:
                     target_value = getattr(record, "name", None)
 
                 if target_value:
@@ -1668,8 +1707,7 @@ class AAAHandlers:
             user_groups = set()
 
         matches = sorted(list(allowed_targets & user_groups))
-        device_name = getattr(device, "name", None)
-        device_group_name = getattr(device_group, "name", None)
+        device_name = device_ctx["device"]
 
         log_payload = {
             "event": "group_enforcement",
@@ -1772,40 +1810,14 @@ class AAAHandlers:
                 last_error.split(" ")[0],
             )
             # Webhook on authentication failure
-            try:
-                from ..utils.webhook import notify, record_event
-
-                notify(
-                    "auth_failure",
-                    {
-                        "username": username,
-                        "client_ip": client_ip,
-                        "detail": last_error,
-                    },
-                )
-                record_event("auth_failure", username or (client_ip or "unknown"))
-            except Exception as e:
-                logger.debug("Failed to send webhook notification: %s", e)
+            self._notify_auth_failure(username, client_ip, last_error)
             return False, last_error
 
         if not self.auth_backends:
             _PM.record_auth_request(
                 "fail", "none", _time.time() - start_ts, "no_backends"
             )
-            try:
-                from ..utils.webhook import notify, record_event
-
-                notify(
-                    "auth_failure",
-                    {
-                        "username": username,
-                        "client_ip": client_ip,
-                        "detail": "no_backends",
-                    },
-                )
-                record_event("auth_failure", username or (client_ip or "unknown"))
-            except Exception as e:
-                logger.debug("Failed to send webhook notification: %s", e)
+            self._notify_auth_failure(username, client_ip, "no_backends")
             return False, "no authentication backends configured"
 
         _PM.record_auth_request(
@@ -1814,20 +1826,7 @@ class AAAHandlers:
             _time.time() - start_ts,
             "no_backend_accepted",
         )
-        try:
-            from ..utils.webhook import notify, record_event
-
-            notify(
-                "auth_failure",
-                {
-                    "username": username,
-                    "client_ip": client_ip,
-                    "detail": "no_backend_accepted",
-                },
-            )
-            record_event("auth_failure", username or (client_ip or "unknown"))
-        except Exception as e:
-            logger.debug("Failed to send webhook notification: %s", e)
+        self._notify_auth_failure(username, client_ip, "no_backend_accepted")
         return False, "no backend accepted credentials"
 
     def _authenticate_backend_with_timeout(
@@ -2114,6 +2113,8 @@ class AAAHandlers:
         Tries built-in engine (preferred), then external authorizer, then simple defaults.
         Returns a ready TACACS+ author response packet, or None to fall through.
         """
+        device_ctx = self._get_device_context(device)
+        device_group_name = device_ctx["group"]
         # Prefer built-in engine when available
         _engine = getattr(self, "command_engine", None)
         if _engine is None:
@@ -2126,9 +2127,6 @@ class AAAHandlers:
         if _engine is not None:
             try:
                 user_groups_list = user_attrs.get("groups") or []
-                device_group_name = getattr(
-                    getattr(device, "group", None), "name", None
-                )
                 allowed, reason, provided_attrs, rule_mode = _engine.authorize_command(
                     command,
                     privilege_level=user_priv,
@@ -2141,7 +2139,7 @@ class AAAHandlers:
                         logger.warning,
                         {
                             "event": "authorization_denied",
-                            "session": f"0x{packet.session_id:08x}",
+                            "session": self._fmt_session_id(packet.session_id),
                             "user": user,
                             "command": command,
                             "reason": reason
@@ -2149,9 +2147,7 @@ class AAAHandlers:
                             else "policy_denied",
                             "user_priv": user_priv,
                             "required_priv": requested_priv,
-                            "device_group": getattr(
-                                getattr(device, "group", None), "name", None
-                            ),
+                            "device_group": device_group_name,
                         },
                     )
                     return self._create_author_response(
@@ -2185,14 +2181,12 @@ class AAAHandlers:
                     {
                         "event": "authorization_granted",
                         "mode": response_mode,
-                        "session": f"0x{packet.session_id:08x}",
+                        "session": self._fmt_session_id(packet.session_id),
                         "user": user,
                         "command": command,
                         "user_priv": user_priv,
                         "required_priv": requested_priv,
-                        "device_group": getattr(
-                            getattr(device, "group", None), "name", None
-                        ),
+                        "device_group": device_group_name,
                     },
                 )
                 return self._create_author_response(
@@ -2214,7 +2208,6 @@ class AAAHandlers:
             authorizer = None
         if authorizer is not None:
             user_groups_list = user_attrs.get("groups") or []
-            device_group_name = getattr(getattr(device, "group", None), "name", None)
             result = authorizer(command, user_priv, user_groups_list, device_group_name)
             if isinstance(result, tuple) and len(result) >= 2:
                 allowed = bool(result[0])
@@ -2262,14 +2255,12 @@ class AAAHandlers:
                 {
                     "event": "authorization_granted",
                     "mode": response_mode,
-                    "session": f"0x{packet.session_id:08x}",
+                    "session": self._fmt_session_id(packet.session_id),
                     "user": user,
                     "command": command,
                     "user_priv": user_priv,
                     "required_priv": requested_priv,
-                    "device_group": getattr(
-                        getattr(device, "group", None), "name", None
-                    ),
+                    "device_group": device_group_name,
                 },
             )
             return self._create_author_response(
@@ -2288,14 +2279,12 @@ class AAAHandlers:
                 {
                     "event": "authorization_granted",
                     "mode": "pass_add",
-                    "session": f"0x{packet.session_id:08x}",
+                    "session": self._fmt_session_id(packet.session_id),
                     "user": user,
                     "command": command,
                     "user_priv": user_priv,
                     "required_priv": requested_priv,
-                    "device_group": getattr(
-                        getattr(device, "group", None), "name", None
-                    ),
+                    "device_group": device_group_name,
                 },
             )
             return self._create_author_response(
@@ -2304,12 +2293,19 @@ class AAAHandlers:
                 "Authorization granted",
                 auth_attrs,
             )
-        if user_priv < 15:
+        required_priv = max(requested_priv, 15)
+        allowed_priv, denial_msg = self._check_privilege(
+            required_priv, user_priv, user, command, device
+        )
+        # Authorization defaults reserve privilege 15 as the minimum required for
+        # arbitrary commands (non-show). We elevate the requested privilege here to a
+        # floor of 15 before checking to enforce that policy consistently.
+        if not allowed_priv:
             self.cleanup_session(packet.session_id)
             return self._create_author_response(
                 packet,
                 TAC_PLUS_AUTHOR_STATUS.TAC_PLUS_AUTHOR_STATUS_FAIL,
-                "Command not permitted at current privilege",
+                denial_msg or "Command not permitted at current privilege",
             )
         # Else allow at priv 15
         auth_attrs = self._build_authorization_attributes(user_attrs, args)
@@ -2319,12 +2315,12 @@ class AAAHandlers:
             {
                 "event": "authorization_granted",
                 "mode": "pass_add",
-                "session": f"0x{packet.session_id:08x}",
+                "session": self._fmt_session_id(packet.session_id),
                 "user": user,
                 "command": command,
                 "user_priv": user_priv,
                 "required_priv": requested_priv,
-                "device_group": getattr(getattr(device, "group", None), "name", None),
+                "device_group": device_group_name,
             },
         )
         return self._create_author_response(
