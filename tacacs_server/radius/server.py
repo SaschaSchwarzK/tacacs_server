@@ -21,6 +21,66 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from .constants import (
+    ACCT_STATUS_ACCOUNTING_OFF,
+    ACCT_STATUS_ACCOUNTING_ON,
+    ACCT_STATUS_INTERIM_UPDATE,
+    ACCT_STATUS_START,
+    ACCT_STATUS_STOP,
+    ATTR_ACCT_AUTHENTIC,
+    ATTR_ACCT_DELAY_TIME,
+    ATTR_ACCT_INPUT_OCTETS,
+    ATTR_ACCT_INPUT_PACKETS,
+    ATTR_ACCT_OUTPUT_OCTETS,
+    ATTR_ACCT_OUTPUT_PACKETS,
+    ATTR_ACCT_SESSION_ID,
+    ATTR_ACCT_SESSION_TIME,
+    ATTR_ACCT_STATUS_TYPE,
+    ATTR_ACCT_TERMINATE_CAUSE,
+    ATTR_CALLED_STATION_ID,
+    ATTR_CALLING_STATION_ID,
+    ATTR_CHAP_PASSWORD,
+    ATTR_CLASS,
+    ATTR_FILTER_ID,
+    ATTR_FRAMED_IP_ADDRESS,
+    ATTR_FRAMED_PROTOCOL,
+    ATTR_IDLE_TIMEOUT,
+    ATTR_MESSAGE_AUTHENTICATOR,
+    ATTR_NAS_IDENTIFIER,
+    ATTR_NAS_IP_ADDRESS,
+    ATTR_NAS_PORT,
+    ATTR_NAS_PORT_TYPE,
+    ATTR_REPLY_MESSAGE,
+    ATTR_SERVICE_TYPE,
+    ATTR_SESSION_TIMEOUT,
+    ATTR_STATE,
+    ATTR_USER_NAME,
+    ATTR_USER_PASSWORD,
+    ATTR_VENDOR_SPECIFIC,
+    MAX_RADIUS_PACKET_LENGTH,
+    NAS_PORT_TYPE_ASYNC,
+    NAS_PORT_TYPE_ETHERNET,
+    NAS_PORT_TYPE_ISDN,
+    NAS_PORT_TYPE_ISDN_V110,
+    NAS_PORT_TYPE_ISDN_V120,
+    NAS_PORT_TYPE_SYNC,
+    NAS_PORT_TYPE_VIRTUAL,
+    NAS_PORT_TYPE_WIRELESS,
+    RADIUS_ACCESS_ACCEPT,
+    RADIUS_ACCESS_CHALLENGE,
+    RADIUS_ACCESS_REJECT,
+    RADIUS_ACCESS_REQUEST,
+    RADIUS_ACCOUNTING_REQUEST,
+    RADIUS_ACCOUNTING_RESPONSE,
+    SERVICE_TYPE_ADMINISTRATIVE,
+    SERVICE_TYPE_CALLBACK_FRAMED,
+    SERVICE_TYPE_CALLBACK_LOGIN,
+    SERVICE_TYPE_FRAMED,
+    SERVICE_TYPE_LOGIN,
+    SERVICE_TYPE_NAS_PROMPT,
+    SERVICE_TYPE_OUTBOUND,
+)
+
 from tacacs_server.auth.base import AuthenticationBackend
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
@@ -28,74 +88,6 @@ from tacacs_server.utils.rate_limiter import get_rate_limiter
 
 logger = get_logger("tacacs_server.radius.server", component="radius")
 
-# RADIUS Packet Codes
-RADIUS_ACCESS_REQUEST = 1
-RADIUS_ACCESS_ACCEPT = 2
-RADIUS_ACCESS_REJECT = 3
-RADIUS_ACCOUNTING_REQUEST = 4
-RADIUS_ACCOUNTING_RESPONSE = 5
-RADIUS_ACCESS_CHALLENGE = 11
-
-# Packet limits
-MAX_RADIUS_PACKET_LENGTH = 4096  # RFC 2865 maximum
-
-# RADIUS Attribute Types
-ATTR_USER_NAME = 1
-ATTR_USER_PASSWORD = 2
-ATTR_CHAP_PASSWORD = 3
-ATTR_NAS_IP_ADDRESS = 4
-ATTR_NAS_PORT = 5
-ATTR_SERVICE_TYPE = 6
-ATTR_FRAMED_PROTOCOL = 7
-ATTR_FRAMED_IP_ADDRESS = 8
-ATTR_FILTER_ID = 11
-ATTR_REPLY_MESSAGE = 18
-ATTR_STATE = 24
-ATTR_CLASS = 25
-ATTR_VENDOR_SPECIFIC = 26
-ATTR_SESSION_TIMEOUT = 27
-ATTR_IDLE_TIMEOUT = 28
-ATTR_CALLED_STATION_ID = 30
-ATTR_CALLING_STATION_ID = 31
-ATTR_NAS_IDENTIFIER = 32
-ATTR_ACCT_STATUS_TYPE = 40
-ATTR_ACCT_DELAY_TIME = 41
-ATTR_ACCT_INPUT_OCTETS = 42
-ATTR_ACCT_OUTPUT_OCTETS = 43
-ATTR_ACCT_SESSION_ID = 44
-ATTR_ACCT_AUTHENTIC = 45
-ATTR_ACCT_SESSION_TIME = 46
-ATTR_ACCT_INPUT_PACKETS = 47
-ATTR_ACCT_OUTPUT_PACKETS = 48
-ATTR_ACCT_TERMINATE_CAUSE = 49
-ATTR_NAS_PORT_TYPE = 61
-ATTR_MESSAGE_AUTHENTICATOR = 80
-
-# Service Types
-SERVICE_TYPE_LOGIN = 1
-SERVICE_TYPE_FRAMED = 2
-SERVICE_TYPE_CALLBACK_LOGIN = 3
-SERVICE_TYPE_CALLBACK_FRAMED = 4
-SERVICE_TYPE_OUTBOUND = 5
-SERVICE_TYPE_ADMINISTRATIVE = 6
-SERVICE_TYPE_NAS_PROMPT = 7
-
-# Accounting Status Types
-ACCT_STATUS_START = 1
-ACCT_STATUS_STOP = 2
-ACCT_STATUS_INTERIM_UPDATE = 3
-ACCT_STATUS_ACCOUNTING_ON = 7
-ACCT_STATUS_ACCOUNTING_OFF = 8
-
-# NAS Port Types
-NAS_PORT_TYPE_ASYNC = 0
-NAS_PORT_TYPE_SYNC = 1
-NAS_PORT_TYPE_ISDN = 2
-NAS_PORT_TYPE_ISDN_V120 = 3
-NAS_PORT_TYPE_ISDN_V110 = 4
-NAS_PORT_TYPE_VIRTUAL = 5
-NAS_PORT_TYPE_ETHERNET = 15
-NAS_PORT_TYPE_WIRELESS = 19
 
 
 @dataclass
@@ -180,6 +172,17 @@ class RADIUSPacket:
                 raw = RADIUSAttribute(ATTR_MESSAGE_AUTHENTICATOR, b"\x00" * 16).pack()
                 msg_auth_idx = len(raw_attrs)
                 raw_attrs.append(raw)
+            elif (
+                attr.attr_type == ATTR_USER_PASSWORD
+                and secret
+                and self.code == RADIUS_ACCESS_REQUEST
+            ):
+                # Obfuscate password per RFC 2865 §5.2 using request authenticator
+                auth_seed = request_auth or self.authenticator
+                encrypted = self._encrypt_password_value(
+                    attr.value, secret, auth_seed or b"\x00" * 16
+                )
+                raw_attrs.append(RADIUSAttribute(ATTR_USER_PASSWORD, encrypted).pack())
             else:
                 raw_attrs.append(attr.pack())
         attrs_data = b"".join(raw_attrs)
@@ -223,6 +226,28 @@ class RADIUSPacket:
 
         return packet
 
+    @staticmethod
+    def _encrypt_password_value(
+        password: bytes, secret: bytes, authenticator: bytes
+    ) -> bytes:
+        """Encrypt User-Password per RFC 2865 §5.2 (MD5-based obfuscation)."""
+        auth = authenticator
+        if len(auth) != 16:
+            auth = (auth or b"")[:16].ljust(16, b"\x00")
+        pad_len = 16 - (len(password) % 16)
+        padded = password + (b"\x00" * pad_len)
+        encrypted = b""
+        prev = auth
+        for i in range(0, len(padded), 16):
+            block = padded[i : i + 16]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                digest = hashlib.md5(secret + prev, usedforsecurity=False).digest()
+            enc = bytes(a ^ b for a, b in zip(block, digest))
+            encrypted += enc
+            prev = enc
+        return encrypted
+
     @classmethod
     def unpack(cls, data: bytes, secret: bytes | None = None) -> "RADIUSPacket":
         """Unpack RADIUS packet from bytes"""
@@ -239,9 +264,19 @@ class RADIUSPacket:
         if len(data) < length:
             raise ValueError(f"Incomplete packet: got {len(data)}, expected {length}")
 
+        if code not in {
+            RADIUS_ACCESS_REQUEST,
+            RADIUS_ACCESS_ACCEPT,
+            RADIUS_ACCESS_REJECT,
+            RADIUS_ACCOUNTING_REQUEST,
+            RADIUS_ACCOUNTING_RESPONSE,
+            RADIUS_ACCESS_CHALLENGE,
+        }:
+            raise ValueError(f"Invalid RADIUS code: {code}")
+
         authenticator = data[4:20]
 
-        # Parse attributes
+        # Parse attributes (strict length validation)
         attributes = []
         offset = 20
         while offset < length:
@@ -256,7 +291,22 @@ class RADIUSPacket:
                     error=str(e),
                     event="radius.packet.parse_failed",
                 )
-                break
+                raise ValueError(f"Invalid attribute at offset {offset}: {e}") from e
+
+        # Basic required attribute presence for Access-Request (RFC 2865)
+        if code == RADIUS_ACCESS_REQUEST:
+            has_user = any(a.attr_type == ATTR_USER_NAME for a in attributes)
+            has_nas = any(
+                a.attr_type in (ATTR_NAS_IP_ADDRESS, ATTR_NAS_IDENTIFIER)
+                for a in attributes
+            )
+            if not has_user:
+                raise ValueError("Access-Request missing required attributes")
+            if not has_nas:
+                logger.warning(
+                    "Access-Request without NAS-IP-Address/Identifier",
+                    event="radius.access_request.missing_nas",
+                )
 
         packet = cls(code, identifier, authenticator, attributes)
 
@@ -418,7 +468,9 @@ def _verify_message_authenticator(data: bytes, secret: bytes) -> bool:
             alen = attrs[idx + 1]
             if alen < 2 or idx + alen > len(attrs):
                 break
-            if atype == ATTR_MESSAGE_AUTHENTICATOR and alen == 18:
+            if atype == ATTR_MESSAGE_AUTHENTICATOR:
+                if alen != 18:
+                    return False  # Invalid length for Message-Authenticator
                 # Position of the 16-byte value within the whole packet
                 offset_in_packet = 20 + idx + 2
                 recv_mac = bytes(mutable[offset_in_packet : offset_in_packet + 16])

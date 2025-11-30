@@ -68,16 +68,11 @@ def _get_host() -> str:
             host = fh.read().strip() or None
             if host:
                 return host
-    except Exception as exc:
-        import logging as _log
-
-        _log.getLogger(__name__).debug("Failed to read /etc/hostname: %s", exc)
+    except Exception:
+        pass
     try:
         host = socket.gethostname()
-    except Exception as exc:
-        import logging as _log
-
-        _log.getLogger(__name__).debug("Failed to get hostname: %s", exc)
+    except Exception:
         host = "unknown"
     return host
 
