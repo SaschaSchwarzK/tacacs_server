@@ -6,6 +6,7 @@ import os
 import socket
 import struct
 import warnings
+
 import pytest
 
 from tacacs_server.radius.server import (
@@ -151,6 +152,7 @@ def test_invalid_request_authenticator_rejected():
             usedforsecurity=False,
         ).digest()
     assert raw_resp[4:20] != expected
+
 
 @pytest.mark.parametrize(
     "password",

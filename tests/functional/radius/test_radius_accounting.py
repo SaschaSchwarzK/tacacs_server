@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from tacacs_server.radius.server import (
+from tacacs_server.radius.constants import (
     ATTR_ACCT_DELAY_TIME,
     ATTR_ACCT_INPUT_OCTETS,
     ATTR_ACCT_INPUT_PACKETS,
@@ -25,6 +25,8 @@ from tacacs_server.radius.server import (
     ATTR_USER_NAME,
     RADIUS_ACCOUNTING_REQUEST,
     RADIUS_ACCOUNTING_RESPONSE,
+)
+from tacacs_server.radius.server import (
     RADIUSAttribute,
     RADIUSPacket,
 )
