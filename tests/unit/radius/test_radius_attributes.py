@@ -5,7 +5,7 @@ import socket
 import struct
 import warnings
 
-from tacacs_server.radius.server import (
+from tacacs_server.radius.constants import (
     ATTR_ACCT_SESSION_ID,
     ATTR_ACCT_STATUS_TYPE,
     ATTR_CLASS,
@@ -20,6 +20,8 @@ from tacacs_server.radius.server import (
     ATTR_STATE,
     ATTR_USER_NAME,
     ATTR_USER_PASSWORD,
+)
+from tacacs_server.radius.server import (
     RADIUSAttribute,
     RADIUSPacket,
     _verify_message_authenticator,
