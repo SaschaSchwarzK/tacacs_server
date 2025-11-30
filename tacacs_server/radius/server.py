@@ -1791,13 +1791,13 @@ class RADIUSServer:
                 try:
                     group = self.local_user_group_service.get_group(group_name)
                     group_metadata = group.metadata
-                    apply_vsa_from_metadata(response, group_metadata)
-                    logger.debug(
-                        "Applied VSA from group metadata",
-                        event="radius.vsa.applied",
-                        group=group_name,
-                    )
-                    break
+                    if apply_vsa_from_metadata(response, group_metadata):
+                        logger.debug(
+                            "Applied VSA from group metadata",
+                            event="radius.vsa.applied",
+                            group=group_name,
+                        )
+                        break
                 except Exception as exc:
                     logger.debug(
                         "Failed to apply VSA from group",
