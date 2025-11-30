@@ -227,7 +227,7 @@ class RADIUSPacket:
                 if consumed != len(attr.value):
                     raise ValueError("VSA length mismatch")
                 self.vsa_attributes.append(vsa)
-            except Exception as exc:  # noqa: BLE001
+            except (ValueError, struct.error) as exc:
                 logger.debug(
                     "Failed to decode VSA attribute",
                     event="radius.vsa.decode_failed",
@@ -479,7 +479,7 @@ class RADIUSPacket:
                         "VSA length mismatch on add_attribute",
                         event="radius.vsa.length_mismatch",
                     )
-            except Exception as exc:  # noqa: BLE001
+            except (ValueError, struct.error) as exc:
                 logger.debug(
                     "Failed to decode VSA during add_attribute",
                     event="radius.vsa.decode_failed",
@@ -1376,9 +1376,6 @@ class RADIUSServer:
                 )
                 if authenticated and allowed_ok and not denial_reason:
                     response = self._create_access_accept(request, user_attrs)
-                    # ADD VSA SUPPORT: Extract privilege from user_attrs and add Cisco-AVPair
-                    # privilege_level = user_attrs.get("privilege_level", 1)
-                    # response.add_cisco_avpair(f"shell:priv-lvl={privilege_level}")
                     # ADD LOGGING: Log received VSAs from request
                     if request.vsa_attributes:
                         logger.debug(
