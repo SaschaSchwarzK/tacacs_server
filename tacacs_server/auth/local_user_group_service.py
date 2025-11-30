@@ -11,6 +11,8 @@ from tacacs_server.utils.logger import get_logger
 
 from .local_models import LocalUserGroupRecord
 from .local_store import UNSET, LocalAuthStore
+from .metadata_cache import get_metadata_cache
+from .metadata_schema import UserGroupMetadata, validate_metadata
 
 logger = get_logger(__name__)
 
@@ -40,9 +42,12 @@ class LocalUserGroupService:
         *,
         store: LocalAuthStore | None = None,
         seed_file: Path | str | None = None,
+        use_cache: bool = True,
     ) -> None:
         self.db_path = Path(db_path)
         self.store = store or LocalAuthStore(self.db_path)
+        self.use_cache = use_cache
+        self.cache = get_metadata_cache() if use_cache else None
         if seed_file:
             self._seed_from_json(Path(seed_file))
 
@@ -50,9 +55,18 @@ class LocalUserGroupService:
         return [self._clone(record) for record in self.store.list_groups()]
 
     def get_group(self, name: str) -> LocalUserGroupRecord:
+        if self.cache:
+            cached_metadata = self.cache.get(name)
+            if cached_metadata is not None:
+                record = self.store.get_group(name)
+                if record:
+                    record.metadata = cached_metadata
+                    return self._clone(record)
         record = self.store.get_group(name)
         if not record:
             raise LocalUserGroupNotFound(f"User group '{name}' not found")
+        if self.cache:
+            self.cache.set(name, record.metadata)
         return self._clone(record)
 
     def create_group(
@@ -123,6 +137,8 @@ class LocalUserGroupService:
         )
         if not stored:
             raise LocalUserGroupNotFound(f"User group '{name}' not found")
+        if self.cache:
+            self.cache.invalidate(name)
         return self._clone(stored)
 
     def delete_group(self, name: str) -> bool:
@@ -191,7 +207,10 @@ class LocalUserGroupService:
             return {}
         if not isinstance(metadata, dict):
             raise LocalUserGroupValidationError("metadata must be a JSON object")
-        return metadata
+        try:
+            return validate_metadata(metadata)
+        except Exception as exc:
+            raise LocalUserGroupValidationError(f"Invalid metadata: {exc}") from exc
 
     @staticmethod
     def _validate_privilege(level: int) -> int:
@@ -206,3 +225,10 @@ class LocalUserGroupService:
                 "privilege_level must be between 0 and 15"
             )
         return level
+
+    def get_vsa_config(self, group_name: str, vendor: str) -> dict[str, object]:
+        """Get VSA configuration for a specific vendor from group metadata."""
+        group = self.get_group(group_name)
+        metadata = UserGroupMetadata(**group.metadata)
+        vendor_config = getattr(metadata.radius_vsa, vendor, None)
+        return vendor_config.model_dump() if vendor_config else {}

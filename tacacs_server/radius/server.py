@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from tacacs_server.auth.base import AuthenticationBackend
+from tacacs_server.auth.privilege_resolver import resolve_privilege_level
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 from tacacs_server.utils.rate_limiter import get_rate_limiter
@@ -65,6 +66,7 @@ from .constants import (
     VENDOR_PALO_ALTO,
     VENDOR_PFSENSE,
 )
+from .vsa_builder import apply_vsa_from_metadata
 
 logger = get_logger("tacacs_server.radius.server", component="radius")
 
@@ -1774,7 +1776,7 @@ class RADIUSServer:
     def _create_access_accept(
         self, request: RADIUSPacket, user_attrs: dict[str, Any]
     ) -> RADIUSPacket:
-        """Create Access-Accept response"""
+        """Create Access-Accept response with optional VSA metadata."""
         response = RADIUSPacket(
             code=RADIUS_ACCESS_ACCEPT,
             identifier=request.identifier,
@@ -1787,17 +1789,50 @@ class RADIUSServer:
         # Add Service-Type
         response.add_integer(ATTR_SERVICE_TYPE, SERVICE_TYPE_ADMINISTRATIVE)
 
-        # Add Session-Timeout if specified
-        if "session_timeout" in user_attrs:
+        group_metadata: dict[str, Any] | None = None
+        user_groups = user_attrs.get("groups", []) or []
+        if user_groups and self.local_user_group_service:
+            for group_name in user_groups:
+                try:
+                    group = self.local_user_group_service.get_group(group_name)
+                    group_metadata = group.metadata
+                    apply_vsa_from_metadata(response, group_metadata)
+                    logger.debug(
+                        "Applied VSA from group metadata",
+                        event="radius.vsa.applied",
+                        group=group_name,
+                    )
+                    break
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to apply VSA from group",
+                        event="radius.vsa.group_metadata_failed",
+                        group=group_name,
+                        error=str(exc),
+                    )
+
+        if "session_timeout" in user_attrs and not response.get_attribute(
+            ATTR_SESSION_TIMEOUT
+        ):
             response.add_integer(ATTR_SESSION_TIMEOUT, user_attrs["session_timeout"])
 
-        # Add Idle-Timeout if specified
-        if "idle_timeout" in user_attrs:
+        if "idle_timeout" in user_attrs and not response.get_attribute(
+            ATTR_IDLE_TIMEOUT
+        ):
             response.add_integer(ATTR_IDLE_TIMEOUT, user_attrs["idle_timeout"])
 
-        # Add Class attribute (can be used for tracking)
-        privilege_level = user_attrs.get("privilege_level", 1)
-        response.add_string(ATTR_CLASS, f"priv{privilege_level}")
+        effective_privilege = resolve_privilege_level(user_attrs, group_metadata)
+        user_attrs["privilege_level"] = effective_privilege
+
+        if not response.get_cisco_avpairs():
+            response.add_cisco_avpair(f"shell:priv-lvl={effective_privilege}")
+            logger.debug(
+                "Added fallback Cisco AVPair",
+                event="radius.vsa.fallback",
+                privilege=effective_privilege,
+            )
+
+        response.add_string(ATTR_CLASS, f"priv{effective_privilege}")
 
         return response
 
