@@ -127,27 +127,24 @@ class VendorSpecificAttribute:
     vendor_data: bytes
 
     def pack(self) -> bytes:
-        """Pack VSA into wire format.
+        """Pack VSA into its value representation (no outer Type/Length).
 
         Returns:
-            Bytes: Type(26) + Length + Vendor-Id(4) + Vendor-Type(1) + Vendor-Length(1) + Data
+            Vendor-Id(4) + Vendor-Type(1) + Vendor-Length(1) + Vendor-Data(...)
         """
-        vendor_length = len(self.vendor_data) + 2  # Type(1) + Length(1) + Data
-        total_length = 6 + vendor_length  # Type(1) + Length(1) + Vendor-Id(4) + VSA
+        vendor_length = len(self.vendor_data) + 2  # Vendor-Type + Vendor-Length + Data
+        total_length = (
+            4 + vendor_length
+        )  # Vendor-Id + Vendor-Type + Vendor-Length + Data
 
-        if total_length > 255:
-            raise ValueError(f"VSA too long: {total_length} bytes (max 255)")
-
-        # Pack: Type(26) + Total-Length + Vendor-Id(4) + Vendor-Type + Vendor-Length + Data
-        return (
-            struct.pack(
-                "!BBLBB",
-                ATTR_VENDOR_SPECIFIC,
-                total_length,
-                self.vendor_id,
-                self.vendor_type,
-                vendor_length,
+        # Including outer Type/Length would be 2 + total_length; ensure bounded
+        if 2 + total_length > 255:
+            raise ValueError(
+                f"VSA attribute too long: {2 + total_length} bytes (max 255)"
             )
+
+        return (
+            struct.pack("!LBB", self.vendor_id, self.vendor_type, vendor_length)
             + self.vendor_data
         )
 
@@ -525,10 +522,8 @@ class RADIUSPacket:
         """Add Vendor-Specific Attribute to packet."""
         vsa = VendorSpecificAttribute(vendor_id, vendor_type, vendor_data)
         self.vsa_attributes.append(vsa)
-        # Also add raw VSA attribute for packing without re-decoding to avoid duplicates
-        self.attributes.append(
-            RADIUSAttribute(ATTR_VENDOR_SPECIFIC, vsa.pack()[2:])  # Skip Type+Length
-        )
+        # Add raw VSA attribute using value-only packing (Type/Length handled by RADIUSAttribute)
+        self.attributes.append(RADIUSAttribute(ATTR_VENDOR_SPECIFIC, vsa.pack()))
 
     def get_vsas(self, vendor_id: int | None = None) -> list[VendorSpecificAttribute]:
         """Get all VSAs, optionally filtered by vendor_id."""

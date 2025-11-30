@@ -20,10 +20,7 @@ class MetadataCache:
         with self._lock:
             if group_name not in self._cache:
                 return None
-
-            metadata, timestamp = self._cache.get(group_name, (None, 0))
-            if metadata is None:
-                return None
+            metadata, timestamp = self._cache[group_name]
             if time.time() - timestamp > self.ttl_seconds:
                 del self._cache[group_name]
                 return None

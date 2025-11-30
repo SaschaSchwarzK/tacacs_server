@@ -9,11 +9,7 @@ from tacacs_server.radius.constants import (
     RADIUS_ACCESS_ACCEPT,
     VENDOR_CISCO,
 )
-from tacacs_server.radius.server import (
-    ATTR_VENDOR_SPECIFIC,
-    RADIUSPacket,
-    VendorSpecificAttribute,
-)
+from tacacs_server.radius.server import RADIUSPacket, VendorSpecificAttribute
 
 
 class TestVendorSpecificAttribute:
@@ -28,13 +24,12 @@ class TestVendorSpecificAttribute:
 
         packed = vsa.pack()
 
-        # Verify structure: Type(26) + Length + Vendor-Id(9) + Type(1) + Length + Data
-        assert packed[0] == ATTR_VENDOR_SPECIFIC
-        assert packed[1] == len(packed)  # Total length
-        vendor_id = struct.unpack("!L", packed[2:6])[0]
+        # Verify structure: Vendor-Id(4) + Type(1) + Length(1) + Data
+        assert len(packed) == 4 + 1 + 1 + len(avpair)
+        vendor_id = struct.unpack("!L", packed[:4])[0]
         assert vendor_id == VENDOR_CISCO
-        assert packed[6] == CISCO_AVPAIR
-        assert packed[8:] == avpair.encode("utf-8")
+        assert packed[4] == CISCO_AVPAIR
+        assert packed[6:] == avpair.encode("utf-8")
 
     def test_unpack_cisco_avpair(self):
         """Test unpacking Cisco-AVPair VSA."""
@@ -68,7 +63,7 @@ class TestVendorSpecificAttribute:
         huge_data = b"X" * 250  # Will exceed 255 with headers
         vsa = VendorSpecificAttribute(VENDOR_CISCO, CISCO_AVPAIR, huge_data)
 
-        with pytest.raises(ValueError, match="VSA too long"):
+        with pytest.raises(ValueError, match="VSA attribute too long"):
             vsa.pack()
 
 

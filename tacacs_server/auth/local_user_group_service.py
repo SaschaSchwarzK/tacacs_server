@@ -55,18 +55,17 @@ class LocalUserGroupService:
         return [self._clone(record) for record in self.store.list_groups()]
 
     def get_group(self, name: str) -> LocalUserGroupRecord:
-        if self.cache:
-            cached_metadata = self.cache.get(name)
-            if cached_metadata is not None:
-                record = self.store.get_group(name)
-                if record:
-                    record.metadata = cached_metadata
-                    return self._clone(record)
         record = self.store.get_group(name)
         if not record:
             raise LocalUserGroupNotFound(f"User group '{name}' not found")
         if self.cache:
-            self.cache.set(name, record.metadata)
+            cached_metadata = self.cache.get(name)
+            if cached_metadata is not None:
+                # Cache hit, use cached metadata to avoid JSON parsing.
+                record.metadata = cached_metadata
+            else:
+                # Cache miss, populate the cache.
+                self.cache.set(name, record.metadata)
         return self._clone(record)
 
     def create_group(
