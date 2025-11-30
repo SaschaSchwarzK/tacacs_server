@@ -1,6 +1,6 @@
 """Unit tests for maintenance utilities."""
 
-from tacacs_server.utils import maintenance
+from tacacs_server.utils import logging_config, maintenance
 
 
 class DummyResource:
@@ -28,6 +28,7 @@ def test_register_and_unregister():
 
 def test_enter_and_exit_maintenance_triggers_callbacks():
     """enter/exit maintenance should call close/reload and flip state."""
+    logging_config._get_host.cache_clear()
     mgr = maintenance._DBConnectionManager()
     res = DummyResource()
     mgr.register(res)

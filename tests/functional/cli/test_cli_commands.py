@@ -56,7 +56,9 @@ def test_validate_config_invokes_config_loader(monkeypatch, capsys, tmp_path):
     cfg_path = tmp_path / "test.conf"
     cfg_path.write_text("[server]\nhost=127.0.0.1\nport=49\n", encoding="utf-8")
     monkeypatch.setattr(main_mod, "TacacsConfig", DummyConfig)
-    monkeypatch.setattr(sys, "argv", ["tacacs-server", "--validate-config", "-c", str(cfg_path)])
+    monkeypatch.setattr(
+        sys, "argv", ["tacacs-server", "--validate-config", "-c", str(cfg_path)]
+    )
 
     rc = main_mod.main()
     captured = capsys.readouterr()

@@ -54,7 +54,9 @@ def test_not_found_and_internal_errors():
 def test_invalid_json_payloads_return_validation_error():
     """Invalid JSON produces structured validation response."""
     client = TestClient(_build_app(), raise_server_exceptions=False)
-    resp = client.post("/echo", data="not-json", headers={"Content-Type": "application/json"})
+    resp = client.post(
+        "/echo", data="not-json", headers={"Content-Type": "application/json"}
+    )
     assert resp.status_code == 422
     body = resp.json()
     assert body["error"] == "Validation failed"

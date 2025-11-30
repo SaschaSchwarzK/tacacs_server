@@ -78,6 +78,7 @@ def test_recv_exact_returns_none_on_eof():
 
 def test_safe_close_socket_swallows_errors():
     """safe_close_socket should not raise even if shutdown/close fail."""
+
     class BadClose:
         def shutdown(self, *_args):
             raise OSError("shutdown failed")

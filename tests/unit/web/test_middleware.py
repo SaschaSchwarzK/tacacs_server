@@ -2,16 +2,17 @@
 
 import json
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tacacs_server.exceptions import RateLimitExceededError
-from tacacs_server.web import app_setup
-from tacacs_server.web import web_app
+from tacacs_server.utils import logging_config
+from tacacs_server.web import app_setup, web_app
 
 
 def test_request_logging_and_tracing(caplog):
     """Request middleware logs both request and response with correlation id."""
+    logging_config._get_host.cache_clear()
+    caplog.set_level("DEBUG", logger="tacacs_server.web.web_app")
     caplog.set_level("DEBUG", logger="tacacs_server.web.web_app")
     app = web_app.create_app()
 
@@ -29,6 +30,7 @@ def test_request_logging_and_tracing(caplog):
 
 def test_error_response_formatting():
     """Unhandled exceptions return structured JSON with error metadata."""
+    logging_config._get_host.cache_clear()
     app = app_setup.create_app()
 
     @app.get("/boom")
@@ -47,6 +49,7 @@ def test_error_response_formatting():
 
 def test_rate_limit_error_payload():
     """Rate limit errors propagate structured payload."""
+    logging_config._get_host.cache_clear()
     app = web_app.create_app()
 
     @app.get("/limited")
@@ -63,6 +66,7 @@ def test_rate_limit_error_payload():
 
 def test_cors_preflight_includes_expected_headers():
     """CORS middleware should echo origin and allow credentials."""
+    logging_config._get_host.cache_clear()
     app = app_setup.create_app()
     app.add_api_route("/cors", lambda: {"ok": True}, methods=["GET", "OPTIONS"])
 
@@ -81,6 +85,7 @@ def test_cors_preflight_includes_expected_headers():
 
 def test_gzip_compression_applied_for_large_responses():
     """GZip middleware compresses sufficiently large payloads."""
+    logging_config._get_host.cache_clear()
     app = app_setup.create_app()
 
     @app.get("/large")

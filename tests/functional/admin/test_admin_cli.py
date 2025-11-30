@@ -9,7 +9,7 @@ from tacacs_server.auth.local_models import LocalUserGroupRecord, LocalUserRecor
 from tacacs_server.auth.local_store import LocalAuthStore
 from tacacs_server.devices.service import DeviceService
 from tacacs_server.devices.store import DeviceStore
-from tacacs_server.utils.password_hash import LegacyPasswordMigrator, PasswordHasher
+from tacacs_server.utils.password_hash import PasswordHasher
 
 
 def _write_config(tmp_path: Path) -> Path:
