@@ -6,6 +6,7 @@ import os
 import socket
 import struct
 import warnings
+import pytest
 
 from tacacs_server.radius.server import (
     ATTR_MESSAGE_AUTHENTICATOR,
@@ -151,12 +152,19 @@ def test_invalid_request_authenticator_rejected():
         ).digest()
     assert raw_resp[4:20] != expected
 
-
-def test_password_encryption_correctness_rfc2865():
+@pytest.mark.parametrize(
+    "password",
+    [
+        b"short",
+        b"exactly16bytes!!",
+        b"longerthan16bytespassword",
+        b"exactlythirtytwoooooooooobytes!!",
+    ],
+)
+def test_password_encryption_correctness_rfc2865(password: bytes):
     """Ensure User-Password is obfuscated per RFC 2865 §5.2 and decrypts on unpack."""
     secret = b"secret"
     authenticator = b"\xaa" * 16
-    password = b"letmein"
     req = RADIUSPacket(
         code=1,
         identifier=1,
