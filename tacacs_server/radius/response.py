@@ -1,3 +1,11 @@
+"""RADIUS response generation and handling.
+
+This module provides utilities for constructing and sending RADIUS responses,
+including Access-Accept, Access-Reject, and Accounting-Response packets.
+"""
+
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,13 +30,29 @@ logger = get_logger("tacacs_server.radius.response", component="radius")
 
 @dataclass
 class ResponseContext:
-    """Context for building RADIUS responses."""
+    """Context for building RADIUS responses.
+
+    This class holds shared context and services needed for constructing
+    RADIUS responses, such as user group information and authorization data.
+
+    Attributes:
+        local_user_group_service: Service for accessing local user group data
+    """
 
     local_user_group_service: Any | None = None
 
 
 class ResponseBuilder:
-    """Builder for RADIUS Access-Accept/Reject packets."""
+    """Builder for RADIUS response packets.
+
+    This class provides methods to construct various RADIUS response types
+    including Access-Accept, Access-Reject, and Accounting-Response packets.
+    It handles proper attribute inclusion based on authentication results
+    and user/device policies.
+
+    Args:
+        context: The response context containing required services
+    """
 
     def __init__(self, context: ResponseContext):
         self.context = context
@@ -112,7 +136,25 @@ def send_response(
     addr: tuple[str, int],
     secret: bytes,
     request_auth: bytes,
-):
+) -> None:
+    """Send a RADIUS response to the client.
+
+    Handles the transmission of RADIUS responses, including proper socket
+    selection and error handling for both authentication and accounting
+    response types.
+
+    Args:
+        auth_socket: Socket for authentication responses
+        acct_socket: Socket for accounting responses
+        response: The RADIUS response packet to send
+        addr: Tuple of (client_ip, client_port) to send the response to
+        secret: Shared secret for response authenticator calculation
+        request_auth: Request authenticator from the original request
+
+    Note:
+        The function automatically selects the appropriate socket based on
+        the response packet type (authentication vs accounting).
+    """
     """Send a RADIUS response on the appropriate socket."""
     try:
         packet_data = response.pack(secret, request_auth)

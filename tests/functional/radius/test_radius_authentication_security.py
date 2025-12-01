@@ -9,15 +9,17 @@ import warnings
 
 import pytest
 
-from tacacs_server.radius.server import (
+from tacacs_server.radius.authenticator import verify_message_authenticator
+from tacacs_server.radius.constants import (
     ATTR_MESSAGE_AUTHENTICATOR,
     ATTR_NAS_IDENTIFIER,
     ATTR_NAS_IP_ADDRESS,
     ATTR_USER_NAME,
     ATTR_USER_PASSWORD,
+)
+from tacacs_server.radius.packet import (
     RADIUSAttribute,
     RADIUSPacket,
-    _verify_message_authenticator,
 )
 
 
@@ -55,7 +57,7 @@ def test_message_authenticator_validation():
         warnings.simplefilter("ignore", DeprecationWarning)
         expected = hmac.new(secret, bytes(zeroed), digestmod=hashlib.md5).digest()
     assert mac == expected
-    assert _verify_message_authenticator(raw, secret) is True
+    assert verify_message_authenticator(raw, secret) is True
 
 
 def test_invalid_message_authenticator_rejected():
@@ -65,7 +67,7 @@ def test_invalid_message_authenticator_rejected():
     broken = bytearray(raw)
     # Flip a bit inside the Message-Authenticator value
     broken[30] ^= 0xFF
-    assert _verify_message_authenticator(bytes(broken), secret) is False
+    assert verify_message_authenticator(bytes(broken), secret) is False
 
 
 def test_invalid_message_authenticator_length_rejected():
@@ -78,7 +80,7 @@ def test_invalid_message_authenticator_length_rejected():
         attributes=[RADIUSAttribute(ATTR_MESSAGE_AUTHENTICATOR, b"\x00" * 8)],
     )
     raw = pkt.pack(secret)
-    assert _verify_message_authenticator(raw, secret) is False
+    assert verify_message_authenticator(raw, secret) is False
 
 
 def test_missing_message_authenticator_returns_true():
@@ -91,7 +93,7 @@ def test_missing_message_authenticator_returns_true():
         attributes=[RADIUSAttribute(ATTR_USER_NAME, b"alice")],
     )
     raw = pkt.pack(secret)
-    assert _verify_message_authenticator(raw, secret) is True
+    assert verify_message_authenticator(raw, secret) is True
 
 
 def test_request_authenticator_verification():
@@ -228,7 +230,7 @@ def test_known_good_packet_vector_response_authenticity():
     )
     raw_resp = resp.pack(secret, request_auth=req_auth)
     # Verify message authenticator still passes after packing
-    assert _verify_message_authenticator(raw_resp, secret) is True
+    assert verify_message_authenticator(raw_resp, secret) is True
     # Tamper with attributes and ensure authenticator no longer matches
     tampered = bytearray(raw_resp)
     tampered[-1] ^= 0xFF

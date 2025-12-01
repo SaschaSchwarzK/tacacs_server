@@ -1,4 +1,14 @@
+"""RADIUS request handlers for authentication and accounting.
+
+This module provides handlers for processing RADIUS authentication and accounting
+requests, including user validation, session tracking, and response generation.
+"""
+
+from __future__ import annotations
+
+import struct
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
@@ -10,10 +20,7 @@ from .constants import (
     ACCT_STATUS_INTERIM_UPDATE,
     ACCT_STATUS_START,
     ACCT_STATUS_STOP,
-    ATTR_ACCT_INPUT_OCTETS,
-    ATTR_ACCT_OUTPUT_OCTETS,
     ATTR_ACCT_SESSION_ID,
-    ATTR_ACCT_SESSION_TIME,
     ATTR_ACCT_STATUS_TYPE,
     ATTR_CALLED_STATION_ID,
     ATTR_MESSAGE_AUTHENTICATOR,
@@ -31,8 +38,21 @@ from .response import send_response
 logger = get_logger("tacacs_server.radius.handlers", component="radius")
 
 
-def handle_auth_request(server, data: bytes, addr: tuple[str, int]):
-    """Process an incoming Access-Request packet."""
+def handle_auth_request(server, data: bytes, addr: tuple[str, int]) -> None:
+    """Process an incoming Access-Request packet.
+
+    Handles RADIUS authentication requests, including user validation,
+    policy application, and response generation.
+
+    Args:
+        server: The RADIUS server instance handling the request
+        data: Raw packet data received from the client
+        addr: Tuple containing (client_ip, client_port) of the requestor
+
+    Note:
+        This function is called asynchronously for each incoming request.
+        It handles rate limiting, request validation, and response sending.
+    """
     client_ip, client_port = addr
     connection_id = str(uuid.uuid4())
     ctx_token = None
@@ -346,8 +366,23 @@ def handle_auth_request(server, data: bytes, addr: tuple[str, int]):
                 )
 
 
-def handle_acct_request(server, data: bytes, addr: tuple[str, int]):
-    """Process an incoming Accounting-Request packet."""
+def handle_acct_request(server, data: bytes, addr: tuple[str, int]) -> None:
+    """Process an incoming Accounting-Request packet.
+
+    Handles RADIUS accounting requests including session start, stop,
+    and interim update messages.
+
+    Args:
+        server: The RADIUS server instance handling the request
+        data: Raw packet data received from the client
+        addr: Tuple containing (client_ip, client_port) of the requestor
+
+    Note:
+        This function processes different types of accounting requests:
+        - Start: When a new session begins
+        - Stop: When a session ends
+        - Interim-Update: Periodic updates for long-running sessions
+    """
     client_ip, client_port = addr
     connection_id = str(uuid.uuid4())
     ctx_token = None
@@ -525,6 +560,9 @@ def handle_acct_request(server, data: bytes, addr: tuple[str, int]):
                 error=str(debug_logging_exc),
             )
 
+    except (ValueError, struct.error, AttributeError) as e:
+        logger.error("Error processing authentication request: %s", e, exc_info=True)
+        return
     except Exception as e:
         logger.error(
             "Error handling RADIUS acct request",
@@ -543,13 +581,57 @@ def handle_acct_request(server, data: bytes, addr: tuple[str, int]):
                 )
 
 
+@dataclass
+class AccountingRecord:
+    """Record for storing RADIUS accounting information.
+
+    Attributes:
+        username: Name of the authenticated user
+        session_id: Unique session identifier
+        status: Session status (START, STOP, UPDATE)
+        service: Service name (e.g., 'radius')
+        command: Command being executed
+        client_ip: Client IP address
+        port: NAS port
+        bytes_in: Input bytes count
+        bytes_out: Output bytes count
+        elapsed_time: Session duration in seconds
+    """
+
+    username: str
+    session_id: int
+    status: str
+    service: str
+    command: str
+    client_ip: str
+    port: str = ""
+    bytes_in: int = 0
+    bytes_out: int = 0
+    elapsed_time: int = 0
+
+
 def log_accounting_record(
     request: RADIUSPacket, client_ip: str, accounting_logger: Any
-):
-    """Log accounting information to database."""
-    try:
-        from ..accounting.models import AccountingRecord
+) -> None:
+    """Log accounting information to database.
 
+    Processes and stores RADIUS accounting records for session tracking
+    and billing purposes.
+
+    Args:
+        request: The RADIUS accounting request packet
+        client_ip: IP address of the client device
+        accounting_logger: Logger instance for recording accounting data
+
+    Note:
+        This function extracts and logs the following information:
+        - Session ID
+        - Username
+        - Input/Output octets
+        - Session duration
+        - Termination cause (if available)
+    """
+    try:
         username = request.get_string(ATTR_USER_NAME) or "unknown"
         session_id_str = request.get_string(ATTR_ACCT_SESSION_ID) or "0"
         status_type = request.get_integer(ATTR_ACCT_STATUS_TYPE)
@@ -567,8 +649,20 @@ def log_accounting_record(
                 if session_id_str.isdigit()
                 else hash(session_id_str) & 0xFFFFFFFF
             )
-        except Exception:
+        except (ValueError, TypeError):
             session_id = hash(session_id_str) & 0xFFFFFFFF
+
+        # Get input/output octets if available
+        bytes_in = 0
+        bytes_out = 0
+        elapsed_time = 0
+
+        try:
+            bytes_in = request.get_integer(42) or 0  # ATTR_ACCT_INPUT_OCTETS
+            bytes_out = request.get_integer(43) or 0  # ATTR_ACCT_OUTPUT_OCTETS
+            elapsed_time = request.get_integer(46) or 0  # ATTR_ACCT_SESSION_TIME
+        except (ValueError, AttributeError) as e:
+            logger.debug("Missing accounting attributes: %s", e)
 
         record = AccountingRecord(
             username=username,
@@ -577,18 +671,26 @@ def log_accounting_record(
             service="radius",
             command=f"RADIUS {status}",
             client_ip=client_ip,
-            port=request.get_string(ATTR_CALLED_STATION_ID),
-            bytes_in=request.get_integer(ATTR_ACCT_INPUT_OCTETS) or 0,
-            bytes_out=request.get_integer(ATTR_ACCT_OUTPUT_OCTETS) or 0,
-            elapsed_time=request.get_integer(ATTR_ACCT_SESSION_TIME) or 0,
+            port=request.get_string(ATTR_CALLED_STATION_ID) or "",
+            bytes_in=bytes_in,
+            bytes_out=bytes_out,
+            elapsed_time=elapsed_time,
         )
         accounting_logger.log_accounting(record)
 
-    except Exception as e:
+    except (ValueError, struct.error, AttributeError) as e:
         logger.error(
-            "Error logging RADIUS accounting",
-            event="radius.accounting.log_error",
-            error=str(e),
+            "Error processing accounting record: %s",
+            e,
+            exc_info=True,
+            event="radius.accounting.error",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "Unexpected error in accounting logging: %s",
+            e,
+            event="radius.accounting.unexpected_error",
+            exc_info=True,
         )
 
 

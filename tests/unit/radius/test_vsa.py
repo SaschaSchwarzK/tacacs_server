@@ -9,7 +9,9 @@ from tacacs_server.radius.constants import (
     RADIUS_ACCESS_ACCEPT,
     VENDOR_CISCO,
 )
-from tacacs_server.radius.server import RADIUSPacket, VendorSpecificAttribute
+
+# from tacacs_server.radius.server import RADIUSPacket, VendorSpecificAttribute
+from tacacs_server.radius.packet import RADIUSPacket, VendorSpecificAttribute
 
 
 class TestVendorSpecificAttribute:

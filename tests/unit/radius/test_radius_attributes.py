@@ -5,6 +5,7 @@ import socket
 import struct
 import warnings
 
+from tacacs_server.radius.authenticator import verify_message_authenticator
 from tacacs_server.radius.constants import (
     ATTR_ACCT_SESSION_ID,
     ATTR_ACCT_STATUS_TYPE,
@@ -21,10 +22,9 @@ from tacacs_server.radius.constants import (
     ATTR_USER_NAME,
     ATTR_USER_PASSWORD,
 )
-from tacacs_server.radius.server import (
+from tacacs_server.radius.packet import (
     RADIUSAttribute,
     RADIUSPacket,
-    _verify_message_authenticator,
 )
 
 
@@ -96,11 +96,11 @@ def test_message_authenticator_encoding_and_validation():
         ],
     )
     raw = pkt.pack(secret)
-    assert _verify_message_authenticator(raw, secret) is True
+    assert verify_message_authenticator(raw, secret) is True
     # Corrupt MAC to ensure failure
     tampered = bytearray(raw)
     tampered[30] ^= 0x01
-    assert _verify_message_authenticator(bytes(tampered), secret) is False
+    assert verify_message_authenticator(bytes(tampered), secret) is False
 
 
 def test_multiple_attributes_same_type_preserved():
