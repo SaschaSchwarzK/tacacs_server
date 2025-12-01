@@ -1,7 +1,7 @@
 """Integration tests for VSA metadata in RADIUS flow."""
 
 from tacacs_server.auth.privilege_resolver import resolve_privilege_level
-from tacacs_server.radius.constants import ATTR_SESSION_TIMEOUT,RADIUS_ACCESS_ACCEPT
+from tacacs_server.radius.constants import ATTR_SESSION_TIMEOUT, RADIUS_ACCESS_ACCEPT
 from tacacs_server.radius.packet import RADIUSPacket
 from tacacs_server.radius.vsa_builder import apply_vsa_from_metadata
 

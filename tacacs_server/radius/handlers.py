@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import struct
 import uuid
-from dataclasses import dataclass
 from typing import Any
 
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
@@ -20,7 +19,10 @@ from .constants import (
     ACCT_STATUS_INTERIM_UPDATE,
     ACCT_STATUS_START,
     ACCT_STATUS_STOP,
+    ATTR_ACCT_INPUT_OCTETS,
+    ATTR_ACCT_OUTPUT_OCTETS,
     ATTR_ACCT_SESSION_ID,
+    ATTR_ACCT_SESSION_TIME,
     ATTR_ACCT_STATUS_TYPE,
     ATTR_CALLED_STATION_ID,
     ATTR_MESSAGE_AUTHENTICATOR,
@@ -581,35 +583,6 @@ def handle_acct_request(server, data: bytes, addr: tuple[str, int]) -> None:
                 )
 
 
-@dataclass
-class AccountingRecord:
-    """Record for storing RADIUS accounting information.
-
-    Attributes:
-        username: Name of the authenticated user
-        session_id: Unique session identifier
-        status: Session status (START, STOP, UPDATE)
-        service: Service name (e.g., 'radius')
-        command: Command being executed
-        client_ip: Client IP address
-        port: NAS port
-        bytes_in: Input bytes count
-        bytes_out: Output bytes count
-        elapsed_time: Session duration in seconds
-    """
-
-    username: str
-    session_id: int
-    status: str
-    service: str
-    command: str
-    client_ip: str
-    port: str = ""
-    bytes_in: int = 0
-    bytes_out: int = 0
-    elapsed_time: int = 0
-
-
 def log_accounting_record(
     request: RADIUSPacket, client_ip: str, accounting_logger: Any
 ) -> None:
@@ -632,6 +605,8 @@ def log_accounting_record(
         - Termination cause (if available)
     """
     try:
+        from ..accounting.models import AccountingRecord
+
         username = request.get_string(ATTR_USER_NAME) or "unknown"
         session_id_str = request.get_string(ATTR_ACCT_SESSION_ID) or "0"
         status_type = request.get_integer(ATTR_ACCT_STATUS_TYPE)
@@ -652,17 +627,9 @@ def log_accounting_record(
         except (ValueError, TypeError):
             session_id = hash(session_id_str) & 0xFFFFFFFF
 
-        # Get input/output octets if available
-        bytes_in = 0
-        bytes_out = 0
-        elapsed_time = 0
-
-        try:
-            bytes_in = request.get_integer(42) or 0  # ATTR_ACCT_INPUT_OCTETS
-            bytes_out = request.get_integer(43) or 0  # ATTR_ACCT_OUTPUT_OCTETS
-            elapsed_time = request.get_integer(46) or 0  # ATTR_ACCT_SESSION_TIME
-        except (ValueError, AttributeError) as e:
-            logger.debug("Missing accounting attributes: %s", e)
+        bytes_in = request.get_integer(ATTR_ACCT_INPUT_OCTETS) or 0
+        bytes_out = request.get_integer(ATTR_ACCT_OUTPUT_OCTETS) or 0
+        elapsed_time = request.get_integer(ATTR_ACCT_SESSION_TIME) or 0
 
         record = AccountingRecord(
             username=username,

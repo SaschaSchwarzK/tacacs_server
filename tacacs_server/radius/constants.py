@@ -17,10 +17,6 @@ RADIUS_ACCESS_REJECT = 3  #: Access-Reject packet code
 RADIUS_ACCOUNTING_REQUEST = 4  #: Accounting-Request packet code
 RADIUS_ACCOUNTING_RESPONSE = 5  #: Accounting-Response packet code
 RADIUS_ACCESS_CHALLENGE = 11  #: Access-Challenge packet code
-RADIUS_ACCESS_REJECT = 3
-RADIUS_ACCOUNTING_REQUEST = 4
-RADIUS_ACCOUNTING_RESPONSE = 5
-RADIUS_ACCESS_CHALLENGE = 11
 
 # Packet limits
 MAX_RADIUS_PACKET_LENGTH = 4096  # RFC 2865 maximum
