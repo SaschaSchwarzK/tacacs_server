@@ -569,6 +569,18 @@ def create_app(
             "/rapidoc",
             "/api/rapidoc",
         )
+        # Allow form submissions to the OpenID provider for login redirects.
+        form_allow = ["'self'"]
+        try:
+            from urllib.parse import urlparse
+
+            issuer = os.getenv("OPENID_ISSUER_URL", "")
+            parsed = urlparse(issuer)
+            if parsed.scheme and parsed.netloc:
+                form_allow.append(f"{parsed.scheme}://{parsed.netloc}")
+        except Exception:
+            pass
+
         if is_docs:
             # Relax CSP for documentation UIs to allow required CDN assets. Avoid
             # 'unsafe-eval' by default to reduce XSS risk. Some Swagger/Redoc
@@ -594,7 +606,7 @@ def create_app(
                 + "frame-src 'none'; "
                 + "object-src 'none'; "
                 + "base-uri 'self'; "
-                + "form-action 'self';"
+                + f"form-action {' '.join(form_allow)};"
             )
         else:
             # Strict CSP for admin UI and API
@@ -609,7 +621,7 @@ def create_app(
                 "frame-src 'none'; "
                 "object-src 'none'; "
                 "base-uri 'self'; "
-                "form-action 'self';"
+                f"form-action {' '.join(form_allow)};"
             )
 
         # HSTS for HTTPS
