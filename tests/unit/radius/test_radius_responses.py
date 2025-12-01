@@ -6,7 +6,8 @@ import socket
 import struct
 import warnings
 
-from tacacs_server.radius.server import (
+from tacacs_server.radius.authenticator import verify_message_authenticator
+from tacacs_server.radius.constants import (
     ATTR_CLASS,
     ATTR_IDLE_TIMEOUT,
     ATTR_MESSAGE_AUTHENTICATOR,
@@ -20,10 +21,8 @@ from tacacs_server.radius.server import (
     RADIUS_ACCESS_REJECT,
     RADIUS_ACCESS_REQUEST,
     RADIUS_ACCOUNTING_RESPONSE,
-    RADIUSAttribute,
-    RADIUSPacket,
-    _verify_message_authenticator,
 )
+from tacacs_server.radius.packet import RADIUSAttribute, RADIUSPacket
 
 
 def _build_access_request(identifier: int):
@@ -67,7 +66,7 @@ def test_access_accept_structure_and_attributes():
     assert struct.unpack("!I", attrs[ATTR_SESSION_TIMEOUT].value)[0] == 300
     assert struct.unpack("!I", attrs[ATTR_IDLE_TIMEOUT].value)[0] == 120
     assert attrs[ATTR_CLASS].value == b"priv15"
-    assert _verify_message_authenticator(raw, secret)
+    assert verify_message_authenticator(raw, secret)
 
 
 def test_access_reject_structure_and_reply_message():
@@ -112,7 +111,7 @@ def test_accounting_response_structure():
     )
     raw = resp.pack(secret, request_auth=req_auth)
     assert raw[0] == RADIUS_ACCOUNTING_RESPONSE
-    assert _verify_message_authenticator(raw, secret)
+    assert verify_message_authenticator(raw, secret)
 
 
 def test_response_authenticator_calculation():

@@ -6,7 +6,8 @@ import socket
 import struct
 import warnings
 
-from tacacs_server.radius.server import (
+from tacacs_server.radius.authenticator import verify_message_authenticator
+from tacacs_server.radius.constants import (
     ATTR_MESSAGE_AUTHENTICATOR,
     ATTR_NAS_IP_ADDRESS,
     ATTR_REPLY_MESSAGE,
@@ -17,9 +18,10 @@ from tacacs_server.radius.server import (
     RADIUS_ACCESS_REQUEST,
     RADIUS_ACCOUNTING_REQUEST,
     RADIUS_ACCOUNTING_RESPONSE,
+)
+from tacacs_server.radius.packet import (
     RADIUSAttribute,
     RADIUSPacket,
-    _verify_message_authenticator,
 )
 
 
@@ -44,7 +46,7 @@ def test_access_request_structure_rfc2865():
     assert raw[0] == RADIUS_ACCESS_REQUEST
     length = struct.unpack("!H", raw[2:4])[0]
     assert length == len(raw)
-    assert _verify_message_authenticator(raw, secret)
+    assert verify_message_authenticator(raw, secret)
 
 
 def test_access_accept_structure_rfc2865():
@@ -119,7 +121,7 @@ def test_message_authenticator_support_rfc2869():
     secret = b"secret"
     req = _make_auth_request(7)
     raw = req.pack(secret)
-    assert _verify_message_authenticator(raw, secret)
+    assert verify_message_authenticator(raw, secret)
 
 
 def test_packet_length_validation_max_4096():

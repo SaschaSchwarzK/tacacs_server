@@ -6,11 +6,13 @@ import socket
 import struct
 import threading
 
-from tacacs_server.radius.server import (
+from tacacs_server.radius.constants import (
     ATTR_ACCT_SESSION_ID,
     ATTR_ACCT_STATUS_TYPE,
     ATTR_NAS_IP_ADDRESS,
     ATTR_USER_NAME,
+)
+from tacacs_server.radius.packet import (
     RADIUSAttribute,
     RADIUSPacket,
 )

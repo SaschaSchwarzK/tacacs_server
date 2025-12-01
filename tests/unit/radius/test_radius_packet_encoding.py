@@ -8,16 +8,18 @@ import warnings
 
 import pytest
 
-from tacacs_server.radius.server import (
+from tacacs_server.radius.authenticator import verify_message_authenticator
+from tacacs_server.radius.constants import (
     ATTR_MESSAGE_AUTHENTICATOR,
     ATTR_NAS_IP_ADDRESS,
     ATTR_NAS_PORT,
     ATTR_USER_NAME,
     ATTR_USER_PASSWORD,
     ATTR_VENDOR_SPECIFIC,
+)
+from tacacs_server.radius.packet import (
     RADIUSAttribute,
     RADIUSPacket,
-    _verify_message_authenticator,
 )
 
 
@@ -93,7 +95,7 @@ def test_message_authenticator_calculation_and_verification():
         attributes=attrs,
     )
     raw = pkt.pack(secret)
-    assert _verify_message_authenticator(raw, secret) is True
+    assert verify_message_authenticator(raw, secret) is True
 
 
 def test_request_response_authenticator_differs():
