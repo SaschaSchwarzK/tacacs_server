@@ -35,6 +35,9 @@ class OpenIDConfig:
         client_auth_method: str = "client_secret",
         client_private_key: str | None = None,
         client_private_key_id: str | None = None,
+        http_proxy: str | None = None,
+        https_proxy: str | None = None,
+        no_proxy: str | None = None,
     ):
         """
         Args:
@@ -52,6 +55,7 @@ class OpenIDConfig:
             raise ValueError(f"Invalid issuer_url: {issuer_url!r}")
         if "…" in cleaned_issuer or cleaned_issuer.startswith("..."):
             raise ValueError(f"issuer_url looks truncated/placeholder: {issuer_url!r}")
+
         self.issuer_url = cleaned_issuer
         self.client_id = client_id
         self.client_secret = client_secret
@@ -64,12 +68,16 @@ class OpenIDConfig:
         self.client_auth_method = (client_auth_method or "client_secret").lower()
         self.client_private_key = client_private_key
         self.client_private_key_id = client_private_key_id
+        self.http_proxy = http_proxy
+        self.https_proxy = https_proxy
+        self.no_proxy = no_proxy
 
         # Endpoints - will be auto-discovered from .well-known/openid-configuration if not provided
         self._token_endpoint = token_endpoint
         self._userinfo_endpoint = userinfo_endpoint
         self._authorization_endpoint: str | None = None
         self._endpoints_loaded = False
+        self._http_session: requests.Session | None = None
 
     def _load_endpoints(self) -> None:
         """Auto-discover token and userinfo endpoints from OIDC metadata."""
@@ -78,7 +86,8 @@ class OpenIDConfig:
 
         try:
             metadata_url = f"{self.issuer_url}/.well-known/openid-configuration"
-            resp = requests.get(metadata_url, timeout=5)
+            session = getattr(self, "_http_session", None) or requests
+            resp = session.get(metadata_url, timeout=5)
             resp.raise_for_status()
             metadata = resp.json()
 
@@ -144,6 +153,22 @@ class OpenIDManager:
     def __init__(self, config: OpenIDConfig):
         self.config = config
         self._sessions: dict[str, OpenIDSession] = {}
+        # Create persistent session with proxy support
+        self._http_session = requests.Session()
+        # Respect HTTP_PROXY/HTTPS_PROXY from environment
+        self._http_session.trust_env = True
+        # Apply explicit proxy settings from config if provided
+        proxy_cfg = {}
+        if self.config.http_proxy:
+            proxy_cfg["http"] = self.config.http_proxy
+        if self.config.https_proxy:
+            proxy_cfg["https"] = self.config.https_proxy
+        if proxy_cfg:
+            self._http_session.proxies.update(proxy_cfg)
+        if self.config.no_proxy:
+            self._http_session.proxies["no_proxy"] = self.config.no_proxy
+        # Share session with config for endpoint discovery
+        self.config._http_session = self._http_session
 
     def get_authorization_url(self, state: str) -> str:
         """Generate authorization URL for redirect to OIDC provider."""
@@ -247,7 +272,9 @@ class OpenIDManager:
         payload["redirect_uri"] = self.config.redirect_uri
 
         try:
-            resp = requests.post(self.config.token_endpoint, data=payload, timeout=10)
+            resp = self._http_session.post(
+                self.config.token_endpoint, data=payload, timeout=10
+            )
             resp.raise_for_status()
             token_response = cast(dict[str, Any], resp.json())
             logger.debug(
@@ -273,7 +300,7 @@ class OpenIDManager:
         headers = {"Authorization": f"Bearer {access_token}"}
 
         try:
-            resp = requests.get(
+            resp = self._http_session.get(
                 self.config.userinfo_endpoint, headers=headers, timeout=10
             )
             resp.raise_for_status()
