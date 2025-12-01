@@ -155,7 +155,6 @@ def send_response(
         The function automatically selects the appropriate socket based on
         the response packet type (authentication vs accounting).
     """
-    """Send a RADIUS response on the appropriate socket."""
     try:
         packet_data = response.pack(secret, request_auth)
 
