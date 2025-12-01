@@ -22,80 +22,53 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from tacacs_server.auth.base import AuthenticationBackend
+from tacacs_server.auth.privilege_resolver import resolve_privilege_level
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.policy import PolicyContext, PolicyResult, evaluate_policy
 from tacacs_server.utils.rate_limiter import get_rate_limiter
 
+from .constants import (
+    ACCT_STATUS_INTERIM_UPDATE,
+    ACCT_STATUS_START,
+    ACCT_STATUS_STOP,
+    ATTR_ACCT_INPUT_OCTETS,
+    ATTR_ACCT_OUTPUT_OCTETS,
+    ATTR_ACCT_SESSION_ID,
+    ATTR_ACCT_SESSION_TIME,
+    ATTR_ACCT_STATUS_TYPE,
+    ATTR_CALLED_STATION_ID,
+    ATTR_CLASS,
+    ATTR_IDLE_TIMEOUT,
+    ATTR_MESSAGE_AUTHENTICATOR,
+    ATTR_NAS_IDENTIFIER,
+    ATTR_NAS_IP_ADDRESS,
+    ATTR_NAS_PORT,
+    ATTR_REPLY_MESSAGE,
+    ATTR_SERVICE_TYPE,
+    ATTR_SESSION_TIMEOUT,
+    ATTR_USER_NAME,
+    ATTR_USER_PASSWORD,
+    ATTR_VENDOR_SPECIFIC,
+    CISCO_AVPAIR,
+    MAX_RADIUS_PACKET_LENGTH,
+    RADIUS_ACCESS_ACCEPT,
+    RADIUS_ACCESS_CHALLENGE,
+    RADIUS_ACCESS_REJECT,
+    RADIUS_ACCESS_REQUEST,
+    RADIUS_ACCOUNTING_REQUEST,
+    RADIUS_ACCOUNTING_RESPONSE,
+    SERVICE_TYPE_ADMINISTRATIVE,
+    VENDOR_ARISTA,
+    VENDOR_CISCO,
+    VENDOR_FORTINET,
+    VENDOR_JUNIPER,
+    VENDOR_MICROSOFT,
+    VENDOR_PALO_ALTO,
+    VENDOR_PFSENSE,
+)
+from .vsa_builder import apply_vsa_from_metadata
+
 logger = get_logger("tacacs_server.radius.server", component="radius")
-
-# RADIUS Packet Codes
-RADIUS_ACCESS_REQUEST = 1
-RADIUS_ACCESS_ACCEPT = 2
-RADIUS_ACCESS_REJECT = 3
-RADIUS_ACCOUNTING_REQUEST = 4
-RADIUS_ACCOUNTING_RESPONSE = 5
-RADIUS_ACCESS_CHALLENGE = 11
-
-# Packet limits
-MAX_RADIUS_PACKET_LENGTH = 4096  # RFC 2865 maximum
-
-# RADIUS Attribute Types
-ATTR_USER_NAME = 1
-ATTR_USER_PASSWORD = 2
-ATTR_CHAP_PASSWORD = 3
-ATTR_NAS_IP_ADDRESS = 4
-ATTR_NAS_PORT = 5
-ATTR_SERVICE_TYPE = 6
-ATTR_FRAMED_PROTOCOL = 7
-ATTR_FRAMED_IP_ADDRESS = 8
-ATTR_FILTER_ID = 11
-ATTR_REPLY_MESSAGE = 18
-ATTR_STATE = 24
-ATTR_CLASS = 25
-ATTR_VENDOR_SPECIFIC = 26
-ATTR_SESSION_TIMEOUT = 27
-ATTR_IDLE_TIMEOUT = 28
-ATTR_CALLED_STATION_ID = 30
-ATTR_CALLING_STATION_ID = 31
-ATTR_NAS_IDENTIFIER = 32
-ATTR_ACCT_STATUS_TYPE = 40
-ATTR_ACCT_DELAY_TIME = 41
-ATTR_ACCT_INPUT_OCTETS = 42
-ATTR_ACCT_OUTPUT_OCTETS = 43
-ATTR_ACCT_SESSION_ID = 44
-ATTR_ACCT_AUTHENTIC = 45
-ATTR_ACCT_SESSION_TIME = 46
-ATTR_ACCT_INPUT_PACKETS = 47
-ATTR_ACCT_OUTPUT_PACKETS = 48
-ATTR_ACCT_TERMINATE_CAUSE = 49
-ATTR_NAS_PORT_TYPE = 61
-ATTR_MESSAGE_AUTHENTICATOR = 80
-
-# Service Types
-SERVICE_TYPE_LOGIN = 1
-SERVICE_TYPE_FRAMED = 2
-SERVICE_TYPE_CALLBACK_LOGIN = 3
-SERVICE_TYPE_CALLBACK_FRAMED = 4
-SERVICE_TYPE_OUTBOUND = 5
-SERVICE_TYPE_ADMINISTRATIVE = 6
-SERVICE_TYPE_NAS_PROMPT = 7
-
-# Accounting Status Types
-ACCT_STATUS_START = 1
-ACCT_STATUS_STOP = 2
-ACCT_STATUS_INTERIM_UPDATE = 3
-ACCT_STATUS_ACCOUNTING_ON = 7
-ACCT_STATUS_ACCOUNTING_OFF = 8
-
-# NAS Port Types
-NAS_PORT_TYPE_ASYNC = 0
-NAS_PORT_TYPE_SYNC = 1
-NAS_PORT_TYPE_ISDN = 2
-NAS_PORT_TYPE_ISDN_V120 = 3
-NAS_PORT_TYPE_ISDN_V110 = 4
-NAS_PORT_TYPE_VIRTUAL = 5
-NAS_PORT_TYPE_ETHERNET = 15
-NAS_PORT_TYPE_WIRELESS = 19
 
 
 @dataclass
@@ -142,6 +115,90 @@ class RADIUSAttribute:
         raise ValueError("Attribute is not an IP address")
 
 
+@dataclass
+class VendorSpecificAttribute:
+    """RADIUS Vendor-Specific Attribute (Type 26, RFC 2865 §5.26)
+
+    Format: Type(1) Length(1) Vendor-Id(4) Vendor-Type(1) Vendor-Length(1) Vendor-Data(...)
+    """
+
+    vendor_id: int
+    vendor_type: int
+    vendor_data: bytes
+
+    def pack(self) -> bytes:
+        """Pack VSA into its value representation (no outer Type/Length).
+
+        Returns:
+            Vendor-Id(4) + Vendor-Type(1) + Vendor-Length(1) + Vendor-Data(...)
+        """
+        vendor_length = len(self.vendor_data) + 2  # Vendor-Type + Vendor-Length + Data
+        total_length = (
+            4 + vendor_length
+        )  # Vendor-Id + Vendor-Type + Vendor-Length + Data
+
+        # Including outer Type/Length would be 2 + total_length; ensure bounded
+        if 2 + total_length > 255:
+            raise ValueError(
+                f"VSA attribute too long: {2 + total_length} bytes (max 255)"
+            )
+
+        return (
+            struct.pack("!LBB", self.vendor_id, self.vendor_type, vendor_length)
+            + self.vendor_data
+        )
+
+    @classmethod
+    def unpack(cls, data: bytes) -> tuple["VendorSpecificAttribute", int]:
+        """Unpack VSA from wire format.
+
+        Args:
+            data: Raw attribute data starting after Type(26) and Length bytes
+
+        Returns:
+            Tuple of (VendorSpecificAttribute, bytes_consumed)
+
+        Raises:
+            ValueError: If data is malformed or incomplete
+        """
+        if len(data) < 6:  # Vendor-Id(4) + Vendor-Type(1) + Vendor-Length(1)
+            raise ValueError(f"VSA data too short: {len(data)} bytes, need at least 6")
+
+        vendor_id, vendor_type, vendor_length = struct.unpack("!LBB", data[:6])
+
+        if vendor_length < 2:
+            raise ValueError(f"Invalid vendor-length: {vendor_length} (min 2)")
+
+        # Vendor-Length includes Type(1) + Length(1) + Data
+        vendor_data_len = vendor_length - 2
+        total_consumed = 6 + vendor_data_len
+
+        if len(data) < total_consumed:
+            raise ValueError(
+                f"Incomplete VSA: need {total_consumed} bytes, got {len(data)}"
+            )
+
+        vendor_data = data[6:total_consumed]
+        return cls(vendor_id, vendor_type, vendor_data), total_consumed
+
+    def as_string(self) -> str:
+        """Get vendor data as UTF-8 string."""
+        return self.vendor_data.decode("utf-8", errors="replace")
+
+    def __str__(self) -> str:
+        vendor_names = {
+            VENDOR_CISCO: "Cisco",
+            VENDOR_JUNIPER: "Juniper",
+            VENDOR_MICROSOFT: "Microsoft",
+            VENDOR_ARISTA: "Arista",
+            VENDOR_PALO_ALTO: "PaloAlto",
+        }
+        vendor_name = vendor_names.get(self.vendor_id, f"Vendor-{self.vendor_id}")
+        return (
+            f"VSA({vendor_name}, type={self.vendor_type}, len={len(self.vendor_data)})"
+        )
+
+
 class RADIUSPacket:
     """RADIUS packet structure"""
 
@@ -156,6 +213,25 @@ class RADIUSPacket:
         self.identifier = identifier
         self.authenticator = authenticator  # 16 bytes
         self.attributes = attributes or []
+        self.vsa_attributes: list[VendorSpecificAttribute] = []
+        self._init_vsas_from_attributes()
+
+    def _init_vsas_from_attributes(self) -> None:
+        """Populate vsa_attributes from any existing vendor-specific attributes."""
+        for attr in list(self.attributes):
+            if attr.attr_type != ATTR_VENDOR_SPECIFIC:
+                continue
+            try:
+                vsa, consumed = VendorSpecificAttribute.unpack(attr.value)
+                if consumed != len(attr.value):
+                    raise ValueError("VSA length mismatch")
+                self.vsa_attributes.append(vsa)
+            except (ValueError, struct.error) as exc:
+                logger.debug(
+                    "Failed to decode VSA attribute",
+                    event="radius.vsa.decode_failed",
+                    error=str(exc),
+                )
 
     def pack(
         self, secret: bytes | None = None, request_auth: bytes | None = None
@@ -180,6 +256,17 @@ class RADIUSPacket:
                 raw = RADIUSAttribute(ATTR_MESSAGE_AUTHENTICATOR, b"\x00" * 16).pack()
                 msg_auth_idx = len(raw_attrs)
                 raw_attrs.append(raw)
+            elif (
+                attr.attr_type == ATTR_USER_PASSWORD
+                and secret
+                and self.code == RADIUS_ACCESS_REQUEST
+            ):
+                # Obfuscate password per RFC 2865 §5.2 using request authenticator
+                auth_seed = request_auth or self.authenticator
+                encrypted = self._encrypt_password_value(
+                    attr.value, secret, auth_seed or b"\x00" * 16
+                )
+                raw_attrs.append(RADIUSAttribute(ATTR_USER_PASSWORD, encrypted).pack())
             else:
                 raw_attrs.append(attr.pack())
         attrs_data = b"".join(raw_attrs)
@@ -223,6 +310,28 @@ class RADIUSPacket:
 
         return packet
 
+    @staticmethod
+    def _encrypt_password_value(
+        password: bytes, secret: bytes, authenticator: bytes
+    ) -> bytes:
+        """Encrypt User-Password per RFC 2865 §5.2 (MD5-based obfuscation)."""
+        auth = authenticator
+        if len(auth) != 16:
+            auth = (auth or b"")[:16].ljust(16, b"\x00")
+        pad_len = 16 - (len(password) % 16)
+        padded = password + (b"\x00" * pad_len)
+        encrypted = b""
+        prev = auth
+        for i in range(0, len(padded), 16):
+            block = padded[i : i + 16]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                digest = hashlib.md5(secret + prev, usedforsecurity=False).digest()
+            enc = bytes(a ^ b for a, b in zip(block, digest))
+            encrypted += enc
+            prev = enc
+        return encrypted
+
     @classmethod
     def unpack(cls, data: bytes, secret: bytes | None = None) -> "RADIUSPacket":
         """Unpack RADIUS packet from bytes"""
@@ -239,16 +348,51 @@ class RADIUSPacket:
         if len(data) < length:
             raise ValueError(f"Incomplete packet: got {len(data)}, expected {length}")
 
+        if code not in {
+            RADIUS_ACCESS_REQUEST,
+            RADIUS_ACCESS_ACCEPT,
+            RADIUS_ACCESS_REJECT,
+            RADIUS_ACCOUNTING_REQUEST,
+            RADIUS_ACCOUNTING_RESPONSE,
+            RADIUS_ACCESS_CHALLENGE,
+        }:
+            raise ValueError(f"Invalid RADIUS code: {code}")
+
         authenticator = data[4:20]
 
-        # Parse attributes
+        # Parse attributes (strict length validation)
         attributes = []
+        vsa_attributes = []
         offset = 20
         while offset < length:
             try:
-                attr, consumed = RADIUSAttribute.unpack(data[offset:length])
-                attributes.append(attr)
-                offset += consumed
+                # Peek at attribute type
+                if len(data) < offset + 2:
+                    raise ValueError("Incomplete attribute header")
+
+                attr_type = data[offset]
+                attr_length = data[offset + 1]
+
+                if attr_type == ATTR_VENDOR_SPECIFIC:
+                    if attr_length < 8 or offset + attr_length > length:
+                        raise ValueError("Invalid VSA attribute length")
+                    vsa_data = data[offset + 2 : offset + attr_length]
+                    try:
+                        vsa, consumed_inner = VendorSpecificAttribute.unpack(vsa_data)
+                    except Exception as exc:
+                        raise ValueError(f"Invalid VSA: {exc}") from exc
+                    if consumed_inner != len(vsa_data):
+                        raise ValueError("VSA length mismatch")
+                    vsa_attributes.append(vsa)
+                    # Also store raw attribute for compatibility
+                    attr = RADIUSAttribute(attr_type, vsa_data)
+                    attributes.append(attr)
+                    offset += attr_length
+                else:
+                    # Parse as standard attribute
+                    attr, consumed = RADIUSAttribute.unpack(data[offset:length])
+                    attributes.append(attr)
+                    offset += consumed
             except ValueError as e:
                 logger.warning(
                     "Error parsing attribute at offset",
@@ -256,9 +400,25 @@ class RADIUSPacket:
                     error=str(e),
                     event="radius.packet.parse_failed",
                 )
-                break
+                raise ValueError(f"Invalid attribute at offset {offset}: {e}") from e
+
+        # Basic required attribute presence for Access-Request (RFC 2865)
+        if code == RADIUS_ACCESS_REQUEST:
+            has_user = any(a.attr_type == ATTR_USER_NAME for a in attributes)
+            has_nas = any(
+                a.attr_type in (ATTR_NAS_IP_ADDRESS, ATTR_NAS_IDENTIFIER)
+                for a in attributes
+            )
+            if not has_user:
+                raise ValueError("Access-Request missing required attributes")
+            if not has_nas:
+                logger.warning(
+                    "Access-Request without NAS-IP-Address/Identifier",
+                    event="radius.access_request.missing_nas",
+                )
 
         packet = cls(code, identifier, authenticator, attributes)
+        packet.vsa_attributes = vsa_attributes
 
         # Decrypt password attribute if present
         if secret and code == RADIUS_ACCESS_REQUEST:
@@ -306,7 +466,24 @@ class RADIUSPacket:
 
     def add_attribute(self, attr_type: int, value: bytes):
         """Add attribute to packet"""
-        self.attributes.append(RADIUSAttribute(attr_type, value))
+        attr = RADIUSAttribute(attr_type, value)
+        self.attributes.append(attr)
+        if attr_type == ATTR_VENDOR_SPECIFIC:
+            try:
+                vsa, consumed = VendorSpecificAttribute.unpack(value)
+                if consumed == len(value):
+                    self.vsa_attributes.append(vsa)
+                else:
+                    logger.debug(
+                        "VSA length mismatch on add_attribute",
+                        event="radius.vsa.length_mismatch",
+                    )
+            except (ValueError, struct.error) as exc:
+                logger.debug(
+                    "Failed to decode VSA during add_attribute",
+                    event="radius.vsa.decode_failed",
+                    error=str(exc),
+                )
 
     def add_string(self, attr_type: int, value: str):
         """Add string attribute"""
@@ -340,6 +517,74 @@ class RADIUSPacket:
             return attr.as_int() if attr else None
         except ValueError:
             return None
+
+    def add_vsa(self, vendor_id: int, vendor_type: int, vendor_data: bytes):
+        """Add Vendor-Specific Attribute to packet."""
+        vsa = VendorSpecificAttribute(vendor_id, vendor_type, vendor_data)
+        self.vsa_attributes.append(vsa)
+        # Add raw VSA attribute using value-only packing (Type/Length handled by RADIUSAttribute)
+        self.attributes.append(RADIUSAttribute(ATTR_VENDOR_SPECIFIC, vsa.pack()))
+
+    def get_vsas(self, vendor_id: int | None = None) -> list[VendorSpecificAttribute]:
+        """Get all VSAs, optionally filtered by vendor_id."""
+        if vendor_id is None:
+            return self.vsa_attributes
+        return [vsa for vsa in self.vsa_attributes if vsa.vendor_id == vendor_id]
+
+    # Cisco
+    def add_cisco_avpair(self, avpair: str):
+        """Add Cisco-AVPair VSA (e.g., 'shell:priv-lvl=15')."""
+        self.add_vsa(VENDOR_CISCO, CISCO_AVPAIR, avpair.encode("utf-8"))
+
+    def get_cisco_avpairs(self) -> list[str]:
+        """Get all Cisco-AVPair strings from packet."""
+        cisco_vsas = self.get_vsas(VENDOR_CISCO)
+        avpairs = []
+        for vsa in cisco_vsas:
+            if vsa.vendor_type == CISCO_AVPAIR:
+                avpairs.append(vsa.as_string())
+        return avpairs
+
+    # Fortinet
+    def add_fortinet_group(self, group_name: str):
+        """Add Fortinet group membership VSA"""
+        self.add_vsa(VENDOR_FORTINET, 1, group_name.encode("utf-8"))
+
+    def get_fortinet_groups(self) -> list[str]:
+        """Get all Fortinet group memberships"""
+        return [
+            vsa.as_string()
+            for vsa in self.get_vsas(VENDOR_FORTINET)
+            if vsa.vendor_type == 1  # Fortinet-Group-Name
+        ]
+
+    # pfsense/OPNsense
+    def add_pfsense_client_ip(self, ip_address: str):
+        """Add OPNsense client IP VSA"""
+        self.add_vsa(VENDOR_PFSENSE, 2, ip_address.encode("utf-8"))
+
+    def get_pfsense_client_ip(self) -> str | None:
+        """Get OPNsense client IP from packet"""
+        pfsense_vsas = self.get_vsas(VENDOR_PFSENSE)
+        for vsa in pfsense_vsas:
+            if vsa.vendor_type == 2:  # OPNsense-Client-IP
+                return vsa.as_string()
+        return None
+
+    # Juniper
+    def add_juniper_role(self, role: str):
+        """Add Juniper user role VSA"""
+        self.add_vsa(VENDOR_JUNIPER, 1, role.encode("utf-8"))
+
+    # Palo Alto
+    def add_palo_alto_role(self, role: str):
+        """Add Palo Alto user role VSA"""
+        self.add_vsa(VENDOR_PALO_ALTO, 1, role.encode("utf-8"))
+
+    # Arista
+    def add_arista_privilege(self, level: int):
+        """Add Arista privilege level VSA (1-15)"""
+        self.add_vsa(VENDOR_ARISTA, 2, str(level).encode("utf-8"))
 
     def __str__(self) -> str:
         """String representation for debugging"""
@@ -418,7 +663,9 @@ def _verify_message_authenticator(data: bytes, secret: bytes) -> bool:
             alen = attrs[idx + 1]
             if alen < 2 or idx + alen > len(attrs):
                 break
-            if atype == ATTR_MESSAGE_AUTHENTICATOR and alen == 18:
+            if atype == ATTR_MESSAGE_AUTHENTICATOR:
+                if alen != 18:
+                    return False  # Invalid length for Message-Authenticator
                 # Position of the 16-byte value within the whole packet
                 offset_in_packet = 20 + idx + 2
                 recv_mac = bytes(mutable[offset_in_packet : offset_in_packet + 16])
@@ -1126,6 +1373,14 @@ class RADIUSServer:
                 )
                 if authenticated and allowed_ok and not denial_reason:
                     response = self._create_access_accept(request, user_attrs)
+                    # ADD LOGGING: Log received VSAs from request
+                    if request.vsa_attributes:
+                        logger.debug(
+                            "RADIUS request contained VSAs",
+                            event="radius.vsa.received",
+                            vsas=[str(vsa) for vsa in request.vsa_attributes],
+                            username=username,
+                        )
                     self._inc("auth_accepts")
                     logger.info(
                         "RADIUS authentication success",
@@ -1516,7 +1771,7 @@ class RADIUSServer:
     def _create_access_accept(
         self, request: RADIUSPacket, user_attrs: dict[str, Any]
     ) -> RADIUSPacket:
-        """Create Access-Accept response"""
+        """Create Access-Accept response with optional VSA metadata."""
         response = RADIUSPacket(
             code=RADIUS_ACCESS_ACCEPT,
             identifier=request.identifier,
@@ -1529,17 +1784,50 @@ class RADIUSServer:
         # Add Service-Type
         response.add_integer(ATTR_SERVICE_TYPE, SERVICE_TYPE_ADMINISTRATIVE)
 
-        # Add Session-Timeout if specified
-        if "session_timeout" in user_attrs:
+        group_metadata: dict[str, Any] | None = None
+        user_groups = user_attrs.get("groups", []) or []
+        if user_groups and self.local_user_group_service:
+            for group_name in user_groups:
+                try:
+                    group = self.local_user_group_service.get_group(group_name)
+                    group_metadata = group.metadata
+                    if apply_vsa_from_metadata(response, group_metadata):
+                        logger.debug(
+                            "Applied VSA from group metadata",
+                            event="radius.vsa.applied",
+                            group=group_name,
+                        )
+                        break
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to apply VSA from group",
+                        event="radius.vsa.group_metadata_failed",
+                        group=group_name,
+                        error=str(exc),
+                    )
+
+        if "session_timeout" in user_attrs and not response.get_attribute(
+            ATTR_SESSION_TIMEOUT
+        ):
             response.add_integer(ATTR_SESSION_TIMEOUT, user_attrs["session_timeout"])
 
-        # Add Idle-Timeout if specified
-        if "idle_timeout" in user_attrs:
+        if "idle_timeout" in user_attrs and not response.get_attribute(
+            ATTR_IDLE_TIMEOUT
+        ):
             response.add_integer(ATTR_IDLE_TIMEOUT, user_attrs["idle_timeout"])
 
-        # Add Class attribute (can be used for tracking)
-        privilege_level = user_attrs.get("privilege_level", 1)
-        response.add_string(ATTR_CLASS, f"priv{privilege_level}")
+        effective_privilege = resolve_privilege_level(user_attrs, group_metadata)
+        user_attrs["privilege_level"] = effective_privilege
+
+        if not response.get_cisco_avpairs():
+            response.add_cisco_avpair(f"shell:priv-lvl={effective_privilege}")
+            logger.debug(
+                "Added fallback Cisco AVPair",
+                event="radius.vsa.fallback",
+                privilege=effective_privilege,
+            )
+
+        response.add_string(ATTR_CLASS, f"priv{effective_privilege}")
 
         return response
 
