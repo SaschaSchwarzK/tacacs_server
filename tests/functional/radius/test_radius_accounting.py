@@ -26,7 +26,7 @@ from tacacs_server.radius.constants import (
     RADIUS_ACCOUNTING_REQUEST,
     RADIUS_ACCOUNTING_RESPONSE,
 )
-from tacacs_server.radius.server import (
+from tacacs_server.radius.packet import (
     RADIUSAttribute,
     RADIUSPacket,
 )

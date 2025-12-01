@@ -25,7 +25,9 @@ def test_local_backend_authentication_success():
     srv = RADIUSServer()
     backend = StubBackend("local", authenticate_result=True)
     srv.add_auth_backend(backend)
-    ok, detail = srv._authenticate_user("alice", "secret")
+    from tacacs_server.radius.auth import authenticate_user
+
+    ok, detail = authenticate_user(srv.auth_backends, "alice", "secret")
     assert ok is True
     assert "backend=local" in detail
 
@@ -36,7 +38,9 @@ def test_multiple_backends_fallback_to_second():
     second = StubBackend("ok", authenticate_result=True)
     srv.add_auth_backend(first)
     srv.add_auth_backend(second)
-    ok, detail = srv._authenticate_user("bob", "pw")
+    from tacacs_server.radius.auth import authenticate_user
+
+    ok, detail = authenticate_user(srv.auth_backends, "bob", "pw")
     assert ok is True
     assert "backend=ok" in detail
 
@@ -45,7 +49,9 @@ def test_backend_error_handling_reports_last_error():
     srv = RADIUSServer()
     err_backend = StubBackend("err", error=RuntimeError("boom"))
     srv.add_auth_backend(err_backend)
-    ok, detail = srv._authenticate_user("carol", "pw")
+    from tacacs_server.radius.auth import authenticate_user
+
+    ok, detail = authenticate_user(srv.auth_backends, "carol", "pw")
     assert ok is False
     assert "backend=err" in detail
     assert "boom" in detail
@@ -57,7 +63,9 @@ def test_attribute_retrieval_uses_first_backend_with_attrs():
     provider = StubBackend("attrs", attrs={"groups": ["netops"], "privilege_level": 15})
     srv.add_auth_backend(empty)
     srv.add_auth_backend(provider)
-    attrs = srv._get_user_attributes("dave")
+    from tacacs_server.radius.auth import get_user_attributes
+
+    attrs = get_user_attributes(srv.auth_backends, "dave")
     assert attrs["groups"] == ["netops"]
     assert attrs["privilege_level"] == 15
 
@@ -66,7 +74,9 @@ def test_user_group_retrieval_from_backends():
     srv = RADIUSServer()
     okta = StubBackend("okta", attrs={"groups": ["OktaAdmins"], "privilege_level": 7})
     srv.add_auth_backend(okta)
-    attrs = srv._get_user_attributes("erin")
+    from tacacs_server.radius.auth import get_user_attributes
+
+    attrs = get_user_attributes(srv.auth_backends, "erin")
     assert "OktaAdmins" in attrs["groups"]
     assert attrs["privilege_level"] == 7
 
@@ -76,7 +86,9 @@ def test_ldap_backend_authentication(monkeypatch):
     srv = RADIUSServer()
     ldap_backend = StubBackend("ldap", authenticate_result=True)
     srv.add_auth_backend(ldap_backend)
-    ok, detail = srv._authenticate_user("ldapuser", "pw")
+    from tacacs_server.radius.auth import authenticate_user
+
+    ok, detail = authenticate_user(srv.auth_backends, "ldapuser", "pw")
     assert ok is True
     assert "backend=ldap" in detail
 
@@ -89,7 +101,9 @@ def test_okta_backend_with_group_enforcement():
         attrs={"groups": ["OktaAdmins"], "privilege_level": 9},
     )
     srv.add_auth_backend(okta_backend)
-    attrs = srv._get_user_attributes("oktauser")
+    from tacacs_server.radius.auth import get_user_attributes
+
+    attrs = get_user_attributes(srv.auth_backends, "oktauser")
     assert "OktaAdmins" in attrs["groups"]
     assert attrs["privilege_level"] == 9
 
@@ -100,7 +114,9 @@ def test_backend_fallback_on_error():
     good_backend = StubBackend("good", authenticate_result=True)
     srv.add_auth_backend(err_backend)
     srv.add_auth_backend(good_backend)
-    ok, detail = srv._authenticate_user("user", "pw")
+    from tacacs_server.radius.auth import authenticate_user
+
+    ok, detail = authenticate_user(srv.auth_backends, "user", "pw")
     assert ok is True
     assert "backend=good" in detail
 
@@ -109,6 +125,8 @@ def test_backend_attribute_retrieval():
     srv = RADIUSServer()
     backend = StubBackend("attrs", attrs={"groups": ["netops"], "privilege_level": 5})
     srv.add_auth_backend(backend)
-    attrs = srv._get_user_attributes("bob")
+    from tacacs_server.radius.auth import get_user_attributes
+
+    attrs = get_user_attributes(srv.auth_backends, "bob")
     assert attrs["groups"] == ["netops"]
     assert attrs["privilege_level"] == 5

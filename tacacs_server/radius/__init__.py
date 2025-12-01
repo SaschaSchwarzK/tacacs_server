@@ -5,6 +5,14 @@ Provides RADIUS authentication and accounting server
 that shares backends with TACACS+ server.
 """
 
-from .server import RADIUSAttribute, RADIUSPacket, RADIUSServer
+from .client import RadiusClient
+from .packet import RADIUSAttribute, RADIUSPacket, VendorSpecificAttribute
+from .server import RADIUSServer
 
-__all__ = ["RADIUSServer", "RADIUSPacket", "RADIUSAttribute"]
+__all__ = [
+    "RADIUSServer",
+    "RADIUSPacket",
+    "RADIUSAttribute",
+    "VendorSpecificAttribute",
+    "RadiusClient",
+]
