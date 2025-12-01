@@ -171,13 +171,9 @@ class OktaAuthBackend(AuthenticationBackend):
         self._timeout = (max(1, connect_timeout), max(1, read_timeout))
         pool_maxsize = int(cfg.get("pool_maxsize", 50))
         self._session = requests.Session()
-        # Ignore system proxy env vars in controlled environments if configured
-        self._trust_env_flag = bool(cfg.get("trust_env", False))
-        if self._trust_env_flag is False:
-            try:
-                self._session.trust_env = False
-            except Exception as set_trust_exc:
-                logger.debug("Failed to set trust_env: %s", set_trust_exc)
+        # Explicitly control whether to trust system proxy/env settings (default True)
+        self._trust_env_flag = bool(cfg.get("trust_env", True))
+        self._session.trust_env = self._trust_env_flag
         adapter = HTTPAdapter(pool_connections=pool_maxsize, pool_maxsize=pool_maxsize)
         if _Retry is not None:
             retry = _Retry(
