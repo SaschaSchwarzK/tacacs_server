@@ -26,6 +26,7 @@ from typing import Any as _Any
 import requests
 from requests.adapters import HTTPAdapter
 
+from tacacs_server.utils.crypto import validate_pem_format
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.metrics import (
     okta_group_cache_hits,
@@ -302,6 +303,13 @@ class OktaAuthBackend(AuthenticationBackend):
                 pk_path = _Path(pk_conf)
                 with open(pk_path, encoding="utf-8") as f:
                     private_key = f.read()
+
+            if not validate_pem_format(private_key, expected_label="PRIVATE KEY"):
+                logger.error(
+                    "Invalid private_key PEM format; ensure BEGIN/END markers and preserved newlines",
+                    event="okta.private_key.invalid_format",
+                )
+                return None
 
             # Create JWT assertion
             now = int(time.time())

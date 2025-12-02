@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import requests
 from requests.exceptions import RequestException
 
+from tacacs_server.utils.crypto import validate_pem_format
 from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -229,6 +230,14 @@ class OpenIDManager:
         if self.config.client_auth_method == "private_key_jwt":
             if not self.config.client_private_key:
                 raise ValueError("client_private_key is required for private_key_jwt")
+            if not validate_pem_format(
+                self.config.client_private_key, expected_label="PRIVATE KEY"
+            ):
+                logger.error(
+                    "Invalid client_private_key PEM format; ensure BEGIN/END markers and preserved newlines",
+                    event="admin.openid.invalid_private_key",
+                )
+                raise ValueError("Invalid client_private_key PEM format")
             try:
                 import jwt
             except Exception as exc:  # pragma: no cover
