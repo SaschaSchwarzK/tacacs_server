@@ -29,9 +29,9 @@ def _validate_scopes(scopes: Any) -> None:
         return
 
     # Check for disallowed characters (quotes and non-standard symbols)
-    if re.search(r"[\"']", scopes) or re.search(r"[^A-Za-z0-9:._/\\-\\s]", scopes):
+    if re.search(r"[\"'\\]", scopes):
         logger.error(
-            "OPENID scopes contain disallowed characters",
+            "OPENID scopes contain disallowed characters (quotes or backslash)",
             event="admin.openid.invalid_scopes_chars",
             scopes=scopes,
         )

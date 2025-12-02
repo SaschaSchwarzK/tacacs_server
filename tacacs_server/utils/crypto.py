@@ -18,30 +18,25 @@ def validate_pem_format(pem: Any, *, expected_label: str | None = None) -> bool:
     if not isinstance(pem, str):
         return False
     pem_str = pem.strip()
-    if not pem_str:
+    if not pem_str or "\n" not in pem_str:
         return False
 
-    if expected_label:
-        begin = f"-----BEGIN {expected_label}-----"
-        end = f"-----END {expected_label}-----"
-        if not (pem_str.startswith(begin) and pem_str.endswith(end)):
-            return False
-    else:
-        # Generic check allowing any PEM label (including hyphens)
-        if not (
-            re.match(r"-----BEGIN [^-]+?-----", pem_str)
-            and re.search(r"-----END [^-]+?-----", pem_str)
-        ):
-            return False
+    match = re.match(r"-----BEGIN ([^-]+)-----", pem_str)
+    if not match:
+        return False
 
-    # Require at least one real newline to avoid single-line env issues
-    if "\n" not in pem_str:
+    label = match.group(1)
+    if expected_label and label != expected_label:
+        return False
+
+    end_marker = f"-----END {label}-----"
+    if not pem_str.endswith(end_marker):
         return False
 
     # Quick sanity: body should be base64-ish
-    body = re.sub(r"-----BEGIN .*?-----", "", pem_str)
-    body = re.sub(r"-----END .*?-----", "", body)
-    body = "".join(line.strip() for line in body.splitlines() if line.strip())
+    begin_marker = match.group(0)
+    body_content = pem_str[len(begin_marker) : -len(end_marker)]
+    body = "".join(line.strip() for line in body_content.splitlines() if line.strip())
     return bool(body) and all(c.isalnum() or c in "+/=" for c in body)
 
 
