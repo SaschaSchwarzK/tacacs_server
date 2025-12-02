@@ -272,6 +272,10 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             "create_on_startup",
             "temp_directory",
             "encryption_enabled",
+            "use_managed_identity",
+            "endpoint_suffix",
+            "container_name",
+            "base_path",
             "default_retention_strategy",
             "default_retention_days",
             "gfs_keep_daily",
@@ -355,6 +359,20 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
         if not config.has_section("backup"):
             config.add_section("backup")
         config.set("backup", "encryption_passphrase", backup_passphrase)
+
+    # Backup Azure secrets: environment ONLY
+    backup_conn_str = os.environ.get("TACACS_BACKUP_CONNECTION_STRING")
+    backup_account_key = os.environ.get("TACACS_BACKUP_ACCOUNT_KEY")
+    backup_sas_token = os.environ.get("TACACS_BACKUP_SAS_TOKEN")
+    if any([backup_conn_str, backup_account_key, backup_sas_token]):
+        if not config.has_section("backup"):
+            config.add_section("backup")
+        if backup_conn_str:
+            config.set("backup", "connection_string", backup_conn_str)
+        if backup_account_key:
+            config.set("backup", "account_key", backup_account_key)
+        if backup_sas_token:
+            config.set("backup", "sas_token", backup_sas_token)
 
     # Okta section: secrets ONLY from environment
     okta_client_id = os.environ.get(ENV_OKTA_CLIENT_ID)

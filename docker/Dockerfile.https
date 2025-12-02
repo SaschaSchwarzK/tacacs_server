@@ -48,8 +48,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # non-root user for the app
 RUN useradd -r -u 1000 -m app \
- && mkdir -p /app/logs /app/config /certs \
- && chown -R 1000:1000 /app /certs
+ && mkdir -p /app/data /app/logs /app/config /certs /var/run/tacacs \
+ && chown -R 1000:1000 /app /certs /var/run/tacacs
 
 COPY --from=build /opt/venv /opt/venv
 COPY config/tacacs.aci.ini /app/config/tacacs.ini
@@ -69,4 +69,3 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 ENTRYPOINT ["tini","--"]
 CMD ["/bin/bash", "/app/bootstrap.sh"]
-
