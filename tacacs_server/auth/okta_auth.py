@@ -175,6 +175,24 @@ class OktaAuthBackend(AuthenticationBackend):
         # Explicitly control whether to trust system proxy/env settings (default True)
         self._trust_env_flag = bool(cfg.get("trust_env", True))
         self._session.trust_env = self._trust_env_flag
+        if self._session.trust_env:
+            env_proxies = requests.utils.get_environ_proxies(self.org_url)
+            if env_proxies:
+                logger.info(
+                    "Okta proxy settings discovered from environment",
+                    event="okta.proxy.env_discovered",
+                    http_proxy=env_proxies.get("http"),
+                    https_proxy=env_proxies.get("https"),
+                    no_proxy=env_proxies.get("no_proxy"),
+                )
+        if self._session.proxies:
+            logger.info(
+                "Okta proxy settings discovered from environment",
+                event="okta.proxy.discovered",
+                http_proxy=self._session.proxies.get("http"),
+                https_proxy=self._session.proxies.get("https"),
+                no_proxy=self._session.proxies.get("no_proxy"),
+            )
         adapter = HTTPAdapter(pool_connections=pool_maxsize, pool_maxsize=pool_maxsize)
         if _Retry is not None:
             retry = _Retry(
@@ -309,7 +327,7 @@ class OktaAuthBackend(AuthenticationBackend):
                     "Invalid private_key PEM format; ensure BEGIN/END markers and preserved newlines",
                     event="okta.private_key.invalid_format",
                 )
-                return None
+                # Log only; keep behavior non-blocking
 
             # Create JWT assertion
             now = int(time.time())
