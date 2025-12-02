@@ -227,11 +227,7 @@ CONFIG_DEFAULTS = {
         "create_on_startup": str(DEFAULT_BACKUP_CREATE_ON_STARTUP).lower(),
         "temp_directory": DEFAULT_BACKUP_TEMP_DIRECTORY,
         "encryption_enabled": str(DEFAULT_BACKUP_ENCRYPTION_ENABLED).lower(),
-        # Azure destination settings
-        "connection_string": "",
-        "account_name": "",
-        "account_key": "",
-        "sas_token": "",
+        # Azure destination settings (non-secret)
         "use_managed_identity": "false",
         "endpoint_suffix": "core.windows.net",
         "container_name": "",
