@@ -31,8 +31,6 @@ fi
 [ -n "${ADMIN_PASSWORD}" ] && export ADMIN_PASSWORD
 [ -n "${API_TOKEN}" ] && export API_TOKEN
 export AZURE_STORAGE_CONNECTION_STRING
-export BACKUP_AZURE_CONTAINER="${STORAGE_CONTAINER}"
-export BACKUP_AZURE_PREFIX="${BACKUP_PREFIX}"
 export AZURE_STORAGE_CONTAINER="${STORAGE_CONTAINER}"
 export AZURE_BACKUP_PATH="${BACKUP_PREFIX}"
 export AZURE_CONFIG_PATH="${CUSTOMER_ID}"
@@ -61,14 +59,22 @@ fi
 
 # Run startup orchestration to restore backups/download config (uses env vars)
 echo "Running startup orchestration..."
-CONFIG_PATH=$(/opt/venv/bin/python - <<'PY'\nfrom tacacs_server.startup import run_startup_orchestration\ntry:\n    print(run_startup_orchestration())\nexcept Exception as e:\n    import sys\n    print(f\"/app/config/tacacs.runtime.ini\", file=sys.stdout)\nPY\n)
+CONFIG_PATH=$(/opt/venv/bin/python - <<'PY'
+from tacacs_server.startup import run_startup_orchestration
+try:
+    print(run_startup_orchestration())
+except Exception:
+    import sys
+    print("/app/config/tacacs.runtime.ini", file=sys.stdout)
+PY
+)
 
 # Start TACACS (with or without web admin) using orchestrated config path
-echo \"Starting TACACS+ server with config ${CONFIG_PATH}...\"
-if [ \"${SKIP_WEB_ADMIN}\" = \"1\" ]; then
-    echo \"⚠ Caddy/HTTPS disabled - starting TACACS/RADIUS with internal web admin only (port 8080)\"
-    exec tacacs-server --config \"${CONFIG_PATH}\"
+echo "Starting TACACS+ server with config ${CONFIG_PATH}..."
+if [ "${SKIP_WEB_ADMIN}" = "1" ]; then
+    echo "⚠ Caddy/HTTPS disabled - starting TACACS/RADIUS with internal web admin only (port 8080)"
+    exec tacacs-server --config "${CONFIG_PATH}"
 else
-    echo \"✓ Starting TACACS/RADIUS + Web Admin\"
-    exec tacacs-server --config \"${CONFIG_PATH}\"
+    echo "✓ Starting TACACS/RADIUS + Web Admin"
+    exec tacacs-server --config "${CONFIG_PATH}"
 fi

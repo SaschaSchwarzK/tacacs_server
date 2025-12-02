@@ -22,15 +22,16 @@ class StartupOrchestrator:
     def check_azure_env_vars(self) -> bool:
         """Check if Azure storage env variables are present (connection string or account-based)."""
         container = os.getenv("AZURE_STORAGE_CONTAINER")
+        if not container:
+            logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
+            return False
+
         conn_str = os.getenv("AZURE_CONNECTION_STRING") or os.getenv(
             "AZURE_STORAGE_CONNECTION_STRING"
         )
 
         # Connection string path
         if conn_str:
-            if not container:
-                logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
-                return False
             logger.info("Azure storage env detected (connection string)")
             return True
 
@@ -39,6 +40,7 @@ class StartupOrchestrator:
         has_sas = bool(os.getenv("AZURE_SAS_TOKEN"))
         has_mi = bool(os.getenv("AZURE_USE_MANAGED_IDENTITY"))
         methods = sum([has_key, has_sas, has_mi])
+
 
         if not container:
             logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
