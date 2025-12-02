@@ -20,11 +20,13 @@ class StartupOrchestrator:
         self.config_downloaded = False
 
     def check_azure_env_vars(self) -> bool:
-        """Check if all required Azure storage env variables are present"""
+        """Check if Azure storage env variables are present (connection string or account-based)."""
         container = os.getenv("AZURE_STORAGE_CONTAINER")
-        conn_str = os.getenv("AZURE_CONNECTION_STRING")
+        conn_str = os.getenv("AZURE_CONNECTION_STRING") or os.getenv(
+            "AZURE_STORAGE_CONNECTION_STRING"
+        )
 
-        # Fast-path: connection string auth only requires container + connection string
+        # Connection string path
         if conn_str:
             if not container:
                 logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
@@ -32,13 +34,12 @@ class StartupOrchestrator:
             logger.info("Azure storage env detected (connection string)")
             return True
 
-        # Other auth methods: account-based key, SAS, or managed identity
+        # Account-based auth
         has_key = bool(os.getenv("AZURE_ACCOUNT_KEY"))
         has_sas = bool(os.getenv("AZURE_SAS_TOKEN"))
         has_mi = bool(os.getenv("AZURE_USE_MANAGED_IDENTITY"))
         methods = sum([has_key, has_sas, has_mi])
 
-        # Container is always required
         if not container:
             logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
             return False
@@ -47,7 +48,6 @@ class StartupOrchestrator:
             logger.info("No Azure authentication method configured")
             return False
 
-        # For non-connection-string auth, the storage account is required
         if not os.getenv("AZURE_STORAGE_ACCOUNT"):
             logger.info(
                 "Missing Azure env vars: AZURE_STORAGE_ACCOUNT (required for key/SAS/managed identity auth)"
@@ -85,8 +85,11 @@ class StartupOrchestrator:
             }
 
             # Add auth config
-            if os.getenv("AZURE_CONNECTION_STRING"):
-                config["connection_string"] = os.getenv("AZURE_CONNECTION_STRING")
+            conn_str = os.getenv("AZURE_CONNECTION_STRING") or os.getenv(
+                "AZURE_STORAGE_CONNECTION_STRING"
+            )
+            if conn_str:
+                config["connection_string"] = conn_str
             else:
                 config["account_name"] = os.getenv("AZURE_STORAGE_ACCOUNT")
                 if os.getenv("AZURE_ACCOUNT_KEY"):
@@ -188,8 +191,11 @@ class StartupOrchestrator:
             }
 
             # Add auth config (same as backup)
-            if os.getenv("AZURE_CONNECTION_STRING"):
-                config["connection_string"] = os.getenv("AZURE_CONNECTION_STRING")
+            conn_str = os.getenv("AZURE_CONNECTION_STRING") or os.getenv(
+                "AZURE_STORAGE_CONNECTION_STRING"
+            )
+            if conn_str:
+                config["connection_string"] = conn_str
             else:
                 config["account_name"] = os.getenv("AZURE_STORAGE_ACCOUNT")
                 if os.getenv("AZURE_ACCOUNT_KEY"):
