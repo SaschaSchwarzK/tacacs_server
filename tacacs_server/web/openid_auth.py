@@ -36,10 +36,10 @@ def _validate_scopes(scopes: Any) -> None:
             scopes=scopes,
         )
 
-    lower_scopes = scopes.lower()
-    if "openid" not in lower_scopes or "groups" not in lower_scopes:
+    scope_list = scopes.lower().split()
+    if "openid" not in scope_list or "groups" not in scope_list:
         logger.error(
-            "OPENID scopes must include both 'openid' and 'groups'",
+            "OPENID scopes must include both 'openid' and 'groups' as distinct scopes",
             event="admin.openid.missing_required_scopes",
             scopes=scopes,
         )

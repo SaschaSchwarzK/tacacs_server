@@ -48,8 +48,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create non-root user (uid 1000) and runtime dirs
 RUN useradd -r -u 1000 -m app \
- && mkdir -p /app/data /app/logs /app/config \
- && chown -R 1000:1000 /app
+ && mkdir -p /app/data /app/logs /app/config /var/run/tacacs \
+ && chown -R 1000:1000 /app /var/run/tacacs
 
 # Copy venv from builder
 COPY --from=build /opt/venv /opt/venv
