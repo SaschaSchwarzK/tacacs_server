@@ -41,11 +41,6 @@ class StartupOrchestrator:
         has_mi = bool(os.getenv("AZURE_USE_MANAGED_IDENTITY"))
         methods = sum([has_key, has_sas, has_mi])
 
-
-        if not container:
-            logger.info("Missing Azure env vars: AZURE_STORAGE_CONTAINER")
-            return False
-
         if methods == 0:
             logger.info("No Azure authentication method configured")
             return False
@@ -249,7 +244,7 @@ class StartupOrchestrator:
                         except Exception as e:  # noqa: BLE001
                             last_err = e
                             # Break early on clearly invalid connection strings
-                            if isinstance(e, Exception) and "Connection string" in str(e):
+                            if "Connection string" in str(e):
                                 break
                             time.sleep(delay)
                 except Exception as e:  # noqa: BLE001

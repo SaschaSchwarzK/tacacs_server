@@ -66,8 +66,9 @@ CONFIG_PATH=$(/opt/venv/bin/python - <<'PY'
 from tacacs_server.startup import run_startup_orchestration
 try:
     print(run_startup_orchestration())
-except Exception:
+except Exception as e:
     import sys
+    print(f"ERROR: Startup orchestration failed: {e}", file=sys.stderr)
     print("/app/config/tacacs.runtime.ini", file=sys.stdout)
 PY
 )
