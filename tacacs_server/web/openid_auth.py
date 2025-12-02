@@ -3,6 +3,7 @@ OpenID Connect (OIDC) Authentication Module
 Handles OAuth2/OIDC token exchange and user session mapping.
 """
 
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -11,9 +12,37 @@ from urllib.parse import urlencode
 import requests
 from requests.exceptions import RequestException
 
+from tacacs_server.utils.crypto import validate_pem_format
 from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _validate_scopes(scopes: Any) -> None:
+    """Validate configured scopes; log errors but do not raise."""
+    if not isinstance(scopes, str):
+        logger.error(
+            "OPENID scopes must be a string",
+            event="admin.openid.invalid_scopes_type",
+            scopes_type=type(scopes).__name__,
+        )
+        return
+
+    # Check for disallowed characters (quotes and non-standard symbols)
+    if re.search(r"[\"'\\]", scopes):
+        logger.error(
+            "OPENID scopes contain disallowed characters (quotes or backslash)",
+            event="admin.openid.invalid_scopes_chars",
+            scopes=scopes,
+        )
+
+    scope_list = scopes.lower().split()
+    if "openid" not in scope_list or "groups" not in scope_list:
+        logger.error(
+            "OPENID scopes must include both 'openid' and 'groups' as distinct scopes",
+            event="admin.openid.missing_required_scopes",
+            scopes=scopes,
+        )
 
 
 class OpenIDConfig:
@@ -61,6 +90,7 @@ class OpenIDConfig:
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
         self.scopes = scopes
+        _validate_scopes(self.scopes)
         self.session_timeout = timedelta(minutes=session_timeout_minutes)
         self.allowed_groups = allowed_groups or []
         self.use_interaction_code = use_interaction_code
@@ -157,6 +187,16 @@ class OpenIDManager:
         self._http_session = requests.Session()
         # Respect HTTP_PROXY/HTTPS_PROXY from environment
         self._http_session.trust_env = True
+        if self._http_session.trust_env:
+            env_proxies = requests.utils.get_environ_proxies(self.config.issuer_url)
+            if env_proxies:
+                logger.info(
+                    "OpenID proxy settings discovered from environment",
+                    event="admin.openid.proxy_env_discovered",
+                    http_proxy=env_proxies.get("http"),
+                    https_proxy=env_proxies.get("https"),
+                    no_proxy=env_proxies.get("no_proxy"),
+                )
         # Apply explicit proxy settings from config if provided
         proxy_cfg = {}
         if self.config.http_proxy:
@@ -165,8 +205,19 @@ class OpenIDManager:
             proxy_cfg["https"] = self.config.https_proxy
         if proxy_cfg:
             self._http_session.proxies.update(proxy_cfg)
+            logger.info(
+                "OpenID proxy settings applied",
+                event="admin.openid.proxy_configured",
+                http_proxy=proxy_cfg.get("http"),
+                https_proxy=proxy_cfg.get("https"),
+            )
         if self.config.no_proxy:
             self._http_session.proxies["no_proxy"] = self.config.no_proxy
+            logger.info(
+                "OpenID no_proxy applied",
+                event="admin.openid.no_proxy_configured",
+                no_proxy=self.config.no_proxy,
+            )
         # Share session with config for endpoint discovery
         self.config._http_session = self._http_session
 
@@ -229,6 +280,14 @@ class OpenIDManager:
         if self.config.client_auth_method == "private_key_jwt":
             if not self.config.client_private_key:
                 raise ValueError("client_private_key is required for private_key_jwt")
+            if not validate_pem_format(
+                self.config.client_private_key, expected_label="PRIVATE KEY"
+            ):
+                logger.error(
+                    "Invalid client_private_key PEM format; ensure BEGIN/END markers and preserved newlines",
+                    event="admin.openid.invalid_private_key",
+                )
+                # Log only; keep behavior non-blocking
             try:
                 import jwt
             except Exception as exc:  # pragma: no cover
