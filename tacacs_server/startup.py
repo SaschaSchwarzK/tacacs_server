@@ -248,6 +248,9 @@ class StartupOrchestrator:
                             break
                         except Exception as e:  # noqa: BLE001
                             last_err = e
+                            # Break early on clearly invalid connection strings
+                            if isinstance(e, Exception) and "Connection string" in str(e):
+                                break
                             time.sleep(delay)
                 except Exception as e:  # noqa: BLE001
                     last_err = e
