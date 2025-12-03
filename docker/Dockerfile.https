@@ -52,7 +52,7 @@ RUN useradd -r -u 1000 -m app \
  && chown -R 1000:1000 /app /certs /var/run/tacacs
 
 COPY --from=build /opt/venv /opt/venv
-COPY config/tacacs.aci.ini /app/config/tacacs.ini
+COPY config/tacacs.container.ini /app/config/tacacs.ini
 COPY docker/https/bootstrap-https.sh /app/bootstrap.sh
 COPY docker/https/fetch_cert.py /app/fetch_cert.py
 COPY docker/https/Caddyfile /app/Caddyfile

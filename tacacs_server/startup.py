@@ -333,11 +333,6 @@ class StartupOrchestrator:
             logger.info(f"Using environment-specified config: {env_config}")
             return env_config
 
-        container_config = "/app/config/tacacs.container.ini"
-        if Path(container_config).exists():
-            logger.info(f"Using container default config: {container_config}")
-            return container_config
-
         default_config = "config/tacacs.conf"
         logger.info(f"Using default config location: {default_config}")
         return default_config
