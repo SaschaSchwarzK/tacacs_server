@@ -208,17 +208,17 @@ Notes:
 ```ini
 # config/tacacs.conf
 [server]
-port = 5049
+port = 8049
 # client_timeout not specified
 ```
 
 ```bash
-export TACACS_SERVER_PORT=49               # Ignored - config file has port=5049
+export TACACS_SERVER_PORT=49               # Ignored - config file has port=8049
 export TACACS_SERVER_CLIENT_TIMEOUT=60     # Used - not in config file
 ```
 
 **Result:**
-- `port = 5049` (from config file - overrides env var)
+- `port = 8049` (from config file - overrides env var)
 - `client_timeout = 60` (from environment - config file didn't set it)
 - `max_connections = 50` (from default - not set anywhere)
 
@@ -242,7 +242,7 @@ AZURE_STORAGE_CONNECTION_STRING=<conn> # Azure backup connection
 **Environment Variable Fallbacks (Optional):**
 ```bash
 # Provide values for settings not defined in the config file
-TACACS_SERVER_PORT=5049                    # Server port
+TACACS_SERVER_PORT=8049                    # Server port
 TACACS_SERVER_HOST=0.0.0.0                 # Bind address
 TACACS_SERVER_CLIENT_TIMEOUT=30            # Client timeout
 TACACS_AUTH_BACKEND_TIMEOUT=5              # Backend auth timeout
@@ -1461,7 +1461,7 @@ poetry run tacacs-admin migrate-hashes --csv scripts/example_credentials.csv -c 
 
 Example configurations are provided under `config/examples/`:
 
-- `minimal.ini` — non-privileged TACACS (5049/TCP), RADIUS disabled, monitoring on 8080.
+- `minimal.ini` — non-privileged TACACS (8049/TCP), RADIUS disabled, monitoring on 8080.
 - `standard.ini` — TACACS 49/TCP, RADIUS 1812/1813 UDP, moderate rate limits.
 - `enterprise.ini` — multi-backend (local+LDAP), environment interpolation for secrets, higher limits, monitoring enabled.
 
@@ -1489,7 +1489,7 @@ Parameters to substitute
 Notes
 - ACI allows binding to privileged ports; the container should run as root for 49/1812/1813.
 - Health endpoint: `http://<aci-ip>:8080/health`, readiness: `http://<aci-ip>:8080/ready`.
-- RADIUS is enabled in the ACI config; for environments without UDP (e.g., ACA), use `config/tacacs.container.ini` with RADIUS disabled and TACACS on 5049/TCP.
+- RADIUS is enabled in the ACI config; for environments without UDP (e.g., ACA), use `config/tacacs.container.ini` with RADIUS disabled and TACACS on 8049/TCP.
 
 ## 📈 Performance
 

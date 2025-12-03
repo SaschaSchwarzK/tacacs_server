@@ -230,7 +230,7 @@ def test_backup_to_azure_via_azurite_e2e(tmp_path: Path) -> None:
                 "--network",
                 network_name,
                 "-p",
-                f"{tacacs_host_port}:5049",
+                f"{tacacs_host_port}:8049",
                 "-p",
                 f"{api_host_port}:8080",
                 "-e",

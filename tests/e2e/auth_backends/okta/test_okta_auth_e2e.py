@@ -333,7 +333,7 @@ def test_tacacs_server_with_okta_backend(
     tacacs_image = f"tacacs-server-e2e:{unique}"
     tacacs_container = f"tacacs-okta-e2e-{unique}"
     api_token = f"token-{unique}"
-    tacacs_host_port = 5049
+    tacacs_host_port = 8049
     api_host_port = 8080
 
     build = _run(["docker", "build", "-t", tacacs_image, str(project_root)])
@@ -347,7 +347,7 @@ def test_tacacs_server_with_okta_backend(
         "--name",
         tacacs_container,
         "-p",
-        f"{tacacs_host_port}:5049",
+        f"{tacacs_host_port}:8049",
         "-p",
         f"{api_host_port}:8080",
         "-e",

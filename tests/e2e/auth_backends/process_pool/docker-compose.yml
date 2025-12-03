@@ -34,7 +34,7 @@ services:
       dockerfile: Dockerfile
     container_name: tacacs-process-pool-e2e
     ports:
-      - "5049:5049"
+      - "8049:8049"
       - "8080:8080"
     environment:
       - PYTHONUNBUFFERED=1

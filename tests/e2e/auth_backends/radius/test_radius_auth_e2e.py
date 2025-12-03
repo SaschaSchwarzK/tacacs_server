@@ -241,10 +241,14 @@ def test_tacacs_server_with_radius_auth_backend(tmp_path: Path) -> None:
         cfg.add_section("devices")
     cfg["devices"]["default_group"] = "default"
     cfg["devices"]["auto_register"] = "true"
-    # Server log level
+    # Server log level and tacacs port
     if not cfg.has_section("server"):
         cfg.add_section("server")
     cfg["server"]["log_level"] = "DEBUG"
+    #cfg["server"]["port"] = str(tacacs_port)
+    if not cfg.has_section("monitoring"):
+        cfg.add_section("monitoring")
+    #cfg["monitoring"]["web_port"] = str(api_port)
     # Prepare radius_auth section up-front using the RADIUS container name
     # so we don't need to modify the read-only config inside the container.
     if not cfg.has_section("radius_auth"):
@@ -315,7 +319,7 @@ def test_tacacs_server_with_radius_auth_backend(tmp_path: Path) -> None:
                 "--network",
                 network,
                 "-p",
-                f"{tacacs_port}:5049",
+                f"{tacacs_port}:8049",
                 "-p",
                 f"{api_port}:8080",
                 "-e",

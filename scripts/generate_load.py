@@ -3,7 +3,7 @@ Generate TACACS+ traffic to exercise monitoring and Prometheus/Grafana dashboard
 
 Usage examples:
 
-  poetry run python scripts/generate_load.py --host 127.0.0.1 --port 5049 \
+  poetry run python scripts/generate_load.py --host 127.0.0.1 --port 8049 \
       --users apitestuser:ApiTestPass1! --rps 50 --duration 30 --mix auth,author,acct
 
 Notes:
