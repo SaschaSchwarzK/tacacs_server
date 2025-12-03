@@ -15,6 +15,8 @@ STORAGE_CONTAINER="${STORAGE_CONTAINER:-tacacs-data}"
 CONFIG_BLOB="${CUSTOMER_ID}/config.ini"
 BACKUP_PREFIX="${CUSTOMER_ID}/backups/"
 LOCAL_CONFIG="/app/config/tacacs.runtime.ini"
+# Ensure TACACS_CONFIG points to the bundled container config unless overridden
+export TACACS_CONFIG="${TACACS_CONFIG:-/app/config/tacacs.ini}"
 
 echo "Customer: ${CUSTOMER_ID}"
 
