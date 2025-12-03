@@ -331,7 +331,7 @@ def test_tacacs_server_with_containerized_process_pool(tmp_path: Path) -> None:
             "--network",
             network_name,
             "-p",
-            f"{tacacs_host_port}:5049",
+            f"{tacacs_host_port}:8049",
             "-p",
             f"{api_host_port}:8080",
             "-e",

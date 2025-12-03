@@ -4,34 +4,21 @@ set -e
 echo "=== TACACS+ HTTPS Bootstrap ==="
 
 : "${CUSTOMER_ID:?CUSTOMER_ID required}"
-: "${AZURE_STORAGE_CONNECTION_STRING:?AZURE_STORAGE_CONNECTION_STRING required}"
+# Normalize Azure connection string envs if provided (optional; startup orchestration will skip Azure if unset)
+if [ -n "${AZURE_CONNECTION_STRING}" ]; then
+  export AZURE_CONNECTION_STRING
+elif [ -n "${AZURE_STORAGE_CONNECTION_STRING}" ]; then
+  export AZURE_CONNECTION_STRING="${AZURE_STORAGE_CONNECTION_STRING}"
+fi
 
 STORAGE_CONTAINER="${STORAGE_CONTAINER:-tacacs-data}"
 CONFIG_BLOB="${CUSTOMER_ID}/config.ini"
 BACKUP_PREFIX="${CUSTOMER_ID}/backups/"
 LOCAL_CONFIG="/app/config/tacacs.runtime.ini"
+# Ensure TACACS_CONFIG points to the bundled container config unless overridden
+export TACACS_CONFIG="${TACACS_CONFIG:-/app/config/tacacs.ini}"
 
 echo "Customer: ${CUSTOMER_ID}"
-
-# Download config from customer folder
-echo "Downloading config from ${STORAGE_CONTAINER}/${CONFIG_BLOB}..."
-python3 -c "
-from azure.storage.blob import BlobServiceClient
-import os, sys, shutil
-
-try:
-    blob_client = BlobServiceClient.from_connection_string(
-        os.environ['AZURE_STORAGE_CONNECTION_STRING']
-    ).get_blob_client('${STORAGE_CONTAINER}', '${CONFIG_BLOB}')
-    
-    with open('${LOCAL_CONFIG}', 'wb') as f:
-        f.write(blob_client.download_blob().readall())
-    print('✓ Config downloaded from ${CONFIG_BLOB}')
-except Exception as e:
-    print(f'✗ Config failed: {e}')
-    print('Using default config from image')
-    shutil.copy('/app/config/tacacs.ini', '${LOCAL_CONFIG}')
-"
 
 # Fetch certificate (Key Vault or self-signed fallback)
 echo "Fetching/generating certificate..."
@@ -49,8 +36,10 @@ fi
 [ -n "${ADMIN_PASSWORD}" ] && export ADMIN_PASSWORD
 [ -n "${API_TOKEN}" ] && export API_TOKEN
 export AZURE_STORAGE_CONNECTION_STRING
-export BACKUP_AZURE_CONTAINER="${STORAGE_CONTAINER}"
-export BACKUP_AZURE_PREFIX="${BACKUP_PREFIX}"
+export AZURE_STORAGE_CONTAINER="${STORAGE_CONTAINER}"
+export AZURE_BACKUP_PATH="${BACKUP_PREFIX}"
+export AZURE_CONFIG_PATH="${CUSTOMER_ID}"
+export AZURE_CONFIG_FILE="config.ini"
 
 echo "Backup configuration:"
 echo "  Container: ${STORAGE_CONTAINER}"
@@ -73,13 +62,26 @@ if [ "${SKIP_WEB_ADMIN}" != "1" ]; then
     fi
 fi
 
-# Start TACACS (with or without web admin)
-echo "Starting TACACS+ server..."
+# Run startup orchestration to restore backups/download config (uses env vars)
+echo "Running startup orchestration..."
+CONFIG_PATH=$(/opt/venv/bin/python - <<'PY' || true
+from tacacs_server.startup import run_startup_orchestration
+try:
+    print(run_startup_orchestration())
+except Exception as e:
+    import sys
+    print(f"ERROR: Startup orchestration failed: {e}", file=sys.stderr)
+    print("/app/config/tacacs.runtime.ini", file=sys.stdout)
+PY
+)
+CONFIG_PATH=${CONFIG_PATH:-/app/config/tacacs.container.ini}
+
+# Start TACACS (with or without web admin) using orchestrated config path
+echo "Starting TACACS+ server with config ${CONFIG_PATH}..."
 if [ "${SKIP_WEB_ADMIN}" = "1" ]; then
     echo "⚠ Caddy/HTTPS disabled - starting TACACS/RADIUS with internal web admin only (port 8080)"
-    exec tacacs-server --config "${LOCAL_CONFIG}"
+    exec tacacs-server --config "${CONFIG_PATH}"
 else
     echo "✓ Starting TACACS/RADIUS + Web Admin"
-    exec tacacs-server --config "${LOCAL_CONFIG}"
+    exec tacacs-server --config "${CONFIG_PATH}"
 fi
-

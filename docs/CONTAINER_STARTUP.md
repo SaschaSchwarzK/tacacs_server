@@ -8,34 +8,38 @@ The TACACS+ server container implements intelligent startup orchestration that a
 
 ```mermaid
 flowchart TD
-    A[Container start] --> B{Azure storage configured?}
-    B -->|Yes| C[Restore latest backup from Azure]
-    B -->|No| H[Skip cloud recovery]
+    A[Container start] --> B["Fetch TLS cert (HTTPS only: Key Vault or self-signed)"]
+    B --> C{Azure storage configured?}
+    C -->|Yes| D[Restore latest backup from Azure]
+    C -->|No| I[Skip cloud recovery]
 
-    C --> D{Backup restored?}
-    D -->|Yes| E[Extract tarball into /app/data]
-    D -->|No| F[Download config from Azure]
+    D --> E{Backup restored?}
+    E -->|Yes| F[Extract tarball into /app/data]
+    E -->|No| G[Download config from Azure]
 
-    F --> G{Config downloaded?}
-    G -->|Yes| I[Write /app/config/tacacs.azure.ini]
-    G -->|No| H
+    G --> H{Config downloaded?}
+    H -->|Yes| J[Write /app/config/tacacs.azure.ini]
+    H -->|No| I
 
-    E --> J[Validate minimum config]
-    I --> J
-    H --> J
+    F --> K[Validate minimum config]
+    J --> K
+    I --> K
 
-    J --> K[Determine config path]
-    K --> L[Start main server process]
+    K --> L[Determine config path]
+    L --> M["Start Caddy (HTTPS) + tacacs-server"]
 ```
 
 ## Environment Variables
 
 ### Azure Storage Authentication
 
-Choose ONE of the following authentication methods:
+Choose ONE of the following authentication methods (connection string names are interchangeable):
 
 **Option 1: Connection String**
 ```bash
+AZURE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
+# or legacy names (also accepted by the orchestrator):
+AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
 AZURE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
 AZURE_STORAGE_CONTAINER=tacacs-backups
 ```
@@ -71,6 +75,14 @@ AZURE_BACKUP_PATH=backups  # default: backups
 AZURE_CONFIG_PATH=config        # default: config
 AZURE_CONFIG_FILE=tacacs.conf   # default: tacacs.conf
 ```
+
+### TLS Certificates (HTTPS image)
+
+1. Attempt to fetch certificate/key from Azure Key Vault when `KEYVAULT_URL` and `CERT_NAME` are set.
+2. If unavailable, generate a self-signed certificate (development use only).
+3. Start Caddy with the fetched/generated certs, then run the shared startup orchestration (backup → config restore).
+
+> The HTTPS image uses the same startup orchestration as the standard image: fetch TLS certs (Key Vault or self-signed), then restore the latest Azure backup (or download config if no backup), before starting Caddy and tacacs-server.
 
 ### Server Configuration
 

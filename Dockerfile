@@ -37,7 +37,8 @@ FROM python:3.13-slim AS run
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH=/opt/venv/bin:$PATH
+    PATH=/opt/venv/bin:$PATH \
+    TACACS_CONFIG=/app/config/tacacs.container.ini
 
 WORKDIR /app
 

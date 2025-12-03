@@ -177,7 +177,7 @@ def test_startup_downloads_config_from_azure_via_azurite(tmp_path: Path) -> None
             """
 [server]
 host=0.0.0.0
-port=5049
+port=8049
 log_level=DEBUG
 
 [auth]
@@ -243,7 +243,7 @@ encryption_required=false
                 "--network",
                 network_name,
                 "-p",
-                f"{tacacs_host_port}:5049",
+                f"{tacacs_host_port}:8049",
                 "-e",
                 "AZURE_STORAGE_ACCOUNT=devstoreaccount1",
                 "-e",
@@ -498,7 +498,7 @@ def test_startup_restores_backup_from_azure_via_azurite(tmp_path: Path) -> None:
                 "--network",
                 network_name,
                 "-p",
-                f"{tacacs_host_port}:5049",
+                f"{tacacs_host_port}:8049",
                 "-e",
                 "AZURE_STORAGE_ACCOUNT=devstoreaccount1",
                 "-e",

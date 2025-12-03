@@ -6,7 +6,7 @@ COPY haproxy.cfg /etc/haproxy/haproxy.cfg
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 5049 1812/udp
+EXPOSE 8049 1812/udp
 
 ENTRYPOINT ["/entrypoint.sh"]
 

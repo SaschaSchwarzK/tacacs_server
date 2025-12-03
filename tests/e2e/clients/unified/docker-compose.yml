@@ -9,7 +9,7 @@ services:
     environment:
       MODE: ${MODE1:-tacacs}
       HOST: ${HOST1:-127.0.0.1}
-      PORT: ${PORT1:-5049}
+      PORT: ${PORT1:-8049}
       SECRET: ${SECRET1:-TacacsSecret123!}
       USERNAME: ${USERNAME1:-adminA}
       PASSWORD: ${PASSWORD1:-password}
