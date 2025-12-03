@@ -62,7 +62,7 @@ fi
 
 # Run startup orchestration to restore backups/download config (uses env vars)
 echo "Running startup orchestration..."
-CONFIG_PATH=$(/opt/venv/bin/python - <<'PY'
+CONFIG_PATH=$(/opt/venv/bin/python - <<'PY' || true
 from tacacs_server.startup import run_startup_orchestration
 try:
     print(run_startup_orchestration())
@@ -72,6 +72,7 @@ except Exception as e:
     print("/app/config/tacacs.runtime.ini", file=sys.stdout)
 PY
 )
+CONFIG_PATH=${CONFIG_PATH:-/app/config/tacacs.container.ini}
 
 # Start TACACS (with or without web admin) using orchestrated config path
 echo "Starting TACACS+ server with config ${CONFIG_PATH}..."
