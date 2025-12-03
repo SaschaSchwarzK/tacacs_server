@@ -4,6 +4,27 @@ This document provides a comprehensive reference for configuring the TACACS+ ser
 
 ## Configuration Sources
 
+┌─────────────────────────────────────────┐
+│ Admin UI / API                          │
+└──────────┬──────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────┐
+│ update_section() / update_webhook()     │
+│ - Validates                             │
+│ - Updates ConfigParser in memory        │
+│ - Saves to SQLite (change history)      │
+│ - Writes to config file (if not URL)    │
+└──────────┬──────────────────────────────┘
+           │
+     ┌─────┴─────┬───────────┐
+     ▼           ▼           ▼
+┌─────────┐ ┌─────────┐ ┌────────────┐
+│ Memory  │ │ SQLite  │ │ File       │
+│ Config  │ │ Override│ │ tacacs.conf│
+│ Parser  │ │ .db     │ │            │
+└─────────┘ └─────────┘ └────────────┘
+
 1. **Primary Configuration File** (`config/tacacs.conf` by default)
    - Contains all default settings
    - Can be version controlled

@@ -430,7 +430,7 @@ def test_backup_to_sftp_key_e2e(tmp_path: Path, key_type: str) -> None:
                 "--network",
                 network_name,
                 "-p",
-                f"{tacacs_host_port}:5049",
+                f"{tacacs_host_port}:8049",
                 "-p",
                 f"{api_host_port}:8080",
                 "-e",

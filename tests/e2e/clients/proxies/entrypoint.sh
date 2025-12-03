@@ -32,12 +32,12 @@ resolvers docker
     hold valid      10s
 
 frontend tacacs_in
-    bind *:5049
+    bind *:8049
     default_backend tacacs_out
 
 backend tacacs_out
     balance roundrobin
-    server backend1 ${BACKEND_HOST}:5049 send-proxy-v2 check resolvers docker resolve-prefer ipv4 init-addr libc,none
+    server backend1 ${BACKEND_HOST}:8049 send-proxy-v2 check resolvers docker resolve-prefer ipv4 init-addr libc,none
 EOF
 
 # Run haproxy in debug/verbose so logs go to stdout for the test harness

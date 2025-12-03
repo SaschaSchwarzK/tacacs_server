@@ -120,6 +120,8 @@ def test_syslog_forwarding_e2e(tmp_path: Path):
                 tacacs_container,
                 "--network",
                 net_name,
+                "-e",
+                "TACACS_CONFIG=/app/config/tacacs.conf",
                 "-v",
                 f"{cfg_path}:/app/config/tacacs.conf:ro",
                 "-v",

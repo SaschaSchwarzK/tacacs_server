@@ -33,7 +33,9 @@ class StartupOrchestrator:
         # Connection string path
         if conn_str:
             if "AccountName=" not in conn_str:
-                logger.info("Azure connection string missing AccountName; skipping Azure recovery")
+                logger.info(
+                    "Azure connection string missing AccountName; skipping Azure recovery"
+                )
                 return False
             logger.info("Azure storage env detected (connection string)")
             return True
