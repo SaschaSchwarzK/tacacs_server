@@ -262,7 +262,13 @@ class TacacsConfig:
             logger.error("Okta backend configured but no [okta] section found")
             return None
         try:
-            return OktaAuthBackend(dict(self.config["okta"]))
+            cfg = dict(self.config["okta"])
+            # Inherit global MFA defaults if present, allowing per-backend override
+            if "mfa" in self.config:
+                merged = dict(self.config["mfa"])
+                merged.update(cfg)
+                cfg = merged
+            return OktaAuthBackend(cfg)
         except Exception as exc:
             logger.error("Failed to initialize Okta backend: %s", exc)
             return None
@@ -284,6 +290,11 @@ class TacacsConfig:
             return None
         try:
             cfg = dict(self.config[section_name])
+            # Inherit global MFA defaults if present, allowing per-backend override
+            if "mfa" in self.config:
+                merged = dict(self.config["mfa"])
+                merged.update(cfg)
+                cfg = merged
             return RADIUSAuthBackend(cfg)
         except Exception as exc:
             logger.error("Failed to initialize Radius backend: %s", exc)

@@ -326,6 +326,13 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             "mfa_timeout_seconds",
             "mfa_poll_interval",
         ],
+        "mfa": [
+            "mfa_enabled",
+            "mfa_otp_digits",
+            "mfa_push_keyword",
+            "mfa_timeout_seconds",
+            "mfa_poll_interval",
+        ],
         "okta": [
             "org_url",
             "verify_tls",

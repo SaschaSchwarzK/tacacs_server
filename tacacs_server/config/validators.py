@@ -56,6 +56,9 @@ def validate_config(config: configparser.ConfigParser) -> list[str]:
         # Radius auth section is validated conditionally inside the schema
         if "radius_auth" in config:
             config_dict["radius_auth"] = dict(config["radius_auth"])
+        # Global MFA defaults (optional)
+        if "mfa" in config:
+            config_dict["mfa"] = dict(config["mfa"])
 
         validated: TacacsConfigSchema = validate_config_file(config_dict)
 
@@ -303,6 +306,9 @@ def validate_change(
         # Radius section can be present; schema enforces requireds only when enabled
         if "radius_auth" in payload:
             schema_payload["radius_auth"] = payload.get("radius_auth", {})
+        # Global MFA defaults
+        if "mfa" in payload:
+            schema_payload["mfa"] = payload.get("mfa", {})
         # Optional backup section
         if "backup" in payload:
             schema_payload["backup"] = payload.get("backup", {})
@@ -407,6 +413,46 @@ def validate_change(
                     timeout = config.getfloat(
                         "radius_auth", "mfa_timeout_seconds", fallback=25.0
                     )
+                    if poll >= timeout:
+                        issues.append(
+                            "mfa_poll_interval must be less than mfa_timeout_seconds"
+                        )
+            except Exception:
+                issues.append("mfa_poll_interval must be a number")
+    # global mfa section validation
+    if section == "mfa":
+        k = key.lower()
+        if k == "mfa_enabled":
+            sval = str(value).lower()
+            if sval not in ("1", "0", "true", "false", "yes", "no", "on", "off"):
+                issues.append("mfa_enabled must be a boolean value")
+        elif k == "mfa_otp_digits":
+            try:
+                digits = int(value)
+                if digits < 4 or digits > 10:
+                    issues.append("mfa_otp_digits must be between 4 and 10")
+            except Exception:
+                issues.append("mfa_otp_digits must be an integer")
+        elif k == "mfa_timeout_seconds":
+            try:
+                timeout = int(value)
+                if timeout < 1 or timeout > 300:
+                    issues.append("mfa_timeout_seconds must be 1-300")
+                else:
+                    poll = config.getfloat("mfa", "mfa_poll_interval", fallback=2.0)
+                    if poll >= timeout:
+                        issues.append(
+                            "mfa_poll_interval must be less than mfa_timeout_seconds"
+                        )
+            except Exception:
+                issues.append("mfa_timeout_seconds must be an integer")
+        elif k == "mfa_poll_interval":
+            try:
+                poll = float(value)
+                if poll <= 0:
+                    issues.append("mfa_poll_interval must be greater than 0")
+                else:
+                    timeout = config.getfloat("mfa", "mfa_timeout_seconds", fallback=25)
                     if poll >= timeout:
                         issues.append(
                             "mfa_poll_interval must be less than mfa_timeout_seconds"

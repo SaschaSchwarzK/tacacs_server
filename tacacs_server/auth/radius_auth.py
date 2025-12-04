@@ -370,23 +370,29 @@ class RADIUSAuthBackend(AuthenticationBackend):
             # No MFA suffix provided but server wants MFA
             return False, "MFA required but not provided"
 
-        packet, _, _ = self._create_access_request(
+        packet, identifier, authenticator = self._create_access_request(
             username, response_password, state=state
         )
         
         if push:
             # Poll for push approval
-            return self._poll_push_approval(sock, packet, username)
+            return self._poll_push_approval(
+                sock, packet, username, identifier, authenticator
+            )
         else:
             # Send OTP and get response
-            return self._send_and_check_response(sock, packet, username)
+            return self._send_and_check_response(
+                sock, packet, username, identifier, authenticator
+            )
 
 
     def _poll_push_approval(
         self,
         sock: Any,
         request_packet: bytes,
-        username: str
+        username: str,
+        identifier: int,
+        authenticator: bytes,
     ) -> tuple[bool, str]:
         """Poll RADIUS server for push approval."""
         start = time.time()
@@ -398,8 +404,17 @@ class RADIUSAuthBackend(AuthenticationBackend):
                 
                 data, _ = sock.recvfrom(4096)
                 code = data[0]
+
+                if len(data) < 20 or data[1] != identifier:
+                    continue
+                if not self._verify_response(data, authenticator):
+                    continue
                 
                 if code == 2:  # Access-Accept
+                    attributes = self._parse_attributes(data[20:])
+                    groups = self._extract_groups(attributes)
+                    if groups:
+                        self._cached_groups.set(username, groups)
                     logger.info(f"RADIUS push approved for {username}")
                     return True, "push_approved"
                 elif code == 3:  # Access-Reject
@@ -420,7 +435,12 @@ class RADIUSAuthBackend(AuthenticationBackend):
         return False, "push_timeout"
     
     def _send_and_check_response(
-        self, sock: Any, request_packet: bytes, username: str
+        self,
+        sock: Any,
+        request_packet: bytes,
+        username: str,
+        identifier: int,
+        authenticator: bytes,
     ) -> tuple[bool, str]:
         """Send OTP response and check result."""
         try:
@@ -429,8 +449,17 @@ class RADIUSAuthBackend(AuthenticationBackend):
             
             data, _ = sock.recvfrom(4096)
             code = data[0]
+
+            if len(data) < 20 or data[1] != identifier:
+                return False, "unexpected_response"
+            if not self._verify_response(data, authenticator):
+                return False, "authenticator_mismatch"
             
             if code == 2:  # Access-Accept
+                attributes = self._parse_attributes(data[20:])
+                groups = self._extract_groups(attributes)
+                if groups:
+                    self._cached_groups.set(username, groups)
                 logger.info(f"RADIUS OTP accepted for {username}")
                 return True, "otp_accepted"
             elif code == 3:  # Access-Reject
@@ -481,16 +510,32 @@ class RADIUSAuthBackend(AuthenticationBackend):
         
         try:
             # Send initial Access-Request with base password
-            packet, _, _ = self._create_access_request(username, base_password)
+            packet, identifier, authenticator = self._create_access_request(
+                username, base_password
+            )
             
             for attempt in range(self.radius_retries):
                 try:
                     sock.sendto(packet, (self.radius_server, self.radius_port))
                     data, _ = sock.recvfrom(4096)
-                    
+
+                    if len(data) < 20:
+                        continue
+
+                    # Validate response ID and authenticator
+                    if data[1] != identifier:
+                        continue
+                    if not self._verify_response(data, authenticator):
+                        logger.warning("RADIUS authenticator verification failed")
+                        continue
+
                     code = data[0]
                     
                     if code == 2:  # Access-Accept
+                        attributes = self._parse_attributes(data[20:])
+                        groups = self._extract_groups(attributes)
+                        if groups:
+                            self._cached_groups.set(username, groups)
                         return True
                         
                     elif code == 3:  # Access-Reject
@@ -513,7 +558,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
                         )
                         return success
                         
-                except socket.timeout:
+                except (socket.timeout, BlockingIOError):
                     continue
                     
             return False

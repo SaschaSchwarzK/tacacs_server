@@ -628,6 +628,16 @@ mfa_timeout_seconds = 25
 mfa_poll_interval = 2.0
 ```
 
+Global defaults (applied to all MFA-capable backends unless overridden):
+```ini
+[mfa]
+mfa_enabled = false
+mfa_otp_digits = 6
+mfa_push_keyword = push
+mfa_timeout_seconds = 25
+mfa_poll_interval = 2.0
+```
+
 Notes on NAS attributes:
 - `radius_nas_ip` sets `NAS-IP-Address` (type 4). Some RADIUS servers use this to
   identify clients and apply policy. The default `0.0.0.0` is valid but may be
