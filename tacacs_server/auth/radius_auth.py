@@ -43,6 +43,7 @@ import time
 import uuid
 from typing import Any
 
+from tacacs_server.auth.mfa_utils import parse_mfa_suffix
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.simple_cache import TTLCache
 
@@ -69,6 +70,14 @@ class RADIUSAuthBackend(AuthenticationBackend):
     REPLY_MESSAGE = 18
     CLASS = 25
     NAS_IDENTIFIER = 32
+
+    @staticmethod
+    def _as_bool(value: Any) -> bool:
+        """Coerce common truthy strings/ints/bools to bool."""
+        if isinstance(value, bool):
+            return value
+        sval = str(value).strip().lower()
+        return sval in ("1", "true", "yes", "on")
 
     def __init__(self, cfg: dict[str, Any]):
         """
@@ -99,7 +108,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
             else None
         )
         # MFA controls
-        self.mfa_enabled = bool(cfg.get("mfa_enabled", False))
+        self.mfa_enabled = self._as_bool(cfg.get("mfa_enabled", False))
         self.mfa_otp_digits = int(cfg.get("mfa_otp_digits", 6))
         self.mfa_push_keyword = str(cfg.get("mfa_push_keyword", "push")).strip().lower()
         self.mfa_timeout_seconds = int(cfg.get("mfa_timeout_seconds", 25))
@@ -246,6 +255,13 @@ class RADIUSAuthBackend(AuthenticationBackend):
 
         return resp_auth == expected
 
+    def _handle_access_accept(self, response: bytes, username: str) -> None:
+        """Parse Access-Accept attributes and cache groups."""
+        attributes = self._parse_attributes(response[20:])
+        groups = self._extract_groups(attributes)
+        if groups:
+            self._cached_groups.set(username, groups)
+
     def _parse_attributes(self, data: bytes) -> dict[int, list[bytes]]:
         """Parse RADIUS attributes from response packet"""
         attributes: dict[int, list[bytes]] = {}
@@ -307,38 +323,13 @@ class RADIUSAuthBackend(AuthenticationBackend):
         return groups
 
     def _parse_mfa_suffix(self, password: str) -> tuple[str, str | None, bool]:
-        """Parse password for MFA suffix.
-        
-        Returns:
-            (base_password, otp_code, push_requested)
-        """
-        if not self.mfa_enabled or not isinstance(password, str):
-            return password, None, False
-        
-        pw = password.strip()
-        kw = self.mfa_push_keyword
-        
-        # Check for push keyword (same logic as okta_auth.py)
-        if kw:
-            candidates = [
-                " " + kw, "+" + kw, ":" + kw, "/" + kw,
-                "." + kw, "-" + kw, "#" + kw, "@" + kw, kw
-            ]
-            pw_lower = pw.lower()
-            for suffix in candidates:
-                if pw_lower.endswith(suffix):
-                    base_pw = pw[:len(pw) - len(suffix)]
-                    return base_pw, None, True  # push requested
-        
-        # Check for trailing OTP digits
-        digits = self.mfa_otp_digits
-        if digits >= 4 and len(pw) > digits and pw[-digits:].isdigit():
-            otp = pw[-digits:]
-            base_pw = pw[:-digits]
-            return base_pw, otp, False
-        
-        # No MFA suffix detected
-        return password, None, False
+        """Parse password for MFA suffix (shared helper)."""
+        return parse_mfa_suffix(
+            password,
+            mfa_enabled=self.mfa_enabled,
+            otp_digits=self.mfa_otp_digits,
+            push_keyword=self.mfa_push_keyword,
+        )
 
     def _handle_radius_challenge(
         self,
@@ -349,14 +340,14 @@ class RADIUSAuthBackend(AuthenticationBackend):
         push: bool,
     ) -> tuple[bool, str]:
         """Handle RADIUS Access-Challenge for MFA.
-        
+
         Args:
             sock: UDP socket for RADIUS
             state: State attribute from Access-Challenge
             username: Username
             otp: OTP code if provided
             push: Whether push was requested
-            
+
         Returns:
             (success, detail)
         """
@@ -373,7 +364,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
         packet, identifier, authenticator = self._create_access_request(
             username, response_password, state=state
         )
-        
+
         if push:
             # Poll for push approval
             return self._poll_push_approval(
@@ -385,7 +376,6 @@ class RADIUSAuthBackend(AuthenticationBackend):
                 sock, packet, username, identifier, authenticator
             )
 
-
     def _poll_push_approval(
         self,
         sock: Any,
@@ -396,12 +386,12 @@ class RADIUSAuthBackend(AuthenticationBackend):
     ) -> tuple[bool, str]:
         """Poll RADIUS server for push approval."""
         start = time.time()
-        
+
         while (time.time() - start) < self.mfa_timeout_seconds:
             try:
                 sock.sendto(request_packet, (self.radius_server, self.radius_port))
                 sock.settimeout(self.mfa_poll_interval)
-                
+
                 data, _ = sock.recvfrom(4096)
                 code = data[0]
 
@@ -409,12 +399,9 @@ class RADIUSAuthBackend(AuthenticationBackend):
                     continue
                 if not self._verify_response(data, authenticator):
                     continue
-                
+
                 if code == 2:  # Access-Accept
-                    attributes = self._parse_attributes(data[20:])
-                    groups = self._extract_groups(attributes)
-                    if groups:
-                        self._cached_groups.set(username, groups)
+                    self._handle_access_accept(data, username)
                     logger.info(f"RADIUS push approved for {username}")
                     return True, "push_approved"
                 elif code == 3:  # Access-Reject
@@ -423,17 +410,17 @@ class RADIUSAuthBackend(AuthenticationBackend):
                 elif code == 11:  # Access-Challenge (still pending)
                     time.sleep(self.mfa_poll_interval)
                     continue
-                
-            except socket.timeout:
+
+            except TimeoutError:
                 time.sleep(self.mfa_poll_interval)
                 continue
             except Exception as e:
                 logger.error(f"RADIUS push poll error: {e}")
                 return False, f"push_error: {e}"
-        
+
         logger.warning(f"RADIUS push timeout for {username}")
         return False, "push_timeout"
-    
+
     def _send_and_check_response(
         self,
         sock: Any,
@@ -446,7 +433,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
         try:
             sock.sendto(request_packet, (self.radius_server, self.radius_port))
             sock.settimeout(self.radius_timeout)
-            
+
             data, _ = sock.recvfrom(4096)
             code = data[0]
 
@@ -454,12 +441,9 @@ class RADIUSAuthBackend(AuthenticationBackend):
                 return False, "unexpected_response"
             if not self._verify_response(data, authenticator):
                 return False, "authenticator_mismatch"
-            
+
             if code == 2:  # Access-Accept
-                attributes = self._parse_attributes(data[20:])
-                groups = self._extract_groups(attributes)
-                if groups:
-                    self._cached_groups.set(username, groups)
+                self._handle_access_accept(data, username)
                 logger.info(f"RADIUS OTP accepted for {username}")
                 return True, "otp_accepted"
             elif code == 3:  # Access-Reject
@@ -467,53 +451,36 @@ class RADIUSAuthBackend(AuthenticationBackend):
                 return False, "otp_rejected"
             else:
                 return False, f"unexpected_code_{code}"
-                
+
         except Exception as e:
             logger.error(f"RADIUS OTP error: {e}")
             return False, f"otp_error: {e}"
 
     def _extract_state_attribute(self, packet: bytes) -> bytes | None:
         """Extract State attribute (type 24) from RADIUS packet."""
-        import struct
-
         if len(packet) < 20:
             return None
-
-        length = struct.unpack("!H", packet[2:4])[0]
-        offset = 20  # Skip header
-
-        while offset < length:
-            if offset + 2 > length:
-                break
-
-            attr_type = packet[offset]
-            attr_len = packet[offset + 1]
-
-            if attr_len < 2 or offset + attr_len > length:
-                break
-
-            if attr_type == 24:  # State
-                return packet[offset + 2 : offset + attr_len]
-
-            offset += attr_len
-
+        attributes = self._parse_attributes(packet[20:])
+        state_values = attributes.get(24)
+        if state_values:
+            return state_values[0]
         return None
 
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
         """Authenticate user against RADIUS server and cache groups for authorization."""
         # Parse MFA suffix if enabled
         base_password, otp, push = self._parse_mfa_suffix(password)
-        
+
         # Create socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(self.radius_timeout)
-        
+
         try:
             # Send initial Access-Request with base password
             packet, identifier, authenticator = self._create_access_request(
                 username, base_password
             )
-            
+
             for attempt in range(self.radius_retries):
                 try:
                     sock.sendto(packet, (self.radius_server, self.radius_port))
@@ -530,39 +497,38 @@ class RADIUSAuthBackend(AuthenticationBackend):
                         continue
 
                     code = data[0]
-                    
+
                     if code == 2:  # Access-Accept
-                        attributes = self._parse_attributes(data[20:])
-                        groups = self._extract_groups(attributes)
-                        if groups:
-                            self._cached_groups.set(username, groups)
+                        self._handle_access_accept(data, username)
                         return True
-                        
+
                     elif code == 3:  # Access-Reject
                         return False
-                        
+
                     elif code == 11:  # Access-Challenge (MFA required)
                         if not self.mfa_enabled:
-                            logger.warning("RADIUS server requires MFA but MFA is disabled")
+                            logger.warning(
+                                "RADIUS server requires MFA but MFA is disabled"
+                            )
                             return False
-                        
+
                         # Extract State attribute
                         state = self._extract_state_attribute(data)
                         if not state:
                             logger.error("Access-Challenge missing State attribute")
                             return False
-                        
+
                         # Handle MFA challenge
                         success, detail = self._handle_radius_challenge(
                             sock, state, username, otp, push
                         )
                         return success
-                        
-                except (socket.timeout, BlockingIOError):
+
+                except (TimeoutError, BlockingIOError):
                     continue
-                    
+
             return False
-            
+
         finally:
             sock.close()
 

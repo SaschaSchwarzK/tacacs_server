@@ -116,7 +116,7 @@ class _RadiusMFAServer:
         while not self._stop_event.is_set():
             try:
                 data, addr = self.sock.recvfrom(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

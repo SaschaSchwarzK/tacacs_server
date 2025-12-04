@@ -2,7 +2,6 @@ import hashlib
 import socket
 import struct
 import threading
-import time
 
 from tacacs_server.auth.radius_auth import RADIUSAuthBackend
 
@@ -26,7 +25,7 @@ def test_authenticate_caches_radius_groups():
         while not stop.is_set():
             try:
                 data, addr = srv_sock.recvfrom(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except BlockingIOError:
                 continue
@@ -86,7 +85,7 @@ def test_authenticate_rejects_invalid_authenticator():
         while not stop.is_set():
             try:
                 data, addr = srv_sock.recvfrom(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

@@ -2,49 +2,52 @@ from tacacs_server.auth.radius_auth import RADIUSAuthBackend
 
 
 def test_parse_mfa_suffix_otp():
-    backend = RADIUSAuthBackend({
-        "radius_server": "localhost",
-        "radius_secret": "secret",
-        "mfa_enabled": True,
-        "mfa_otp_digits": 6
-    })
-    
+    backend = RADIUSAuthBackend(
+        {
+            "radius_server": "localhost",
+            "radius_secret": "secret",
+            "mfa_enabled": True,
+            "mfa_otp_digits": 6,
+        }
+    )
+
     base, otp, push = backend._parse_mfa_suffix("mypass123456")
     assert base == "mypass"
     assert otp == "123456"
-    assert push == False
+    assert not push
+
 
 def test_parse_mfa_suffix_push():
-    backend = RADIUSAuthBackend({
-        "radius_server": "localhost",
-        "radius_secret": "secret",
-        "mfa_enabled": True,
-        "mfa_push_keyword": "push"
-    })
-    
+    backend = RADIUSAuthBackend(
+        {
+            "radius_server": "localhost",
+            "radius_secret": "secret",
+            "mfa_enabled": True,
+            "mfa_push_keyword": "push",
+        }
+    )
+
     base, otp, push = backend._parse_mfa_suffix("mypasspush")
     assert base == "mypass"
     assert otp is None
-    assert push == True
+    assert push
+
 
 def test_parse_mfa_suffix_disabled():
-    backend = RADIUSAuthBackend({
-        "radius_server": "localhost",
-        "radius_secret": "secret",
-        "mfa_enabled": False
-    })
-    
+    backend = RADIUSAuthBackend(
+        {"radius_server": "localhost", "radius_secret": "secret", "mfa_enabled": False}
+    )
+
     base, otp, push = backend._parse_mfa_suffix("mypass123456")
     assert base == "mypass123456"  # Not parsed
     assert otp is None
-    assert push == False
+    assert not push
 
 
 def test_global_mfa_settings_are_overridable():
     # Simulate merged config: global MFA keyword + backend override
     merged = {
         "mfa_enabled": True,
-        "mfa_push_keyword": "global",
         "radius_server": "localhost",
         "radius_secret": "secret",
         # Backend override should win
@@ -94,13 +97,12 @@ def test_mfa_challenge_flow_accepts_otp_and_caches_groups():
         while not stop.is_set():
             try:
                 data, addr = srv.recvfrom(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
             if len(data) < 20:
                 continue
-            code = data[0]
             identifier = data[1]
             request_auth = data[4:20]
             # Parse attributes
