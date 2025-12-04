@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -70,7 +71,34 @@ class OktaConfigSchema(BaseModel):
     default_okta_group: str | None = Field(default=None)
 
 
-class RadiusAuthConfigSchema(BaseModel):
+class _MfaSettingsMixin(BaseModel):
+    """Shared MFA settings for backends and global defaults."""
+
+    model_config = ConfigDict(extra="ignore")
+    mfa_enabled: bool = Field(default=False)
+    mfa_otp_digits: int = Field(default=6, ge=4, le=10)
+    mfa_push_keyword: str = Field(default="push")
+    mfa_timeout_seconds: int = Field(default=25, ge=1, le=300)
+    mfa_poll_interval: float = Field(default=2.0, ge=0.2, le=30.0)
+
+    @field_validator("mfa_push_keyword")
+    @classmethod
+    def _normalize_push_keyword(cls, value: str) -> str:
+        return (value or "").strip().lower()
+
+    @model_validator(mode="after")
+    def _validate_mfa_settings(self) -> Self:
+        if (
+            self.mfa_enabled
+            and self.mfa_timeout_seconds is not None
+            and self.mfa_poll_interval is not None
+            and self.mfa_poll_interval >= self.mfa_timeout_seconds
+        ):
+            raise ValueError("mfa_poll_interval must be less than mfa_timeout_seconds")
+        return self
+
+
+class RadiusAuthConfigSchema(_MfaSettingsMixin):
     """RADIUS client (auth backend) configuration schema.
 
     Note: Secret requirements are enforced only when the 'radius' backend is enabled.
@@ -86,6 +114,12 @@ class RadiusAuthConfigSchema(BaseModel):
     radius_nas_identifier: str | None = None
 
 
+class MfaConfigSchema(_MfaSettingsMixin):
+    """Global MFA defaults that backends can inherit."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class TacacsConfigSchema(BaseModel):
     server: ServerConfigSchema
     auth: AuthConfigSchema
@@ -93,6 +127,7 @@ class TacacsConfigSchema(BaseModel):
     ldap: LdapConfigSchema | None = None
     okta: OktaConfigSchema | None = None
     radius_auth: RadiusAuthConfigSchema | None = None
+    mfa: MfaConfigSchema | None = None
     backup: BackupConfigSchema | None = None
     # Optional remote source URL – HTTPS only, no localhost/private IPs
     source_url: str | None = None

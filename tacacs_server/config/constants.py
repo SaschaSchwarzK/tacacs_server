@@ -16,6 +16,7 @@ SECTION_RADIUS = "radius"
 SECTION_MONITORING = "monitoring"
 SECTION_PROXY_PROTOCOL = "proxy_protocol"
 SECTION_RADIUS_AUTH = "radius_auth"
+SECTION_MFA = "mfa"
 SECTION_OPENID = "openid"
 
 ENV_PREFIX = "TACACS_"
