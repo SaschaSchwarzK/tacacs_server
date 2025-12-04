@@ -26,6 +26,7 @@ from typing import Any as _Any
 import requests
 from requests.adapters import HTTPAdapter
 
+from tacacs_server.auth.mfa_utils import parse_mfa_suffix
 from tacacs_server.utils.crypto import validate_pem_format
 from tacacs_server.utils.logger import bind_context, clear_context, get_logger
 from tacacs_server.utils.metrics import (
@@ -92,6 +93,14 @@ class OktaAuthBackend(AuthenticationBackend):
       mfa_poll_interval      - float: seconds between push poll attempts (default 2.0)
     """
 
+    @staticmethod
+    def _as_bool(value: Any) -> bool:
+        """Coerce common truthy strings/ints/bools to bool."""
+        if isinstance(value, bool):
+            return value
+        sval = str(value).strip().lower()
+        return sval in ("1", "true", "yes", "on")
+
     def __init__(self, cfg: dict[str, Any]):
         super().__init__("okta")
         self.org_url = cfg.get("org_url") or cfg.get("okta_org_url")
@@ -126,11 +135,13 @@ class OktaAuthBackend(AuthenticationBackend):
             self.verify_tls = vt.strip().lower() not in ("false", "0", "no")
         else:
             self.verify_tls = bool(vt)
-        self.require_group_for_auth = bool(cfg.get("require_group_for_auth", False))
+        self.require_group_for_auth = self._as_bool(
+            cfg.get("require_group_for_auth", False)
+        )
         # Default to AuthN API
-        self.authn_enabled = bool(cfg.get("authn_enabled", True))
+        self.authn_enabled = self._as_bool(cfg.get("authn_enabled", True))
         # Simple MFA controls
-        self.mfa_enabled = bool(cfg.get("mfa_enabled", False))
+        self.mfa_enabled = self._as_bool(cfg.get("mfa_enabled", False))
         try:
             self.mfa_otp_digits = int(cfg.get("mfa_otp_digits", 6))
         except Exception:
@@ -498,39 +509,12 @@ class OktaAuthBackend(AuthenticationBackend):
                 "Content-Type": "application/json",
             }
             # Optional simple MFA handling via password suffix
-            base_password = password
-            requested_otp: str | None = None
-            requested_push = False
-            if self.mfa_enabled and isinstance(password, str):
-                pw = password
-                pws = pw.strip()
-                kw = (self.mfa_push_keyword or "").lower()
-                # Accept several separators or no separator: " push", "+push", ":push", "/push", ".push", "-push", "#push", "@push", or just "push"
-                if kw:
-                    candidates = [
-                        " " + kw,
-                        "+" + kw,
-                        ":" + kw,
-                        "/" + kw,
-                        "." + kw,
-                        "-" + kw,
-                        "#" + kw,
-                        "@" + kw,
-                        kw,
-                    ]
-                    pws_l = pws.lower()
-                    for suf in candidates:
-                        if pws_l.endswith(suf):
-                            requested_push = True
-                            cut = len(pws) - len(suf)
-                            base_password = pws[:cut]
-                            break
-                # If not push, detect trailing N digits as OTP
-                if not requested_push:
-                    d = self.mfa_otp_digits
-                    if d >= 4 and len(pws) > d and pws[-d:].isdigit():
-                        requested_otp = pws[-d:]
-                        base_password = pws[:-d]
+            base_password, requested_otp, requested_push = parse_mfa_suffix(
+                password,
+                mfa_enabled=self.mfa_enabled,
+                otp_digits=self.mfa_otp_digits,
+                push_keyword=self.mfa_push_keyword,
+            )
 
             body = {"username": username, "password": base_password}
             a_start = time.time()
