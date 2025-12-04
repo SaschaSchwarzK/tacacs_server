@@ -160,6 +160,26 @@ def _validate_auth_config(config: configparser.ConfigParser) -> list[str]:
                     issues.append("[radius_auth].radius_retries must be 0-10")
             except Exception:
                 issues.append("[radius_auth].radius_retries must be an integer")
+            # MFA tuning (optional)
+            try:
+                digits = int(sec.get("mfa_otp_digits", "6"))
+                if digits < 4 or digits > 10:
+                    issues.append("[radius_auth].mfa_otp_digits must be 4-10 digits")
+            except Exception:
+                issues.append("[radius_auth].mfa_otp_digits must be an integer")
+            try:
+                poll = float(sec.get("mfa_poll_interval", "2.0"))
+                timeout = float(sec.get("mfa_timeout_seconds", "25"))
+                if poll <= 0:
+                    issues.append("[radius_auth].mfa_poll_interval must be positive")
+                if timeout < 1:
+                    issues.append("[radius_auth].mfa_timeout_seconds must be at least 1")
+                if poll >= timeout:
+                    issues.append(
+                        "[radius_auth].mfa_poll_interval must be less than mfa_timeout_seconds"
+                    )
+            except Exception:
+                issues.append("Invalid mfa_poll_interval or mfa_timeout_seconds value")
 
     # Database file validation
     auth_db = config.get("auth", "local_auth_db", fallback="")
@@ -352,6 +372,47 @@ def validate_change(
                     ipaddress.IPv4Address(sval)
                 except ValueError:
                     issues.append("radius_nas_ip must be a valid IPv4 address")
+        elif k == "mfa_enabled":
+            sval = str(value).lower()
+            if sval not in ("1", "0", "true", "false", "yes", "no", "on", "off"):
+                issues.append("mfa_enabled must be a boolean value")
+        elif k == "mfa_otp_digits":
+            try:
+                digits = int(value)
+                if digits < 4 or digits > 10:
+                    issues.append("mfa_otp_digits must be between 4 and 10")
+            except Exception:
+                issues.append("mfa_otp_digits must be an integer")
+        elif k == "mfa_timeout_seconds":
+            try:
+                timeout = int(value)
+                if timeout < 1 or timeout > 300:
+                    issues.append("mfa_timeout_seconds must be 1-300")
+                else:
+                    poll = config.getfloat(
+                        "radius_auth", "mfa_poll_interval", fallback=2.0
+                    )
+                    if poll >= timeout:
+                        issues.append(
+                            "mfa_poll_interval must be less than mfa_timeout_seconds"
+                        )
+            except Exception:
+                issues.append("mfa_timeout_seconds must be an integer")
+        elif k == "mfa_poll_interval":
+            try:
+                poll = float(value)
+                if poll <= 0:
+                    issues.append("mfa_poll_interval must be greater than 0")
+                else:
+                    timeout = config.getfloat(
+                        "radius_auth", "mfa_timeout_seconds", fallback=25.0
+                    )
+                    if poll >= timeout:
+                        issues.append(
+                            "mfa_poll_interval must be less than mfa_timeout_seconds"
+                        )
+            except Exception:
+                issues.append("mfa_poll_interval must be a number")
 
     # Devices custom validation
     if section == "devices":

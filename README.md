@@ -620,6 +620,12 @@ radius_timeout = 5
 radius_retries = 3
 radius_nas_ip = 10.0.0.5
 radius_nas_identifier = tacacs-prod-01
+# Optional: MFA suffix parsing (password + OTP/push)
+mfa_enabled = true
+mfa_otp_digits = 6
+mfa_push_keyword = push
+mfa_timeout_seconds = 25
+mfa_poll_interval = 2.0
 ```
 
 Notes on NAS attributes:
@@ -638,6 +644,12 @@ Groups extraction on Access‑Accept:
 
 These groups are cached upon successful authentication and used by authorization
 the same way LDAP/Okta groups are.
+
+MFA suffix handling (when `mfa_enabled = true`):
+- OTP: append a 6‑digit (configurable) code to the password (`password123456`).
+- Push: append the keyword (default `push`) with or without a separator
+  (`passwordpush`, `password+push`, `password push`, etc.). The backend will
+  poll the RADIUS server until approval or timeout.
 
 Environment overrides
 - Non-secrets: use `TACACS_RADIUS_AUTH_<KEY>` (e.g., `TACACS_RADIUS_AUTH_RADIUS_SERVER`, `TACACS_RADIUS_AUTH_RADIUS_PORT`, etc.).

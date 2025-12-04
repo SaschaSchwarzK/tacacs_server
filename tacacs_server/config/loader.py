@@ -319,6 +319,12 @@ def apply_all_env_overrides(config: configparser.ConfigParser) -> None:
             "radius_retries",
             "radius_nas_ip",
             "radius_nas_identifier",
+            "group_cache_ttl",
+            "mfa_enabled",
+            "mfa_otp_digits",
+            "mfa_push_keyword",
+            "mfa_timeout_seconds",
+            "mfa_poll_interval",
         ],
         "okta": [
             "org_url",
