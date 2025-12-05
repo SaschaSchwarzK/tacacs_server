@@ -20,23 +20,13 @@ def parse_mfa_suffix(
     pw = password.strip()
     kw = (push_keyword or "").lower()
 
-    # Check for push keyword with common separators (or none)
+    # Check for push keyword with separators or exact match
     if kw:
-        candidates = [
-            " " + kw,
-            "+" + kw,
-            ":" + kw,
-            "/" + kw,
-            "." + kw,
-            "-" + kw,
-            "#" + kw,
-            "@" + kw,
-            kw,
-        ]
         pw_lower = pw.lower()
-        for suffix in candidates:
-            if pw_lower.endswith(suffix):
-                base_pw = pw[: len(pw) - len(suffix)]
+        for sep in (" ", "+", ":", "/", ".", "-", "#", "@", ""):
+            suf = sep + kw
+            if pw_lower.endswith(suf):
+                base_pw = pw[: len(pw) - len(suf)]
                 return base_pw, None, True
 
     # Check for trailing OTP digits
@@ -44,6 +34,8 @@ def parse_mfa_suffix(
     if d >= 4 and len(pw) > d and pw[-d:].isdigit():
         otp = pw[-d:]
         base_pw = pw[:-d]
+        if len(base_pw) < 1:
+            return password, None, False
         return base_pw, otp, False
 
     return password, None, False

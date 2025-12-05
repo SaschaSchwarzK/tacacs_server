@@ -155,6 +155,17 @@ class OktaAuthBackend(AuthenticationBackend):
             self.mfa_poll_interval = float(cfg.get("mfa_poll_interval", 2.0))
         except Exception:
             self.mfa_poll_interval = 2.0
+        if self.mfa_enabled:
+            if not (4 <= self.mfa_otp_digits <= 10):
+                raise ValueError(
+                    f"mfa_otp_digits must be 4-10, got {self.mfa_otp_digits}"
+                )
+            if not self.mfa_push_keyword:
+                raise ValueError("mfa_push_keyword required when mfa_enabled=true")
+            if self.mfa_timeout_seconds < 5:
+                raise ValueError("mfa_timeout_seconds must be >= 5")
+            if self.mfa_poll_interval < 0.5:
+                raise ValueError("mfa_poll_interval must be >= 0.5")
 
         # No static group-to-privilege mapping for Okta; privilege is determined later
         # via local user groups and the authorization policy engine.
@@ -561,10 +572,15 @@ class OktaAuthBackend(AuthenticationBackend):
                     verify_href = None
                     for f in factors:
                         try:
-                            if f.get("factorType") in (
-                                "token:software:totp",
-                                "token:hotp",
-                            ) and "verify" in (f.get("_links") or {}):
+                            if (
+                                f.get("factorType")
+                                in (
+                                    "token:software:totp",
+                                    "token:hotp",
+                                )
+                                and f.get("status", "").upper() == "ACTIVE"
+                                and "verify" in (f.get("_links") or {})
+                            ):
                                 verify_href = f["_links"]["verify"]["href"]
                                 break
                         except Exception as top_exc:
@@ -597,6 +613,7 @@ class OktaAuthBackend(AuthenticationBackend):
                             if (
                                 f.get("factorType") == "push"
                                 and f.get("provider") == "OKTA"
+                                and f.get("status", "").upper() == "ACTIVE"
                                 and "verify" in (f.get("_links") or {})
                             ):
                                 verify_href = f["_links"]["verify"]["href"]
@@ -621,20 +638,53 @@ class OktaAuthBackend(AuthenticationBackend):
                             current.status_code,
                             current.text,
                         )
+                        logger.warning(
+                            "MFA failed",
+                            username=username,
+                            method="okta_push",
+                            event="mfa.push.rejected",
+                        )
                         return False, None, {}
                     while (time.time() - start_poll) < max(5, self.mfa_timeout_seconds):
                         resp_data: dict[str, Any] = {}
                         try:
+                            if current.status_code >= 400:
+                                logger.warning(
+                                    "Push verify failed: %s %s",
+                                    current.status_code,
+                                    current.text,
+                                )
+                                return False, None, {}
                             j = current.json()
                             if isinstance(j, dict):
                                 resp_data = j
-                        except Exception as json_exc:
+                            else:
+                                logger.debug("Invalid push response format")
+                                return False, None, {}
+                        except requests.exceptions.RequestException as req_err:
+                            logger.error("Network error during push poll: %s", req_err)
+                            logger.warning(
+                                "MFA failed",
+                                username=username,
+                                method="okta_push",
+                                event="mfa.push.network_error",
+                            )
+                            return False, None, {}
+                        except ValueError as json_exc:
                             logger.debug(
                                 f"Failed to parse push verify response: {json_exc}"
                             )
+                            time.sleep(max(0.5, self.mfa_poll_interval))
+                            continue
                         st = str(resp_data.get("status", "")).upper()
                         if st == "SUCCESS":
                             data = resp_data
+                            logger.info(
+                                "MFA successful",
+                                username=username,
+                                method="okta_push",
+                                event="mfa.push.approved",
+                            )
                             break
                         # Some responses include factorResult WAITING; retry same verify
                         poll_href = verify_href

@@ -113,6 +113,17 @@ class RADIUSAuthBackend(AuthenticationBackend):
         self.mfa_push_keyword = str(cfg.get("mfa_push_keyword", "push")).strip().lower()
         self.mfa_timeout_seconds = int(cfg.get("mfa_timeout_seconds", 25))
         self.mfa_poll_interval = float(cfg.get("mfa_poll_interval", 2.0))
+        if self.mfa_enabled:
+            if not (4 <= self.mfa_otp_digits <= 10):
+                raise ValueError(
+                    f"mfa_otp_digits must be 4-10, got {self.mfa_otp_digits}"
+                )
+            if not self.mfa_push_keyword:
+                raise ValueError("mfa_push_keyword required when mfa_enabled=true")
+            if self.mfa_timeout_seconds < 5:
+                raise ValueError("mfa_timeout_seconds must be >= 5")
+            if self.mfa_poll_interval < 0.5:
+                raise ValueError("mfa_poll_interval must be >= 0.5")
 
         if not self.radius_server:
             raise ValueError("RADIUS server must be specified (radius_server)")
@@ -386,6 +397,8 @@ class RADIUSAuthBackend(AuthenticationBackend):
     ) -> tuple[bool, str]:
         """Poll RADIUS server for push approval."""
         start = time.time()
+        consecutive_errors = 0
+        max_errors = 3
 
         while (time.time() - start) < self.mfa_timeout_seconds:
             try:
@@ -397,7 +410,9 @@ class RADIUSAuthBackend(AuthenticationBackend):
 
                 if len(data) < 20 or data[1] != identifier:
                     continue
+                # Reuse the same request authenticator for all poll attempts; responses must verify against it.
                 if not self._verify_response(data, authenticator):
+                    logger.debug("Response authenticator mismatch during push poll")
                     continue
 
                 if code == 2:  # Access-Accept
@@ -412,11 +427,16 @@ class RADIUSAuthBackend(AuthenticationBackend):
                     continue
 
             except TimeoutError:
+                consecutive_errors = 0
                 time.sleep(self.mfa_poll_interval)
                 continue
             except Exception as e:
-                logger.error(f"RADIUS push poll error: {e}")
-                return False, f"push_error: {e}"
+                consecutive_errors += 1
+                logger.warning("RADIUS push poll error: %s", e)
+                if consecutive_errors >= max_errors:
+                    return False, f"push_error: {e}"
+                time.sleep(self.mfa_poll_interval)
+                continue
 
         logger.warning(f"RADIUS push timeout for {username}")
         return False, "push_timeout"
@@ -463,7 +483,26 @@ class RADIUSAuthBackend(AuthenticationBackend):
         attributes = self._parse_attributes(packet[20:])
         state_values = attributes.get(24)
         if state_values:
-            return state_values[0]
+            state = state_values[0]
+            if not state or len(state) == 0:
+                return None
+            if len(state) > 253:  # RFC 2865 max attribute length
+                logger.warning("State attribute too long (%d bytes), truncating", len(state))
+                return state[:253]
+            return state
+        return None
+
+    def _extract_reply_message(self, packet: bytes) -> str | None:
+        """Extract Reply-Message (type 18) from RADIUS packet."""
+        if len(packet) < 20:
+            return None
+        attributes = self._parse_attributes(packet[20:])
+        messages = attributes.get(18, [])
+        if messages:
+            try:
+                return messages[0].decode("utf-8", errors="replace")
+            except Exception:
+                return None
         return None
 
     def authenticate(self, username: str, password: str, **kwargs) -> bool:
@@ -506,6 +545,9 @@ class RADIUSAuthBackend(AuthenticationBackend):
                         return False
 
                     elif code == 11:  # Access-Challenge (MFA required)
+                        reply_msg = self._extract_reply_message(data)
+                        if reply_msg:
+                            logger.info("RADIUS Challenge: %s", reply_msg)
                         if not self.mfa_enabled:
                             logger.warning(
                                 "RADIUS server requires MFA but MFA is disabled"
