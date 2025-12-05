@@ -166,5 +166,5 @@ def test_radius_mfa_push_flow(radius_mfa_server):
         }
     )
 
-    # Simulate push approval
+    # Simulate push approval (keyword without separator)
     assert backend.authenticate("testuser", "passwordpush")

@@ -87,6 +87,8 @@ def test_authenticate_rejects_invalid_authenticator():
                 data, addr = srv_sock.recvfrom(4096)
             except TimeoutError:
                 continue
+            except BlockingIOError:
+                continue
             except OSError:
                 break
             if len(data) < 20:
@@ -98,7 +100,10 @@ def test_authenticate_rejects_invalid_authenticator():
             header = struct.pack("!BBH", 2, identifier, length)
             bad_resp_auth = b"\x00" * 16
             packet = header + bad_resp_auth + attrs
-            srv_sock.sendto(packet, addr)
+            try:
+                srv_sock.sendto(packet, addr)
+            except OSError:
+                break
 
     t = threading.Thread(target=_serve, daemon=True)
     t.start()
