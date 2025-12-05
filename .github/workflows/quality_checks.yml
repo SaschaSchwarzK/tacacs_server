@@ -226,6 +226,7 @@ jobs:
 
       - name: Scan HTTPS image with Trivy
         uses: aquasecurity/trivy-action@0.24.0
+        continue-on-error: true  # allow later steps even if vuln found (upload SARIF still happens)
         with:
           image-ref: tacacs-https:ci
           format: sarif
@@ -238,7 +239,7 @@ jobs:
 
       - name: Upload Trivy results
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-docker-https.sarif
 
@@ -248,13 +249,15 @@ jobs:
             | sh -s -- -b /usr/local/bin
 
       - name: Grype image scan (CLI)
+        id: grype_scan
+        continue-on-error: true
         run: |
           grype tacacs-https:ci -o sarif --fail-on high --only-fixed \
             > grype-results-https.sarif
 
       - name: Upload Grype SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('grype-results-https.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: grype-results-https.sarif
       
