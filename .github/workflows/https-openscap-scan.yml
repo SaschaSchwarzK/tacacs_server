@@ -59,7 +59,13 @@ jobs:
               docker export "$CID" | tar -C rootfs -xf -
               docker rm "$CID"
 
+              # Ensure SCAP content is available inside the chroot (copy from host)
+              mkdir -p "rootfs/$(dirname "$CONTENT")"
+              cp "$CONTENT" "rootfs/$CONTENT"
+
+              # Evaluate against the extracted image using chrooted scan
               oscap xccdf eval \
+                --chroot rootfs \
                 --profile "$PROFILE" \
                 --report "$REPORT_HTML" \
                 "$CONTENT" || true
