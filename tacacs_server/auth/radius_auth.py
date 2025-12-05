@@ -484,7 +484,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
         state_values = attributes.get(24)
         if state_values:
             state = state_values[0]
-            if not state or len(state) == 0:
+            if not state:
                 return None
             if len(state) > 253:  # RFC 2865 max attribute length
                 logger.warning("State attribute too long (%d bytes), truncating", len(state))
@@ -501,7 +501,8 @@ class RADIUSAuthBackend(AuthenticationBackend):
         if messages:
             try:
                 return messages[0].decode("utf-8", errors="replace")
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to decode RADIUS Reply-Message: %s", e)
                 return None
         return None
 

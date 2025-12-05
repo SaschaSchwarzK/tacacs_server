@@ -31,11 +31,10 @@ def parse_mfa_suffix(
 
     # Check for trailing OTP digits
     d = otp_digits
+    # OTP digits must be at least 4 and at most 10
     if d >= 4 and len(pw) > d and pw[-d:].isdigit():
         otp = pw[-d:]
         base_pw = pw[:-d]
-        if len(base_pw) < 1:
-            return password, None, False
         return base_pw, otp, False
 
     return password, None, False
