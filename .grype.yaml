@@ -1,0 +1,3 @@
+# .grype.yaml
+fail-on-severity: "high"
+only-fixed: true
