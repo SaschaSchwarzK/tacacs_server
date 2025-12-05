@@ -1,0 +1,76 @@
+name: Docker HTTPS • OpenSCAP Compliance Scan
+
+on:
+  workflow_dispatch:        # manual trigger
+  schedule:                 # weekly scan (Monday 03:00 UTC)
+    - cron: '0 3 * * 1'
+
+jobs:
+  https-openscap-scan:
+    name: Build HTTPS Image & Run OpenSCAP
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      IMAGE_NAME: tacacs-https:openscap
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build HTTPS image for scan
+        run: |
+          docker build -f docker/Dockerfile.https -t "${IMAGE_NAME}" .
+
+      # Install OpenSCAP + SCAP content
+      - name: Install OpenSCAP tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            openscap-utils \
+            scap-security-guide
+
+      # run a CIS/Docker-style assessment against the image
+      - name: Run OpenSCAP scan against HTTPS image
+        run: |
+          REPORT_HTML="openscap-https-report.html"
+
+          echo "Available SCAP content:"
+          ls -R /usr/share/xml/scap || true
+
+          PROFILE="xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced"
+          CONTENT="/usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml"
+
+          if [ ! -f "$CONTENT" ]; then
+            echo "SCAP content $CONTENT not found. Listing available content for inspection:"
+            find /usr/share/xml/scap -maxdepth 3 -type f || true
+          fi
+
+          if [ -f "$CONTENT" ]; then
+            if command -v oscap-docker >/dev/null 2>&1; then
+              oscap-docker image "${IMAGE_NAME}" xccdf eval \
+                --profile "$PROFILE" \
+                --report "$REPORT_HTML" \
+                "$CONTENT"
+            else
+              echo "oscap-docker not available; exporting container filesystem for scan ..."
+              CID=$(docker create "${IMAGE_NAME}")
+              mkdir -p rootfs
+              docker export "$CID" | tar -C rootfs -xf -
+              docker rm "$CID"
+
+              oscap xccdf eval \
+                --profile "$PROFILE" \
+                --report "$REPORT_HTML" \
+                "$CONTENT" || true
+            fi
+          else
+            echo "Skipping OpenSCAP evaluation because no suitable SCAP content was found."
+            echo "<html><body><h2>OpenSCAP content not found</h2><p>No scan performed.</p></body></html>" > "$REPORT_HTML"
+          fi
+
+      - name: Upload OpenSCAP HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: openscap-https-report
+          path: openscap-https-report.html

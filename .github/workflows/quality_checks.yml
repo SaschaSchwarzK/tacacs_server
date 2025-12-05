@@ -118,8 +118,9 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
+          scanners: 'vuln,secret,config'
           ignore-unfixed: true
-          severity: CRITICAL,HIGH
+          severity: 'CRITICAL,HIGH'
 
   tests:
     name: Tests • Coverage
@@ -212,15 +213,51 @@ jobs:
           docker rm -f tacacs-ci || true
 
   docker-smoke-https:
-    name: Docker HTTPS Build • Smoke Test
+    name: Docker HTTPS Build • Trivy Image Scan • Smoke Test
     runs-on: ubuntu-latest
     needs: [setup, quality, tests]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - name: Build HTTPS image
         run: |
           docker build -f docker/Dockerfile.https -t tacacs-https:ci .
+
+      - name: Scan HTTPS image with Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: tacacs-https:ci
+          format: sarif
+          output: trivy-docker-https.sarif
+          scanners: 'vuln'
+          severity: CRITICAL,HIGH
+          exit-code: '1'           # enforce policy for prod image
+          vuln-type: 'os,library'
+          ignore-unfixed: 'true'   # set to false later once tuned
+
+      - name: Upload Trivy results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-docker-https.sarif
+
+      - name: Install Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Grype image scan (CLI)
+        run: |
+          grype tacacs-https:ci -o sarif --fail-on high --only-fixed \
+            > grype-results-https.sarif
+
+      - name: Upload Grype SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: grype-results-https.sarif
+      
       - name: Run HTTPS container
         run: |
           docker run -d --rm --name tacacs-https-ci \
@@ -247,10 +284,10 @@ jobs:
           echo "Timed out waiting for HTTPS health"
           docker logs tacacs-https-ci || true
           exit 1
+
       - name: Stop HTTPS container
         if: always()
-        run: |
-          docker rm -f tacacs-https-ci || true
+        run: docker rm -f tacacs-https-ci || true
 
   security-tests:
     name: Security Tests
