@@ -10,6 +10,8 @@ from tacacs_server.db.engine import Base
 
 
 class DeviceGroupModel(Base):
+    """Group of devices sharing proxy/network metadata and shared secrets."""
+
     __tablename__ = "device_groups"
     __table_args__ = {"extend_existing": True}
 
@@ -29,8 +31,13 @@ class DeviceGroupModel(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
+    def __repr__(self) -> str:
+        return f"<DeviceGroup id={self.id} name={self.name!r} realm_id={self.realm_id}>"
+
 
 class ProxyModel(Base):
+    """Proxy network entry used for proxy-aware device resolution."""
+
     __tablename__ = "proxies"
     __table_args__ = {"extend_existing": True}
 
@@ -41,8 +48,13 @@ class ProxyModel(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
+    def __repr__(self) -> str:
+        return f"<Proxy id={self.id} name={self.name!r} network={self.network!r}>"
+
 
 class DeviceModel(Base):
+    """Individual device or network prefix entry."""
+
     __tablename__ = "devices"
     __table_args__ = (
         Index("idx_device_network_range", "network_start_int", "network_end_int"),
@@ -66,6 +78,12 @@ class DeviceModel(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
+    def __repr__(self) -> str:
+        return (
+            f"<Device id={self.id} name={self.name!r} network={self.network!r} "
+            f"group_id={self.group_id} proxy_id={self.proxy_id}>"
+        )
+
 
 class RealmModel(Base):
     __tablename__ = "realms"
@@ -76,3 +94,6 @@ class RealmModel(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<Realm id={self.id} name={self.name!r}>"

@@ -14,6 +14,7 @@ Base = declarative_base()
 
 
 def _sqlite_engine(db_path: str, *, echo: bool = False) -> Engine:
+    """Create a SQLite engine with WAL, tuned pooling, and busy timeout defaults."""
     path = Path(db_path)
     if path.parent and not path.parent.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,6 +44,7 @@ def _sqlite_engine(db_path: str, *, echo: bool = False) -> Engine:
 
 
 def get_session_factory(db_path: str, *, echo: bool = False) -> sessionmaker[Session]:
+    """Return a sessionmaker bound to the shared SQLite engine (with preconfigured pooling)."""
     engine = _sqlite_engine(db_path, echo=echo)
     factory = sessionmaker(
         bind=engine,

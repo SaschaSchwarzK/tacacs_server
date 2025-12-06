@@ -13,6 +13,8 @@ from tacacs_server.db.engine import Base
 
 
 class LocalUser(Base):
+    """Local user credentials and privilege metadata."""
+
     __tablename__ = "local_users"
     __table_args__ = {"extend_existing": True}
 
@@ -32,8 +34,13 @@ class LocalUser(Base):
         DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
     )
 
+    def __repr__(self) -> str:
+        return f"<LocalUser id={self.id} username={self.username!r} enabled={self.enabled}>"
+
 
 class LocalUserGroup(Base):
+    """Local user group with optional directory mapping metadata."""
+
     __tablename__ = "local_user_groups"
     __table_args__ = {"extend_existing": True}
 
@@ -51,9 +58,14 @@ class LocalUserGroup(Base):
         DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
     )
 
+    def __repr__(self) -> str:
+        return f"<LocalUserGroup id={self.id} name={self.name!r}>"
+
 
 # Accounting models
 class Accounting(Base):
+    """Legacy accounting summary table (kept for backward compatibility)."""
+
     __tablename__ = "accounting"
     __table_args__ = {"extend_existing": True}
 
@@ -72,6 +84,8 @@ class Accounting(Base):
 
 
 class ActiveSession(Base):
+    """In-progress accounting session tracking."""
+
     __tablename__ = "active_sessions"
     __table_args__ = {"extend_existing": True}
 
@@ -92,6 +106,8 @@ class ActiveSession(Base):
 
 
 class AccountingLog(Base):
+    """Normalized accounting log entries with supporting indexes."""
+
     __tablename__ = "accounting_logs"
     __table_args__ = (
         Index("idx_acct_timestamp", "timestamp"),
@@ -123,6 +139,12 @@ class AccountingLog(Base):
     timezone = Column(String, nullable=True)
     attributes = Column(Text, nullable=True)
     is_recent = Column(Integer, default=0)
+
+    def __repr__(self) -> str:
+        return (
+            f"<AccountingLog id={self.id} user={self.username!r} "
+            f"session={self.session_id} status={self.status!r}>"
+        )
 
 
 # Backup models
