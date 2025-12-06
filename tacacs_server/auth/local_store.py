@@ -29,18 +29,11 @@ class LocalAuthStore:
         # Resolve and validate path to prevent path traversal
         self.db_path = Path(db_path).resolve()
         # Ensure path is within expected directory structure (allow pytest temp dirs)
-        cwd = str(Path.cwd().resolve())
-        db_str = str(self.db_path)
-        # Allow paths within:
-        # - Current working directory tree
-        # - Pytest temp directories
-        # - System temporary directory (handles macOS /private prefix)
-        sys_tmp = tempfile.gettempdir()
-        sys_tmp_private = (
-            "/private" + sys_tmp if not sys_tmp.startswith("/private") else sys_tmp
-        )
-        allowed_prefixes = (cwd, sys_tmp, sys_tmp_private)
-        if not (db_str.startswith(allowed_prefixes) or "/pytest-" in db_str):
+        cwd = Path.cwd().resolve()
+        tmp = Path(tempfile.gettempdir()).resolve()
+        allowed_bases = [cwd, tmp]
+        is_allowed = any(self.db_path.is_relative_to(base) for base in allowed_bases)
+        if not (is_allowed or "/pytest-" in str(self.db_path)):
             raise ValueError(f"Database path outside allowed directory: {self.db_path}")
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +58,7 @@ class LocalAuthStore:
         engine = getattr(factory, "bind", None) or getattr(factory, "engine", None)
         if engine is None:
             raise RuntimeError("SQLAlchemy engine not initialized for local auth store")
-        Base.metadata.create_all(engine)
+        self._run_alembic_or_create(engine)
         return factory
 
     def close(self) -> None:
@@ -88,6 +81,32 @@ class LocalAuthStore:
             except Exception:
                 logger.warning("Failed to dispose local auth engine before reload")
             self._session_factory = self._create_session_factory()
+
+    def _run_alembic_or_create(self, engine) -> None:
+        """Attempt Alembic migrations; fallback to create_all."""
+        try:
+            from alembic import command  # noqa: I001
+            from alembic.config import Config
+        except ImportError:
+            Base.metadata.create_all(engine)
+            return
+
+        from pathlib import Path
+
+        project_root = Path(__file__).resolve().parents[2]
+        ini_path = project_root / "alembic.ini"
+        script_location = project_root / "alembic"
+        if not ini_path.exists() or not script_location.exists():
+            Base.metadata.create_all(engine)
+            return
+
+        cfg = Config(str(ini_path))
+        cfg.set_main_option("script_location", str(script_location))
+        cfg.set_main_option("sqlalchemy.url", str(engine.url))
+        try:
+            command.upgrade(cfg, "head")
+        except Exception:
+            Base.metadata.create_all(engine)
 
     # ------------------------------------------------------------------
     # JSON helpers
@@ -126,7 +145,6 @@ class LocalAuthStore:
             logger.debug("Failed to decode dict payload for local store: %s", exc)
         return {}
 
-    @staticmethod
     @staticmethod
     def _now() -> datetime:
         return datetime.now(UTC).replace(microsecond=0)

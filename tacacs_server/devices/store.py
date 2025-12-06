@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, inspect, select, text
+from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from tacacs_server.db.engine import Base, get_session_factory, session_scope
@@ -218,6 +218,10 @@ class DeviceStore:
     # Schema management
     # ------------------------------------------------------------------
     def _ensure_schema(self) -> None:
+        # Prefer Alembic migrations when available; fall back to legacy in-place updates
+        if self._run_alembic_migrations():
+            return
+
         with self._lock:
             # Create schema via SQLAlchemy models
             Base.metadata.create_all(self._engine)
@@ -237,23 +241,21 @@ class DeviceStore:
 
             # Ensure default realm exists and backfill NULL realm_id
             with session_scope(self._session_factory) as session:
-                realm_row = session.execute(
-                    select(func.min(text("id")))
-                    .select_from(text("realms"))
-                    .where(text("name='default'"))
-                ).scalar()
-                if realm_row is None:
-                    session.execute(
-                        text(
-                            "INSERT OR IGNORE INTO realms(name, description) VALUES(:n, :d)"
-                        ),
-                        {"n": "default", "d": "Default realm"},
+                default_realm = (
+                    session.query(RealmModel)
+                    .filter(RealmModel.name == "default")
+                    .one_or_none()
+                )
+                if default_realm is None:
+                    default_realm = RealmModel(
+                        name="default", description="Default realm"
                     )
+                    session.add(default_realm)
                     session.flush()
                 session.execute(
-                    text(
-                        "UPDATE device_groups SET realm_id=(SELECT id FROM realms WHERE name='default') WHERE realm_id IS NULL"
-                    )
+                    update(DeviceGroupModel)
+                    .where(DeviceGroupModel.realm_id.is_(None))
+                    .values(realm_id=default_realm.id)
                 )
 
             # Backfill integer network ranges for devices
@@ -287,6 +289,30 @@ class DeviceStore:
                             r.network_end_int = int(net.broadcast_address)
                         except Exception:
                             continue
+
+    def _run_alembic_migrations(self) -> bool:
+        """Run Alembic migrations if the tooling/config is available."""
+        try:
+            from alembic import command  # noqa: I001
+            from alembic.config import Config
+        except ImportError:
+            return False
+
+        project_root = Path(__file__).resolve().parents[2]
+        ini_path = project_root / "alembic.ini"
+        script_location = project_root / "alembic"
+        if not ini_path.exists() or not script_location.exists():
+            return False
+
+        cfg = Config(str(ini_path))
+        cfg.set_main_option("script_location", str(script_location))
+        cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
+        try:
+            command.upgrade(cfg, "head")
+            return True
+        except Exception as exc:
+            logger.warning("Alembic migration failed; falling back to legacy schema handling", error=str(exc))
+            return False
 
     def get_identity_cache_stats(self) -> dict[str, int]:
         """Expose identity cache stats for monitoring tests."""
@@ -395,6 +421,33 @@ class DeviceStore:
             metadata=self._json_load(getattr(row, "metadata_json", None)),
         )
 
+    def _post_process_device(
+        self, device: DeviceRecord, groups: dict[int, DeviceGroup]
+    ) -> DeviceRecord:
+        """
+        Hook for subclasses/tests to adjust DeviceRecord without altering core logic.
+
+        Legacy compatibility: if _row_to_device is overridden, invoke it with a
+        lightweight mapping derived from the already-built DeviceRecord.
+        """
+        if self._row_to_device.__func__ is not DeviceStore._row_to_device:  # type: ignore[attr-defined]
+            try:
+                mapped_row = {
+                    "id": device.id,
+                    "name": device.name,
+                    "network": str(device.network),
+                    "group_id": getattr(device.group, "id", None)
+                    if device.group
+                    else None,
+                    "tacacs_secret": device.tacacs_secret,
+                    "radius_secret": device.radius_secret,
+                    "metadata_json": self._json_dump(device.metadata),
+                }
+                return self._row_to_device(mapped_row, groups)
+            except Exception:
+                return device
+        return device
+
     def _load_groups(self) -> dict[int, DeviceGroup]:
         # Join proxies so that DeviceGroup.proxy_network reflects proxy network from proxies table
         with self._lock, session_scope(self._session_factory) as session:
@@ -436,20 +489,8 @@ class DeviceStore:
         fallback_idx: list[tuple[ipaddress._BaseNetwork, int]] = []
         id_index: dict[int, DeviceRecord] = {}
         for row in rows:
-            # Allow subclasses to override _row_to_device for test hooks
-            if self._row_to_device.__func__ is not DeviceStore._row_to_device:  # type: ignore[attr-defined]
-                mapped_row = {
-                    "id": row.id,
-                    "name": row.name,
-                    "network": row.network,
-                    "group_id": row.group_id,
-                    "tacacs_secret": getattr(row, "tacacs_secret", None),
-                    "radius_secret": getattr(row, "radius_secret", None),
-                    "metadata_json": getattr(row, "metadata_json", None),
-                }
-                dev = self._row_to_device(mapped_row, groups)
-            else:
-                dev = self._model_to_device(row, groups)
+            dev = self._model_to_device(row, groups)
+            dev = self._post_process_device(dev, groups)
             id_index[dev.id] = dev
             grp = dev.group
             if grp and getattr(grp, "proxy_network", None):
@@ -1152,9 +1193,9 @@ class DeviceStore:
 
         # Cache lookup
         cache_key = (str(client), str(proxy_addr) if proxy_addr is not None else None)
-        cached = self._identity_cache.get(cache_key)
-        if cached is not None:
-            with self._idx_lock:
+        with self._idx_lock:
+            cached = self._identity_cache.get(cache_key)
+            if cached is not None:
                 return self._id_index.get(cached)
 
         with self._idx_lock:
@@ -1228,7 +1269,8 @@ class DeviceStore:
                         chosen_id = dev_id
                         break
         if chosen_id is not None:
-            self._identity_cache.set(cache_key, chosen_id)
+            with self._idx_lock:
+                self._identity_cache.set(cache_key, chosen_id)
             return id_index.get(chosen_id)
         return None
 

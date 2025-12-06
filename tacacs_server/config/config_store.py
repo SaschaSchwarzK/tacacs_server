@@ -13,6 +13,7 @@ import sqlite3
 import threading
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import create_engine, delete, func, select, update
@@ -85,8 +86,9 @@ class ConfigStore:
             except Exception:
                 self._conn = None
 
-        # Create tables if they don't exist
-        Base.metadata.create_all(self.engine)
+        # Run migrations if available; otherwise create tables
+        if not self._run_alembic_migrations():
+            Base.metadata.create_all(self.engine)
 
         # Create SQLite-specific indexes if using SQLite
         if db_url.startswith("sqlite"):
@@ -105,7 +107,35 @@ class ConfigStore:
 
     def _ensure_schema(self) -> None:
         """Create database tables if they don't exist."""
-        Base.metadata.create_all(self.engine)
+        if not self._run_alembic_migrations():
+            Base.metadata.create_all(self.engine)
+
+    def _run_alembic_migrations(self) -> bool:
+        """Attempt to run Alembic migrations; fallback to legacy create_all on failure."""
+        try:
+            from alembic import command  # noqa: I001
+            from alembic.config import Config
+        except ImportError:
+            return False
+
+        project_root = Path(__file__).resolve().parents[2]
+        ini_path = project_root / "alembic.ini"
+        script_location = project_root / "alembic"
+        if not ini_path.exists() or not script_location.exists():
+            return False
+
+        cfg = Config(str(ini_path))
+        cfg.set_main_option("script_location", str(script_location))
+        cfg.set_main_option("sqlalchemy.url", str(self.engine.url))
+        try:
+            command.upgrade(cfg, "head")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Alembic migration failed; using legacy schema creation",
+                error=str(exc),
+            )
+            return False
 
     def _create_sqlite_indexes(self) -> None:
         """Create SQLite-specific indexes that can't be expressed in the ORM."""

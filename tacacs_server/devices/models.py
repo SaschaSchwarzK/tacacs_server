@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Column, DateTime, Integer, String, Text
 
@@ -23,8 +23,12 @@ class DeviceGroupModel(Base):
     metadata_json = Column("metadata", Text, nullable=True)
     tacacs_profile = Column(Text, nullable=True)
     radius_profile = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class ProxyModel(Base):
@@ -35,8 +39,12 @@ class ProxyModel(Base):
     name = Column(String, unique=True, nullable=False)
     network = Column(String, nullable=False)
     metadata_json = Column("metadata", Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class DeviceModel(Base):
@@ -53,8 +61,12 @@ class DeviceModel(Base):
     metadata_json = Column("metadata", Text, nullable=True)
     group_id = Column(Integer, nullable=True)
     proxy_id = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class RealmModel(Base):
@@ -64,5 +76,9 @@ class RealmModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )

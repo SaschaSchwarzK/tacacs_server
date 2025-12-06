@@ -76,7 +76,7 @@ class DatabaseLogger:
         ) or getattr(self._session_factory, "engine", None)
         if self.engine is None:
             raise RuntimeError("Failed to initialize accounting engine")
-        Base.metadata.create_all(self.engine)
+        self._run_alembic_or_create(self.engine)
 
         # Register with maintenance manager
         try:
@@ -184,7 +184,7 @@ class DatabaseLogger:
         )
         if self.engine is None:
             raise RuntimeError("Failed to reload accounting engine")
-        Base.metadata.create_all(self.engine)
+        self._run_alembic_or_create(self.engine)
 
     def __del__(self):
         self.close()
@@ -196,6 +196,32 @@ class DatabaseLogger:
                 return True
         except Exception:
             return False
+
+    def _run_alembic_or_create(self, engine: Engine) -> None:
+        """Run Alembic migrations if available; fall back to create_all."""
+        try:
+            from alembic import command  # noqa: I001
+            from alembic.config import Config
+        except ImportError:
+            Base.metadata.create_all(engine)
+            return
+
+        from pathlib import Path
+
+        project_root = Path(__file__).resolve().parents[2]
+        ini_path = project_root / "alembic.ini"
+        script_location = project_root / "alembic"
+        if not ini_path.exists() or not script_location.exists():
+            Base.metadata.create_all(engine)
+            return
+
+        cfg = Config(str(ini_path))
+        cfg.set_main_option("script_location", str(script_location))
+        cfg.set_main_option("sqlalchemy.url", str(engine.url))
+        try:
+            command.upgrade(cfg, "head")
+        except Exception:
+            Base.metadata.create_all(engine)
 
     # ------------------------------------------------------------------
     # Logging

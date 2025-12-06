@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Column, DateTime, Integer, String, Text
 
@@ -22,8 +22,12 @@ class LocalUser(Base):
     groups = Column(Text, nullable=False, default='["users"]')
     enabled = Column(Integer, nullable=False, default=1)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=True, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
 
 
 class LocalUserGroup(Base):
@@ -37,8 +41,12 @@ class LocalUserGroup(Base):
     ldap_group = Column(String, nullable=True)
     okta_group = Column(String, nullable=True)
     radius_group = Column(String, nullable=True)
-    created_at = Column(DateTime, nullable=True, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
 
 
 # Accounting models (simplified to match existing schema)
@@ -55,7 +63,9 @@ class Accounting(Base):
     bytes_in = Column(Integer, nullable=True)
     bytes_out = Column(Integer, nullable=True)
     attributes = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
 
 
 class ActiveSession(Base):
@@ -65,8 +75,12 @@ class ActiveSession(Base):
     session_id = Column(Integer, primary_key=True)
     username = Column(String, nullable=False)
     client_ip = Column(String, nullable=True)
-    start_time = Column(DateTime, nullable=False, default=datetime.utcnow)
-    last_update = Column(DateTime, nullable=False, default=datetime.utcnow)
+    start_time = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    last_update = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
     service = Column(String, nullable=True)
     port = Column(String, nullable=True)
     privilege_level = Column(Integer, nullable=True, default=1)
@@ -79,7 +93,9 @@ class AccountingLog(Base):
     __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
     username = Column(String, nullable=False)
     session_id = Column(Integer, nullable=False)
     status = Column(String, nullable=False)
@@ -111,8 +127,8 @@ class BackupExecution(Base):
     backup_filename = Column(String, nullable=True)
     backup_path = Column(String, nullable=True)
     triggered_by = Column(String, nullable=True)
-    started_at = Column(DateTime, nullable=False)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String, nullable=False, index=True)
     size_bytes = Column(Integer, nullable=True)
     compressed_size_bytes = Column(Integer, nullable=True)
@@ -133,9 +149,11 @@ class BackupDestination(Base):
     retention_days = Column(Integer, nullable=False, default=30)
     retention_strategy = Column(String, nullable=True, default="simple")
     retention_config_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
     created_by = Column(String, nullable=False)
-    last_backup_at = Column(DateTime, nullable=True)
+    last_backup_at = Column(DateTime(timezone=True), nullable=True)
     last_backup_status = Column(String, nullable=True)
 
 
@@ -151,8 +169,12 @@ class DeviceGroup(Base):
     metadata_json = Column("metadata", Text, nullable=True)
     tacacs_profile = Column(Text, nullable=True)
     radius_profile = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class Proxy(Base):
@@ -163,8 +185,12 @@ class Proxy(Base):
     name = Column(String, unique=True, nullable=False)
     network = Column(String, nullable=True)
     metadata_json = Column("metadata", Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class Device(Base):
@@ -180,5 +206,9 @@ class Device(Base):
     group_id = Column(Integer, nullable=True)
     proxy_id = Column(Integer, nullable=True)
     metadata_json = Column("metadata", Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
