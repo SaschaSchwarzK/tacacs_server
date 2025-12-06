@@ -181,25 +181,27 @@ def test_sql_parameterized_query_operations():
     with pytest.raises(ValidationError):
         ParameterizedQuery.validate_value("1 OR 1=1")
 
-    query, params = ParameterizedQuery.build_select(
+    select_stmt, select_params = ParameterizedQuery.build_select(
         "users", ["id", "name"], {"id": 1}, order_by="name", limit=10
     )
-    assert "SELECT id, name FROM users" in query
-    assert params == [1]
+    compiled_select = str(select_stmt)
+    assert "SELECT" in compiled_select and "users" in compiled_select
+    assert select_params == {"w_0": 1}
 
-    insert_query, insert_params = ParameterizedQuery.build_insert(
+    insert_stmt, insert_params = ParameterizedQuery.build_insert(
         "users", {"name": "alice", "email": "test"}
     )
-    assert "INSERT INTO users" in insert_query
-    assert insert_params == ["alice", "test"]
+    assert "INSERT" in str(insert_stmt)
+    assert insert_params == {"name": "alice", "email": "test"}
 
-    update_query, update_params = ParameterizedQuery.build_update(
+    update_stmt, update_params = ParameterizedQuery.build_update(
         "users", {"name": "bob"}, {"id": 1}
     )
-    assert "UPDATE users SET" in update_query
-    delete_query, delete_params = ParameterizedQuery.build_delete("users", {"id": 2})
-    assert "DELETE FROM users" in delete_query
-    assert delete_params == [2]
+    assert "UPDATE" in str(update_stmt)
+    assert "v_name" in update_params and "w_0" in update_params
+    delete_stmt, delete_params = ParameterizedQuery.build_delete("users", {"id": 2})
+    assert "DELETE" in str(delete_stmt)
+    assert delete_params == {"w_0": 2}
 
     with pytest.raises(ValidationError):
         ParameterizedQuery.build_insert("users", {})
@@ -222,8 +224,9 @@ def test_secure_database_operations(tmp_path):
     """
     db_path = tmp_path / "secure.db"
     db = SecureDatabase(str(db_path))
-    conn = db.connect()
-    conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+    engine = db.connect()
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
     rowid = db.insert("items", {"value": "x"})
     assert rowid >= 1
     results = db.select("items", ["id", "value"])
@@ -235,7 +238,7 @@ def test_secure_database_operations(tmp_path):
     db.close()
 
     with pytest.raises(SQLSecurityError):
-        db.execute_query("SELECT * FROM missing_table")
+        db.select("missing_table", ["id"])
 
     assert sanitize_sql_input("clean") == "clean"
     assert validate_sql_identifier("ok") == "ok"

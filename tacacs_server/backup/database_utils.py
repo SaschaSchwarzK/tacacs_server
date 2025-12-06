@@ -7,6 +7,11 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import MetaData, Table, create_engine, func, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.inspection import inspect
+
 from tacacs_server.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -202,37 +207,35 @@ def verify_database_integrity(db_path: str) -> tuple[bool, str]:
     if not os.path.exists(db_path):
         return False, "Database file does not exist"
 
+    engine: Engine | None = None
     try:
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.cursor()
-
-            # Basic integrity
-            cur.execute("PRAGMA integrity_check")
-            row = cur.fetchone()
+        engine = create_engine(f"sqlite:///{db_path}", future=True)
+        with engine.connect() as conn:
+            row = conn.exec_driver_sql("PRAGMA integrity_check").fetchone()
             if not row:
                 return False, "No result from integrity_check"
             result = str(row[0])
             if result.lower() != "ok":
                 return False, f"Integrity check failed: {result}"
 
-            # Foreign key check
             try:
-                cur.execute("PRAGMA foreign_key_check")
-                fk_errors = cur.fetchall()
+                fk_errors = conn.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
                 if fk_errors:
                     return False, f"Foreign key violations: {len(fk_errors)}"
-            except Exception as exc:
+            except SQLAlchemyError as exc:
                 logger.debug(
                     "Foreign key check not supported", error=str(exc), db_path=db_path
                 )
 
-            # Read all tables (ensure basic readability)
-            cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = [r[0] for r in cur.fetchall()]
-            for tbl in tables:
+            insp = inspect(conn)
+            for tbl in insp.get_table_names():
                 try:
-                    cur.execute(f"SELECT COUNT(*) FROM '{tbl}'")
-                    _ = cur.fetchone()
+                    tbl_obj = Table(tbl, MetaData(), autoload_with=conn)
+                    cnt = conn.execute(
+                        select(func.count()).select_from(tbl_obj)
+                    ).scalar()
+                    if cnt is None:
+                        return False, f"Failed to read table {tbl}: no count"
                 except Exception as exc:
                     return False, f"Failed to read table {tbl}: {exc}"
 
@@ -240,6 +243,12 @@ def verify_database_integrity(db_path: str) -> tuple[bool, str]:
     except Exception as e:  # pragma: no cover - error path
         logger.warning("Database verification failed", error=str(e), db_path=db_path)
         return False, f"Verification failed: {str(e)}"
+    finally:
+        if engine is not None:
+            try:
+                engine.dispose()
+            except Exception:
+                pass
 
 
 def count_database_records(db_path: str) -> dict[str, int]:
@@ -248,18 +257,27 @@ def count_database_records(db_path: str) -> dict[str, int]:
     Returns mapping of table_name -> row_count.
     """
     counts: dict[str, int] = {}
+    engine: Engine | None = None
     try:
-        # Open read-only to avoid creating journal files during inspection
-        uri = f"file:{db_path}?mode=ro&immutable=1"
-        with sqlite3.connect(uri, uri=True) as conn:
-            cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            for (table_name,) in cur.fetchall():
+        uri = f"sqlite:///{db_path}"
+        engine = create_engine(uri, future=True)
+        with engine.connect() as conn:
+            insp = inspect(conn)
+            for table_name in insp.get_table_names():
                 try:
-                    cur2 = conn.execute(f"SELECT COUNT(*) FROM '{table_name}'")
-                    counts[table_name] = int(cur2.fetchone()[0] or 0)
+                    tbl = Table(table_name, MetaData(), autoload_with=conn)
+                    counts[table_name] = int(
+                        conn.execute(select(func.count()).select_from(tbl)).scalar()
+                        or 0
+                    )
                 except Exception:
                     counts[table_name] = 0
     except Exception:
-        # Return what we have (possibly empty) on failure
         pass
+    finally:
+        if engine is not None:
+            try:
+                engine.dispose()
+            except Exception:
+                pass
     return counts

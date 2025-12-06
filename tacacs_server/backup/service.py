@@ -455,12 +455,24 @@ class BackupService:
             backup_type=backup_type,
         )
         try:
-            # Step 1: Initialize execution tracking
-            self.execution_store.create_execution(
-                execution_id=execution_id,
-                destination_id=destination_id,
-                triggered_by=triggered_by,
-            )
+            # Step 1: Initialize execution tracking (idempotent if pre-created)
+            existing_exec = self.execution_store.get_execution(execution_id)
+            if existing_exec:
+                # Reset status to running for retry scenarios
+                self.execution_store.update_execution(
+                    execution_id,
+                    status="running",
+                    error_message=None,
+                    backup_path=None,
+                    backup_filename=None,
+                    completed_at=None,
+                )
+            else:
+                self.execution_store.create_execution(
+                    execution_id=execution_id,
+                    destination_id=destination_id,
+                    triggered_by=triggered_by,
+                )
             _logger.info(
                 "Backup started",
                 event="backup_started",
@@ -581,6 +593,8 @@ class BackupService:
                 )
 
             if encryption_enabled:
+                if not passphrase_cfg:
+                    passphrase_cfg = self._get_encryption_passphrase()
                 if not passphrase_cfg:
                     raise ValueError("Encryption enabled but no passphrase configured")
                 _logger.info(

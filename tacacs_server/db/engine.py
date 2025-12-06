@@ -28,7 +28,13 @@ def _sqlite_engine(db_path: str, *, echo: bool = False) -> Engine:
 
 def get_session_factory(db_path: str, *, echo: bool = False) -> sessionmaker[Session]:
     engine = _sqlite_engine(db_path, echo=echo)
-    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        future=True,
+    )
     # Expose the engine for compatibility with legacy code/tests expecting .bind
     try:
         factory.bind = engine  # type: ignore[attr-defined]

@@ -179,7 +179,9 @@ class LocalAuthStore:
             session.add(user)
         result = self.get_user(record.username)
         if result is None:
-            raise RuntimeError(f"Failed to retrieve user after insert: {record.username}")
+            raise RuntimeError(
+                f"Failed to retrieve user after insert: {record.username}"
+            )
         return result
 
     def update_user(
@@ -263,10 +265,10 @@ class LocalAuthStore:
             group = LocalUserGroup(
                 name=record.name,
                 description=record.description,
-            metadata_json=self._dump_dict(metadata_payload),
-            ldap_group=record.ldap_group,
-            okta_group=record.okta_group,
-            radius_group=record.radius_group,
+                metadata_json=self._dump_dict(metadata_payload),
+                ldap_group=record.ldap_group,
+                okta_group=record.okta_group,
+                radius_group=record.radius_group,
                 created_at=now_ts,
                 updated_at=now_ts,
             )

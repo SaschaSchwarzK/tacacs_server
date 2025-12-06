@@ -71,9 +71,9 @@ class DatabaseLogger:
         self.maintain_mv = maintain_mv
         self._stats_cache: dict[int, tuple[float, dict[str, Any]]] = {}
         self._session_factory = get_session_factory(self.db_path)
-        self.engine: Engine | None = getattr(self._session_factory, "bind", None) or getattr(
-            self._session_factory, "engine", None
-        )
+        self.engine: Engine | None = getattr(
+            self._session_factory, "bind", None
+        ) or getattr(self._session_factory, "engine", None)
         if self.engine is None:
             raise RuntimeError("Failed to initialize accounting engine")
         Base.metadata.create_all(self.engine)
@@ -216,7 +216,9 @@ class DatabaseLogger:
                 )
                 return False
 
-            timestamp_value = _as_datetime(base_data.get("timestamp")) or self._now_utc()
+            timestamp_value = (
+                _as_datetime(base_data.get("timestamp")) or self._now_utc()
+            )
             base_data["timestamp"] = timestamp_value
             is_recent = self._compute_is_recent(timestamp_value)
 
@@ -372,9 +374,9 @@ class DatabaseLogger:
         cutoff = datetime.now(UTC) - timedelta(days=days)
         with session_scope(self._session_factory) as session:
             total_records = session.scalar(
-                select(func.count()).select_from(AccountingLog).where(
-                    AccountingLog.timestamp > cutoff, AccountingLog.is_recent == 1
-                )
+                select(func.count())
+                .select_from(AccountingLog)
+                .where(AccountingLog.timestamp > cutoff, AccountingLog.is_recent == 1)
             )
             unique_users = session.scalar(
                 select(func.count(func.distinct(AccountingLog.username))).where(
@@ -429,9 +431,9 @@ class DatabaseLogger:
             rows = (
                 session.execute(
                     select(
-                        func.strftime("%Y-%m-%d %H:00:00", AccountingLog.timestamp).label(
-                            "hour"
-                        ),
+                        func.strftime(
+                            "%Y-%m-%d %H:00:00", AccountingLog.timestamp
+                        ).label("hour"),
                         func.count().label("total"),
                         func.sum(
                             case((AccountingLog.status == "START", 1), else_=0)
@@ -462,7 +464,9 @@ class DatabaseLogger:
                     Accounting.start_time,
                     Accounting.attributes,
                     Accounting.created_at,
-                ).where(Accounting.stop_time.is_(None), Accounting.start_time.is_not(None))
+                ).where(
+                    Accounting.stop_time.is_(None), Accounting.start_time.is_not(None)
+                )
             ).all()
 
         sessions = []
@@ -479,9 +483,7 @@ class DatabaseLogger:
                     "username": row[1],
                     "acct_type": row[2],
                     "start_time": row[3],
-                    "duration_seconds": int(time.time() - row[3])
-                    if row[3]
-                    else 0,
+                    "duration_seconds": int(time.time() - row[3]) if row[3] else 0,
                     "device_ip": attributes.get("device_ip", "unknown"),
                     "created_at": row[5],
                 }

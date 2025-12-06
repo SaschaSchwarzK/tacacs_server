@@ -100,3 +100,85 @@ class AccountingLog(Base):
     timezone = Column(String, nullable=True)
     attributes = Column(Text, nullable=True)
     is_recent = Column(Integer, default=0)
+
+
+class BackupExecution(Base):
+    __tablename__ = "backup_executions"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(String, primary_key=True)
+    destination_id = Column(String, nullable=True, index=True)
+    backup_filename = Column(String, nullable=True)
+    backup_path = Column(String, nullable=True)
+    triggered_by = Column(String, nullable=True)
+    started_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    status = Column(String, nullable=False, index=True)
+    size_bytes = Column(Integer, nullable=True)
+    compressed_size_bytes = Column(Integer, nullable=True)
+    files_included = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    manifest_json = Column(Text, nullable=True)
+
+
+class BackupDestination(Base):
+    __tablename__ = "backup_destinations"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(String, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    type = Column(String, nullable=False)
+    enabled = Column(Integer, nullable=False, default=1)
+    config_json = Column(Text, nullable=False)
+    retention_days = Column(Integer, nullable=False, default=30)
+    retention_strategy = Column(String, nullable=True, default="simple")
+    retention_config_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_by = Column(String, nullable=False)
+    last_backup_at = Column(DateTime, nullable=True)
+    last_backup_status = Column(String, nullable=True)
+
+
+# Device/proxy models (simplified to mirror existing schema)
+class DeviceGroup(Base):
+    __tablename__ = "device_groups"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    proxy_id = Column(Integer, nullable=True)
+    metadata_json = Column("metadata", Text, nullable=True)
+    tacacs_profile = Column(Text, nullable=True)
+    radius_profile = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Proxy(Base):
+    __tablename__ = "proxies"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True, nullable=False)
+    network = Column(String, nullable=True)
+    metadata_json = Column("metadata", Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Device(Base):
+    __tablename__ = "devices"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True, nullable=False)
+    network = Column(String, nullable=False)
+    network_start_int = Column(Integer, nullable=True)
+    network_end_int = Column(Integer, nullable=True)
+    secret = Column(String, nullable=True)
+    group_id = Column(Integer, nullable=True)
+    proxy_id = Column(Integer, nullable=True)
+    metadata_json = Column("metadata", Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
