@@ -899,7 +899,7 @@ tacacs_server/
 ├── accounting/                   # Accounting and logging
 │   ├── models.py                # Data models
 │   ├── database.py              # Synchronous DB logging
-│   └── async_database.py        # Async logging utilities (optional)
+│   └── async_database.py        # (deprecated/removed) async logging utilities
 ├── config/                       # Configuration management
 │   ├── config.py                # Loader, validation, persistence
 │   └── schema.py                # Pydantic validation schemas

@@ -17,4 +17,4 @@ skips:
   - B310 # Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
   - B311 # Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
   - B324 # Issue: [B324:blacklist] Use of hashlib.md5 detected.
-  - B608 # Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+ # - B608 # Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
