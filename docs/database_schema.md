@@ -2,7 +2,9 @@
 
 ## Overview
 
-This document describes the database schema for the TACACS+ Server. The schema is designed to support user authentication, device management, command authorization, and accounting.
+This document describes the database schema for the TACACS+ Server. The schema is designed to support user authentication, device management, command authorization, accounting, and backups.
+
+Schemas are defined with SQLAlchemy models and maintained via Alembic migrations. On startup, each SQLite-backed store attempts to run Alembic; if migrations are unavailable, it falls back to `Base.metadata.create_all`.
 
 ## Entity Relationship Diagram
 
@@ -88,25 +90,36 @@ erDiagram
     }
 
     %% Backup System
+    BackupExecution ||--o| BackupDestination : targets
     BackupExecution {
-        int id PK
-        int user_id FK
-        string backup_type
-        string status
-        string destination
+        string id PK
+        string destination_id FK
+        string backup_filename
+        string backup_path
+        string triggered_by
         datetime started_at
         datetime completed_at
+        string status
+        int size_bytes
+        int compressed_size_bytes
+        int files_included
         string error_message
+        json manifest_json
     }
 
     BackupDestination {
-        int id PK
+        string id PK
         string name
         string type
-        string config
-        bool is_default
+        bool enabled
+        string config_json
+        int retention_days
+        string retention_strategy
+        string retention_config_json
         datetime created_at
-        datetime updated_at
+        string created_by
+        datetime last_backup_at
+        string last_backup_status
     }
 
     %% Accounting
@@ -222,18 +235,41 @@ Defines command-level authorization rules.
 ### Backup System
 
 #### BackupExecution
-Tracks backup operations.
+Tracks each backup run, its status, and where the archive was stored.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | Integer | Primary key |
-| user_id | Integer | Who initiated the backup |
-| backup_type | String | Type of backup (full, config, etc.) |
-| status | String | Current status (running, completed, failed) |
-| destination | String | Where the backup was stored |
-| started_at | DateTime | When the backup started |
-| completed_at | DateTime | When the backup completed |
-| error_message | String | Error details if backup failed |
+| id | String | Execution ID (UUID) |
+| destination_id | String | Foreign key to backup destination |
+| backup_filename | String | Archive filename |
+| backup_path | String | Remote/local path of stored archive |
+| triggered_by | String | Who/what triggered the backup (e.g., manual:admin) |
+| started_at | DateTime (tz) | When the backup started |
+| completed_at | DateTime (tz) | When the backup completed (if any) |
+| status | String | running / completed / failed |
+| size_bytes | Integer | Total size of backed-up content |
+| compressed_size_bytes | Integer | Size of the archive (post compression/encryption) |
+| files_included | Integer | Count of files in the archive |
+| error_message | Text | Failure details if status=failed |
+| manifest_json | Text | JSON manifest of backup contents |
+
+#### BackupDestination
+Defines where backups are stored and retention policy.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | String | Destination ID (UUID) |
+| name | String | Human-friendly name |
+| type | String | Destination type (local, sftp, ftp, azure, etc.) |
+| enabled | Boolean | Whether the destination is active |
+| config_json | Text | JSON-serialized destination config |
+| retention_days | Integer | Default retention window |
+| retention_strategy | String | Strategy name (e.g., simple) |
+| retention_config_json | Text | Strategy-specific config JSON |
+| created_at | DateTime (tz) | When the destination was created |
+| created_by | String | Actor who created the destination |
+| last_backup_at | DateTime (tz) | Timestamp of last backup to this destination |
+| last_backup_status | String | Status of last backup (success/failed) |
 
 ### Accounting
 
@@ -282,3 +318,21 @@ When making changes to the database schema:
 ---
 
 *Last Updated: November 1, 2025*
+
+## Migration / Schema Changes
+
+Schema changes are handled via Alembic. Configuration lives in `alembic.ini` (root) with migration scripts in `alembic/`. On startup, stores invoke `alembic upgrade head` against their SQLite URL; if Alembic is missing, the code falls back to `Base.metadata.create_all`.
+
+Manual usage:
+
+```bash
+# Example for devices DB
+ALEMBIC_DATABASE_URL=sqlite:///data/devices.db alembic upgrade head
+# Downgrade one step
+ALEMBIC_DATABASE_URL=sqlite:///data/devices.db alembic downgrade -1
+```
+
+Initial migration (`0001_device_schema_updates`) adds:
+- `realm_id` (and proxy_network) to `device_groups`
+- Device secrets (tacacs/radius), numeric network range columns, and a range index on `devices`
+- Accounting log indexes for timestamp, username, session, and recent+timestamp

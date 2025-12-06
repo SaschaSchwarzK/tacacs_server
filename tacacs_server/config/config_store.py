@@ -113,7 +113,7 @@ class ConfigStore:
     def _run_alembic_migrations(self) -> bool:
         """Attempt to run Alembic migrations; fallback to legacy create_all on failure."""
         try:
-            from alembic import command  # noqa: I001
+            from alembic import command  # type: ignore[attr-defined] # noqa: I001
             from alembic.config import Config
         except ImportError:
             return False

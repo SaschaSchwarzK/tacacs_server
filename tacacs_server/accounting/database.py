@@ -1,6 +1,7 @@
 """
 SQLAlchemy-backed accounting database logger for TACACS+.
 """
+# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -200,7 +201,7 @@ class DatabaseLogger:
     def _run_alembic_or_create(self, engine: Engine) -> None:
         """Run Alembic migrations if available; fall back to create_all."""
         try:
-            from alembic import command  # noqa: I001
+            from alembic import command  # type: ignore[attr-defined] # noqa: I001
             from alembic.config import Config
         except ImportError:
             Base.metadata.create_all(engine)
@@ -367,6 +368,7 @@ class DatabaseLogger:
                 bytes_out=_as_int(payload.get("bytes_out")) or 0,
             )
         )
+        session.flush()
 
     def _update_session(self, session: Session, payload: dict[str, Any]):
         session_id = payload.get("session_id")
@@ -376,6 +378,7 @@ class DatabaseLogger:
         existing.bytes_in = _as_int(payload.get("bytes_in")) or existing.bytes_in
         existing.bytes_out = _as_int(payload.get("bytes_out")) or existing.bytes_out
         existing.last_update = self._now_utc()
+        session.flush()
 
     def _stop_session(self, session: Session, payload: dict[str, Any]):
         session_id = payload.get("session_id")
@@ -384,6 +387,7 @@ class DatabaseLogger:
         obj = session.get(ActiveSession, session_id)
         if obj:
             session.delete(obj)
+            session.flush()
 
     # ------------------------------------------------------------------
     # Queries

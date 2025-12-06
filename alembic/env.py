@@ -1,18 +1,21 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
+from typing import Any, cast
 import os
 import sys
 from logging.config import fileConfig
 
+from alembic import context as alembic_context  # type: ignore[attr-defined]
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Engine
-from alembic import context
 
 # Ensure project root on path for Base import
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from tacacs_server.db.engine import Base  # noqa: E402
 
+context: Any = alembic_context
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -24,7 +27,7 @@ def get_url() -> str:
     env_url = os.getenv("ALEMBIC_DATABASE_URL")
     if env_url:
         return env_url
-    return config.get_main_option("sqlalchemy.url")
+    return cast(str, config.get_main_option("sqlalchemy.url"))
 
 
 def run_migrations_offline() -> None:

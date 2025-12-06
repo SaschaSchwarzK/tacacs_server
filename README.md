@@ -697,6 +697,16 @@ rate_limit_window = 60
 - **Schema validation**: Pydantic-based validation with detailed error messages
 - **Environment variables**: Support for secrets via environment variables
 
+### **Database Schema & Migrations (Alembic)**
+- All SQLite-backed stores (devices, config, local auth, backup executions, accounting) attempt to run Alembic migrations on startup; if Alembic is unavailable, they fall back to creating tables.
+- Alembic config: `alembic.ini`; scripts: `alembic/`. Default URL targets `data/devices.db`; override with `ALEMBIC_DATABASE_URL` or edit `sqlalchemy.url`.
+- Run migrations manually:
+  - Upgrade: `ALEMBIC_DATABASE_URL=sqlite:///data/devices.db alembic upgrade head`
+  - Downgrade: `ALEMBIC_DATABASE_URL=sqlite:///data/devices.db alembic downgrade -1`
+- Initial migrations:
+  - `0001_device_schema_updates`: adds realm_id to device groups, proxy_network, device secrets (tacacs/radius), numeric network ranges with index, and accounting log indexes (with backfill).
+- When adding new models/columns: generate a migration (`alembic revision --autogenerate -m "describe change"`), review, then `alembic upgrade head`.
+
 #### Configuration Sources & Precedence
 Configuration values are applied with a clear precedence so the effective runtime value is deterministic (highest priority first):
 

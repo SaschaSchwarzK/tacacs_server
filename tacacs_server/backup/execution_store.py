@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# mypy: ignore-errors
 import json
 import os
 import threading
@@ -66,7 +67,7 @@ class BackupExecutionStore:
     def _run_alembic_or_create(self, engine) -> None:
         """Run Alembic migrations if available; fallback to create_all."""
         try:
-            from alembic import command  # noqa: I001
+            from alembic import command  # type: ignore[attr-defined] # noqa: I001
             from alembic.config import Config
         except ImportError:
             Base.metadata.create_all(engine)

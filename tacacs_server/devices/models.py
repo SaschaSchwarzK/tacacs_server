@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
 
 from tacacs_server.db.engine import Base
 
@@ -16,19 +16,18 @@ class DeviceGroupModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False)
     description = Column(Text, nullable=True)
-    realm_id = Column(Integer, nullable=True)
+    realm_id = Column(
+        Integer, ForeignKey("realms.id", ondelete="SET NULL"), nullable=True
+    )
     proxy_network = Column(String, nullable=True)
-    proxy_id = Column(Integer, nullable=True)
-    proxy_id = Column(Integer, nullable=True)
+    proxy_id = Column(
+        Integer, ForeignKey("proxies.id", ondelete="SET NULL"), nullable=True
+    )
     metadata_json = Column("metadata", Text, nullable=True)
     tacacs_profile = Column(Text, nullable=True)
     radius_profile = Column(Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class ProxyModel(Base):
@@ -39,17 +38,16 @@ class ProxyModel(Base):
     name = Column(String, unique=True, nullable=False)
     network = Column(String, nullable=False)
     metadata_json = Column("metadata", Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class DeviceModel(Base):
     __tablename__ = "devices"
-    __table_args__ = {"extend_existing": True}
+    __table_args__ = (
+        Index("idx_device_network_range", "network_start_int", "network_end_int"),
+        {"extend_existing": True},
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False)
@@ -59,14 +57,14 @@ class DeviceModel(Base):
     tacacs_secret = Column(String, nullable=True)
     radius_secret = Column(String, nullable=True)
     metadata_json = Column("metadata", Text, nullable=True)
-    group_id = Column(Integer, nullable=True)
-    proxy_id = Column(Integer, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    group_id = Column(
+        Integer, ForeignKey("device_groups.id", ondelete="SET NULL"), nullable=True
     )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    proxy_id = Column(
+        Integer, ForeignKey("proxies.id", ondelete="SET NULL"), nullable=True
     )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class RealmModel(Base):
@@ -76,9 +74,5 @@ class RealmModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

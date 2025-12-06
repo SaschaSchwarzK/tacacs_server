@@ -18,12 +18,28 @@ def _sqlite_engine(db_path: str, *, echo: bool = False) -> Engine:
     if path.parent and not path.parent.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
     url = f"sqlite:///{path}"
-    return create_engine(
+    engine = create_engine(
         url,
         future=True,
         echo=echo,
         pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=30,
+        pool_recycle=3600,
     )
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):  # noqa: ANN001
+        cursor = dbapi_conn.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+        finally:
+            cursor.close()
+
+    return engine
 
 
 def get_session_factory(db_path: str, *, echo: bool = False) -> sessionmaker[Session]:

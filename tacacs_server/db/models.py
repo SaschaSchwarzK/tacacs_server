@@ -1,12 +1,15 @@
-"""SQLAlchemy models for local auth and accounting (SQLite)."""
+"""SQLAlchemy models for local auth, accounting, backups, and shared Base."""
+# ruff: noqa: I001
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text
 
-from .engine import Base
+from tacacs_server.db.engine import Base
+
+# Local auth models
 
 
 class LocalUser(Base):
@@ -49,7 +52,7 @@ class LocalUserGroup(Base):
     )
 
 
-# Accounting models (simplified to match existing schema)
+# Accounting models
 class Accounting(Base):
     __tablename__ = "accounting"
     __table_args__ = {"extend_existing": True}
@@ -90,12 +93,16 @@ class ActiveSession(Base):
 
 class AccountingLog(Base):
     __tablename__ = "accounting_logs"
-    __table_args__ = {"extend_existing": True}
+    __table_args__ = (
+        Index("idx_acct_timestamp", "timestamp"),
+        Index("idx_acct_username", "username"),
+        Index("idx_acct_session", "session_id"),
+        Index("idx_acct_recent", "is_recent", "timestamp"),
+        {"extend_existing": True},
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     username = Column(String, nullable=False)
     session_id = Column(Integer, nullable=False)
     status = Column(String, nullable=False)
@@ -118,6 +125,7 @@ class AccountingLog(Base):
     is_recent = Column(Integer, default=0)
 
 
+# Backup models
 class BackupExecution(Base):
     __tablename__ = "backup_executions"
     __table_args__ = {"extend_existing": True}
@@ -157,58 +165,13 @@ class BackupDestination(Base):
     last_backup_status = Column(String, nullable=True)
 
 
-# Device/proxy models (simplified to mirror existing schema)
-class DeviceGroup(Base):
-    __tablename__ = "device_groups"
-    __table_args__ = {"extend_existing": True}
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, unique=True, nullable=False)
-    description = Column(Text, nullable=True)
-    proxy_id = Column(Integer, nullable=True)
-    metadata_json = Column("metadata", Text, nullable=True)
-    tacacs_profile = Column(Text, nullable=True)
-    radius_profile = Column(Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-
-
-class Proxy(Base):
-    __tablename__ = "proxies"
-    __table_args__ = {"extend_existing": True}
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, unique=True, nullable=False)
-    network = Column(String, nullable=True)
-    metadata_json = Column("metadata", Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-
-
-class Device(Base):
-    __tablename__ = "devices"
-    __table_args__ = {"extend_existing": True}
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, unique=True, nullable=False)
-    network = Column(String, nullable=False)
-    network_start_int = Column(Integer, nullable=True)
-    network_end_int = Column(Integer, nullable=True)
-    secret = Column(String, nullable=True)
-    group_id = Column(Integer, nullable=True)
-    proxy_id = Column(Integer, nullable=True)
-    metadata_json = Column("metadata", Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+# Re-export device models from devices.models to avoid duplication
+try:
+    from tacacs_server.devices.models import (
+        DeviceModel as Device,  # noqa: F401
+        DeviceGroupModel as DeviceGroup,  # noqa: F401
+        ProxyModel as Proxy,  # noqa: F401
+    )  # noqa: F401
+except Exception:
+    # Device models may not be needed in contexts that only use local/backup/accounting
+    pass
