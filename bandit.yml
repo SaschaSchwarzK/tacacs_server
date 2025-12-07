@@ -10,7 +10,4 @@ skips:
   - B104 # Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
   - B110 # Issue: [B110:try_except_pass] Try, Except, Pass detected.
   - B112 # Issue: [B112:try_except_continue] Try, Except, Continue detected.
-  - B105 # Issue: [B105:hardcoded_password_string] Possible hardcoded password
-  - B106 # Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: '$2b$12$example'
-  - B107 # Issue: [B107:hardcoded_password_default] Possible hardcoded password: ''
   - B324 # Issue: [B324:blacklist] Use of hashlib.md5 detected.
