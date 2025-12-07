@@ -491,14 +491,14 @@ class OktaAuthBackend(AuthenticationBackend):
             expiry_ts = now + base_ttl
             jitter = int(base_ttl * 0.1)
             if jitter > 0:
-                expiry_ts -= random.randint(0, jitter)
+                expiry_ts -= secrets.randbelow(jitter + 1)
         else:
             # For token-derived expiry, subtract a small jitter bounded by remaining TTL
             # Cap jitter by: 10% of base TTL, 10% of remaining, and an absolute max of 5s
             remaining = max(0, int(expiry_ts - now))
             jitter_cap = int(min(int(base_ttl * 0.1), int(remaining * 0.1), 5))
             if jitter_cap > 0:
-                expiry_ts -= random.randint(0, jitter_cap)
+                expiry_ts -= secrets.randbelow(jitter_cap + 1)
         attrs = attributes or {}
         with self._lock:
             self._cache[key] = (result, int(expiry_ts), attrs)
