@@ -6,7 +6,7 @@ import os
 import sys
 from typing import Any, cast
 
-from alembic import context as alembic_context  # type: ignore[attr-defined]
+from alembic import context as alembic_context
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Engine
 

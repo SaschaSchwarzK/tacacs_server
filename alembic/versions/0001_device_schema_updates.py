@@ -12,7 +12,7 @@ from typing import Any
 import ipaddress
 
 import sqlalchemy as sa
-from alembic import op as alembic_op  # type: ignore[attr-defined]
+from alembic import op as alembic_op
 from sqlalchemy import inspect
 
 op: Any = alembic_op
