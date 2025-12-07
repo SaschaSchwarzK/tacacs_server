@@ -745,6 +745,32 @@ def test_tacacs_server_with_okta_backend(
                     )
 
         # Auth should succeed because operator is member of expected_group mapped to ug_name
+        # Diagnostic: dump state before auth attempt
+        print("\n=== Diagnostic: State before auth attempt ===")
+        print(f"Expected group: {expected_group}")
+        print(f"User group name: {ug_name}")
+        print(f"Device group: {dg_restricted}")
+        print(f"Client IP: {ip_client}")
+
+        # Dump all user groups
+        r_ugs = session.get(f"{base_url}/api/user-groups", timeout=15)
+        if r_ugs.status_code == 200:
+            print(f"\nUser groups: {json.dumps(r_ugs.json(), indent=2)}")
+
+        # Dump all device groups with their allowed_user_groups
+        r_dgs = session.get(f"{base_url}/api/device-groups", timeout=15)
+        if r_dgs.status_code == 200:
+            print(f"\nDevice groups: {json.dumps(r_dgs.json(), indent=2)}")
+
+        # Dump all devices
+        r_devs = session.get(f"{base_url}/api/devices", timeout=15)
+        if r_devs.status_code == 200:
+            print(f"\nDevices: {json.dumps(r_devs.json(), indent=2)}")
+
+        # Dump container logs before auth
+        logs_before = _run(["docker", "logs", "--tail", "50", tacacs_container])
+        print(f"\nContainer logs (last 50 lines):\n{logs_before.stdout}")
+
         ok3, msg3 = tacacs_authenticate(
             host="127.0.0.1",
             port=tacacs_host_port,
@@ -752,6 +778,14 @@ def test_tacacs_server_with_okta_backend(
             username=operator_login,
             password=operator_password,
         )
+
+        if not ok3:
+            # Dump container logs after failed auth
+            logs_after = _run(["docker", "logs", "--tail", "100", tacacs_container])
+            print(
+                f"\nContainer logs after failed auth (last 100 lines):\n{logs_after.stdout}"
+            )
+
         assert ok3, f"Expected auth success with group enforcement: {msg3}"
 
         # 3) Negative: create a user-group mapped to a group the operator is NOT in (admin)
