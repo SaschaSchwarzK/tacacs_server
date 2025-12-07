@@ -56,7 +56,7 @@ def pytest_configure(config):
 
     # Set a test API token
     if "TEST_API_TOKEN" not in os.environ:
-        os.environ["TEST_API_TOKEN"] = "test-token"
+        os.environ["TEST_API_TOKEN"] = "test-token" # nosec
 
     # Print diagnostic info
     print("[pytest_configure] Test mode enabled", file=sys.stderr)
