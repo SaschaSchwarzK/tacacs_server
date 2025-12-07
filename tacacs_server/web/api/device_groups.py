@@ -65,8 +65,12 @@ async def list_device_groups(
         groups = service.get_device_groups(limit=limit, offset=offset)
         return groups
     except Exception as e:
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception(f"Failed to list device groups: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to list device groups: {str(e)}"
+            status_code=500, detail=f"Failed to list device groups: {str(e)}\n{traceback.format_exc()}"
         )
 
 

@@ -370,53 +370,89 @@ class DeviceService:
 
     def _group_to_dict(self, group: DeviceGroup) -> dict[str, Any]:
         """Convert DeviceGroup to API-friendly dict."""
-        # Count devices in this group
         try:
-            devices = self.list_devices_by_group(group.id)
-            device_count = len(devices)
-        except Exception:
+            # Count devices in this group
             device_count = 0
+            if group.id is not None:
+                try:
+                    devices = self.list_devices_by_group(group.id)
+                    device_count = len(devices)
+                except Exception as e:
+                    logger.warning(f"Failed to count devices for group {group.id}: {e}")
+                    device_count = 0
 
-        # Extract secrets status without exposing actual secrets
-        # Secrets are stored as direct attributes on DeviceGroup, not in metadata
-        tacacs_secret_set = bool(getattr(group, "tacacs_secret", None))
-        radius_secret_set = bool(getattr(group, "radius_secret", None))
+            # Extract secrets status without exposing actual secrets
+            # Secrets are stored as direct attributes on DeviceGroup, not in metadata
+            tacacs_secret_set = bool(getattr(group, "tacacs_secret", None))
+            radius_secret_set = bool(getattr(group, "radius_secret", None))
 
-        # Extract allowed user groups from the DeviceGroup attribute
-        allowed_groups = getattr(group, "allowed_user_groups", []) or []
+            # Extract allowed user groups from the DeviceGroup attribute
+            # Convert group names to IDs for API response
+            allowed_groups_names = getattr(group, "allowed_user_groups", []) or []
+            allowed_groups_ids: list[int] = []
+            if allowed_groups_names:
+                try:
+                    from tacacs_server.web.api.usergroups import get_group_service as _get_gsvc
+                    gsvc = _get_gsvc()
+                    name_to_id = {
+                        rec.name: int(rec.id)
+                        for rec in gsvc.list_groups()
+                        if getattr(rec, "id", None) and getattr(rec, "name", None)
+                    }
+                    allowed_groups_ids = [
+                        name_to_id[name]
+                        for name in allowed_groups_names
+                        if name in name_to_id
+                    ]
+                except Exception as e:
+                    logger.warning(f"Failed to resolve user group IDs for group {group.id}: {e}")
+                    allowed_groups_ids = []
 
-        # Best-effort resolve proxy id
-        proxy_id_val = None
-        try:
-            for p in self.store.list_proxies():
-                if str(p.network) == str(getattr(group, "proxy_network", None) or ""):
-                    proxy_id_val = p.id
-                    break
-        except Exception:
+            # Best-effort resolve proxy id
             proxy_id_val = None
+            try:
+                for p in self.store.list_proxies():
+                    if str(p.network) == str(getattr(group, "proxy_network", None) or ""):
+                        proxy_id_val = p.id
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to resolve proxy_id for group {group.id}: {e}")
+                proxy_id_val = None
 
-        # Safely get created_at
-        created_at_val = None
-        try:
-            if hasattr(group, "created_at") and group.created_at:
-                created_at_val = group.created_at.isoformat()
-        except Exception:
+            # Safely get created_at
             created_at_val = None
+            try:
+                if hasattr(group, "created_at") and group.created_at:
+                    created_at_val = group.created_at.isoformat()
+            except Exception as e:
+                logger.warning(f"Failed to get created_at for group {group.id}: {e}")
+                created_at_val = None
 
-        return {
-            "id": group.id,
-            "name": group.name,
-            "description": group.description,
-            "proxy_network": getattr(group, "proxy_network", None),
-            "proxy_id": proxy_id_val,
-            "tacacs_secret_set": tacacs_secret_set,
-            "radius_secret_set": radius_secret_set,
-            "allowed_user_groups": allowed_groups if isinstance(allowed_groups, list) else [],
-            "device_count": device_count,
-            "created_at": created_at_val,
-            "tacacs_profile": getattr(group, "tacacs_profile", None) or {},
-            "radius_profile": getattr(group, "radius_profile", None) or {},
-        }
+            # Ensure profiles are always dicts
+            tacacs_prof = getattr(group, "tacacs_profile", None)
+            if not isinstance(tacacs_prof, dict):
+                tacacs_prof = {}
+            radius_prof = getattr(group, "radius_profile", None)
+            if not isinstance(radius_prof, dict):
+                radius_prof = {}
+
+            return {
+                "id": getattr(group, "id", None),
+                "name": getattr(group, "name", ""),
+                "description": getattr(group, "description", None),
+                "proxy_network": getattr(group, "proxy_network", None),
+                "proxy_id": proxy_id_val,
+                "tacacs_secret_set": tacacs_secret_set,
+                "radius_secret_set": radius_secret_set,
+                "allowed_user_groups": allowed_groups_ids,
+                "device_count": device_count,
+                "created_at": created_at_val,
+                "tacacs_profile": tacacs_prof,
+                "radius_profile": radius_prof,
+            }
+        except Exception as e:
+            logger.exception(f"Failed to convert group to dict: {e}")
+            raise
 
     # ------------------------------
     # Proxies management
