@@ -20,7 +20,7 @@ jobs:
   setup:
     name: Setup Dependencies
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     outputs:
       cache-hit: ${{ steps.setup.outputs.cache-hit }}
     steps:
@@ -33,7 +33,7 @@ jobs:
     name: Secrets Scan (Gitleaks)
     runs-on: ubuntu-latest
     needs: [setup]
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +55,7 @@ jobs:
     name: Lint (Ruff • Mypy • Bandit • pip-audit • Semgrep • Trivy-fs)
     runs-on: ubuntu-latest
     needs: [setup, secrets-scan]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-python-poetry
@@ -125,7 +125,7 @@ jobs:
     name: Tests • Coverage
     runs-on: ubuntu-latest
     needs: [setup, quality]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-python-poetry
@@ -179,7 +179,7 @@ jobs:
     name: Docker Build • Smoke Test
     runs-on: ubuntu-latest
     needs: [setup, quality, tests]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Build image
@@ -215,7 +215,7 @@ jobs:
     name: Docker HTTPS Build • Smoke Test
     runs-on: ubuntu-latest
     needs: [setup, quality, tests]
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Build HTTPS image
@@ -256,7 +256,7 @@ jobs:
     name: Security Tests
     runs-on: ubuntu-latest
     needs: [setup, quality, tests]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-python-poetry
