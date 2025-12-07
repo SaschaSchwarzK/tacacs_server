@@ -13,7 +13,8 @@ import os
 import socket
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
-from urllib.request import urlopen
+
+import requests
 
 from tacacs_server.utils.logger import get_logger
 
@@ -124,16 +125,33 @@ class URLConfigHandler:
         if not self.is_url_safe(source):
             return None
 
+        parsed = urlparse(source)
+        allow_insecure = str(os.getenv("ALLOW_INSECURE_CONFIG_URLS", "")).lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if parsed.scheme == "http" and not allow_insecure:
+            logger.error("Insecure HTTP config URL rejected")
+            return None
+        if parsed.scheme not in {"http", "https"}:
+            logger.error("Unsupported config URL scheme: %s", parsed.scheme or "")
+            return None
+
         try:
             max_size = 1024 * 1024  # 1MB limit
 
-            with urlopen(source, timeout=10) as response:
-                if response.length and response.length > max_size:
-                    logger.error("Configuration file too large")
-                    return None
+            resp = requests.get(source, timeout=10, allow_redirects=True)
+            if resp.status_code != 200:
+                logger.error("Configuration URL returned status %s", resp.status_code)
+                return None
 
-                content: str = response.read().decode("utf-8")
-                return content
+            body = resp.content or b""
+            if len(body) > max_size:
+                logger.error("Configuration file too large")
+                return None
+
+            return body.decode(resp.encoding or "utf-8")
 
         except Exception as e:
             logger.error("Failed to fetch URL configuration: %s", e)
