@@ -371,8 +371,11 @@ class DeviceService:
     def _group_to_dict(self, group: DeviceGroup) -> dict[str, Any]:
         """Convert DeviceGroup to API-friendly dict."""
         # Count devices in this group
-        devices = self.list_devices_by_group(group.id)
-        device_count = len(devices)
+        try:
+            devices = self.list_devices_by_group(group.id)
+            device_count = len(devices)
+        except Exception:
+            device_count = 0
 
         # Extract secrets status without exposing actual secrets
         # Secrets are stored as direct attributes on DeviceGroup, not in metadata
@@ -392,6 +395,14 @@ class DeviceService:
         except Exception:
             proxy_id_val = None
 
+        # Safely get created_at
+        created_at_val = None
+        try:
+            if hasattr(group, "created_at") and group.created_at:
+                created_at_val = group.created_at.isoformat()
+        except Exception:
+            created_at_val = None
+
         return {
             "id": group.id,
             "name": group.name,
@@ -400,15 +411,11 @@ class DeviceService:
             "proxy_id": proxy_id_val,
             "tacacs_secret_set": tacacs_secret_set,
             "radius_secret_set": radius_secret_set,
-            "allowed_user_groups": allowed_groups
-            if isinstance(allowed_groups, list)
-            else [],
+            "allowed_user_groups": allowed_groups if isinstance(allowed_groups, list) else [],
             "device_count": device_count,
-            "created_at": group.created_at.isoformat()
-            if hasattr(group, "created_at")
-            else None,
-            "tacacs_profile": group.tacacs_profile,
-            "radius_profile": group.radius_profile,
+            "created_at": created_at_val,
+            "tacacs_profile": getattr(group, "tacacs_profile", None) or {},
+            "radius_profile": getattr(group, "radius_profile", None) or {},
         }
 
     # ------------------------------
