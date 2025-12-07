@@ -375,8 +375,9 @@ class DeviceService:
         device_count = len(devices)
 
         # Extract secrets status without exposing actual secrets
-        tacacs_secret_set = "tacacs_secret" in group.metadata
-        radius_secret_set = "radius_secret" in group.metadata
+        # Secrets are stored as direct attributes on DeviceGroup, not in metadata
+        tacacs_secret_set = bool(getattr(group, "tacacs_secret", None))
+        radius_secret_set = bool(getattr(group, "radius_secret", None))
 
         # Extract allowed user groups from the DeviceGroup attribute
         allowed_groups = getattr(group, "allowed_user_groups", []) or []
