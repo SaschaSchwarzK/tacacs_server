@@ -399,9 +399,9 @@ class ServerInstance:
         except Exception:
             pass
 
-        # Logging section
+        # Logging section - log to console for Azure compatibility
         cfg.add_section("logging")
-        cfg["logging"]["log_file"] = str(self.log_path)
+        # Don't set log_file - application logs to console (stdout/stderr)
         cfg["logging"]["log_level"] = self.config_dict.get("log_level", "INFO")
         # Merge logging overrides if provided
         try:
@@ -439,11 +439,14 @@ class ServerInstance:
         # Create config file
         self._create_config_file()
 
-        # Open log file
-        self.log_file = open(self.log_path, "w+")
+        # Open log file as raw fd to avoid pytest capture; keep reference for fsync/close
+        self._log_fd = os.open(
+            str(self.log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644
+        )
 
         # Prepare environment
         env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
 
         # Add credentials only via environment
         if "okta_api_token" in self.config_dict:
@@ -458,6 +461,7 @@ class ServerInstance:
         # Start server process
         cmd = [
             "python",
+            "-u",
             "-m",
             "tacacs_server.main",
             "--config",
@@ -466,11 +470,13 @@ class ServerInstance:
 
         self.process = subprocess.Popen(
             cmd,
-            stdout=self.log_file,
-            stderr=subprocess.STDOUT,
+            stdout=self._log_fd,
+            stderr=self._log_fd,
+            bufsize=0,
             preexec_fn=os.setsid if hasattr(os, "setsid") else None,
             env=env,
             cwd=str(self.work_dir),
+            close_fds=False,
         )
 
         # Wait for server to start (with early-exit detection)
@@ -528,6 +534,12 @@ class ServerInstance:
         """Stop the server instance"""
         if self.process:
             try:
+                # Ensure any buffered logs are flushed before shutdown
+                try:
+                    if hasattr(self, "_log_fd") and getattr(self, "_log_fd", None):
+                        os.fsync(self._log_fd)
+                except Exception:
+                    pass
                 if hasattr(os, "killpg"):
                     os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 else:
@@ -543,20 +555,36 @@ class ServerInstance:
                     pass
             finally:
                 self.process = None
-
-        if self.log_file:
+        # Close raw log fd if open
+        if hasattr(self, "_log_fd") and getattr(self, "_log_fd", None):
             try:
-                self.log_file.close()
+                os.close(self._log_fd)
             except Exception:
                 pass
-            finally:
-                self.log_file = None
+            self._log_fd = None
 
     def get_logs(self) -> str:
-        """Get server logs"""
+        """Get server logs from both file and captured stdout/stderr"""
+        logs: list[str] = []
+        # Flush any buffered output before reading
+        if hasattr(self, "_log_fd") and getattr(self, "_log_fd", None):
+            try:
+                os.fsync(self._log_fd)
+            except Exception:
+                pass
+        # Give a moment for any final writes to complete
+        import time
+
+        time.sleep(0.1)
+        # Read from the configured log file (application logs)
         if self.log_path.exists():
-            return self.log_path.read_text()
-        return ""
+            try:
+                content = self.log_path.read_text()
+                if content:
+                    logs.append(content)
+            except Exception as e:
+                logs.append(f"[Error reading log file: {e}]")
+        return "\n".join(logs)
 
     def get_base_url(self) -> str:
         """Get base URL for web API"""

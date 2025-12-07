@@ -1,10 +1,10 @@
 # ruff: noqa: I001
 from __future__ import annotations
 
-from typing import Any, cast
+import logging
 import os
 import sys
-from logging.config import fileConfig
+from typing import Any, cast
 
 from alembic import context as alembic_context  # type: ignore[attr-defined]
 from sqlalchemy import engine_from_config, pool
@@ -17,8 +17,14 @@ from tacacs_server.db.engine import Base  # noqa: E402
 
 context: Any = alembic_context
 config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+
+# Propagate Alembic logs to the application's root logger
+# This ensures Alembic uses the same JSON formatter and handlers
+alembic_logger = logging.getLogger("alembic")
+alembic_logger.handlers = []
+alembic_logger.propagate = True
+# Never use fileConfig - always propagate to root logger for consistent formatting
+# This ensures Alembic logs use the application's JSON formatter
 
 target_metadata = Base.metadata
 

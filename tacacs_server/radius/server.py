@@ -54,9 +54,9 @@ class RADIUSServer:
         self.accounting_port = accounting_port
         # Default fallback secret - should be overridden by device-specific secrets
         if secret is None:
-            secret = os.getenv("RADIUS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK") # nosec
+            secret = os.getenv("RADIUS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK")  # nosec
         self.secret = secret.encode("utf-8")
-        if secret == "CHANGE_ME_FALLBACK": # nosec
+        if secret == "CHANGE_ME_FALLBACK":  # nosec
             logger.warning(
                 "RADIUS default secret is the insecure fallback; set RADIUS_DEFAULT_SECRET or per-client secrets."
             )

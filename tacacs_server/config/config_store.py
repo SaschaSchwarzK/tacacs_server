@@ -16,10 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from alembic.config import Config
 from sqlalchemy import create_engine, delete, func, select, update
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import sessionmaker
 
+from alembic import command
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.maintenance import get_db_manager
 
@@ -86,9 +88,8 @@ class ConfigStore:
             except Exception:
                 self._conn = None
 
-        # Run migrations if available; otherwise create tables
-        if not self._run_alembic_migrations():
-            Base.metadata.create_all(self.engine)
+        # Run migrations if available, then ensure all tables exist
+        self._run_alembic_migrations()
 
         # Create SQLite-specific indexes if using SQLite
         if db_url.startswith("sqlite"):
@@ -107,35 +108,25 @@ class ConfigStore:
 
     def _ensure_schema(self) -> None:
         """Create database tables if they don't exist."""
-        if not self._run_alembic_migrations():
-            Base.metadata.create_all(self.engine)
+        self._run_alembic_migrations()
 
-    def _run_alembic_migrations(self) -> bool:
-        """Attempt to run Alembic migrations; fallback to legacy create_all on failure."""
-        try:
-            from alembic import command  # type: ignore[attr-defined] # noqa: I001
-            from alembic.config import Config
-        except ImportError:
-            return False
-
+    def _run_alembic_migrations(self) -> None:
+        """Run Alembic migrations when available, then ensure tables exist."""
         project_root = Path(__file__).resolve().parents[2]
         ini_path = project_root / "alembic.ini"
         script_location = project_root / "alembic"
-        if not ini_path.exists() or not script_location.exists():
-            return False
-
-        cfg = Config(str(ini_path))
-        cfg.set_main_option("script_location", str(script_location))
-        cfg.set_main_option("sqlalchemy.url", str(self.engine.url))
-        try:
-            command.upgrade(cfg, "head")
-            return True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Alembic migration failed; using legacy schema creation",
-                error=str(exc),
-            )
-            return False
+        if ini_path.exists() and script_location.exists():
+            cfg = Config(str(ini_path))
+            cfg.set_main_option("script_location", str(script_location))
+            cfg.set_main_option("sqlalchemy.url", str(self.engine.url))
+            try:
+                command.upgrade(cfg, "head")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Alembic migration failed; using create_all fallback",
+                    error=str(exc),
+                )
+        Base.metadata.create_all(self.engine)
 
     def _create_sqlite_indexes(self) -> None:
         """Create SQLite-specific indexes that can't be expressed in the ORM."""

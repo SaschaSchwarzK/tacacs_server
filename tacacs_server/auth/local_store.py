@@ -11,8 +11,10 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
+from alembic.config import Config
 from sqlalchemy import delete, select
 
+from alembic import command
 from tacacs_server.db.engine import Base, get_session_factory, session_scope
 from tacacs_server.db.models import LocalUser, LocalUserGroup
 
@@ -87,13 +89,6 @@ class LocalAuthStore:
 
     def _run_alembic_or_create(self, engine) -> None:
         """Attempt Alembic migrations; fallback to create_all."""
-        try:
-            from alembic import command  # type: ignore[attr-defined] # noqa: I001
-            from alembic.config import Config
-        except ImportError:
-            Base.metadata.create_all(engine)
-            return
-
         from pathlib import Path
 
         project_root = Path(__file__).resolve().parents[2]
@@ -109,7 +104,8 @@ class LocalAuthStore:
         try:
             command.upgrade(cfg, "head")
         except Exception:
-            Base.metadata.create_all(engine)
+            logger.warning("Alembic migration failed; using create_all fallback")
+        Base.metadata.create_all(engine)
 
     # ------------------------------------------------------------------
     # JSON helpers

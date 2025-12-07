@@ -12,9 +12,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from alembic.config import Config
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from alembic import command
 from tacacs_server.db.engine import Base, get_session_factory, session_scope
 from tacacs_server.devices.models import (
     DeviceGroupModel,
@@ -219,22 +221,13 @@ class DeviceStore:
     # Schema management
     # ------------------------------------------------------------------
     def _ensure_schema(self) -> None:
-        # Prefer Alembic migrations when available; fall back to legacy in-place updates
-        if self._run_alembic_migrations():
-            return
-
+        # Prefer Alembic migrations when available; ensure tables are present afterward
+        self._run_alembic_migrations()
         with self._lock:
-            # Legacy fallback: create tables only (no schema backfill/ALTER)
             Base.metadata.create_all(self._engine)
 
     def _run_alembic_migrations(self) -> bool:
         """Run Alembic migrations if the tooling/config is available."""
-        try:
-            from alembic import command  # type: ignore[attr-defined] # noqa: I001
-            from alembic.config import Config
-        except ImportError:
-            return False
-
         project_root = Path(__file__).resolve().parents[2]
         ini_path = project_root / "alembic.ini"
         script_location = project_root / "alembic"
@@ -796,27 +789,21 @@ class DeviceStore:
         """Delete a device group.
         If cascade is False and devices exist, raise ValueError.
         """
-        with self._lock:
-            count_row = (
-                session_scope(self._session_factory)
-                .__enter__()
-                .execute(
-                    select(func.count())
-                    .select_from(DeviceModel)
-                    .where(DeviceModel.group_id == group_id)
-                )
-                .scalar()
-            )
+        with self._lock, session_scope(self._session_factory) as session:
+            count_row = session.execute(
+                select(func.count())
+                .select_from(DeviceModel)
+                .where(DeviceModel.group_id == group_id)
+            ).scalar()
             device_count = count_row or 0
             if device_count and not cascade:
                 raise ValueError("Group is in use by one or more devices")
             if device_count and cascade:
-                with session_scope(self._session_factory) as session:
-                    session.execute(
-                        DeviceModel.__table__.delete().where(
-                            DeviceModel.group_id == group_id
-                        )
+                session.execute(
+                    DeviceModel.__table__.delete().where(
+                        DeviceModel.group_id == group_id
                     )
+                )
         with self._lock, session_scope(self._session_factory) as session:
             deleted = session.execute(
                 DeviceGroupModel.__table__.delete().where(

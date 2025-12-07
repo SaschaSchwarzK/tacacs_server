@@ -110,7 +110,9 @@ DEFAULT_BACKUP_ENABLED = True  # enable backup subsystem
 DEFAULT_BACKUP_CREATE_ON_STARTUP = False  # create backup on startup
 DEFAULT_BACKUP_TEMP_DIRECTORY = "data/backup_temp"  # temp dir for backups
 DEFAULT_BACKUP_ENCRYPTION_ENABLED = False  # encrypt backups
-DEFAULT_BACKUP_ENCRYPTION_PASSPHRASE = ""  # encryption passphrase (empty by default) # nosec
+DEFAULT_BACKUP_ENCRYPTION_PASSPHRASE = (
+    ""  # encryption passphrase (empty by default) # nosec
+)
 DEFAULT_BACKUP_RETENTION_STRATEGY = "simple"  # retention strategy
 DEFAULT_BACKUP_RETENTION_DAYS = 30  # simple strategy retention
 DEFAULT_BACKUP_GFS_DAILY = 7  # GFS daily keep

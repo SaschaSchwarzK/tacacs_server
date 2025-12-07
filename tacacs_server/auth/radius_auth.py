@@ -367,7 +367,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
             response_password = otp
         elif push:
             # For push, send empty password and poll
-            response_password = "" # nosec
+            response_password = ""  # nosec
         else:
             # No MFA suffix provided but server wants MFA
             return False, "MFA required but not provided"

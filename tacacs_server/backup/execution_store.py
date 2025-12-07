@@ -8,8 +8,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from alembic.config import Config
 from sqlalchemy import select, update
 
+from alembic import command
 from tacacs_server.db.engine import Base, get_session_factory, session_scope
 from tacacs_server.db.models import BackupDestination, BackupExecution
 from tacacs_server.utils.logger import get_logger
@@ -66,29 +68,20 @@ class BackupExecutionStore:
 
     def _run_alembic_or_create(self, engine) -> None:
         """Run Alembic migrations if available; fallback to create_all."""
-        try:
-            from alembic import command  # type: ignore[attr-defined] # noqa: I001
-            from alembic.config import Config
-        except ImportError:
-            Base.metadata.create_all(engine)
-            return
-
         from pathlib import Path
 
         project_root = Path(__file__).resolve().parents[2]
         ini_path = project_root / "alembic.ini"
         script_location = project_root / "alembic"
-        if not ini_path.exists() or not script_location.exists():
-            Base.metadata.create_all(engine)
-            return
-
-        cfg = Config(str(ini_path))
-        cfg.set_main_option("script_location", str(script_location))
-        cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
-        try:
-            command.upgrade(cfg, "head")
-        except Exception:
-            Base.metadata.create_all(engine)
+        if ini_path.exists() and script_location.exists():
+            cfg = Config(str(ini_path))
+            cfg.set_main_option("script_location", str(script_location))
+            cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
+            try:
+                command.upgrade(cfg, "head")
+            except Exception:
+                logger.warning("Alembic migration failed; using create_all fallback")
+        Base.metadata.create_all(engine)
 
     # --- executions ---
     def create_execution(

@@ -81,7 +81,7 @@ def upgrade():
                         network_end_int=int(net.broadcast_address),
                     )
                 )
-            except Exception:
+            except ValueError:
                 continue
 
     if "accounting_logs" in tables:
