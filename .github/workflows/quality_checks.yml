@@ -125,7 +125,7 @@ jobs:
     name: Tests • Coverage
     runs-on: ubuntu-latest
     needs: [setup, quality]
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-python-poetry
