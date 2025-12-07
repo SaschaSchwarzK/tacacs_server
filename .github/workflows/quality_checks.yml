@@ -20,7 +20,7 @@ jobs:
   setup:
     name: Setup Dependencies
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     outputs:
       cache-hit: ${{ steps.setup.outputs.cache-hit }}
     steps:
