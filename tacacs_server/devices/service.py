@@ -378,8 +378,8 @@ class DeviceService:
         tacacs_secret_set = "tacacs_secret" in group.metadata
         radius_secret_set = "radius_secret" in group.metadata
 
-        # Extract allowed user groups
-        allowed_groups = group.metadata.get("allowed_user_groups", [])
+        # Extract allowed user groups from the DeviceGroup attribute
+        allowed_groups = getattr(group, "allowed_user_groups", []) or []
 
         # Best-effort resolve proxy id
         proxy_id_val = None
