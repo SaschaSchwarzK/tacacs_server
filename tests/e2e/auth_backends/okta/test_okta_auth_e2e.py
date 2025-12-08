@@ -347,7 +347,8 @@ def test_tacacs_server_with_okta_backend(
     tacacs_host_port = 8049
     api_host_port = 8080
 
-    build = _run(["docker", "build", "-t", tacacs_image, str(project_root)])
+    # Build fresh to avoid stale config/keys baked into a cached image
+    build = _run(["docker", "build", "--no-cache", "-t", tacacs_image, str(project_root)])
     if build.returncode != 0:
         pytest.fail(f"TACACS image build failed:\n{build.stdout}\n{build.stderr}")
 
@@ -644,15 +645,24 @@ def test_tacacs_server_with_okta_backend(
                         url = (
                             f"{org.rstrip('/')}/api/v1/users/{lst[0].get('id')}/groups"
                         )
-            gr = _rq.get(
-                url,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/json",
-                },
-                timeout=15,
-            )
-            assert gr.status_code == 200, (
+            gr = None
+            for attempt in range(5):
+                gr = _rq.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                    },
+                    timeout=15,
+                )
+                if gr.status_code == 200:
+                    break
+                # New app/scopes can take a moment; retry on auth/perm errors
+                if gr.status_code in (401, 403, 429):
+                    time.sleep(2.0)
+                    continue
+                break
+            assert gr is not None and gr.status_code == 200, (
                 f"Groups API failed: {gr.status_code} {gr.text}"
             )
             names = {g.get("profile", {}).get("name") for g in (gr.json() or [])}

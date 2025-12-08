@@ -973,6 +973,36 @@ class OktaPreparer:
             await with_retries(
                 lambda s=s: _grant(s), logger=self.logger, what=f"grant scope {s}"
             )
+
+    def assign_app_role(self, client_id: str | None, role_type: str = "SUPER_ADMIN") -> None:
+        """Assign an administrative role to an OAuth client (service app)."""
+        import requests
+
+        if not client_id:
+            self.logger.warning("Cannot assign role %s: client_id is missing", role_type)
+            return
+
+        url = f"{self.org_url.rstrip('/')}/oauth2/v1/clients/{client_id}/roles"
+        headers = {
+            "Authorization": f"SSWS {self.api_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        try:
+            resp = requests.post(url, headers=headers, json={"type": role_type}, timeout=15)
+            if resp.status_code not in (200, 201, 204):
+                self.logger.warning(
+                    "Assign role %s to client %s failed: %s %s",
+                    role_type,
+                    client_id,
+                    resp.status_code,
+                    resp.text,
+                )
+            else:
+                self.logger.info("Assigned role %s to client %s", role_type, client_id)
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning("Assign role %s to client %s failed: %s", role_type, client_id, exc)
+
             self.logger.info("Granted scope %s to app %s", s, app_id)
 
     # ---- Key generation (RSA) for private_key_jwt ----
@@ -1351,21 +1381,42 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
                 except Exception as e:  # noqa: BLE001
                     raise SystemExit(f"Failed to read public JWK: {e}")
             else:
-                # Generate new RSA keypair and JWK
-                priv_pem, public_jwk = OktaPreparer.generate_rsa_keypair_and_jwk()
-                generated_kid = public_jwk.get("kid")
-                # Save private key and public JWK
-                try:
-                    with open(args.service_private_key_out, "w", encoding="utf-8") as f:
-                        f.write(priv_pem)
-                    with open(args.service_public_jwk_out, "w", encoding="utf-8") as f:
-                        json.dump(public_jwk, f, indent=2)
-                    generated_priv_path = args.service_private_key_out
-                    logger.info(
-                        "Generated RSA keypair for service app (kid=%s)", generated_kid
-                    )
-                except Exception as e:  # noqa: BLE001
-                    raise SystemExit(f"Failed to write generated keys: {e}")
+                # Reuse existing key if it exists AND has proper kid format, otherwise generate new
+                if os.path.exists(args.service_public_jwk_out) and os.path.exists(args.service_private_key_out):
+                    try:
+                        with open(args.service_public_jwk_out, encoding="utf-8") as f:
+                            public_jwk = json.load(f)
+                        generated_kid = public_jwk.get("kid")
+                        # Check if kid is in old format (16 hex chars) vs new format (base64url 32 bytes)
+                        if generated_kid and len(generated_kid) == 16 and all(c in '0123456789abcdef' for c in generated_kid):
+                            logger.warning(
+                                "Existing key has old kid format (%s), regenerating with proper base64url format", generated_kid
+                            )
+                            public_jwk = None
+                        else:
+                            generated_priv_path = args.service_private_key_out
+                            logger.info(
+                                "Reusing existing RSA keypair for service app (kid=%s)", generated_kid
+                            )
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("Failed to read existing keys, generating new: %s", e)
+                        public_jwk = None
+                if not public_jwk:
+                    # Generate new RSA keypair and JWK
+                    priv_pem, public_jwk = OktaPreparer.generate_rsa_keypair_and_jwk()
+                    generated_kid = public_jwk.get("kid")
+                    # Save private key and public JWK
+                    try:
+                        with open(args.service_private_key_out, "w", encoding="utf-8") as f:
+                            f.write(priv_pem)
+                        with open(args.service_public_jwk_out, "w", encoding="utf-8") as f:
+                            json.dump(public_jwk, f, indent=2)
+                        generated_priv_path = args.service_private_key_out
+                        logger.info(
+                            "Generated NEW RSA keypair for service app (kid=%s)", generated_kid
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        raise SystemExit(f"Failed to write generated keys: {e}")
         svc_app = await okta.ensure_service_app(
             label=args.service_app_label,
             auth_method=args.service_auth_method,
@@ -1389,6 +1440,13 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
                 svc_app.clientSecret = csec
         except Exception as e:  # noqa: BLE001
             logger.warning("Could not fetch service app credentials: %s", e)
+
+    # Assign admin role to the service app (requires client_id)
+    if svc_app and svc_app.clientId:
+        try:
+            okta.assign_app_role(svc_app.clientId, role_type="SUPER_ADMIN")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to assign SUPER_ADMIN role to service app: %s", e)
 
     # Ensure app client_secret is populated in manifest
     if app and not app.clientSecret:
