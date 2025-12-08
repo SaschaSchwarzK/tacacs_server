@@ -867,6 +867,7 @@ class OktaPreparer:
                 get_resp = await asyncio.to_thread(_do_get)
                 if get_resp.status_code == 200:
                     current_app = get_resp.json()
+                    app_type = current_app.get("settings", {}).get("oauthClient", {}).get("application_type", "unknown")
                     # Update only the JWK in settings.oauthClient
                     if "settings" not in current_app:
                         current_app["settings"] = {}
@@ -878,9 +879,9 @@ class OktaPreparer:
                         return requests.put(get_url, headers=headers, json=current_app, timeout=20)
                     resp = await asyncio.to_thread(_do_update)
                     if resp.status_code in (200, 201):
-                        self.logger.info("Updated JWK for service app %s (kid=%s)", label, public_jwk.get("kid"))
+                        self.logger.info("Updated JWK for %s app %s (kid=%s)", app_type, label, public_jwk.get("kid"))
                     else:
-                        self.logger.warning("Failed to update JWK for service app %s: HTTP %s %s", label, resp.status_code, resp.text)
+                        self.logger.warning("Failed to update JWK for %s app %s: HTTP %s %s", app_type, label, resp.status_code, resp.text)
                 else:
                     self.logger.warning("Failed to get current app config for %s: HTTP %s", label, get_resp.status_code)
             return existing
