@@ -104,7 +104,14 @@ class DeviceService:
         Wrapper around list_groups().
         """
         groups = self.list_groups()
-        group_dicts = [self._group_to_dict(g) for g in groups]
+        group_dicts = []
+        for g in groups:
+            try:
+                group_dicts.append(self._group_to_dict(g))
+            except Exception as e:
+                logger.exception(f"Failed to convert group {getattr(g, 'id', '?')} to dict: {e}")
+                # Skip this group and continue
+                continue
         return group_dicts[offset : offset + limit]
 
     def get_device_group_by_id(self, group_id: int) -> dict[str, Any] | None:
@@ -371,6 +378,8 @@ class DeviceService:
     def _group_to_dict(self, group: DeviceGroup) -> dict[str, Any]:
         """Convert DeviceGroup to API-friendly dict."""
         try:
+            if group is None:
+                raise DeviceValidationError("Cannot convert None group to dict")
             # Count devices in this group
             device_count = 0
             if group.id is not None:
@@ -728,23 +737,40 @@ class DeviceService:
         if len(secret.strip()) < 4:
             raise DeviceValidationError(f"{field} must be at least 4 characters")
 
-    @staticmethod
-    def _validate_allowed_groups(groups: Iterable[str] | None) -> list[str]:
+    def _validate_allowed_groups(self, groups: Iterable[str | int] | None) -> list[str]:
+        """Validate and normalize allowed_user_groups to list of names.
+        
+        Accepts both names (strings) and IDs (integers), converts IDs to names.
+        """
         if groups is None:
             return []
         result: list[str] = []
         for group in groups:
-            if not isinstance(group, str):
+            group_name = None
+            if isinstance(group, int):
+                # Convert ID to name - best effort, don't fail if user group doesn't exist yet
+                try:
+                    from tacacs_server.web.api.usergroups import get_group_service as _get_gsvc
+                    gsvc = _get_gsvc()
+                    ug = gsvc.get_group(group)
+                    if ug and hasattr(ug, 'name') and ug.name:
+                        group_name = ug.name
+                except Exception:
+                    # User group not found or service not available - skip this entry
+                    logger.debug(f"Cannot resolve user group ID {group}, skipping")
+                    continue
+            elif isinstance(group, str):
+                group_name = group.strip()
+                if not group_name:
+                    raise DeviceValidationError(
+                        "allowed_user_groups entries must not be empty"
+                    )
+            else:
                 raise DeviceValidationError(
-                    "allowed_user_groups entries must be strings"
+                    "allowed_user_groups entries must be strings or integers"
                 )
-            trimmed = group.strip()
-            if not trimmed:
-                raise DeviceValidationError(
-                    "allowed_user_groups entries must not be empty"
-                )
-            if trimmed not in result:
-                result.append(trimmed)
+            if group_name and group_name not in result:
+                result.append(group_name)
         return result
 
     def _require_group(self, group_name: str) -> DeviceGroup:

@@ -851,13 +851,25 @@ class OktaPreparer:
             _search, logger=self.logger, what=f"find service app {label}"
         )
         if existing:
-            # For private_key_jwt with new keys, delete and recreate to update JWK
-            if auth_method == "private_key_jwt" and public_jwk:
-                self.logger.info("Service app exists with new JWK; deleting to recreate: %s (%s)", label, existing.id)
-                await self.delete_app(existing.id)
-            else:
-                self.logger.info("Service app exists: %s (%s)", label, existing.id)
-                return existing
+            self.logger.info("Service app exists: %s (%s)", label, existing.id)
+            # Ensure app is activated
+            import requests
+            activate_url = f"{self.org_url.rstrip('/')}/api/v1/apps/{existing.id}/lifecycle/activate"
+            headers = {
+                "Authorization": f"SSWS {self.api_token}",
+                "Accept": "application/json",
+            }
+            def _do_activate():
+                return requests.post(activate_url, headers=headers, timeout=15)
+            try:
+                activate_resp = await asyncio.to_thread(_do_activate)
+                if activate_resp.status_code in (200, 204):
+                    self.logger.info("Service app activated: %s", label)
+                elif activate_resp.status_code == 409:
+                    self.logger.debug("Service app already active: %s", label)
+            except Exception as e:
+                self.logger.debug("Failed to activate service app %s: %s", label, e)
+            return existing
 
         # Build REST payload for service app creation
         token_auth_method = (

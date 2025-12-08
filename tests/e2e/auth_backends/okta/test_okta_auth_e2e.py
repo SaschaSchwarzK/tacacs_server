@@ -105,9 +105,20 @@ def _reset_okta_password(org_url: str, api_token: str, login: str) -> str:
     if not user_id:
         raise RuntimeError("Okta user search response missing 'id'")
 
-    # Generate a strong random password that satisfies common Okta policies.
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
-    new_password = "".join(secrets.choice(alphabet) for _ in range(24))
+    # Generate a strong random password that satisfies Okta policies:
+    # - At least 8 characters
+    # - Uppercase, lowercase, number, special char
+    # - No parts of username
+    # - Different from last 4 passwords (use timestamp to ensure uniqueness)
+    timestamp = str(int(time.time()))
+    upper = "".join(secrets.choice(string.ascii_uppercase) for _ in range(4))
+    lower = "".join(secrets.choice(string.ascii_lowercase) for _ in range(4))
+    digits = "".join(secrets.choice(string.digits) for _ in range(4))
+    special = "".join(secrets.choice("!@#$%^&*") for _ in range(2))
+    # Combine and shuffle
+    chars = list(upper + lower + digits + special + timestamp)
+    secrets.SystemRandom().shuffle(chars)
+    new_password = "".join(chars)
 
     # Update the user's password via Users API
     update_payload = {"credentials": {"password": {"value": new_password}}}
