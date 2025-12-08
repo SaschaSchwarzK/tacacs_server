@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """
+This script is used by tests to prepare an Okta developer org with apps/users/groups.
+Any change to this script my result in test failures until the test manifests are updated.
+
 Okta Phase-1 Org Preparer (CLI)
 
 Creates (or ensures) test artifacts in an Okta *developer* org:
@@ -849,6 +852,29 @@ class OktaPreparer:
         )
         if existing:
             self.logger.info("Service app exists: %s (%s)", label, existing.id)
+            # Update JWK if using private_key_jwt and a new public_jwk is provided
+            if auth_method == "private_key_jwt" and public_jwk:
+                import requests
+                url = f"{self.org_url.rstrip('/')}/api/v1/apps/{existing.id}"
+                headers = {
+                    "Authorization": f"SSWS {self.api_token}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                }
+                update_payload = {
+                    "settings": {
+                        "oauthClient": {
+                            "jwks": {"keys": [public_jwk]}
+                        }
+                    }
+                }
+                def _do_update():
+                    return requests.put(url, headers=headers, json=update_payload, timeout=20)
+                resp = await asyncio.to_thread(_do_update)
+                if resp.status_code in (200, 201):
+                    self.logger.info("Updated JWK for service app %s (kid=%s)", label, public_jwk.get("kid"))
+                else:
+                    self.logger.warning("Failed to update JWK for service app %s: HTTP %s %s", label, resp.status_code, resp.text)
             return existing
 
         # Build REST payload for service app creation
