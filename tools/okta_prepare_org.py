@@ -938,6 +938,22 @@ class OktaPreparer:
         client_id = creds.get("client_id")
         client_secret = creds.get("client_secret")
         self.logger.info("Service app created: %s (%s)", label, app_id)
+        
+        # Activate the service app to ensure it can be used immediately
+        activate_url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/lifecycle/activate"
+        def _do_activate():
+            return requests.post(activate_url, headers=headers, timeout=15)
+        try:
+            activate_resp = await asyncio.to_thread(_do_activate)
+            if activate_resp.status_code in (200, 204):
+                self.logger.info("Service app activated: %s", label)
+            elif activate_resp.status_code == 409:
+                self.logger.info("Service app already active: %s", label)
+            else:
+                self.logger.warning("Failed to activate service app %s: HTTP %s %s", label, activate_resp.status_code, activate_resp.text)
+        except Exception as e:
+            self.logger.warning("Failed to activate service app %s: %s", label, e)
+        
         return AppInfo(
             id=str(app_id),
             clientId=client_id,
