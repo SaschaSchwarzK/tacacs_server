@@ -848,14 +848,19 @@ class OktaPreparer:
             _search, logger=self.logger, what=f"find service app {label}"
         )
         if existing:
-            self.logger.info("Service app exists: %s (%s) [auth_method=%s, clientId=%s]", 
-                           label, existing.id, existing.authMethod, existing.clientId)
+            self.logger.info(
+                "Service app exists: %s (%s) [auth_method=%s, clientId=%s]",
+                label,
+                existing.id,
+                existing.authMethod,
+                existing.clientId,
+            )
             # If using private_key_jwt with a new key, delete and recreate the app
             if auth_method == "private_key_jwt" and public_jwk:
                 new_kid = public_jwk.get("kid")
                 self.logger.info(
                     "New JWK generated (kid=%s). Deleting existing service app to recreate with new key.",
-                    new_kid
+                    new_kid,
                 )
                 await self.delete_app(existing.id)
                 # Fall through to create new app below
@@ -903,9 +908,13 @@ class OktaPreparer:
         def _do_post():
             return requests.post(url, headers=headers, json=payload, timeout=20)
 
-        self.logger.info("Creating service app with payload: %s", json.dumps(payload, indent=2))
+        self.logger.info(
+            "Creating service app with payload: %s", json.dumps(payload, indent=2)
+        )
         resp = await asyncio.to_thread(_do_post)
-        self.logger.info("Okta service app creation response: HTTP %s", resp.status_code)
+        self.logger.info(
+            "Okta service app creation response: HTTP %s", resp.status_code
+        )
         if resp.status_code not in (200, 201):
             self.logger.error(
                 "Okta rejected service app creation (HTTP %s): %s",
@@ -916,7 +925,9 @@ class OktaPreparer:
                 f"Create service app failed: HTTP {resp.status_code} {resp.text}"
             )
         data = resp.json()
-        self.logger.info("Okta service app creation response body: %s", json.dumps(data, indent=2))
+        self.logger.info(
+            "Okta service app creation response body: %s", json.dumps(data, indent=2)
+        )
         app_id = data.get("id")
         creds = data.get("credentials", {}).get("oauthClient", {})
         client_id = creds.get("client_id")
@@ -973,13 +984,18 @@ class OktaPreparer:
             await with_retries(
                 lambda s=s: _grant(s), logger=self.logger, what=f"grant scope {s}"
             )
+            self.logger.info("Granted scope %s to app %s", s, app_id)
 
-    def assign_app_role(self, client_id: str | None, role_type: str = "SUPER_ADMIN") -> None:
+    def assign_app_role(
+        self, client_id: str | None, role_type: str = "SUPER_ADMIN"
+    ) -> None:
         """Assign an administrative role to an OAuth client (service app)."""
         import requests
 
         if not client_id:
-            self.logger.warning("Cannot assign role %s: client_id is missing", role_type)
+            self.logger.warning(
+                "Cannot assign role %s: client_id is missing", role_type
+            )
             return
 
         url = f"{self.org_url.rstrip('/')}/oauth2/v1/clients/{client_id}/roles"
@@ -989,7 +1005,9 @@ class OktaPreparer:
             "Content-Type": "application/json",
         }
         try:
-            resp = requests.post(url, headers=headers, json={"type": role_type}, timeout=15)
+            resp = requests.post(
+                url, headers=headers, json={"type": role_type}, timeout=15
+            )
             if resp.status_code not in (200, 201, 204):
                 self.logger.warning(
                     "Assign role %s to client %s failed: %s %s",
@@ -1001,9 +1019,9 @@ class OktaPreparer:
             else:
                 self.logger.info("Assigned role %s to client %s", role_type, client_id)
         except Exception as exc:  # noqa: BLE001
-            self.logger.warning("Assign role %s to client %s failed: %s", role_type, client_id, exc)
-
-            self.logger.info("Granted scope %s to app %s", s, app_id)
+            self.logger.warning(
+                "Assign role %s to client %s failed: %s", role_type, client_id, exc
+            )
 
     # ---- Key generation (RSA) for private_key_jwt ----
     @staticmethod
@@ -1382,24 +1400,34 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
                     raise SystemExit(f"Failed to read public JWK: {e}")
             else:
                 # Reuse existing key if it exists AND has proper kid format, otherwise generate new
-                if os.path.exists(args.service_public_jwk_out) and os.path.exists(args.service_private_key_out):
+                if os.path.exists(args.service_public_jwk_out) and os.path.exists(
+                    args.service_private_key_out
+                ):
                     try:
                         with open(args.service_public_jwk_out, encoding="utf-8") as f:
                             public_jwk = json.load(f)
                         generated_kid = public_jwk.get("kid")
                         # Check if kid is in old format (16 hex chars) vs new format (base64url 32 bytes)
-                        if generated_kid and len(generated_kid) == 16 and all(c in '0123456789abcdef' for c in generated_kid):
+                        if (
+                            generated_kid
+                            and len(generated_kid) == 16
+                            and all(c in "0123456789abcdef" for c in generated_kid)
+                        ):
                             logger.warning(
-                                "Existing key has old kid format (%s), regenerating with proper base64url format", generated_kid
+                                "Existing key has old kid format (%s), regenerating with proper base64url format",
+                                generated_kid,
                             )
                             public_jwk = None
                         else:
                             generated_priv_path = args.service_private_key_out
                             logger.info(
-                                "Reusing existing RSA keypair for service app (kid=%s)", generated_kid
+                                "Reusing existing RSA keypair for service app (kid=%s)",
+                                generated_kid,
                             )
                     except Exception as e:  # noqa: BLE001
-                        logger.warning("Failed to read existing keys, generating new: %s", e)
+                        logger.warning(
+                            "Failed to read existing keys, generating new: %s", e
+                        )
                         public_jwk = None
                 if not public_jwk:
                     # Generate new RSA keypair and JWK
@@ -1407,13 +1435,18 @@ async def do_prepare(args: argparse.Namespace, logger: logging.Logger) -> int:
                     generated_kid = public_jwk.get("kid")
                     # Save private key and public JWK
                     try:
-                        with open(args.service_private_key_out, "w", encoding="utf-8") as f:
+                        with open(
+                            args.service_private_key_out, "w", encoding="utf-8"
+                        ) as f:
                             f.write(priv_pem)
-                        with open(args.service_public_jwk_out, "w", encoding="utf-8") as f:
+                        with open(
+                            args.service_public_jwk_out, "w", encoding="utf-8"
+                        ) as f:
                             json.dump(public_jwk, f, indent=2)
                         generated_priv_path = args.service_private_key_out
                         logger.info(
-                            "Generated NEW RSA keypair for service app (kid=%s)", generated_kid
+                            "Generated NEW RSA keypair for service app (kid=%s)",
+                            generated_kid,
                         )
                     except Exception as e:  # noqa: BLE001
                         raise SystemExit(f"Failed to write generated keys: {e}")

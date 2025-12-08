@@ -348,7 +348,9 @@ def test_tacacs_server_with_okta_backend(
     api_host_port = 8080
 
     # Build fresh to avoid stale config/keys baked into a cached image
-    build = _run(["docker", "build", "--no-cache", "-t", tacacs_image, str(project_root)])
+    build = _run(
+        ["docker", "build", "--no-cache", "-t", tacacs_image, str(project_root)]
+    )
     if build.returncode != 0:
         pytest.fail(f"TACACS image build failed:\n{build.stdout}\n{build.stderr}")
 

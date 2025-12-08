@@ -109,7 +109,9 @@ class DeviceService:
             try:
                 group_dicts.append(self._group_to_dict(g))
             except Exception as e:
-                logger.exception(f"Failed to convert group {getattr(g, 'id', '?')} to dict: {e}")
+                logger.exception(
+                    f"Failed to convert group {getattr(g, 'id', '?')} to dict: {e}"
+                )
                 # Skip this group and continue
                 continue
         return group_dicts[offset : offset + limit]
@@ -406,7 +408,9 @@ class DeviceService:
             proxy_id_val = None
             try:
                 for p in self.store.list_proxies():
-                    if str(p.network) == str(getattr(group, "proxy_network", None) or ""):
+                    if str(p.network) == str(
+                        getattr(group, "proxy_network", None) or ""
+                    ):
                         proxy_id_val = p.id
                         break
             except Exception as e:
@@ -739,7 +743,7 @@ class DeviceService:
 
     def _validate_allowed_groups(self, groups: Iterable[str | int] | None) -> list[str]:
         """Validate and normalize allowed_user_groups to list of names.
-        
+
         Accepts both names (strings) and IDs (integers), converts IDs to names.
         """
         if groups is None:
@@ -750,11 +754,21 @@ class DeviceService:
             if isinstance(group, int):
                 # Convert ID to name - best effort, don't fail if user group doesn't exist yet
                 try:
-                    from tacacs_server.web.api.usergroups import get_group_service as _get_gsvc
+                    from tacacs_server.web.api.usergroups import (
+                        get_group_service as _get_gsvc,
+                    )
+
                     gsvc = _get_gsvc()
-                    ug = gsvc.get_group(group)
-                    if ug and hasattr(ug, 'name') and ug.name:
-                        group_name = ug.name
+                    id_to_name = {
+                        int(getattr(rec, "id", -1)): getattr(rec, "name", "")
+                        for rec in gsvc.list_groups()
+                        if getattr(rec, "id", None) is not None
+                    }
+                    if group in id_to_name and id_to_name[group]:
+                        group_name = str(id_to_name[group])
+                    else:
+                        logger.debug("Cannot resolve user group ID %s, skipping", group)
+                        continue
                 except Exception:
                     # User group not found or service not available - skip this entry
                     logger.debug(f"Cannot resolve user group ID {group}, skipping")
