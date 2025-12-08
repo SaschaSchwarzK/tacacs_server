@@ -387,26 +387,11 @@ class DeviceService:
             radius_secret_set = bool(getattr(group, "radius_secret", None))
 
             # Extract allowed user groups from the DeviceGroup attribute
-            # Convert group names to IDs for API response
+            # Return as-is (names) since API expects names, not IDs
             allowed_groups_names = getattr(group, "allowed_user_groups", []) or []
-            allowed_groups_ids: list[int] = []
-            if allowed_groups_names:
-                try:
-                    from tacacs_server.web.api.usergroups import get_group_service as _get_gsvc
-                    gsvc = _get_gsvc()
-                    name_to_id = {
-                        rec.name: int(rec.id)
-                        for rec in gsvc.list_groups()
-                        if getattr(rec, "id", None) and getattr(rec, "name", None)
-                    }
-                    allowed_groups_ids = [
-                        name_to_id[name]
-                        for name in allowed_groups_names
-                        if name in name_to_id
-                    ]
-                except Exception as e:
-                    logger.warning(f"Failed to resolve user group IDs for group {group.id}: {e}")
-                    allowed_groups_ids = []
+            # Ensure it's a list of strings
+            if not isinstance(allowed_groups_names, list):
+                allowed_groups_names = []
 
             # Best-effort resolve proxy id
             proxy_id_val = None
@@ -444,7 +429,7 @@ class DeviceService:
                 "proxy_id": proxy_id_val,
                 "tacacs_secret_set": tacacs_secret_set,
                 "radius_secret_set": radius_secret_set,
-                "allowed_user_groups": allowed_groups_ids,
+                "allowed_user_groups": allowed_groups_names,
                 "device_count": device_count,
                 "created_at": created_at_val,
                 "tacacs_profile": tacacs_prof,
