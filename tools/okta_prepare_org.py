@@ -855,26 +855,34 @@ class OktaPreparer:
             # Update JWK if using private_key_jwt and a new public_jwk is provided
             if auth_method == "private_key_jwt" and public_jwk:
                 import requests
-                url = f"{self.org_url.rstrip('/')}/api/v1/apps/{existing.id}"
+                # First, get the current app to preserve required fields
+                get_url = f"{self.org_url.rstrip('/')}/api/v1/apps/{existing.id}"
                 headers = {
                     "Authorization": f"SSWS {self.api_token}",
                     "Accept": "application/json",
                     "Content-Type": "application/json",
                 }
-                update_payload = {
-                    "settings": {
-                        "oauthClient": {
-                            "jwks": {"keys": [public_jwk]}
-                        }
-                    }
-                }
-                def _do_update():
-                    return requests.put(url, headers=headers, json=update_payload, timeout=20)
-                resp = await asyncio.to_thread(_do_update)
-                if resp.status_code in (200, 201):
-                    self.logger.info("Updated JWK for service app %s (kid=%s)", label, public_jwk.get("kid"))
+                def _do_get():
+                    return requests.get(get_url, headers=headers, timeout=20)
+                get_resp = await asyncio.to_thread(_do_get)
+                if get_resp.status_code == 200:
+                    current_app = get_resp.json()
+                    # Update only the JWK in settings.oauthClient
+                    if "settings" not in current_app:
+                        current_app["settings"] = {}
+                    if "oauthClient" not in current_app["settings"]:
+                        current_app["settings"]["oauthClient"] = {}
+                    current_app["settings"]["oauthClient"]["jwks"] = {"keys": [public_jwk]}
+                    
+                    def _do_update():
+                        return requests.put(get_url, headers=headers, json=current_app, timeout=20)
+                    resp = await asyncio.to_thread(_do_update)
+                    if resp.status_code in (200, 201):
+                        self.logger.info("Updated JWK for service app %s (kid=%s)", label, public_jwk.get("kid"))
+                    else:
+                        self.logger.warning("Failed to update JWK for service app %s: HTTP %s %s", label, resp.status_code, resp.text)
                 else:
-                    self.logger.warning("Failed to update JWK for service app %s: HTTP %s %s", label, resp.status_code, resp.text)
+                    self.logger.warning("Failed to get current app config for %s: HTTP %s", label, get_resp.status_code)
             return existing
 
         # Build REST payload for service app creation
