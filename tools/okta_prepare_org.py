@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """
-This script is used by tests to prepare an Okta developer org with apps/users/groups.
-Any change to this script my result in test failures until the test manifests are updated.
-
 Okta Phase-1 Org Preparer (CLI)
 
 Creates (or ensures) test artifacts in an Okta *developer* org:
@@ -851,25 +848,19 @@ class OktaPreparer:
             _search, logger=self.logger, what=f"find service app {label}"
         )
         if existing:
-            self.logger.info("Service app exists: %s (%s)", label, existing.id)
-            # Ensure app is activated
-            import requests
-            activate_url = f"{self.org_url.rstrip('/')}/api/v1/apps/{existing.id}/lifecycle/activate"
-            headers = {
-                "Authorization": f"SSWS {self.api_token}",
-                "Accept": "application/json",
-            }
-            def _do_activate():
-                return requests.post(activate_url, headers=headers, timeout=15)
-            try:
-                activate_resp = await asyncio.to_thread(_do_activate)
-                if activate_resp.status_code in (200, 204):
-                    self.logger.info("Service app activated: %s", label)
-                elif activate_resp.status_code == 409:
-                    self.logger.debug("Service app already active: %s", label)
-            except Exception as e:
-                self.logger.debug("Failed to activate service app %s: %s", label, e)
-            return existing
+            self.logger.info("Service app exists: %s (%s) [auth_method=%s, clientId=%s]", 
+                           label, existing.id, existing.authMethod, existing.clientId)
+            # If using private_key_jwt with a new key, delete and recreate the app
+            if auth_method == "private_key_jwt" and public_jwk:
+                new_kid = public_jwk.get("kid")
+                self.logger.info(
+                    "New JWK generated (kid=%s). Deleting existing service app to recreate with new key.",
+                    new_kid
+                )
+                await self.delete_app(existing.id)
+                # Fall through to create new app below
+            else:
+                return existing
 
         # Build REST payload for service app creation
         token_auth_method = (
@@ -912,12 +903,20 @@ class OktaPreparer:
         def _do_post():
             return requests.post(url, headers=headers, json=payload, timeout=20)
 
+        self.logger.info("Creating service app with payload: %s", json.dumps(payload, indent=2))
         resp = await asyncio.to_thread(_do_post)
+        self.logger.info("Okta service app creation response: HTTP %s", resp.status_code)
         if resp.status_code not in (200, 201):
+            self.logger.error(
+                "Okta rejected service app creation (HTTP %s): %s",
+                resp.status_code,
+                resp.text,
+            )
             raise RuntimeError(
                 f"Create service app failed: HTTP {resp.status_code} {resp.text}"
             )
         data = resp.json()
+        self.logger.info("Okta service app creation response body: %s", json.dumps(data, indent=2))
         app_id = data.get("id")
         creds = data.get("credentials", {}).get("oauthClient", {})
         client_id = creds.get("client_id")
@@ -970,9 +969,11 @@ class OktaPreparer:
             )
 
         for s in scopes:
+            self.logger.info("Granting scope %s to app %s", s, app_id)
             await with_retries(
                 lambda s=s: _grant(s), logger=self.logger, what=f"grant scope {s}"
             )
+            self.logger.info("Granted scope %s to app %s", s, app_id)
 
     # ---- Key generation (RSA) for private_key_jwt ----
     @staticmethod
@@ -1012,7 +1013,8 @@ class OktaPreparer:
             "alg": "RS256",
             "use": "sig",
         }
-        jwk["kid"] = kid or _secrets.token_hex(8)
+        # Generate kid as base64url-encoded 32 bytes (like Okta does)
+        jwk["kid"] = kid or _b64u(_secrets.token_bytes(32))
         return priv_pem, jwk
 
     async def fetch_app_credentials(self, app_id: str) -> tuple[str | None, str | None]:
