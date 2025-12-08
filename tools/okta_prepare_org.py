@@ -851,40 +851,13 @@ class OktaPreparer:
             _search, logger=self.logger, what=f"find service app {label}"
         )
         if existing:
-            self.logger.info("Service app exists: %s (%s)", label, existing.id)
-            # Update JWK if using private_key_jwt and a new public_jwk is provided
+            # For private_key_jwt with new keys, delete and recreate to update JWK
             if auth_method == "private_key_jwt" and public_jwk:
-                import requests
-                # First, get the current app to preserve required fields
-                get_url = f"{self.org_url.rstrip('/')}/api/v1/apps/{existing.id}"
-                headers = {
-                    "Authorization": f"SSWS {self.api_token}",
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                }
-                def _do_get():
-                    return requests.get(get_url, headers=headers, timeout=20)
-                get_resp = await asyncio.to_thread(_do_get)
-                if get_resp.status_code == 200:
-                    current_app = get_resp.json()
-                    app_type = current_app.get("settings", {}).get("oauthClient", {}).get("application_type", "unknown")
-                    # Update only the JWK in settings.oauthClient
-                    if "settings" not in current_app:
-                        current_app["settings"] = {}
-                    if "oauthClient" not in current_app["settings"]:
-                        current_app["settings"]["oauthClient"] = {}
-                    current_app["settings"]["oauthClient"]["jwks"] = {"keys": [public_jwk]}
-                    
-                    def _do_update():
-                        return requests.put(get_url, headers=headers, json=current_app, timeout=20)
-                    resp = await asyncio.to_thread(_do_update)
-                    if resp.status_code in (200, 201):
-                        self.logger.info("Updated JWK for %s app %s (kid=%s)", app_type, label, public_jwk.get("kid"))
-                    else:
-                        self.logger.warning("Failed to update JWK for %s app %s: HTTP %s %s", app_type, label, resp.status_code, resp.text)
-                else:
-                    self.logger.warning("Failed to get current app config for %s: HTTP %s", label, get_resp.status_code)
-            return existing
+                self.logger.info("Service app exists with new JWK; deleting to recreate: %s (%s)", label, existing.id)
+                await self.delete_app(existing.id)
+            else:
+                self.logger.info("Service app exists: %s (%s)", label, existing.id)
+                return existing
 
         # Build REST payload for service app creation
         token_auth_method = (
@@ -938,22 +911,6 @@ class OktaPreparer:
         client_id = creds.get("client_id")
         client_secret = creds.get("client_secret")
         self.logger.info("Service app created: %s (%s)", label, app_id)
-        
-        # Activate the service app to ensure it can be used immediately
-        activate_url = f"{self.org_url.rstrip('/')}/api/v1/apps/{app_id}/lifecycle/activate"
-        def _do_activate():
-            return requests.post(activate_url, headers=headers, timeout=15)
-        try:
-            activate_resp = await asyncio.to_thread(_do_activate)
-            if activate_resp.status_code in (200, 204):
-                self.logger.info("Service app activated: %s", label)
-            elif activate_resp.status_code == 409:
-                self.logger.info("Service app already active: %s", label)
-            else:
-                self.logger.warning("Failed to activate service app %s: HTTP %s %s", label, activate_resp.status_code, activate_resp.text)
-        except Exception as e:
-            self.logger.warning("Failed to activate service app %s: %s", label, e)
-        
         return AppInfo(
             id=str(app_id),
             clientId=client_id,
