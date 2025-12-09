@@ -368,7 +368,7 @@ def create_app(
             if ds is None:
                 # Create default store if none was provided
                 ds = DeviceStore("data/devices.db")
-            device_service = DeviceService(ds)
+            device_service = DeviceService(ds, user_group_service=user_group_service)
             app.state.device_service = device_service
         except Exception:
             pass  # Device service initialization failed, will continue without it
@@ -452,6 +452,12 @@ def create_app(
         _set_local_user_service(user_service)
         _set_local_user_group_service(user_group_service)
         _set_config(config_service)
+        # Ensure device service has access to user group service for ID->name resolution
+        try:
+            if device_service and user_group_service:
+                device_service.set_user_group_service(user_group_service)
+        except Exception:
+            pass
         # Also set via utils to ensure availability in API modules using config_utils
         try:
             utils_set_config(config_service)

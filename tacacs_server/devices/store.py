@@ -1023,6 +1023,9 @@ class DeviceStore:
         """Resolve a device record for the given client IP address."""
         # Lazy refresh to avoid stale indexes after mutations
         self._ensure_indexes_current()
+        # If indexes are still stale, refresh before reading _id_index
+        if self._index_built_version < self._index_version:
+            self.refresh_indexes()
         try:
             ip_obj = ipaddress.ip_address(ip)
         except ValueError:

@@ -420,6 +420,15 @@ class TacacsServerManager:
                 self.server.handlers.set_local_user_group_service(
                     self.local_user_group_service
                 )
+            if self.device_service:
+                try:
+                    self.device_service.set_user_group_service(
+                        self.local_user_group_service
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to inject user group service into device service"
+                    )
         if self.local_user_group_service is None:
             set_local_user_group_service(None)
             if self.server and hasattr(self.server, "handlers"):

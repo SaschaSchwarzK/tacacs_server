@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from tacacs_server.auth.local_user_group_service import LocalUserGroupService
 
 from tacacs_server.utils.logger import get_logger
 
@@ -43,8 +46,13 @@ def _ensure_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
 class DeviceService:
     """Facade around :class:`DeviceStore` with validation and friendly helpers."""
 
-    def __init__(self, store: DeviceStore) -> None:
+    def __init__(
+        self,
+        store: DeviceStore,
+        user_group_service: "LocalUserGroupService | None" = None,
+    ) -> None:
         self.store = store
+        self._user_group_service: "LocalUserGroupService | None" = user_group_service
         self._change_listeners: list[Callable[[], None]] = []
         # Prime indexes for fast lookups
         try:
@@ -724,6 +732,12 @@ class DeviceService:
             self._notify_change()
         return deleted
 
+    def set_user_group_service(
+        self, service: "LocalUserGroupService | None"
+    ) -> None:
+        """Inject or update the user group service used for resolving group IDs."""
+        self._user_group_service = service
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -753,25 +767,25 @@ class DeviceService:
             group_name = None
             if isinstance(group, int):
                 # Convert ID to name - best effort, don't fail if user group doesn't exist yet
-                try:
-                    from tacacs_server.web.api.usergroups import (
-                        get_group_service as _get_gsvc,
-                    )
-
-                    gsvc = _get_gsvc()
-                    id_to_name = {
-                        int(getattr(rec, "id", -1)): getattr(rec, "name", "")
-                        for rec in gsvc.list_groups()
-                        if getattr(rec, "id", None) is not None
-                    }
-                    if group in id_to_name and id_to_name[group]:
-                        group_name = str(id_to_name[group])
-                    else:
-                        logger.debug("Cannot resolve user group ID %s, skipping", group)
+                if self._user_group_service:
+                    try:
+                        id_to_name = {
+                            int(getattr(rec, "id", -1)): getattr(rec, "name", "")
+                            for rec in self._user_group_service.list_groups()
+                            if getattr(rec, "id", None) is not None
+                        }
+                        if group in id_to_name and id_to_name[group]:
+                            group_name = str(id_to_name[group])
+                        else:
+                            logger.debug(
+                                "Cannot resolve user group ID %s, skipping", group
+                            )
+                            continue
+                    except Exception:
+                        logger.debug(f"Cannot resolve user group ID {group}, skipping")
                         continue
-                except Exception:
-                    # User group not found or service not available - skip this entry
-                    logger.debug(f"Cannot resolve user group ID {group}, skipping")
+                else:
+                    logger.debug("User group service unavailable; skipping ID %s", group)
                     continue
             elif isinstance(group, str):
                 group_name = group.strip()

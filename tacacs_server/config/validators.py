@@ -397,10 +397,8 @@ def validate_change(
                 if timeout_val < 1 or timeout_val > 300:
                     issues.append("mfa_timeout_seconds must be 1-300")
                 else:
-                    poll_val = float(
-                        config.getfloat(
-                            "radius_auth", "mfa_poll_interval", fallback=2.0
-                        )
+                    poll_val = config.getfloat(
+                        "radius_auth", "mfa_poll_interval", fallback=2.0
                     )
                     if poll_val >= timeout_val:
                         issues.append(
