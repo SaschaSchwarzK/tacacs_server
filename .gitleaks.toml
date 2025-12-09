@@ -1,0 +1,23 @@
+title = "Custom Gitleaks Config"
+
+# Skip entire directories
+[[allowlist.path]]
+description = "Ignore tests folder"
+path = '''tests/'''
+
+[[allowlist.path]]
+description = "Ignore docs folder"
+path = '''docs/'''
+
+[[allowlist.path]]
+description = "Ignore config folder"
+path = '''config/'''
+
+[[allowlist.path]]
+description = "Ignore tools folder"
+path = '''tools/'''
+
+# Optional: ignore files by pattern
+[[allowlist.regex]]
+description = "Ignore common test file naming patterns"
+regex = '''test_.*|.*_test'''
