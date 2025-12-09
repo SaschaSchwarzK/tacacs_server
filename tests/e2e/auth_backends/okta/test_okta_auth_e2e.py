@@ -486,10 +486,11 @@ def test_tacacs_server_with_okta_backend(
         if r_dev.status_code not in (200, 201, 409):
             r_dev.raise_for_status()
 
-        # Auth success (valid Okta user) with small retry window
+        # Auth success (valid Okta user) with a longer retry/backoff window to allow Okta propagation
         ok = False
         msg = ""
-        for _ in range(3):
+        backoff = 3.0
+        for _ in range(6):
             ok, msg = tacacs_authenticate(
                 host="127.0.0.1",
                 port=tacacs_host_port,
@@ -499,7 +500,8 @@ def test_tacacs_server_with_okta_backend(
             )
             if ok:
                 break
-            time.sleep(3.0)
+            time.sleep(backoff)
+            backoff = min(backoff + 2.0, 12.0)
         if not ok:
             # Dump container logs and in-container log files to aid diagnosis
             logs = _run(["docker", "logs", tacacs_container])
@@ -648,7 +650,8 @@ def test_tacacs_server_with_okta_backend(
                             f"{org.rstrip('/')}/api/v1/users/{lst[0].get('id')}/groups"
                         )
             gr = None
-            for attempt in range(5):
+            backoff = 2.0
+            for attempt in range(8):
                 gr = _rq.get(
                     url,
                     headers={
@@ -661,7 +664,8 @@ def test_tacacs_server_with_okta_backend(
                     break
                 # New app/scopes can take a moment; retry on auth/perm errors
                 if gr.status_code in (401, 403, 429):
-                    time.sleep(2.0)
+                    time.sleep(backoff)
+                    backoff = min(backoff + 1.0, 5.0)
                     continue
                 break
             assert gr is not None and gr.status_code == 200, (
