@@ -5,11 +5,27 @@ This file is loaded early by pytest to set up the test environment
 before any test modules are imported.
 """
 
+import logging
 import os
 import socket
 import sys
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def suppress_alembic_logging(monkeypatch):
+    """Suppress alembic logging during tests."""
+    original_get_logger = logging.getLogger
+
+    def get_logger_wrapper(name=None):
+        if name == "alembic":
+            logger = original_get_logger(name)
+            logger.setLevel(logging.CRITICAL)
+            return logger
+        return original_get_logger(name)
+
+    monkeypatch.setattr(logging, "getLogger", get_logger_wrapper)
 
 
 def _find_free_port() -> int:
@@ -56,7 +72,7 @@ def pytest_configure(config):
 
     # Set a test API token
     if "TEST_API_TOKEN" not in os.environ:
-        os.environ["TEST_API_TOKEN"] = "test-token"
+        os.environ["TEST_API_TOKEN"] = "test-token"  # nosec
 
     # Print diagnostic info
     print("[pytest_configure] Test mode enabled", file=sys.stderr)

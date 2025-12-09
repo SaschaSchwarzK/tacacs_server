@@ -55,10 +55,10 @@ def test_global_mfa_settings_are_overridable():
     }
     backend = RADIUSAuthBackend(merged)
 
-    base, otp, push = backend._parse_mfa_suffix("pwlocal")
+    base, otp, push = backend._parse_mfa_suffix("pw+local")
     assert base == "pw"
     assert otp is None
-    assert push is True
+    assert push
 
 
 def test_mfa_challenge_flow_accepts_otp_and_caches_groups():
@@ -177,3 +177,33 @@ def test_mfa_challenge_flow_accepts_otp_and_caches_groups():
         except Exception:
             pass
         t.join(timeout=2)
+
+
+def test_mfa_empty_password_rejected():
+    """Password that's all OTP digits should not be parsed as OTP-only."""
+    backend = RADIUSAuthBackend(
+        {
+            "radius_server": "localhost",
+            "radius_secret": "secret",
+            "mfa_enabled": True,
+            "mfa_otp_digits": 6,
+        }
+    )
+    base, otp, push = backend._parse_mfa_suffix("123456")
+    assert base == "123456"  # Not parsed as OTP-only
+    assert otp is None
+    assert not push
+
+
+def test_mfa_push_keyword_exact_match():
+    backend = RADIUSAuthBackend(
+        {
+            "radius_server": "localhost",
+            "radius_secret": "secret",
+            "mfa_enabled": True,
+            "mfa_push_keyword": "push",
+        }
+    )
+    base, otp, push = backend._parse_mfa_suffix("push")
+    assert base == ""  # Exact match allowed
+    assert push is True

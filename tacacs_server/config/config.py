@@ -733,8 +733,7 @@ class TacacsConfig:
 def setup_logging(config: TacacsConfig):
     """Setup logging based on configuration."""
     log_config = config.get_logging_config()
-    log_file = log_config["log_file"]
-
+    log_file = log_config.get("log_file")
     if log_file:
         log_dir = os.path.dirname(log_file)
         if log_dir and not os.path.exists(log_dir):
@@ -743,23 +742,11 @@ def setup_logging(config: TacacsConfig):
     log_level = getattr(logging, log_config["log_level"].upper(), logging.INFO)
     handlers: list[logging.Handler] = []
 
-    # Add console handler if interactive
-    add_console = True
-    try:
-        import sys as _sys
+    # Always include a console handler so subprocess/stdout captures logs (tests expect this)
+    console_handler = logging.StreamHandler()
+    handlers.append(console_handler)
 
-        add_console = bool(getattr(_sys.stdout, "isatty", lambda: False)())
-    except Exception:
-        add_console = True
-
-    if add_console:
-        console_handler = logging.StreamHandler()
-        handlers.append(console_handler)
-
-    # Track whether we'll switch from console-only to file+console
-    will_add_file = bool(log_file)
-
-    # Add file handler
+    # Add file handler when configured
     if log_file:
         try:
             if log_config.get("log_rotation", False):
@@ -775,12 +762,6 @@ def setup_logging(config: TacacsConfig):
             logger.exception("Failed to create file log handler for %s", log_file)
 
     configure_logging(level=log_level, handlers=handlers)
-
-    if will_add_file and add_console:
-        # Emitted only to console (last console-only message) to signal switch
-        logging.getLogger(__name__).info(
-            "Logging now also writing to file: %s", log_file
-        )
 
     logger.info(
         "Logging configured: level=%s, file=%s",

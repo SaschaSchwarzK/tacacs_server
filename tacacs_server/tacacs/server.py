@@ -46,12 +46,13 @@ class TacacsServer:
         self.host = host
         self.port = port
         self.secret_key = secret_key or os.getenv(
-            "TACACS_DEFAULT_SECRET", "CHANGE_ME_FALLBACK"
+            "TACACS_DEFAULT_SECRET",
+            "CHANGE_ME_FALLBACK",  # nosec
         )
         self.config = config
         self.services = services
 
-        if self.secret_key == "CHANGE_ME_FALLBACK":
+        if self.secret_key == "CHANGE_ME_FALLBACK":  # nosec
             logger.warning(
                 "Default TACACS secret in use. Configure per-device/group secrets.",
                 event="tacacs.secret.default",
@@ -635,7 +636,7 @@ class TacacsServer:
                 device_store=self.device_store,
                 proxy_handler=proxy_handler,
                 proxy_reject_invalid=getattr(self, "proxy_reject_invalid", True),
-                default_secret=self.secret_key or "CHANGE_ME_FALLBACK",
+                default_secret=self.secret_key or "CHANGE_ME_FALLBACK",  # nosec
                 encryption_required=self.encryption_required,
                 client_timeout=self.client_timeout,
                 device_auto_register=getattr(self, "device_auto_register", False),

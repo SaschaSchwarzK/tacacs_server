@@ -412,10 +412,12 @@ def validate_change(
                 if poll_val <= 0:
                     issues.append("mfa_poll_interval must be greater than 0")
                 else:
-                    timeout_val = config.getfloat(
-                        "radius_auth", "mfa_timeout_seconds", fallback=25.0
+                    timeout_float = float(
+                        config.getfloat(
+                            "radius_auth", "mfa_timeout_seconds", fallback=25.0
+                        )
                     )
-                    if poll_val >= timeout_val:
+                    if poll_val >= timeout_float:
                         issues.append(
                             "mfa_poll_interval must be less than mfa_timeout_seconds"
                         )
@@ -441,7 +443,9 @@ def validate_change(
                 if timeout_val < 1 or timeout_val > 300:
                     issues.append("mfa_timeout_seconds must be 1-300")
                 else:
-                    poll_val = config.getfloat("mfa", "mfa_poll_interval", fallback=2.0)
+                    poll_val = float(
+                        config.getfloat("mfa", "mfa_poll_interval", fallback=2.0)
+                    )
                     if poll_val >= timeout_val:
                         issues.append(
                             "mfa_poll_interval must be less than mfa_timeout_seconds"
@@ -454,10 +458,10 @@ def validate_change(
                 if poll_val <= 0:
                     issues.append("mfa_poll_interval must be greater than 0")
                 else:
-                    timeout_val = config.getfloat(
-                        "mfa", "mfa_timeout_seconds", fallback=25.0
+                    timeout_float = float(
+                        config.getfloat("mfa", "mfa_timeout_seconds", fallback=25.0)
                     )
-                    if poll_val >= timeout_val:
+                    if poll_val >= timeout_float:
                         issues.append(
                             "mfa_poll_interval must be less than mfa_timeout_seconds"
                         )

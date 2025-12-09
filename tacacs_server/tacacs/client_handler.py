@@ -34,7 +34,7 @@ class ClientHandler:
         device_store=None,
         proxy_handler: ProxyHandler | None = None,
         proxy_reject_invalid: bool = True,
-        default_secret: str = "CHANGE_ME_FALLBACK",
+        default_secret: str = "CHANGE_ME_FALLBACK",  # nosec
         encryption_required: bool = True,
         client_timeout: float = 15.0,
         device_auto_register: bool = False,

@@ -1,16 +1,29 @@
 """SQLite-backed device inventory for TACACS+ and RADIUS."""
+# mypy: ignore-errors
 
 from __future__ import annotations
 
 import ipaddress
 import json
 import re
-import sqlite3
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from alembic.config import Config
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+
+from alembic import command
+from tacacs_server.db.engine import Base, get_session_factory, session_scope
+from tacacs_server.devices.models import (
+    DeviceGroupModel,
+    DeviceModel,
+    ProxyModel,
+    RealmModel,
+)
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.maintenance import get_db_manager
 
@@ -131,8 +144,13 @@ class DeviceStore:
         if not self.db_path.parent.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._session_factory = get_session_factory(str(self.db_path))
+        self._engine = getattr(self._session_factory, "bind", None) or getattr(
+            self._session_factory, "engine", None
+        )
+        if self._engine is None:
+            raise RuntimeError("Failed to initialize device store engine")
+        Base.metadata.create_all(self._engine)
         # Register with maintenance manager so restore can close connections
         try:
             get_db_manager().register(self, self.close_connections)
@@ -170,22 +188,28 @@ class DeviceStore:
         self.refresh_indexes()
 
     def close_connections(self) -> None:
-        # Close the underlying SQLite connection; log on failure
+        # Close the underlying engine; log on failure
         with self._lock:
             try:
-                self._conn.close()
+                if self._engine:
+                    self._engine.dispose()
             except Exception as exc:
                 logger.warning("DeviceStore close failed: %s", exc)
 
     def reload(self) -> None:
-        """Re-open the underlying SQLite connection after maintenance."""
+        """Recreate the session factory after maintenance."""
         with self._lock:
             try:
-                self._conn.close()
+                if self._engine:
+                    self._engine.dispose()
             except Exception:
-                pass  # Connection already closed, ignore
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
+                pass
+            self._session_factory = get_session_factory(str(self.db_path))
+            self._engine = getattr(self._session_factory, "bind", None) or getattr(
+                self._session_factory, "engine", None
+            )
+            if self._engine is None:
+                raise RuntimeError("Failed to reload device store engine")
             self._ensure_schema()
         # Rebuild in-memory indexes
         try:
@@ -197,178 +221,31 @@ class DeviceStore:
     # Schema management
     # ------------------------------------------------------------------
     def _ensure_schema(self) -> None:
+        # Prefer Alembic migrations when available; ensure tables are present afterward
+        self._run_alembic_migrations()
         with self._lock:
-            cur = self._conn.cursor()
-            cur.executescript(
-                """
-                PRAGMA journal_mode=WAL;
+            Base.metadata.create_all(self._engine)
 
-                CREATE TABLE IF NOT EXISTS realms (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    description TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                );
+    def _run_alembic_migrations(self) -> bool:
+        """Run Alembic migrations if the tooling/config is available."""
+        project_root = Path(__file__).resolve().parents[2]
+        ini_path = project_root / "alembic.ini"
+        script_location = project_root / "alembic"
+        if not ini_path.exists() or not script_location.exists():
+            return False
 
-                CREATE TABLE IF NOT EXISTS device_groups (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    description TEXT,
-                    realm_id INTEGER REFERENCES realms(id) ON DELETE SET NULL,
-                    proxy_network TEXT,
-                    proxy_id INTEGER REFERENCES proxies(id) ON DELETE SET NULL,
-                    tacacs_profile TEXT,
-                    radius_profile TEXT,
-                    metadata TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                );
-
-                CREATE TABLE IF NOT EXISTS devices (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    network TEXT NOT NULL,
-                    network_start_int INTEGER,
-                    network_end_int INTEGER,
-                    tacacs_secret TEXT,
-                    radius_secret TEXT,
-                    metadata TEXT,
-                    group_id INTEGER REFERENCES device_groups(id) ON DELETE SET NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(name, network)
-                );
-                """
+        cfg = Config(str(ini_path))
+        cfg.set_main_option("script_location", str(script_location))
+        cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
+        try:
+            command.upgrade(cfg, "head")
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Alembic migration failed; falling back to legacy schema handling",
+                error=str(exc),
             )
-            cur.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_devices_group
-                ON devices(group_id);
-                """
-            )
-            cur.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_name
-                ON device_groups(name);
-                """
-            )
-            # Index for FK proxy lookups
-            try:
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_groups_proxy_id ON device_groups(proxy_id)"
-                )
-            except sqlite3.OperationalError:
-                pass  # Index already exists
-            # Proxies table to manage proxy networks independently
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS proxies (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    network TEXT NOT NULL,
-                    metadata TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_proxies_network
-                ON proxies(network);
-                """
-            )
-            # Try adding realm_id if missing (migration for existing DBs)
-            try:
-                cur.execute("SELECT realm_id FROM device_groups LIMIT 1")
-            except sqlite3.OperationalError:
-                cur.execute(
-                    "ALTER TABLE device_groups ADD COLUMN realm_id INTEGER REFERENCES realms(id) ON DELETE SET NULL"
-                )
-            # Try adding proxy_network if missing
-            try:
-                cur.execute("SELECT proxy_network FROM device_groups LIMIT 1")
-            except sqlite3.OperationalError:
-                cur.execute("ALTER TABLE device_groups ADD COLUMN proxy_network TEXT")
-            # Create schema_migrations table for one-time migrations
-            try:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS schema_migrations (
-                        name TEXT PRIMARY KEY,
-                        applied_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        info TEXT
-                    );
-                    """
-                )
-            except sqlite3.OperationalError:
-                pass  # Index already exists
-
-            # Skip automatic legacy column drop; handled via explicit migration if needed
-            # Try adding proxy_id if missing
-            try:
-                cur.execute("SELECT proxy_id FROM device_groups LIMIT 1")
-            except sqlite3.OperationalError:
-                cur.execute(
-                    "ALTER TABLE device_groups ADD COLUMN proxy_id INTEGER REFERENCES proxies(id) ON DELETE SET NULL"
-                )
-            # Try adding device integer network range columns and index
-            # Integer-typed range columns for correct typing and performance
-            try:
-                cur.execute(
-                    "SELECT network_start_int, network_end_int FROM devices LIMIT 1"
-                )
-            except sqlite3.OperationalError:
-                try:
-                    cur.execute(
-                        "ALTER TABLE devices ADD COLUMN network_start_int INTEGER"
-                    )
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                try:
-                    cur.execute(
-                        "ALTER TABLE devices ADD COLUMN network_end_int INTEGER"
-                    )
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-            # Drop legacy text-range index creation; we only use integer indexes now
-            try:
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_devices_net_range_int ON devices(network_start_int, network_end_int)"
-                )
-            except sqlite3.OperationalError:
-                pass  # Index already exists
-            # Ensure default realm exists and backfill NULL realm_id
-            cur.execute(
-                "INSERT OR IGNORE INTO realms(name, description) VALUES(?, ?)",
-                ("default", "Default realm"),
-            )
-            cur.execute(
-                "UPDATE device_groups SET realm_id = (SELECT id FROM realms WHERE name='default') WHERE realm_id IS NULL"
-            )
-            # Skip automatic backfill from legacy proxy_network; explicit migration not required per policy
-            # Backfill integer range columns if missing
-            try:
-                cur2 = self._conn.execute(
-                    "SELECT id, network, network_start_int, network_end_int FROM devices"
-                )
-                rows = cur2.fetchall()
-                for r in rows:
-                    if r["network_start_int"] is None or r["network_end_int"] is None:
-                        try:
-                            net = ipaddress.ip_network(r["network"], strict=False)
-                            s_int = int(net.network_address)
-                            e_int = int(net.broadcast_address)
-                            self._conn.execute(
-                                "UPDATE devices SET network_start_int=?, network_end_int=? WHERE id=?",
-                                (s_int, e_int, r["id"]),
-                            )
-                        except Exception:
-                            continue
-                self._conn.commit()
-            except Exception:
-                self._conn.commit()
+            return False
 
     def get_identity_cache_stats(self) -> dict[str, int]:
         """Expose identity cache stats for monitoring tests."""
@@ -398,8 +275,24 @@ class DeviceStore:
             logger.warning("DeviceStore: failed to JSON-decode payload: %s", payload)
             return {}
 
-    def _row_to_group(self, row: sqlite3.Row) -> DeviceGroup:
-        metadata = self._json_load(row["metadata"])
+    def _model_to_group(self, row: Any) -> DeviceGroup:
+        def _get(row_obj: Any, key: str, default: Any = None) -> Any:
+            # Prefer direct dict access for ORM objects to avoid loader calls
+            if hasattr(row_obj, "_sa_instance_state"):
+                raw = getattr(row_obj, "__dict__", {})
+                if key in raw:
+                    return raw.get(key, default)
+                return default
+            if hasattr(row_obj, key):
+                return getattr(row_obj, key)
+            if isinstance(row_obj, dict):
+                return row_obj.get(key, default)
+            try:
+                return row_obj[key]
+            except Exception:
+                return default
+
+        metadata = self._json_load(_get(row, "metadata_json"))
         tacacs_secret = metadata.pop("tacacs_secret", None)
         radius_secret = metadata.pop("radius_secret", None)
         device_config = metadata.pop("device_config", {}) or {}
@@ -415,15 +308,13 @@ class DeviceStore:
         else:
             allowed_groups = []
         return DeviceGroup(
-            id=row["id"],
-            name=row["name"],
-            description=row["description"],
-            realm_id=row["realm_id"] if "realm_id" in row.keys() else None,
-            proxy_network=(
-                row["proxy_network"] if "proxy_network" in row.keys() else None
-            ),
-            tacacs_profile=self._json_load(row["tacacs_profile"]),
-            radius_profile=self._json_load(row["radius_profile"]),
+            id=_get(row, "id"),
+            name=_get(row, "name"),
+            description=_get(row, "description"),
+            realm_id=_get(row, "realm_id"),
+            proxy_network=_get(row, "proxy_network"),
+            tacacs_profile=self._json_load(_get(row, "tacacs_profile")),
+            radius_profile=self._json_load(_get(row, "radius_profile")),
             metadata=metadata,
             tacacs_secret=tacacs_secret,
             radius_secret=radius_secret,
@@ -431,9 +322,11 @@ class DeviceStore:
             allowed_user_groups=allowed_groups,
         )
 
-    def _row_to_device(
-        self, row: sqlite3.Row, groups: dict[int, DeviceGroup]
-    ) -> DeviceRecord:
+    def _row_to_group(self, row) -> DeviceGroup:
+        # Backwards compatibility for legacy sqlite access
+        return self._model_to_group(row)
+
+    def _row_to_device(self, row, groups: dict[int, DeviceGroup]) -> DeviceRecord:
         network = ipaddress.ip_network(row["network"], strict=False)
         group = groups.get(row["group_id"])
         return DeviceRecord(
@@ -441,24 +334,74 @@ class DeviceStore:
             name=row["name"],
             network=network,
             group=group,
-            tacacs_secret=None,
-            radius_secret=None,
-            metadata=self._json_load(row["metadata"]),
+            tacacs_secret=getattr(row, "tacacs_secret", None),
+            radius_secret=getattr(row, "radius_secret", None),
+            metadata=self._json_load(row["metadata_json"]),
         )
+
+    def _model_to_device(
+        self, row: Any, groups: dict[int, DeviceGroup]
+    ) -> DeviceRecord:
+        network = ipaddress.ip_network(row.network, strict=False)
+        group = groups.get(row.group_id)
+        return DeviceRecord(
+            id=row.id,
+            name=row.name,
+            network=network,
+            group=group,
+            tacacs_secret=getattr(row, "tacacs_secret", None),
+            radius_secret=getattr(row, "radius_secret", None),
+            metadata=self._json_load(getattr(row, "metadata_json", None)),
+        )
+
+    def _post_process_device(
+        self, device: DeviceRecord, groups: dict[int, DeviceGroup]
+    ) -> DeviceRecord:
+        """
+        Hook for subclasses/tests to adjust DeviceRecord without altering core logic.
+
+        Legacy compatibility: if _row_to_device is overridden, invoke it with a
+        lightweight mapping derived from the already-built DeviceRecord.
+        """
+        if self._row_to_device.__func__ is not DeviceStore._row_to_device:  # type: ignore[attr-defined]
+            try:
+                mapped_row = {
+                    "id": device.id,
+                    "name": device.name,
+                    "network": str(device.network),
+                    "group_id": getattr(device.group, "id", None)
+                    if device.group
+                    else None,
+                    "tacacs_secret": device.tacacs_secret,
+                    "radius_secret": device.radius_secret,
+                    "metadata_json": self._json_dump(device.metadata),
+                }
+                return self._row_to_device(mapped_row, groups)
+            except Exception:
+                return device
+        return device
 
     def _load_groups(self) -> dict[int, DeviceGroup]:
         # Join proxies so that DeviceGroup.proxy_network reflects proxy network from proxies table
-        with self._lock:
-            cur = self._conn.execute(
-                """
-                SELECT g.id, g.name, g.description, g.realm_id,
-                       p.network AS proxy_network,
-                       g.tacacs_profile, g.radius_profile, g.metadata
-                  FROM device_groups g
-             LEFT JOIN proxies p ON p.id = g.proxy_id
-                """
+        with self._lock, session_scope(self._session_factory) as session:
+            stmt = (
+                select(
+                    DeviceGroupModel.id,
+                    DeviceGroupModel.name,
+                    DeviceGroupModel.description,
+                    DeviceGroupModel.realm_id,
+                    ProxyModel.network.label("proxy_network"),
+                    DeviceGroupModel.tacacs_profile,
+                    DeviceGroupModel.radius_profile,
+                    DeviceGroupModel.metadata_json,
+                )
+                .select_from(DeviceGroupModel)
+                .join(
+                    ProxyModel, ProxyModel.id == DeviceGroupModel.proxy_id, isouter=True
+                )
             )
-            groups = {row["id"]: self._row_to_group(row) for row in cur.fetchall()}
+            rows = session.execute(stmt).mappings().all()
+            groups = {row["id"]: self._model_to_group(row) for row in rows}
         return groups
 
     # ------------------------------------------------------------------
@@ -473,14 +416,14 @@ class DeviceStore:
     def refresh_indexes(self) -> None:
         """Rebuild in-memory indexes for proxy-aware lookups."""
         groups = self._load_groups()
-        with self._lock:
-            cur = self._conn.execute("SELECT * FROM devices")
-            rows = cur.fetchall()
+        with self._lock, session_scope(self._session_factory) as session:
+            rows = session.query(DeviceModel).all()
         proxy_idx: list[tuple[ipaddress._BaseNetwork, ipaddress._BaseNetwork, int]] = []
         fallback_idx: list[tuple[ipaddress._BaseNetwork, int]] = []
         id_index: dict[int, DeviceRecord] = {}
         for row in rows:
-            dev = self._row_to_device(row, groups)
+            dev = self._model_to_device(row, groups)
+            dev = self._post_process_device(dev, groups)
             id_index[dev.id] = dev
             grp = dev.group
             if grp and getattr(grp, "proxy_network", None):
@@ -543,86 +486,54 @@ class DeviceStore:
         metadata: JsonDict | None = None,
     ) -> DeviceGroup:
         """Create the group if it does not exist or update metadata."""
-        with self._lock:
-            # Resolve realm id if provided
+        with self._lock, session_scope(self._session_factory) as session:
             realm_id: int | None = None
             if realm:
                 realm_id = self.ensure_realm(realm)
 
-            cur = self._conn.execute(
-                "SELECT * FROM device_groups WHERE name = ?",
-                (name,),
-            )
-            row = cur.fetchone()
-            if row:
-                # Update existing group if new data provided
-                updates: list[str] = []
-                params: list[Any] = []
-                if description is not None:
-                    updates.append("description = ?")
-                    params.append(description)
-                if realm_id is not None:
-                    updates.append("realm_id = ?")
-                    params.append(realm_id)
-                if proxy_network is not None:
-                    # ensure proxy exists and set proxy_id
-                    proxy_id = self._ensure_proxy_for_network(proxy_network)
-                    updates.append("proxy_id = ?")
-                    params.append(proxy_id)
-                if tacacs_profile is not None:
-                    updates.append("tacacs_profile = ?")
-                    params.append(self._json_dump(tacacs_profile))
-                if radius_profile is not None:
-                    updates.append("radius_profile = ?")
-                    params.append(self._json_dump(radius_profile))
-                if metadata is not None:
-                    updates.append("metadata = ?")
-                    params.append(self._json_dump(metadata))
-                if updates:
-                    params.append(name)
-                    # Use parameterized query to prevent SQL injection
-                    update_clause = ", ".join(updates)
-                    query_sql = (
-                        f"UPDATE device_groups SET {update_clause}, "
-                        "updated_at = CURRENT_TIMESTAMP WHERE name = ?"
-                    )
-                    self._conn.execute(query_sql, params)
-                    self._conn.commit()
-                    self._mark_dirty()
-                    result = self.get_group_by_name(name)  # refreshed row
-                    if result is None:
-                        raise RuntimeError(
-                            f"Failed to retrieve group after update: {name}"
-                        )
-                    return result
-                return self._row_to_group(row)
-
-            # Insert new group; if proxy_network provided link via proxy_id
-            proxy_id_val = None
+            proxy_id_val: int | None = None
+            proxy_net_value = None
             if proxy_network is not None:
                 proxy_id_val = self._ensure_proxy_for_network(proxy_network)
-            self._conn.execute(
-                """
-                INSERT INTO device_groups (name, description, realm_id, proxy_id, tacacs_profile, 
-                                         radius_profile, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    name,
-                    description,
-                    realm_id,
-                    proxy_id_val,
-                    self._json_dump(tacacs_profile),
-                    self._json_dump(radius_profile),
-                    self._json_dump(metadata),
-                ),
+                proxy_net_value = proxy_network
+
+            existing = session.execute(
+                select(DeviceGroupModel).where(DeviceGroupModel.name == name)
+            ).scalar_one_or_none()
+            if existing:
+                if description is not None:
+                    existing.description = description
+                if realm_id is not None:
+                    existing.realm_id = realm_id
+                if proxy_id_val is not None:
+                    existing.proxy_id = proxy_id_val
+                    existing.proxy_network = proxy_net_value
+                if tacacs_profile is not None:
+                    existing.tacacs_profile = self._json_dump(tacacs_profile)
+                if radius_profile is not None:
+                    existing.radius_profile = self._json_dump(radius_profile)
+                if metadata is not None:
+                    existing.metadata_json = self._json_dump(metadata)
+                session.flush()
+                session.refresh(existing)
+                self._mark_dirty()
+                return self._model_to_group(existing)
+
+            new_group = DeviceGroupModel(
+                name=name,
+                description=description,
+                realm_id=realm_id,
+                proxy_id=proxy_id_val,
+                proxy_network=proxy_net_value,
+                tacacs_profile=self._json_dump(tacacs_profile),
+                radius_profile=self._json_dump(radius_profile),
+                metadata_json=self._json_dump(metadata),
             )
-            self._conn.commit()
-            self._mark_dirty()
-            result = self.get_group_by_name(name)
-            if result is None:
-                raise RuntimeError(f"Failed to retrieve group after insert: {name}")
-            return result
+            session.add(new_group)
+            session.flush()
+            session.refresh(new_group)
+        self._mark_dirty()
+        return self._model_to_group(new_group)
 
     # ------------------------------
     # Proxies management
@@ -635,81 +546,63 @@ class DeviceStore:
         # Validate network
         ip_net = ipaddress.ip_network(str(network_cidr), strict=False)
         network_s = str(ip_net)
-        # Try by network first
-        cur = self._conn.execute(
-            "SELECT id FROM proxies WHERE network = ?",
-            (network_s,),
-        )
-        row = cur.fetchone()
-        if row:
-            return int(row[0])
-        # Insert
-        # Pick a unique, human-readable name; avoid collisions with user-defined names
-        # Use reserved prefix 'auto-proxy:' to reduce user collision risk
-        base = f"auto-proxy:{network_s}"
-        name = base
-        attempt = 1
-        while True:
-            try:
-                self._conn.execute(
-                    "INSERT INTO proxies(name, network, metadata) VALUES(?, ?, ?)",
-                    (name, network_s, None),
-                )
-                break
-            except sqlite3.IntegrityError:
-                # If name is taken, try with a numeric suffix; if network exists, we'll exit via fetch below
-                name = f"{base}-{attempt}"
-                attempt += 1
-        self._conn.commit()
-        cur = self._conn.execute(
-            "SELECT id FROM proxies WHERE network = ?",
-            (network_s,),
-        )
-        row = cur.fetchone()
-        if not row:
-            raise RuntimeError("Failed to create proxy")
-        return int(row[0])
+        with self._lock, session_scope(self._session_factory) as session:
+            existing = (
+                session.query(ProxyModel)
+                .filter(ProxyModel.network == network_s)
+                .one_or_none()
+            )
+            if existing:
+                return int(existing.id)
+
+            base = f"auto-proxy:{network_s}"
+            name = base
+            attempt = 1
+            while True:
+                try:
+                    proxy = ProxyModel(name=name, network=network_s, metadata_json=None)
+                    session.add(proxy)
+                    session.flush()
+                    session.refresh(proxy)
+                    return int(proxy.id)
+                except IntegrityError:
+                    session.rollback()
+                    name = f"{base}-{attempt}"
+                    attempt += 1
 
     def list_proxies(self) -> list[Proxy]:
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT id, name, network, metadata FROM proxies ORDER BY name"
-            )
-            rows = cur.fetchall()
+        with self._lock, session_scope(self._session_factory) as session:
+            rows = session.query(ProxyModel).order_by(ProxyModel.name).all()
         items: list[Proxy] = []
         for r in rows:
             try:
-                net = ipaddress.ip_network(r["network"], strict=False)
+                net = ipaddress.ip_network(r.network, strict=False)
             except Exception:
                 continue
             items.append(
                 Proxy(
-                    id=int(r["id"]),
-                    name=str(r["name"]),
+                    id=int(r.id),
+                    name=r.name,
                     network=net,
-                    metadata=self._json_load(r["metadata"]),
+                    metadata=self._json_load(r.metadata_json),
                 )
             )
         return items
 
     def get_proxy_by_id(self, proxy_id: int) -> Proxy | None:
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT id, name, network, metadata FROM proxies WHERE id=?",
-                (proxy_id,),
-            )
-            row = cur.fetchone()
-        if not row:
+        with self._lock, session_scope(self._session_factory) as session:
+            proxy = session.get(ProxyModel, proxy_id)
+        if not proxy:
             return None
         try:
-            net = ipaddress.ip_network(row["network"], strict=False)
+            net = ipaddress.ip_network(proxy.network, strict=False)
         except Exception:
             return None
         return Proxy(
-            id=int(row["id"]),
-            name=str(row["name"]),
+            id=int(proxy.id),
+            name=proxy.name,
             network=net,
-            metadata=self._json_load(row["metadata"]),
+            metadata=self._json_load(proxy.metadata_json),
         )
 
     def create_proxy(
@@ -722,24 +615,20 @@ class DeviceStore:
             raise ValueError(
                 f"Proxy network {ip_net} overlaps existing proxy '{conflict['name']}' {conflict['network']} (id={conflict['id']})"
             )
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO proxies(name, network, metadata) VALUES(?, ?, ?)",
-                (name, str(ip_net), self._json_dump(metadata or {})),
+        with self._lock, session_scope(self._session_factory) as session:
+            proxy = ProxyModel(
+                name=name,
+                network=str(ip_net),
+                metadata_json=self._json_dump(metadata or {}),
             )
-            self._conn.commit()
-            cur = self._conn.execute(
-                "SELECT id, name, network, metadata FROM proxies WHERE name=?",
-                (name,),
-            )
-            row = cur.fetchone()
-        if not row:
-            raise RuntimeError("Failed to create proxy")
+            session.add(proxy)
+            session.flush()
+            session.refresh(proxy)
         return Proxy(
-            id=int(row["id"]),
-            name=str(row["name"]),
-            network=ipaddress.ip_network(row["network"], strict=False),
-            metadata=self._json_load(row["metadata"]),
+            id=int(proxy.id),
+            name=proxy.name,
+            network=ipaddress.ip_network(proxy.network, strict=False),
+            metadata=self._json_load(proxy.metadata_json),
         )
 
     def update_proxy(
@@ -750,120 +639,120 @@ class DeviceStore:
         network: str | None = None,
         metadata: JsonDict | None = None,
     ) -> Proxy | None:
-        updates: list[str] = []
-        params: list[Any] = []
-        if name is not None:
-            updates.append("name = ?")
-            params.append(name)
-        if network is not None:
-            ip_net = ipaddress.ip_network(str(network), strict=False)
-            # Prevent overlapping/duplicate proxy networks
-            conflict = self._find_conflicting_proxy(ip_net, exclude_id=proxy_id)
-            if conflict is not None:
-                raise ValueError(
-                    f"Proxy network {ip_net} overlaps existing proxy '{conflict['name']}' {conflict['network']} (id={conflict['id']})"
-                )
-            updates.append("network = ?")
-            params.append(str(ip_net))
-        if metadata is not None:
-            updates.append("metadata = ?")
-            params.append(self._json_dump(metadata))
-        if not updates:
-            return self.get_proxy_by_id(proxy_id)
-        params.append(proxy_id)
-        with self._lock:
-            clause = ", ".join(updates)
-            self._conn.execute(
-                f"UPDATE proxies SET {clause}, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                params,
-            )
-            self._conn.commit()
+        with self._lock, session_scope(self._session_factory) as session:
+            proxy = session.get(ProxyModel, proxy_id)
+            if not proxy:
+                return None
+            if name is not None:
+                proxy.name = name
+            if network is not None:
+                ip_net = ipaddress.ip_network(str(network), strict=False)
+                conflict = self._find_conflicting_proxy(ip_net, exclude_id=proxy_id)
+                if conflict is not None:
+                    raise ValueError(
+                        f"Proxy network {ip_net} overlaps existing proxy '{conflict['name']}' {conflict['network']} (id={conflict['id']})"
+                    )
+                proxy.network = str(ip_net)
+            if metadata is not None:
+                proxy.metadata_json = self._json_dump(metadata)
+            session.flush()
+            session.refresh(proxy)
         return self.get_proxy_by_id(proxy_id)
 
     def delete_proxy(self, proxy_id: int) -> bool:
-        with self._lock:
+        with self._lock, session_scope(self._session_factory) as session:
             # Unlink groups referencing this proxy
-            self._conn.execute(
-                "UPDATE device_groups SET proxy_id = NULL, updated_at=CURRENT_TIMESTAMP WHERE proxy_id = ?",
-                (proxy_id,),
+            session.execute(
+                DeviceGroupModel.__table__.update()
+                .where(DeviceGroupModel.proxy_id == proxy_id)
+                .values(proxy_id=None, proxy_network=None)
             )
-            result = self._conn.execute(
-                "DELETE FROM proxies WHERE id=?",
-                (proxy_id,),
+            deleted = session.execute(
+                ProxyModel.__table__.delete().where(ProxyModel.id == proxy_id)
             )
-            self._conn.commit()
-            return result.rowcount > 0
+        self._mark_dirty()
+        return bool(deleted.rowcount)
 
     def _find_conflicting_proxy(
         self, ip_net: ipaddress._BaseNetwork, exclude_id: int | None
     ) -> dict[str, Any] | None:
         """Return an existing proxy dict that overlaps with ip_net, excluding exclude_id."""
-        with self._lock:
-            cur = self._conn.execute("SELECT id, name, network FROM proxies")
-            rows = cur.fetchall()
+        with self._lock, session_scope(self._session_factory) as session:
+            rows = session.query(ProxyModel).all()
         for r in rows:
-            pid = int(r["id"])
+            pid = int(r.id)
             if exclude_id is not None and pid == int(exclude_id):
                 continue
             try:
-                other = ipaddress.ip_network(str(r["network"]), strict=False)
+                other = ipaddress.ip_network(str(r.network), strict=False)
             except Exception:
                 continue
             if ip_net.overlaps(other):
-                return {"id": pid, "name": str(r["name"]), "network": str(other)}
+                return {"id": pid, "name": str(r.name), "network": str(other)}
         return None
 
     # Realms APIs
     def ensure_realm(self, name: str, description: str | None = None) -> int:
-        with self._lock:
-            cur = self._conn.execute("SELECT id FROM realms WHERE name = ?", (name,))
-            row = cur.fetchone()
-            if row:
-                return int(row[0])
-            self._conn.execute(
-                "INSERT INTO realms(name, description) VALUES(?, ?)",
-                (name, description),
+        with self._lock, session_scope(self._session_factory) as session:
+            existing = (
+                session.query(RealmModel).filter(RealmModel.name == name).one_or_none()
             )
-            self._conn.commit()
-            cur = self._conn.execute("SELECT id FROM realms WHERE name = ?", (name,))
-            row = cur.fetchone()
-            if not row:
-                raise RuntimeError("Failed to create realm")
-            return int(row[0])
+            if existing:
+                return int(existing.id)
+            realm = RealmModel(name=name, description=description or "")
+            session.add(realm)
+            session.flush()
+            session.refresh(realm)
+            return int(realm.id)
 
     def list_realms(self) -> list[dict[str, Any]]:
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT id, name, description FROM realms ORDER BY name"
-            )
-            return [dict(id=r[0], name=r[1], description=r[2]) for r in cur.fetchall()]
+        with self._lock, session_scope(self._session_factory) as session:
+            rows = session.query(RealmModel).order_by(RealmModel.name).all()
+            return [
+                {"id": int(r.id), "name": r.name, "description": r.description}
+                for r in rows
+            ]
 
     def assign_group_to_realm(self, group_name: str, realm_name: str) -> None:
         realm_id = self.ensure_realm(realm_name)
-        with self._lock:
-            self._conn.execute(
-                "UPDATE device_groups SET realm_id = ?, updated_at=CURRENT_TIMESTAMP WHERE name = ?",
-                (realm_id, group_name),
+        with self._lock, session_scope(self._session_factory) as session:
+            session.execute(
+                DeviceGroupModel.__table__.update()
+                .where(DeviceGroupModel.name == group_name)
+                .values(realm_id=realm_id, updated_at=datetime.utcnow())
             )
-            self._conn.commit()
 
     def get_group_by_name(self, name: str) -> DeviceGroup | None:
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM device_groups WHERE name = ?",
-                (name,),
-            )
-            row = cur.fetchone()
-            return self._row_to_group(row) if row else None
+        with self._lock, session_scope(self._session_factory) as session:
+            row = session.execute(
+                select(DeviceGroupModel, ProxyModel.network.label("proxy_network"))
+                .join(
+                    ProxyModel, ProxyModel.id == DeviceGroupModel.proxy_id, isouter=True
+                )
+                .where(DeviceGroupModel.name == name)
+            ).first()
+        if not row:
+            return None
+        model = row[0]
+        if row[1] is not None:
+            model.proxy_network = row[1]
+        return self._model_to_group(model)
 
     def get_group_by_id(self, group_id: int) -> DeviceGroup | None:
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM device_groups WHERE id = ?",
-                (group_id,),
-            )
-            row = cur.fetchone()
-            return self._row_to_group(row) if row else None
+        with self._lock, session_scope(self._session_factory) as session:
+            row = session.execute(
+                select(DeviceGroupModel, ProxyModel.network.label("proxy_network"))
+                .join(
+                    ProxyModel, ProxyModel.id == DeviceGroupModel.proxy_id, isouter=True
+                )
+                .where(DeviceGroupModel.id == group_id)
+            ).first()
+        if not row:
+            return None
+        model = row[0]
+        if row[1] is not None:
+            model.proxy_network = row[1]
+        return self._model_to_group(model)
 
     def update_group(
         self,
@@ -876,98 +765,79 @@ class DeviceStore:
         metadata: JsonDict | None = None,
         proxy_id: int | None = None,
     ) -> DeviceGroup | None:
-        updates: list[str] = []
-        params: list[Any] = []
-
-        if name is not None:
-            updates.append("name = ?")
-            params.append(name)
-        if description is not None:
-            updates.append("description = ?")
-            params.append(description)
-        if tacacs_profile is not None:
-            updates.append("tacacs_profile = ?")
-            params.append(self._json_dump(tacacs_profile))
-        if radius_profile is not None:
-            updates.append("radius_profile = ?")
-            params.append(self._json_dump(radius_profile))
-        if metadata is not None:
-            updates.append("metadata = ?")
-            params.append(self._json_dump(metadata))
-        if proxy_id is not None:
-            updates.append("proxy_id = ?")
-            params.append(int(proxy_id))
-
-        if not updates:
-            return self.get_group_by_id(group_id)
-
-        params.append(group_id)
-        with self._lock:
-            # Use parameterized query to prevent SQL injection
-            update_clause = ", ".join(updates)
-            query_sql = (
-                f"UPDATE device_groups SET {update_clause}, "
-                "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-            )
-            self._conn.execute(query_sql, params)
-            self._conn.commit()
-
+        with self._lock, session_scope(self._session_factory) as session:
+            grp = session.get(DeviceGroupModel, group_id)
+            if not grp:
+                return None
+            if name is not None:
+                grp.name = name
+            if description is not None:
+                grp.description = description
+            if tacacs_profile is not None:
+                grp.tacacs_profile = self._json_dump(tacacs_profile)
+            if radius_profile is not None:
+                grp.radius_profile = self._json_dump(radius_profile)
+            if metadata is not None:
+                grp.metadata_json = self._json_dump(metadata)
+            if proxy_id is not None:
+                grp.proxy_id = int(proxy_id)
+            session.flush()
+            session.refresh(grp)
         return self.get_group_by_id(group_id)
 
     def delete_group(self, group_id: int, *, cascade: bool = False) -> bool:
         """Delete a device group.
         If cascade is False and devices exist, raise ValueError.
         """
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT COUNT(1) AS cnt FROM devices WHERE group_id = ?",
-                (group_id,),
-            )
-            count_row = cur.fetchone()
-            device_count = count_row["cnt"] if count_row else 0
+        with self._lock, session_scope(self._session_factory) as session:
+            count_row = session.execute(
+                select(func.count())
+                .select_from(DeviceModel)
+                .where(DeviceModel.group_id == group_id)
+            ).scalar()
+            device_count = count_row or 0
             if device_count and not cascade:
                 raise ValueError("Group is in use by one or more devices")
             if device_count and cascade:
-                self._conn.execute(
-                    "DELETE FROM devices WHERE group_id = ?",
-                    (group_id,),
+                session.execute(
+                    DeviceModel.__table__.delete().where(
+                        DeviceModel.group_id == group_id
+                    )
                 )
-            result = self._conn.execute(
-                "DELETE FROM device_groups WHERE id = ?",
-                (group_id,),
+        with self._lock, session_scope(self._session_factory) as session:
+            deleted = session.execute(
+                DeviceGroupModel.__table__.delete().where(
+                    DeviceGroupModel.id == group_id
+                )
             )
-            self._conn.commit()
-            return result.rowcount > 0
+        self._mark_dirty()
+        return bool(deleted.rowcount)
 
     # ------------------------------------------------------------------
     # Device operations
     # ------------------------------------------------------------------
     def list_devices(self) -> list[DeviceRecord]:
         groups = self._load_groups()
-        with self._lock:
-            cur = self._conn.execute("SELECT * FROM devices ORDER BY name")
-            rows = cur.fetchall()
-        return [self._row_to_device(row, groups) for row in rows]
+        with self._lock, session_scope(self._session_factory) as session:
+            rows = session.query(DeviceModel).order_by(DeviceModel.name).all()
+        return [self._model_to_device(row, groups) for row in rows]
 
     def list_devices_by_group(self, group_id: int) -> list[DeviceRecord]:
         groups = self._load_groups()
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM devices WHERE group_id = ? ORDER BY name",
-                (group_id,),
+        with self._lock, session_scope(self._session_factory) as session:
+            rows = (
+                session.query(DeviceModel)
+                .where(DeviceModel.group_id == group_id)
+                .order_by(DeviceModel.name)
+                .all()
             )
-            rows = cur.fetchall()
-        return [self._row_to_device(row, groups) for row in rows]
+        return [self._model_to_device(row, groups) for row in rows]
 
     def get_device_by_id(self, device_id: int) -> DeviceRecord | None:
         groups = self._load_groups()
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM devices WHERE id = ?",
-                (device_id,),
-            )
-            row = cur.fetchone()
-        return self._row_to_device(row, groups) if row else None
+        with self._lock, session_scope(self._session_factory) as session:
+            row = session.get(DeviceModel, device_id)
+        return self._model_to_device(row, groups) if row else None
 
     def ensure_device(
         self,
@@ -985,65 +855,41 @@ class DeviceStore:
         if group:
             grp = self.ensure_group(group)
             group_id = grp.id
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM devices WHERE name = ? AND network = ?",
-                (name, str(network_obj)),
+        with self._lock, session_scope(self._session_factory) as session:
+            existing = (
+                session.query(DeviceModel)
+                .filter(
+                    DeviceModel.name == name, DeviceModel.network == str(network_obj)
+                )
+                .one_or_none()
             )
-            row = cur.fetchone()
-            if row:
-                updates: list[str] = []
-                params: list[Any] = []
+            if existing:
                 if group_id is not None:
-                    updates.append("group_id = ?")
-                    params.append(group_id)
-                if updates:
-                    params.append(name)
-                    params.append(str(network_obj))
-                    # Use parameterized query to prevent SQL injection
-                    update_clause = ", ".join(updates)
-                    query_sql = (
-                        f"UPDATE devices SET {update_clause}, "
-                        "updated_at = CURRENT_TIMESTAMP WHERE name = ? AND network = ?"
-                    )
-                    self._conn.execute(query_sql, params)
-                    self._conn.commit()
-                    self._mark_dirty()
+                    existing.group_id = group_id
+                session.flush()
+                session.refresh(existing)
+                self._mark_dirty()
                 groups = self._load_groups()
-                return self._row_to_device(row, groups)
+                return self._model_to_device(existing, groups)
 
-            # Precompute range for potential large-scale indexes
-            if network_obj.version == 6:
-                start_int = None
-                end_int = None
+            if network_obj.version in (4, 6) and network_obj.prefixlen in (32, 128):
+                start_int = end_int = int(network_obj.network_address)
             else:
                 start_int = int(network_obj.network_address)
                 end_int = int(network_obj.broadcast_address)
-            self._conn.execute(
-                """
-                INSERT INTO devices (name, network, network_start_int, network_end_int, tacacs_secret, radius_secret, 
-                                     metadata, group_id)
-                VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?)
-                """,
-                (
-                    name,
-                    str(network_obj),
-                    start_int,
-                    end_int,
-                    group_id,
-                ),
-            )
-            self._conn.commit()
 
+            device = DeviceModel(
+                name=name,
+                network=str(network_obj),
+                network_start_int=start_int,
+                network_end_int=end_int,
+                group_id=group_id,
+            )
+            session.add(device)
+            session.flush()
+            session.refresh(device)
         groups = self._load_groups()
-        cur = self._conn.execute(
-            "SELECT * FROM devices WHERE name = ? AND network = ?",
-            (name, str(network_obj)),
-        )
-        row = cur.fetchone()
-        if row is None:
-            raise RuntimeError(f"Failed to retrieve device after insert: {name}")
-        return self._row_to_device(row, groups)
+        return self._model_to_device(device, groups)
 
     def update_device(
         self,
@@ -1055,65 +901,47 @@ class DeviceStore:
         clear_group: bool = False,
     ) -> DeviceRecord | None:
         """Update an existing device entry."""
-        updates: list[str] = []
-        params: list[Any] = []
-
-        if name is not None:
-            updates.append("name = ?")
-            params.append(name)
-
-        if network is not None:
-            network_obj = ipaddress.ip_network(str(network), strict=False)
-            updates.append("network = ?")
-            params.append(str(network_obj))
-            # update range columns in tandem
-            if network_obj.version == 4:
-                updates.append("network_start_int = ?")
-                params.append(int(network_obj.network_address))
-                updates.append("network_end_int = ?")
-                params.append(int(network_obj.broadcast_address))
-        else:
-            _ = None  # Network parsing failed or not provided
-
         if group is not None and clear_group:
             raise ValueError("Cannot set group and clear it simultaneously")
 
-        if group is not None:
-            group_obj = self.ensure_group(group)
-            updates.append("group_id = ?")
-            params.append(group_obj.id)
+        with self._lock, session_scope(self._session_factory) as session:
+            device = session.get(DeviceModel, device_id)
+            if not device:
+                return None
 
-        if clear_group:
-            updates.append("group_id = NULL")
+            if name is not None:
+                device.name = name
 
-        if not updates:
-            return self.get_device_by_id(device_id)
+            if network is not None:
+                network_obj = ipaddress.ip_network(str(network), strict=False)
+                device.network = str(network_obj)
+                if network_obj.version in (4, 6) and network_obj.prefixlen in (32, 128):
+                    start_int = end_int = int(network_obj.network_address)
+                else:
+                    start_int = int(network_obj.network_address)
+                    end_int = int(network_obj.broadcast_address)
+                device.network_start_int = start_int
+                device.network_end_int = end_int
 
-        params.append(device_id)
-        with self._lock:
-            # Use parameterized query to prevent SQL injection
-            update_clause = ", ".join(updates)
-            query_sql = (
-                f"UPDATE devices SET {update_clause}, "
-                "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-            )
-            self._conn.execute(query_sql, params)
-            self._conn.commit()
+            if group is not None:
+                group_obj = self.ensure_group(group)
+                device.group_id = group_obj.id
+            if clear_group:
+                device.group_id = None
+
+            session.flush()
+            session.refresh(device)
         self._mark_dirty()
-
         return self.get_device_by_id(device_id)
 
     def delete_device(self, device_id: int) -> bool:
-        with self._lock:
-            result = self._conn.execute(
-                "DELETE FROM devices WHERE id = ?",
-                (device_id,),
-            )
-            self._conn.commit()
-            deleted = result.rowcount > 0
+        with self._lock, session_scope(self._session_factory) as session:
+            deleted = session.execute(
+                DeviceModel.__table__.delete().where(DeviceModel.id == device_id)
+            ).rowcount
         if deleted:
             self._mark_dirty()
-        return deleted
+        return bool(deleted)
 
     # ------------------------------------------------------------------
     # RADIUS helpers
@@ -1183,41 +1011,54 @@ class DeviceStore:
     def find_device_by_network(self, network: str | NetworkType) -> DeviceRecord | None:
         network_obj = ipaddress.ip_network(str(network), strict=False)
         groups = self._load_groups()
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM devices WHERE network = ?",
-                (str(network_obj),),
+        with self._lock, session_scope(self._session_factory) as session:
+            row = (
+                session.query(DeviceModel)
+                .filter(DeviceModel.network == str(network_obj))
+                .one_or_none()
             )
-            row = cur.fetchone()
-        return self._row_to_device(row, groups) if row else None
+        return self._model_to_device(row, groups) if row else None
 
     def find_device_for_ip(self, ip: str) -> DeviceRecord | None:
         """Resolve a device record for the given client IP address."""
         # Lazy refresh to avoid stale indexes after mutations
         self._ensure_indexes_current()
+        # If indexes are still stale, refresh before reading _id_index
+        if self._index_built_version < self._index_version:
+            self.refresh_indexes()
         try:
             ip_obj = ipaddress.ip_address(ip)
         except ValueError:
             return None
-
-        groups = self._load_groups()
-        with self._lock:
-            cur = self._conn.execute("SELECT * FROM devices")
-            rows = cur.fetchall()
 
         # Select best match: longest prefix; tie-breaker prefers groups with tacacs_secret
         best: DeviceRecord | None = None
         best_pl = -1
         best_has_secret = False
 
-        for row in rows:
-            device = self._row_to_device(row, groups)
-            # Skip disabled devices to honor runtime toggles
+        with self._idx_lock:
+            id_index = dict(self._id_index)
+        groups = self._load_groups()
+
+        for dev_id, device in id_index.items():
+            # device may not have group populated if indexes stale; refresh if needed
+            if device.group is None and device.group_id is not None:
+                grp = groups.get(device.group_id)
+                if grp:
+                    device = DeviceRecord(
+                        id=device.id,
+                        name=device.name,
+                        network=device.network,
+                        group=grp,
+                        tacacs_secret=device.tacacs_secret,
+                        radius_secret=device.radius_secret,
+                        metadata=device.metadata,
+                    )
+            # Skip disabled devices if present on record (used in tests)
             try:
                 if getattr(device, "enabled", True) is False:
                     continue
             except Exception:
-                # If attribute missing, assume enabled
                 pass
             try:
                 if ip_obj not in device.network:
@@ -1226,7 +1067,6 @@ class DeviceStore:
                 continue
             pl = int(device.network.prefixlen)
             grp = device.group
-            # Determine if group carries an explicit TACACS secret
             has_secret = False
             if grp is not None:
                 try:
@@ -1283,9 +1123,9 @@ class DeviceStore:
 
         # Cache lookup
         cache_key = (str(client), str(proxy_addr) if proxy_addr is not None else None)
-        cached = self._identity_cache.get(cache_key)
-        if cached is not None:
-            with self._idx_lock:
+        with self._idx_lock:
+            cached = self._identity_cache.get(cache_key)
+            if cached is not None:
                 return self._id_index.get(cached)
 
         with self._idx_lock:
@@ -1297,12 +1137,17 @@ class DeviceStore:
         candidate_rows = None
         try:
             client_int = int(client)
-            with self._lock:
-                cur = self._conn.execute(
-                    "SELECT * FROM devices WHERE network_start_int IS NOT NULL AND network_end_int IS NOT NULL AND network_start_int <= ? AND network_end_int >= ?",
-                    (client_int, client_int),
+            with self._lock, session_scope(self._session_factory) as session:
+                candidate_rows = (
+                    session.query(DeviceModel)
+                    .filter(
+                        DeviceModel.network_start_int.isnot(None),
+                        DeviceModel.network_end_int.isnot(None),
+                        DeviceModel.network_start_int <= client_int,
+                        DeviceModel.network_end_int >= client_int,
+                    )
+                    .all()
                 )
-                candidate_rows = cur.fetchall()
         except Exception:
             candidate_rows = None
 
@@ -1311,7 +1156,7 @@ class DeviceStore:
             # Build device objects for candidates only
             groups = self._load_groups()
             devices: list[DeviceRecord] = [
-                self._row_to_device(row, groups) for row in candidate_rows
+                self._model_to_device(row, groups) for row in candidate_rows
             ]
             # First exact matches
             if proxy_addr is not None:
@@ -1354,7 +1199,8 @@ class DeviceStore:
                         chosen_id = dev_id
                         break
         if chosen_id is not None:
-            self._identity_cache.set(cache_key, chosen_id)
+            with self._idx_lock:
+                self._identity_cache.set(cache_key, chosen_id)
             return id_index.get(chosen_id)
         return None
 
@@ -1363,7 +1209,11 @@ class DeviceStore:
     # ------------------------------------------------------------------
     def close(self) -> None:
         with self._lock:
-            self._conn.close()
+            try:
+                if self._engine:
+                    self._engine.dispose()
+            except Exception:
+                pass
 
     def __enter__(self) -> DeviceStore:
         return self

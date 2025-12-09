@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tarfile
 from pathlib import Path
 from typing import Literal, cast
@@ -50,16 +51,34 @@ def extract_tarball(archive_path: str, dest_dir: str) -> None:
             [base_abs, target_abs]
         )
 
+    dest_root = Path(dest_dir).resolve()
+
+    def _extract_member_safely(tar: tarfile.TarFile, member: tarfile.TarInfo) -> None:
+        name = member.name
+        if name.startswith("/") or ".." in name.replace("\\", "/"):
+            raise ValueError(f"Unsafe path in archive: {name}")
+
+        target_path = (dest_root / name).resolve()
+        if dest_root not in target_path.parents and dest_root != target_path:
+            raise ValueError(f"Unsafe extraction target: {name}")
+
+        if member.isdev() or member.issym() or member.islnk():
+            raise ValueError(f"Refusing to extract special or link member: {name}")
+
+        if member.isdir():
+            target_path.mkdir(parents=True, exist_ok=True)
+            return
+
+        if not member.isreg():
+            raise ValueError(f"Unsupported tar member type for: {name}")
+
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        extracted = tar.extractfile(member)
+        if extracted is None:
+            raise ValueError(f"Failed to read archive member: {name}")
+        with extracted, open(target_path, "wb") as out_f:
+            shutil.copyfileobj(extracted, out_f)
+
     with tarfile.open(archive_path, "r:*") as tar:
         for member in tar.getmembers():
-            name = member.name
-            if name.startswith("/") or ".." in name.replace("\\", "/"):
-                raise ValueError(f"Unsafe path in archive: {name}")
-            target_path = os.path.join(dest_dir, name)
-            if not _is_safe_path(dest_dir, target_path):
-                raise ValueError(f"Unsafe extraction target: {name}")
-        # Use Python's safe extraction filter to avoid writing special files
-        try:
-            tar.extractall(dest_dir, filter="data")  # Python 3.12+
-        except TypeError:  # pragma: no cover - older Python fallback
-            tar.extractall(dest_dir)
+            _extract_member_safely(tar, member)

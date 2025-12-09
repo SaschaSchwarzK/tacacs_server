@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover
+    from tacacs_server.auth.local_user_group_service import LocalUserGroupService
 
 from tacacs_server.utils.logger import get_logger
 
@@ -43,8 +46,13 @@ def _ensure_metadata(payload: dict[str, Any] | None) -> dict[str, Any]:
 class DeviceService:
     """Facade around :class:`DeviceStore` with validation and friendly helpers."""
 
-    def __init__(self, store: DeviceStore) -> None:
+    def __init__(
+        self,
+        store: DeviceStore,
+        user_group_service: LocalUserGroupService | None = None,
+    ) -> None:
         self.store = store
+        self._user_group_service: LocalUserGroupService | None = user_group_service
         self._change_listeners: list[Callable[[], None]] = []
         # Prime indexes for fast lookups
         try:
@@ -104,7 +112,16 @@ class DeviceService:
         Wrapper around list_groups().
         """
         groups = self.list_groups()
-        group_dicts = [self._group_to_dict(g) for g in groups]
+        group_dicts = []
+        for g in groups:
+            try:
+                group_dicts.append(self._group_to_dict(g))
+            except Exception as e:
+                logger.exception(
+                    f"Failed to convert group {getattr(g, 'id', '?')} to dict: {e}"
+                )
+                # Skip this group and continue
+                continue
         return group_dicts[offset : offset + limit]
 
     def get_device_group_by_id(self, group_id: int) -> dict[str, Any] | None:
@@ -370,45 +387,78 @@ class DeviceService:
 
     def _group_to_dict(self, group: DeviceGroup) -> dict[str, Any]:
         """Convert DeviceGroup to API-friendly dict."""
-        # Count devices in this group
-        devices = self.list_devices_by_group(group.id)
-        device_count = len(devices)
-
-        # Extract secrets status without exposing actual secrets
-        tacacs_secret_set = "tacacs_secret" in group.metadata
-        radius_secret_set = "radius_secret" in group.metadata
-
-        # Extract allowed user groups
-        allowed_groups = group.metadata.get("allowed_user_groups", [])
-
-        # Best-effort resolve proxy id
-        proxy_id_val = None
         try:
-            for p in self.store.list_proxies():
-                if str(p.network) == str(getattr(group, "proxy_network", None) or ""):
-                    proxy_id_val = p.id
-                    break
-        except Exception:
-            proxy_id_val = None
+            if group is None:
+                raise DeviceValidationError("Cannot convert None group to dict")
+            # Count devices in this group
+            device_count = 0
+            if group.id is not None:
+                try:
+                    devices = self.list_devices_by_group(group.id)
+                    device_count = len(devices)
+                except Exception as e:
+                    logger.warning(f"Failed to count devices for group {group.id}: {e}")
+                    device_count = 0
 
-        return {
-            "id": group.id,
-            "name": group.name,
-            "description": group.description,
-            "proxy_network": getattr(group, "proxy_network", None),
-            "proxy_id": proxy_id_val,
-            "tacacs_secret_set": tacacs_secret_set,
-            "radius_secret_set": radius_secret_set,
-            "allowed_user_groups": allowed_groups
-            if isinstance(allowed_groups, list)
-            else [],
-            "device_count": device_count,
-            "created_at": group.created_at.isoformat()
-            if hasattr(group, "created_at")
-            else None,
-            "tacacs_profile": group.tacacs_profile,
-            "radius_profile": group.radius_profile,
-        }
+            # Extract secrets status without exposing actual secrets
+            # Secrets are stored as direct attributes on DeviceGroup, not in metadata
+            tacacs_secret_set = bool(getattr(group, "tacacs_secret", None))
+            radius_secret_set = bool(getattr(group, "radius_secret", None))
+
+            # Extract allowed user groups from the DeviceGroup attribute
+            # Return as-is (names) since API expects names, not IDs
+            allowed_groups_names = getattr(group, "allowed_user_groups", []) or []
+            # Ensure it's a list of strings
+            if not isinstance(allowed_groups_names, list):
+                allowed_groups_names = []
+
+            # Best-effort resolve proxy id
+            proxy_id_val = None
+            try:
+                for p in self.store.list_proxies():
+                    if str(p.network) == str(
+                        getattr(group, "proxy_network", None) or ""
+                    ):
+                        proxy_id_val = p.id
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to resolve proxy_id for group {group.id}: {e}")
+                proxy_id_val = None
+
+            # Safely get created_at
+            created_at_val = None
+            try:
+                if hasattr(group, "created_at") and group.created_at:
+                    created_at_val = group.created_at.isoformat()
+            except Exception as e:
+                logger.warning(f"Failed to get created_at for group {group.id}: {e}")
+                created_at_val = None
+
+            # Ensure profiles are always dicts
+            tacacs_prof = getattr(group, "tacacs_profile", None)
+            if not isinstance(tacacs_prof, dict):
+                tacacs_prof = {}
+            radius_prof = getattr(group, "radius_profile", None)
+            if not isinstance(radius_prof, dict):
+                radius_prof = {}
+
+            return {
+                "id": getattr(group, "id", None),
+                "name": getattr(group, "name", ""),
+                "description": getattr(group, "description", None),
+                "proxy_network": getattr(group, "proxy_network", None),
+                "proxy_id": proxy_id_val,
+                "tacacs_secret_set": tacacs_secret_set,
+                "radius_secret_set": radius_secret_set,
+                "allowed_user_groups": allowed_groups_names,
+                "device_count": device_count,
+                "created_at": created_at_val,
+                "tacacs_profile": tacacs_prof,
+                "radius_profile": radius_prof,
+            }
+        except Exception as e:
+            logger.exception(f"Failed to convert group to dict: {e}")
+            raise
 
     # ------------------------------
     # Proxies management
@@ -682,6 +732,10 @@ class DeviceService:
             self._notify_change()
         return deleted
 
+    def set_user_group_service(self, service: LocalUserGroupService | None) -> None:
+        """Inject or update the user group service used for resolving group IDs."""
+        self._user_group_service = service
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -699,23 +753,56 @@ class DeviceService:
         if len(secret.strip()) < 4:
             raise DeviceValidationError(f"{field} must be at least 4 characters")
 
-    @staticmethod
-    def _validate_allowed_groups(groups: Iterable[str] | None) -> list[str]:
+    def _validate_allowed_groups(self, groups: Iterable[str | int] | None) -> list[str]:
+        """Validate and normalize allowed_user_groups to list of names.
+
+        Accepts both names (strings) and IDs (integers), converts IDs to names.
+        """
         if groups is None:
             return []
         result: list[str] = []
         for group in groups:
-            if not isinstance(group, str):
+            group_name = None
+            if isinstance(group, int):
+                # Convert ID to name - best effort, don't fail if user group doesn't exist yet
+                if self._user_group_service:
+                    try:
+                        id_to_name = {
+                            int(getattr(rec, "id", -1)): getattr(rec, "name", "")
+                            for rec in self._user_group_service.list_groups()
+                            if getattr(rec, "id", None) is not None
+                        }
+                        if group in id_to_name and id_to_name[group]:
+                            group_name = str(id_to_name[group])
+                        else:
+                            logger.debug(
+                                "Cannot resolve user group ID %s, skipping", group
+                            )
+                            continue
+                    except Exception as e:
+                        logger.debug(
+                            "Cannot resolve user group ID %s due to error: %s, skipping",
+                            group,
+                            e,
+                        )
+                        continue
+                else:
+                    logger.debug(
+                        "User group service unavailable; skipping ID %s", group
+                    )
+                    continue
+            elif isinstance(group, str):
+                group_name = group.strip()
+                if not group_name:
+                    raise DeviceValidationError(
+                        "allowed_user_groups entries must not be empty"
+                    )
+            else:
                 raise DeviceValidationError(
-                    "allowed_user_groups entries must be strings"
+                    "allowed_user_groups entries must be strings or integers"
                 )
-            trimmed = group.strip()
-            if not trimmed:
-                raise DeviceValidationError(
-                    "allowed_user_groups entries must not be empty"
-                )
-            if trimmed not in result:
-                result.append(trimmed)
+            if group_name and group_name not in result:
+                result.append(group_name)
         return result
 
     def _require_group(self, group_name: str) -> DeviceGroup:

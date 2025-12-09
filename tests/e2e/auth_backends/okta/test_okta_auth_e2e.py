@@ -105,9 +105,20 @@ def _reset_okta_password(org_url: str, api_token: str, login: str) -> str:
     if not user_id:
         raise RuntimeError("Okta user search response missing 'id'")
 
-    # Generate a strong random password that satisfies common Okta policies.
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
-    new_password = "".join(secrets.choice(alphabet) for _ in range(24))
+    # Generate a strong random password that satisfies Okta policies:
+    # - At least 8 characters
+    # - Uppercase, lowercase, number, special char
+    # - No parts of username
+    # - Different from last 4 passwords (use timestamp to ensure uniqueness)
+    timestamp = str(int(time.time()))
+    upper = "".join(secrets.choice(string.ascii_uppercase) for _ in range(4))
+    lower = "".join(secrets.choice(string.ascii_lowercase) for _ in range(4))
+    digits = "".join(secrets.choice(string.digits) for _ in range(4))
+    special = "".join(secrets.choice("!@#$%^&*") for _ in range(2))
+    # Combine and shuffle
+    chars = list(upper + lower + digits + special + timestamp)
+    secrets.SystemRandom().shuffle(chars)
+    new_password = "".join(chars)
 
     # Update the user's password via Users API
     update_payload = {"credentials": {"password": {"value": new_password}}}
@@ -336,7 +347,10 @@ def test_tacacs_server_with_okta_backend(
     tacacs_host_port = 8049
     api_host_port = 8080
 
-    build = _run(["docker", "build", "-t", tacacs_image, str(project_root)])
+    # Build fresh to avoid stale config/keys baked into a cached image
+    build = _run(
+        ["docker", "build", "--no-cache", "-t", tacacs_image, str(project_root)]
+    )
     if build.returncode != 0:
         pytest.fail(f"TACACS image build failed:\n{build.stdout}\n{build.stderr}")
 
@@ -633,15 +647,24 @@ def test_tacacs_server_with_okta_backend(
                         url = (
                             f"{org.rstrip('/')}/api/v1/users/{lst[0].get('id')}/groups"
                         )
-            gr = _rq.get(
-                url,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/json",
-                },
-                timeout=15,
-            )
-            assert gr.status_code == 200, (
+            gr = None
+            for attempt in range(5):
+                gr = _rq.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                    },
+                    timeout=15,
+                )
+                if gr.status_code == 200:
+                    break
+                # New app/scopes can take a moment; retry on auth/perm errors
+                if gr.status_code in (401, 403, 429):
+                    time.sleep(2.0)
+                    continue
+                break
+            assert gr is not None and gr.status_code == 200, (
                 f"Groups API failed: {gr.status_code} {gr.text}"
             )
             names = {g.get("profile", {}).get("name") for g in (gr.json() or [])}
@@ -745,6 +768,32 @@ def test_tacacs_server_with_okta_backend(
                     )
 
         # Auth should succeed because operator is member of expected_group mapped to ug_name
+        # Diagnostic: dump state before auth attempt
+        print("\n=== Diagnostic: State before auth attempt ===")
+        print(f"Expected group: {expected_group}")
+        print(f"User group name: {ug_name}")
+        print(f"Device group: {dg_restricted}")
+        print(f"Client IP: {ip_client}")
+
+        # Dump all user groups
+        r_ugs = session.get(f"{base_url}/api/user-groups", timeout=15)
+        if r_ugs.status_code == 200:
+            print(f"\nUser groups: {json.dumps(r_ugs.json(), indent=2)}")
+
+        # Dump all device groups with their allowed_user_groups
+        r_dgs = session.get(f"{base_url}/api/device-groups", timeout=15)
+        if r_dgs.status_code == 200:
+            print(f"\nDevice groups: {json.dumps(r_dgs.json(), indent=2)}")
+
+        # Dump all devices
+        r_devs = session.get(f"{base_url}/api/devices", timeout=15)
+        if r_devs.status_code == 200:
+            print(f"\nDevices: {json.dumps(r_devs.json(), indent=2)}")
+
+        # Dump container logs before auth
+        logs_before = _run(["docker", "logs", "--tail", "50", tacacs_container])
+        print(f"\nContainer logs (last 50 lines):\n{logs_before.stdout}")
+
         ok3, msg3 = tacacs_authenticate(
             host="127.0.0.1",
             port=tacacs_host_port,
@@ -752,6 +801,14 @@ def test_tacacs_server_with_okta_backend(
             username=operator_login,
             password=operator_password,
         )
+
+        if not ok3:
+            # Dump container logs after failed auth
+            logs_after = _run(["docker", "logs", "--tail", "100", tacacs_container])
+            print(
+                f"\nContainer logs after failed auth (last 100 lines):\n{logs_after.stdout}"
+            )
+
         assert ok3, f"Expected auth success with group enforcement: {msg3}"
 
         # 3) Negative: create a user-group mapped to a group the operator is NOT in (admin)

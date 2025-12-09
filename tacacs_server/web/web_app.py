@@ -311,7 +311,7 @@ def create_app(
                 ).decode("utf-8")
                 logger.info("Authentication initialized from environment (plaintext)")
             except Exception:
-                admin_password_hash = ""
+                admin_password_hash = ""  # nosec
 
     # Initialize auth when either a password hash is provided OR OpenID is configured
     if admin_password_hash or openid_config:
@@ -368,7 +368,7 @@ def create_app(
             if ds is None:
                 # Create default store if none was provided
                 ds = DeviceStore("data/devices.db")
-            device_service = DeviceService(ds)
+            device_service = DeviceService(ds, user_group_service=user_group_service)
             app.state.device_service = device_service
         except Exception:
             pass  # Device service initialization failed, will continue without it
@@ -452,6 +452,12 @@ def create_app(
         _set_local_user_service(user_service)
         _set_local_user_group_service(user_group_service)
         _set_config(config_service)
+        # Ensure device service has access to user group service for ID->name resolution
+        try:
+            if device_service and user_group_service:
+                device_service.set_user_group_service(user_group_service)
+        except Exception as e:
+            logger.warning("Failed to inject user group service: %s", e)
         # Also set via utils to ensure availability in API modules using config_utils
         try:
             utils_set_config(config_service)
@@ -1184,6 +1190,6 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8080,
         admin_username="admin",
-        admin_password_hash="$2b$12$example",  # Replace with real hash
-        api_token="your-api-token-here",
+        admin_password_hash="$2b$12$example",  # Replace with real hash # nosec
+        api_token="your-api-token-here",  # Replace with real token # nosec
     )

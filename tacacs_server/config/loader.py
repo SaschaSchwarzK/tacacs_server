@@ -9,7 +9,8 @@ FIXED: Admin section now allows username from file, password_hash from environme
 import configparser
 import os
 from urllib.parse import urlparse
-from urllib.request import urlopen
+
+import requests
 
 from tacacs_server.utils.logger import get_logger
 
@@ -33,7 +34,7 @@ logger = get_logger(__name__)
 def is_url(source: str) -> bool:
     """Check if source is a URL."""
     parsed = urlparse(source)
-    return parsed.scheme in {"http", "https", "file"}
+    return parsed.scheme in {"http", "https"}
 
 
 def load_from_url(source: str, cache_path: str | None = None) -> str | None:
@@ -44,20 +45,45 @@ def load_from_url(source: str, cache_path: str | None = None) -> str | None:
         service="tacacs",
         source=source,
     )
+    parsed = urlparse(source)
+    allow_insecure = str(os.getenv("ALLOW_INSECURE_CONFIG_URLS", "")).lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if parsed.scheme == "http" and not allow_insecure:
+        logger.warning(
+            "Insecure HTTP config URL rejected; enable ALLOW_INSECURE_CONFIG_URLS to permit."
+        )
+        return None
+    if parsed.scheme not in {"http", "https"}:
+        logger.warning("Unsupported config URL scheme: %s", parsed.scheme or "")
+        return None
+
     try:
         max_size = 1024 * 1024  # 1MB limit
-        with urlopen(source, timeout=10) as response:
-            if response.length and response.length > max_size:
-                logger.warning(
-                    "Configuration from URL source exceeds max allowed size; skipping load",
-                    event="tacacs.config.loader.url_oversize",
-                    service="tacacs",
-                    source=source,
-                    size=response.length,
-                    max_size=max_size,
-                )
-                return None
-            content: str = response.read().decode("utf-8")
+        resp = requests.get(source, timeout=10, allow_redirects=True)
+        if resp.status_code != 200:
+            logger.warning(
+                "Configuration URL fetch returned non-200 status",
+                event="tacacs.config.loader.url_status",
+                service="tacacs",
+                source=source,
+                status=resp.status_code,
+            )
+            return None
+        body = resp.content or b""
+        if len(body) > max_size:
+            logger.warning(
+                "Configuration from URL source exceeds max allowed size; skipping load",
+                event="tacacs.config.loader.url_oversize",
+                service="tacacs",
+                source=source,
+                size=len(body),
+                max_size=max_size,
+            )
+            return None
+        content = body.decode(resp.encoding or "utf-8")
 
         # Cache if path provided
         if cache_path and content:

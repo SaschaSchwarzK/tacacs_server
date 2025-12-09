@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
+
+from sqlalchemy.exc import IntegrityError
 
 from tacacs_server.utils.exceptions import ValidationError
 from tacacs_server.utils.logger import get_logger
@@ -145,7 +146,7 @@ class LocalUserService:
         )
         try:
             stored = self.store.insert_user(record)
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             # In test environments, if the user exists and a password was provided,
             # update the password to increase test determinism across processes.
             import os as _os
@@ -298,7 +299,7 @@ class LocalUserService:
                 record = LocalUserRecord.from_dict(username, data)
                 try:
                     self.store.insert_user(record)
-                except sqlite3.IntegrityError:
+                except IntegrityError:
                     # Already present, skip
                     continue
             except Exception:
