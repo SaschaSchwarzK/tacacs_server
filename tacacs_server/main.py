@@ -443,6 +443,15 @@ class TacacsServerManager:
                     self.server.handlers.set_local_user_group_service(
                         self.local_user_group_service
                     )
+                if self.device_service:
+                    try:
+                        self.device_service.set_user_group_service(
+                            self.local_user_group_service
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to inject user group service into device service"
+                        )
             except Exception as exc:
                 logger.exception(
                     "Failed to initialise local user group service: %s", exc
