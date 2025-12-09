@@ -779,8 +779,12 @@ class DeviceService:
                                 "Cannot resolve user group ID %s, skipping", group
                             )
                             continue
-                    except Exception:
-                        logger.debug(f"Cannot resolve user group ID {group}, skipping")
+                    except Exception as e:
+                        logger.debug(
+                            "Cannot resolve user group ID %s due to error: %s, skipping",
+                            group,
+                            e,
+                        )
                         continue
                 else:
                     logger.debug(

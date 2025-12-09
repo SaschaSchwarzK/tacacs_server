@@ -456,8 +456,8 @@ def create_app(
         try:
             if device_service and user_group_service:
                 device_service.set_user_group_service(user_group_service)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to inject user group service: %s", e)
         # Also set via utils to ensure availability in API modules using config_utils
         try:
             utils_set_config(config_service)

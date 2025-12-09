@@ -425,9 +425,9 @@ class TacacsServerManager:
                     self.device_service.set_user_group_service(
                         self.local_user_group_service
                     )
-                except Exception:
+                except Exception as e:
                     logger.debug(
-                        "Failed to inject user group service into device service"
+                        "Failed to inject user group service into device service: %s", e
                     )
         if self.local_user_group_service is None:
             set_local_user_group_service(None)
