@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Callable, Iterable
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover
     from tacacs_server.auth.local_user_group_service import LocalUserGroupService
@@ -49,10 +49,10 @@ class DeviceService:
     def __init__(
         self,
         store: DeviceStore,
-        user_group_service: "LocalUserGroupService | None" = None,
+        user_group_service: LocalUserGroupService | None = None,
     ) -> None:
         self.store = store
-        self._user_group_service: "LocalUserGroupService | None" = user_group_service
+        self._user_group_service: LocalUserGroupService | None = user_group_service
         self._change_listeners: list[Callable[[], None]] = []
         # Prime indexes for fast lookups
         try:
@@ -732,9 +732,7 @@ class DeviceService:
             self._notify_change()
         return deleted
 
-    def set_user_group_service(
-        self, service: "LocalUserGroupService | None"
-    ) -> None:
+    def set_user_group_service(self, service: LocalUserGroupService | None) -> None:
         """Inject or update the user group service used for resolving group IDs."""
         self._user_group_service = service
 
@@ -785,7 +783,9 @@ class DeviceService:
                         logger.debug(f"Cannot resolve user group ID {group}, skipping")
                         continue
                 else:
-                    logger.debug("User group service unavailable; skipping ID %s", group)
+                    logger.debug(
+                        "User group service unavailable; skipping ID %s", group
+                    )
                     continue
             elif isinstance(group, str):
                 group_name = group.strip()
