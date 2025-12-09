@@ -165,15 +165,16 @@ def test_syslog_forwarding_e2e(tmp_path: Path):
                 break
             time.sleep(1)
 
-        tacacs_logs = _run_docker(
-            [
-                "exec",
-                tacacs_container,
-                "sh",
-                "-c",
-                "cat /app/logs/tacacs.log 2>/dev/null || true",
-            ]
-        ).stdout
+        # Get container logs (stdout/stderr) instead of file-based logs
+        try:
+            tacacs_logs = subprocess.run(
+                ["docker", "logs", tacacs_container],
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout
+        except Exception:
+            tacacs_logs = "(failed to retrieve container logs)"
 
         assert found, (
             "Syslog receiver did not see token; "

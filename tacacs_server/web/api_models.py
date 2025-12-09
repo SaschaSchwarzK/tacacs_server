@@ -356,8 +356,11 @@ class DeviceGroupCreate(DeviceGroupBase):
     radius_secret: str | None = Field(
         None, min_length=8, description="RADIUS secret", example="RadiusSecret123!"
     )
-    allowed_user_groups: list[int] | None = Field(
-        default=[], description="Allowed user groups", example=[1, 2]
+    # API accepts either user-group names or ids; names are preferred
+    allowed_user_groups: list[str | int] | None = Field(
+        default=[],
+        description="Allowed user groups (names or IDs)",
+        example=["network-admins", 1],
     )
 
     model_config = ConfigDict(
@@ -403,8 +406,9 @@ class DeviceGroupUpdate(BaseModel):
     radius_secret: str | None = Field(
         None, min_length=8, description="New RADIUS secret", example="NewRadius123!"
     )
-    allowed_user_groups: list[int] | None = Field(
-        None, description="Updated groups", example=[1, 2, 3]
+    # Accept names or ids to align with create semantics
+    allowed_user_groups: list[str | int] | None = Field(
+        None, description="Updated groups (names or IDs)", example=["netops", 3]
     )
 
 
@@ -418,8 +422,9 @@ class DeviceGroupResponse(DeviceGroupBase):
     radius_secret_set: bool = Field(
         ..., description="RADIUS secret configured", example=True
     )
-    allowed_user_groups: list[int] = Field(
-        default=[], description="Allowed user groups", example=[1, 2]
+    # Device service emits names; keep schema aligned with runtime data
+    allowed_user_groups: list[str] = Field(
+        default=[], description="Allowed user group names", example=["netops", "sre"]
     )
     device_count: int = Field(..., description="Number of devices", example=5)
     created_at: datetime | None = Field(

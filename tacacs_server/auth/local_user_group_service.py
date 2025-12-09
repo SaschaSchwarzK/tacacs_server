@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from dataclasses import replace
 from pathlib import Path
+
+from sqlalchemy.exc import IntegrityError
 
 from tacacs_server.utils.logger import get_logger
 
@@ -93,7 +94,7 @@ class LocalUserGroupService:
         )
         try:
             stored = self.store.insert_group(record)
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise LocalUserGroupExists(
                 f"User group '{validated_name}' already exists"
             ) from exc
@@ -184,7 +185,7 @@ class LocalUserGroupService:
                 record = LocalUserGroupRecord.from_dict(name, data)
                 try:
                     self.store.insert_group(record)
-                except sqlite3.IntegrityError:
+                except IntegrityError:
                     continue
             except Exception:
                 logger.exception("Failed to import legacy user group %s", name)

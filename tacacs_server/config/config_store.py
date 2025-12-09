@@ -13,12 +13,15 @@ import sqlite3
 import threading
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
+from alembic.config import Config
 from sqlalchemy import create_engine, delete, func, select, update
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import sessionmaker
 
+from alembic import command
 from tacacs_server.utils.logger import get_logger
 from tacacs_server.utils.maintenance import get_db_manager
 
@@ -85,8 +88,8 @@ class ConfigStore:
             except Exception:
                 self._conn = None
 
-        # Create tables if they don't exist
-        Base.metadata.create_all(self.engine)
+        # Run migrations if available, then ensure all tables exist
+        self._run_alembic_migrations()
 
         # Create SQLite-specific indexes if using SQLite
         if db_url.startswith("sqlite"):
@@ -105,6 +108,24 @@ class ConfigStore:
 
     def _ensure_schema(self) -> None:
         """Create database tables if they don't exist."""
+        self._run_alembic_migrations()
+
+    def _run_alembic_migrations(self) -> None:
+        """Run Alembic migrations when available, then ensure tables exist."""
+        project_root = Path(__file__).resolve().parents[2]
+        ini_path = project_root / "alembic.ini"
+        script_location = project_root / "alembic"
+        if ini_path.exists() and script_location.exists():
+            cfg = Config(str(ini_path))
+            cfg.set_main_option("script_location", str(script_location))
+            cfg.set_main_option("sqlalchemy.url", str(self.engine.url))
+            try:
+                command.upgrade(cfg, "head")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Alembic migration failed; using create_all fallback",
+                    error=str(exc),
+                )
         Base.metadata.create_all(self.engine)
 
     def _create_sqlite_indexes(self) -> None:

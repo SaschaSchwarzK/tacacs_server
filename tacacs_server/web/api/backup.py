@@ -446,6 +446,15 @@ async def trigger_backup(
         raise HTTPException(status_code=404, detail="Destination not found")
 
     execution_id = str(uuid.uuid4())
+    # Pre-create execution record so it appears immediately in listings
+    try:
+        service.execution_store.create_execution(
+            execution_id=execution_id,
+            destination_id=request.destination_id,
+            triggered_by="manual:admin",
+        )
+    except Exception as exc:
+        logger.warning("Failed to pre-create execution record", error=str(exc))
 
     def run_backup() -> None:
         try:

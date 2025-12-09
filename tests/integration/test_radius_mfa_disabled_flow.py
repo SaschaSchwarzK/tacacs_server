@@ -11,7 +11,9 @@ from tacacs_server.auth.radius_auth import RADIUSAuthBackend
 class _RadiusAcceptServer:
     """Minimal RADIUS server that immediately Access-Accepts with groups."""
 
-    def __init__(self, secret: str = "testing123", expected_password: str = "password123456"):
+    def __init__(
+        self, secret: str = "testing123", expected_password: str = "password123456"
+    ):
         self.secret = secret.encode("utf-8")
         self.expected_password = expected_password
         self.host = "127.0.0.1"
@@ -65,7 +67,7 @@ class _RadiusAcceptServer:
         while not self._stop.is_set():
             try:
                 data, addr = self.sock.recvfrom(4096)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

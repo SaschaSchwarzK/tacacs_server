@@ -367,7 +367,7 @@ class RADIUSAuthBackend(AuthenticationBackend):
             response_password = otp
         elif push:
             # For push, send empty password and poll
-            response_password = ""
+            response_password = ""  # nosec
         else:
             # No MFA suffix provided but server wants MFA
             return False, "MFA required but not provided"
@@ -487,7 +487,9 @@ class RADIUSAuthBackend(AuthenticationBackend):
             if not state:
                 return None
             if len(state) > 253:  # RFC 2865 max attribute length
-                logger.warning("State attribute too long (%d bytes), truncating", len(state))
+                logger.warning(
+                    "State attribute too long (%d bytes), truncating", len(state)
+                )
                 return state[:253]
             return state
         return None

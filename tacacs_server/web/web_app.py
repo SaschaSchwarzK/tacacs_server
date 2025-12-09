@@ -311,7 +311,7 @@ def create_app(
                 ).decode("utf-8")
                 logger.info("Authentication initialized from environment (plaintext)")
             except Exception:
-                admin_password_hash = ""
+                admin_password_hash = ""  # nosec
 
     # Initialize auth when either a password hash is provided OR OpenID is configured
     if admin_password_hash or openid_config:
@@ -1184,6 +1184,6 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8080,
         admin_username="admin",
-        admin_password_hash="$2b$12$example",  # Replace with real hash
-        api_token="your-api-token-here",
+        admin_password_hash="$2b$12$example",  # Replace with real hash # nosec
+        api_token="your-api-token-here",  # Replace with real token # nosec
     )
